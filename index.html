@@ -429,6 +429,20 @@ let toastT;
 function toast(msg){const c=$('#toast');if(!c)return;const t=document.createElement('div');t.className='toast';t.textContent=msg;c.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300);},1900);}
 function openModal(title,body,foot){$('#modalTitle').textContent=title;$('#modalBody').innerHTML=body;$('#modalFoot').innerHTML=foot||'';$('#modalMask').classList.add('show');}
 function closeModal(){$('#modalMask').classList.remove('show');$('#modalBody').innerHTML='';$('#modalFoot').innerHTML='';}
+function globalSearch(q){
+  q=(q||'').trim().toLowerCase();if(!q){toast('请输入关键词');return;}
+  const tasks=(DB.get('tasks',[])||[]).filter(t=>(t.title||'').toLowerCase().includes(q));
+  const stickies=(DB.get('stickies',[])||[]).filter(s=>(s.text||'').toLowerCase().includes(q));
+  const notes=(DB.get('notes',[])||[]).filter(n=>(n.title||'').toLowerCase().includes(q)||(n.body||'').toLowerCase().includes(q));
+  if(!tasks.length&&!stickies.length&&!notes.length){openModal('搜索：'+esc(q),'<div class="empty">没有匹配「'+esc(q)+'」的内容</div>','<button class="btn ghost" data-act="closeModal">关闭</button>');return;}
+  let h='<div style="display:flex;flex-direction:column;gap:4px">';
+  tasks.forEach(t=>h+='<div class="task" data-act="searchGo" data-id="'+t.id+'"><span class="t-title">'+esc(t.title||'未命名任务')+'</span><span class="t-meta">任务</span></div>');
+  stickies.forEach(s=>h+='<div class="task" data-act="searchGo" data-id="'+s.id+'" data-kind="sticky"><span class="t-title">'+esc(s.text||'便签')+'</span><span class="t-meta">便签</span></div>');
+  notes.forEach(n=>h+='<div class="task" data-act="searchGo" data-id="'+n.id+'" data-kind="note"><span class="t-title">'+esc(n.title||'无标题笔记')+'</span><span class="t-meta">笔记</span></div>');
+  h+='</div>';
+  openModal('搜索：'+esc(q),h,'<button class="btn ghost" data-act="closeModal">关闭</button>');
+}
+function flashSearch(id){const el=document.querySelector('[data-id="'+id+'"]');if(el){el.classList.add('flash-hi');setTimeout(()=>el.classList.remove('flash-hi'),1300);}}
 let pendingConfirm=null;
 function confirmDialog(msg,onYes){openModal('请确认','<p style="font-size:14px;line-height:1.7;color:var(--ink-2)">'+esc(msg)+'</p>','<button class="btn ghost" data-act="closeModal">取消</button><button class="btn danger" data-act="confirmYes">确定</button>');pendingConfirm={onYes};}
 
@@ -512,7 +526,7 @@ function render(){
     ['attRecTitle','attRecDate','attRecPeriod'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('input',()=>{const d=attRecGet();d[{attRecTitle:'title',attRecDate:'date',attRecPeriod:'period'}[id]]=el.value;attRecSet(d);});});
     const drop=$('#attRecDrop');if(drop){['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)attRecReadFile(f);});}
   }
-  if(DB.get('noteEdit')){bindSeg('nPerm','nPermVal');setTimeout(updateWords,40);}
+  if(DB.get('noteEdit')){bindSeg('nPerm','nPermVal');bindNoteAutosave();setTimeout(updateWords,40);}
 }
 
 /* ===================== HOME ===================== */
@@ -594,7 +608,7 @@ function viewHome(){
     '<div class="nxt" id="heroNxt"></div>'+
     '<div class="sw" data-act="toggleRemind">课前提醒 <span class="toggle '+(DB.get('settings',{}).remind?'on':'')+'" id="remToggle"><i></i></span></div>'+
   '</div>'+
-  '<div class="launcher">'+
+  '<div class="home-sec-title" style="margin:0 0 8px">常用入口</div>'+'<div class="launcher">'+
     '<div class="launcher-head"><span class="ic">'+ic('apps')+'</span><span class="launcher-title">快捷入口</span><div class="spacer"></div>'+
     '<span class="lpill" data-act="nav" data-target="profile">个性化</span></div>'+
     '<div class="chips-row" id="catChips"></div>'+
@@ -606,11 +620,14 @@ function viewHome(){
         '<div class="card" id="taskCard"></div>'+
         '<div class="card" id="todayCard"></div>'+
       '</div>'+
-      '<div class="card" id="calCard" style="margin-top:14px"></div>'+
     '</div>'+
-    '<div class="home-rail">'+
-      '<div class="card" id="newsCard"></div>'+
-      '<div class="card" id="alarmCard"></div>'+
+    '<div class="home-sec-title" style="margin:14px 0 6px;display:flex;align-items:center;gap:8px"><span>更多资讯</span><button class="lpill" data-act="toggleHomeMore" id="homeMoreToggle">展开 ▾</button></div>'+
+    '<div id="homeMore" class="home-more hidden">'+
+      '<div class="card" id="calCard" style="margin-top:0"></div>'+
+      '<div class="home-rail" style="margin-top:14px">'+
+        '<div class="card" id="newsCard"></div>'+
+        '<div class="card" id="alarmCard"></div>'+
+      '</div>'+
     '</div>'+
   '</div>';
 }
@@ -624,7 +641,9 @@ function afterHome(){
       let diff=Math.floor((best.start-new Date())/1000);if(diff<0)diff=0;
       const hh=Math.floor(diff/3600),mm=Math.floor(diff%3600/60),ss=diff%60;
       clk.textContent=pad(hh)+':'+pad(mm)+':'+pad(ss);
-      nxt.innerHTML='<b>'+(best.today?'今天':best.tomorrow?'明天':'下周')+' 第'+best.p.period+'节</b> '+esc(best.s.course)+' · '+esc(best.s.cls)+(best.s.place?' · '+esc(best.s.place):'')+'（'+best.p.start+'-'+best.p.end+'）';
+      const _t0=new Date();_t0.setHours(0,0,0,0);const _bd=new Date(best.day);_bd.setHours(0,0,0,0);const _dd=Math.round((_bd-_t0)/86400000);
+      const _lab=best.today?'今天':best.tomorrow?'明天':(_dd<=7?'周'+cnDow[_bd.getDay()]:_dd+'天后');
+      nxt.innerHTML='<b>'+_lab+' 第'+best.p.period+'节</b> '+esc(best.s.course)+' · '+esc(best.s.cls)+(best.s.place?' · '+esc(best.s.place):'')+'（'+best.p.start+'-'+best.p.end+'）';
     }else{clk.textContent='--:--:--';nxt.innerHTML='近期没有排课，去「课表」添加吧';}
   };
   upd();timers.push(setInterval(upd,1000));
@@ -682,7 +701,7 @@ function renderCalCard(){
   const tasks=DB.get('tasks',[]);
   const monthTasks={};
   tasks.forEach(t=>{if(t.date){const k=t.date.slice(0,7);(monthTasks[k]=monthTasks[k]||[]).push(t);}});
-  const colors=['var(--purple)','var(--blue)','var(--green)','var(--orange)','var(--pink)'];
+  /* 日历事件点颜色改由 evColor(cat) 提供 */
   const first=new Date(y,m,1),startDow=first.getDay();
   const days=new Date(y,m+1,0).getDate();
   let cells='';
@@ -691,8 +710,9 @@ function renderCalCard(){
   for(let d=1;d<=days;d++){
     const ds=y+'-'+pad(m+1)+'-'+pad(d);const isToday=ds===todayStr();const isSel=ds===sel;
     const items=(monthTasks[y+'-'+pad(m+1)]||[]).filter(t=>t.date===ds);
-    let dots='';
-    items.slice(0,5).forEach((t,i)=>{dots+='<span class="dot" style="background:'+colors[i%colors.length]+'"></span>';});
+    let dots='';const shown=items.slice(0,5);
+    shown.forEach(t=>{dots+='<span class="dot" style="background:'+evColor(t.cat)+'"></span>';});
+    if(items.length>5)dots+='<span class="cal-more">+'+(items.length-5)+'</span>';
     cells+='<div class="cal-cell'+(isToday?' today':'')+(isSel?' sel':'')+'" data-act="calPick" data-d="'+ds+'">'+d+'<div class="cal-dots">'+dots+'</div></div>';
   }
   const dt=new Date(y,m,1);
@@ -749,7 +769,7 @@ function renderAlarmCard(){
   $('#alarmCard').innerHTML=h;
   const tick=()=>{
     const now=nowHM();const as=DB.get('alarms',[]);let changed=false;
-    as.forEach(a=>{if(a.enabled&&a.time===now&&a.last!==todayStr()+now){a.last=todayStr()+now;changed=true;toast('⏰ '+a.label+'（'+a.time+'）');}});
+    as.forEach(a=>{if(a.enabled&&a.time===now&&a.last!==todayStr()+now){a.last=todayStr()+now;changed=true;const msg='⏰ '+a.label+'（'+a.time+'）';toast(msg);beep();notify(msg);}});
     if(changed)DB.set('alarms',as);
   };
   tick();timers.push(setInterval(tick,15000));
@@ -805,7 +825,7 @@ function viewClasses(){
   h+='<div class="stat"><div class="v">'+month.length+'<small> 节</small></div><div class="k">本月已记录</div></div>';
   h+='<div class="stat"><div class="v">'+selfs+'<small> 节</small></div><div class="k">自课</div></div>';
   h+='<div class="stat"><div class="v">'+subs+'<small> 节</small></div><div class="k">代课</div></div>';
-  h+='<div class="stat"><div class="v">'+((selfs+subs)?100:0)+'<small>%</small></div><div class="k">本月记录率</div></div>';
+  h+='<div class="stat"><div class="v">'+(selfs+subs)+'<small> 节</small></div><div class="k">本月记录</div></div>';
   h+='</div>';
   const f=DB.get('classFilter','month');
   h+='<div class="chips" style="margin-bottom:12px"><span class="chip'+(f==='month'?' active':'')+'" data-act="classFilter" data-v="month">本月</span><span class="chip'+(f==='last'?' active':'')+'" data-act="classFilter" data-v="last">上月</span><span class="chip'+(f==='all'?' active':'')+'" data-act="classFilter" data-v="all">全部</span></div>';
@@ -1008,8 +1028,8 @@ function viewTextbooks(){
   let show=books.filter(b=>ac==='全部'||b.cat===ac);
   h+='<div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th>文件名</th><th>分类</th><th>大小</th><th>下载</th><th></th></tr></thead><tbody>';
   if(!show.length)h+='<tr><td colspan="5"><div class="empty">还没有教材，点「登记」添加</div></td></tr>';
-  show.forEach(b=>{h+='<tr><td>'+esc(b.name)+'</td><td><span class="tag">'+esc(b.cat)+'</span></td><td class="small">'+fmtSize(b.size)+'</td><td class="small">'+b.downloads+' 次</td>'+
-    '<td><div class="row-actions"><button data-act="downBook" data-id="'+b.id+'">'+ic('down')+'</button><button data-act="copyBookLink" data-id="'+b.id+'">'+ic('copy')+'</button><button data-act="delBook" data-id="'+b.id+'">'+ic('del')+'</button></div></td></tr>';});
+  show.forEach(b=>{const dl=b.file?'<button data-act="downBook" data-id="'+b.id+'">'+ic('down')+'</button>':'<span class="tag gray" title="静态站仅管理目录，未挂载真实文件">无文件</span>';h+='<tr><td>'+esc(b.name)+'</td><td><span class="tag">'+esc(b.cat)+'</span></td><td class="small">'+fmtSize(b.size)+'</td><td class="small">'+b.downloads+' 次</td>'+
+    '<td><div class="row-actions">'+dl+'<button data-act="copyBookLink" data-id="'+b.id+'">'+ic('copy')+'</button><button data-act="delBook" data-id="'+b.id+'">'+ic('del')+'</button></div></td></tr>';});
   h+='</tbody></table></div></div>';
   h+='<div class="banner"><span class="ic">'+ic('book')+'</span><div>说明：GitHub Pages 为纯静态站点，无法真正存储文件。本页管理教材「元数据」（文件名/分类/大小/下载次数）。点「生成分享页」可导出一份含教材清单的独立 HTML，部署后发学生即可浏览目录（真实文件请通过网盘或云版托管）。</div></div>';
   return h;
@@ -1144,12 +1164,23 @@ function viewNotes(){
   if(DB.get('noteEdit')){return h+noteEditor(DB.get('noteEdit'));}
   h+='<div class="note-list">';
   if(!notes.length)h+='<div class="empty" style="grid-column:1/-1">还没有笔记，新建一篇吧</div>';
-  notes.slice().reverse().forEach(n=>{h+='<div class="note-card" data-act="openNote" data-id="'+n.id+'"><h4>'+ic('book')+' '+esc(n.title||'无标题')+'</h4><div class="ex">'+esc(stripHtml(n.body)).slice(0,80)+'</div><div class="nf"><span>'+fmtDate(n.updatedAt?todayStr(new Date(n.updatedAt)):todayStr())+'</span><span class="tag '+(n.perm==='private'?'gray':'green')+'">'+(n.perm==='private'?'仅自己':'公开')+'</span><span>'+n.words+' 字</span></div></div>';});
+  notes.slice().reverse().forEach(n=>{h+='<div class="note-card" data-act="openNote" data-id="'+n.id+'"><h4>'+ic('book')+' '+esc(n.title||'无标题')+'</h4><div class="ex">'+esc(stripHtml(n.body)).slice(0,80)+'</div><div class="nf"><span>'+fmtFullDate(n.updatedAt?todayStr(new Date(n.updatedAt)):todayStr())+'</span><span class="tag '+(n.perm==='private'?'gray':'green')+'">'+(n.perm==='private'?'仅自己':'公开')+'</span><span>'+n.words+' 字</span></div></div>';});
   h+='</div>';
   return h;
 }
 function openNote(id){const n=DB.get('notes',[]).find(x=>x.id===id);DB.set('noteEdit',n||{id:uid(),title:'',body:'',perm:'private'});render();}
-function updateWords(){const e=$('#nBody');if(e)$('#nWords').textContent='字数：'+stripHtml(e.innerHTML).length+' · 本地自动保存';}
+function updateWords(){const e=$('#nBody');if(!e)return;const len=stripHtml(e.innerHTML).length;const d=new Date();$('#nWords').textContent='字数：'+len+' · 本地自动保存 · 已存 '+pad(d.getHours())+':'+pad(d.getMinutes());}
+function autosaveNote(){
+  const e=$('#nBody');if(!e)return;
+  const body=e.innerHTML;const title=val('nTitle')||'无标题';const perm=val('nPermVal')||'private';
+  const notes=DB.get('notes',[]);const ed=DB.get('noteEdit');let nid=ed&&ed.id;
+  if(!nid){nid=uid();DB.set('noteEdit',Object.assign({},ed,{id:nid}));}
+  const i=notes.findIndex(x=>x.id===nid);
+  if(i>=0)notes[i]={...notes[i],title,body,perm,updatedAt:Date.now(),words:stripHtml(body).length};
+  else notes.push({id:nid,title,body,perm,updatedAt:Date.now(),words:stripHtml(body).length});
+  DB.set('notes',notes);_noteDirty=false;updateWords();
+}
+function bindNoteAutosave(){const e=$('#nBody');if(!e)return;e.addEventListener('input',()=>{_noteDirty=true;if(_noteTimer)clearTimeout(_noteTimer);_noteTimer=setTimeout(autosaveNote,800);});}
 
 /* ===================== STUDY ===================== */
 function viewStudy(){
@@ -1159,7 +1190,7 @@ function viewStudy(){
   const courseNames=[...new Set(records.map(r=>r.course))];
   let h='<div class="view-head"><h1>学习</h1><span class="sub">日历式学习记录 + 备忘录</span><div class="spacer"></div><button class="btn primary" data-act="addStudy">'+ic('plus')+' 记一次学习</button></div>';
   const activeCourses=courseNames.length;
-  const thisWeek=records.filter(r=>{const d=parseDate(r.date);const now=new Date();const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());return d>=wkStart;}).length;
+  const thisWeek=records.filter(r=>{const d=parseDate(r.date);const now=new Date();const wkStart=new Date(now);wkStart.setHours(0,0,0,0);wkStart.setDate(now.getDate()-now.getDay());return d>=wkStart;}).length;
   const memos=DB.get('memo',[]);
   const monthRecs=records.filter(r=>r.date&&r.date.slice(0,7)===y+'-'+pad(m+1));
   h+='<div class="grid stat-grid">';
@@ -1314,6 +1345,7 @@ function handleAct(act,el,e){
     case 'closeSb':closeSb();break;
     case 'toggleGroup':toggleGroup(el.dataset.g);break;
     case 'closeModal':closeModal();break;
+    case 'toggleHomeMore':{const el=$('#homeMore');if(!el)break;el.classList.toggle('hidden');const t=$('#homeMoreToggle');if(t)t.textContent=el.classList.contains('hidden')?'展开 ▾':'收起 ▴';break;}
     case 'confirmYes':{closeModal();if(pendingConfirm){pendingConfirm.onYes();pendingConfirm=null;}break;}
     case 'toggleRemind':{const s=DB.get('settings',{});s.remind=!s.remind;DB.set('settings',s);render();toast(s.remind?'课前提醒已开启':'课前提醒已关闭');break;}
     case 'taskFilter':DB.set('taskFilter',el.dataset.v);renderTaskCard();break;
@@ -1358,7 +1390,7 @@ function handleAct(act,el,e){
     case 'addBook':addBookModal();break;
     case 'saveBook':saveBook();break;
     case 'genShare':genShare();break;
-    case 'downBook':{const b=findById(DB.get('textbooks',[]),id);if(b){b.downloads=(b.downloads||0)+1;const arr=DB.get('textbooks',[]);const i=arr.findIndex(x=>x.id===id);if(i>=0)arr[i]=b;DB.set('textbooks',arr);toast('已记录一次下载（静态站无真实文件）');render();}break;}
+    case 'downBook':{const b=findById(DB.get('textbooks',[]),id);if(!b)break;if(!b.file){toast('该教材未挂载真实文件');break;}b.downloads=(b.downloads||0)+1;const arr=DB.get('textbooks',[]);const i=arr.findIndex(x=>x.id===id);if(i>=0)arr[i]=b;DB.set('textbooks',arr);toast('已记录一次下载（静态站无真实文件）');render();break;}
     case 'copyBookLink':{const b=findById(DB.get('textbooks',[]),id);const link=location.origin+location.pathname+'#textbooks';copyText(link);toast('已复制教材页链接（演示）');break;}
     case 'delBook':{confirmDialog('删除该教材记录？',()=>{const list=DB.get('textbooks',[]);const b=findById(list,id);moveToTrash('教材',b,b.name);DB.set('textbooks',list.filter(x=>x.id!==id));render();toast('已移到回收站');});break;}
     case 'addTravel':travelModal();break;
@@ -1371,7 +1403,7 @@ function handleAct(act,el,e){
     case 'delInvig':{confirmDialog('删除该监考记录？',()=>{const list=DB.get('invig',[]);const t=findById(list,id);moveToTrash('监考',t,'');DB.set('invig',list.filter(x=>x.id!==id));closeModal();render();toast('已移到回收站');});break;}
     case 'addNote':DB.set('noteEdit',{id:uid(),title:'',body:'',perm:'private'});render();break;
     case 'openNote':openNote(id);break;
-    case 'closeNote':DB.del('noteEdit');render();break;
+    case 'closeNote':{if(_noteDirty){confirmDialog('有未保存的修改，保存到本地再返回？',()=>{autosaveNote();_noteDirty=false;DB.del('noteEdit');render();});break;}DB.del('noteEdit');render();break;}
     case 'saveNote':{const body=$('#nBody')?$('#nBody').innerHTML:'';const title=val('nTitle')||'无标题';const perm=val('nPermVal')||'private';const notes=DB.get('notes',[]);const e=DB.get('noteEdit');if(e&&e.id){const i=notes.findIndex(x=>x.id===e.id);if(i>=0)notes[i]={...notes[i],title,body,perm,updatedAt:Date.now(),words:stripHtml(body).length};else notes.push({id:e.id,title,body,perm,updatedAt:Date.now(),words:stripHtml(body).length,visits:0,downloads:0});}else notes.push({id:uid(),title,body,perm,updatedAt:Date.now(),words:stripHtml(body).length,visits:0,downloads:0});DB.set('notes',notes);DB.del('noteEdit');render();toast('已保存');break;}
     case 'delNote':{confirmDialog('删除该笔记？',()=>{const notes=DB.get('notes',[]);const n=findById(notes,id);moveToTrash('笔记',n,n.title);DB.set('notes',notes.filter(x=>x.id!==id));DB.del('noteEdit');closeModal();render();toast('已移到回收站');});break;}
     case 'edCmd':{const ed=$('#nBody');if(!ed)break;ed.focus();if(el.dataset.cmd==='createLink'){const u=prompt('输入链接地址：','https://');if(u)document.execCommand('createLink',false,u);}else if(el.dataset.val){document.execCommand(el.dataset.cmd,false,el.dataset.val);}else document.execCommand(el.dataset.cmd,false,null);updateWords();break;}
@@ -1399,6 +1431,7 @@ function handleAct(act,el,e){
     case 'purgeItem':{confirmDialog('彻底删除该记录？不可恢复。',()=>{DB.set('trash',DB.get('trash',[]).filter(x=>x.id!==id));render();toast('已彻底删除');});break;}
     case 'emptyTrash':{confirmDialog('清空回收站？所有记录将彻底删除。',()=>{DB.set('trash',[]);render();toast('回收站已清空');});break;}
     case 'search':break;
+    case 'searchGo':{const kind=el.dataset.kind;closeModal();if(kind==='note'){openNote(id);break;}if(kind==='sticky'){go('daily');searchHiId=id;break;}go('tasks');searchHiId=id;break;}
     case 'attRecUpload':{const f=$('#attRecFile');if(f)f.click();break;}
     case 'attRecOcr':attRecOcr();break;
     case 'attRecTog':{const d=attRecGet();const r=d.rows.find(x=>x.id===el.dataset.id);if(!r)break;const k=el.dataset.k;r[k]=!r[k];attRecSet(d);renderAttRec();break;}
@@ -1434,7 +1467,7 @@ document.addEventListener('paste',e=>{if(!$('#attRecBody'))return;const it=e.cli
 function init(){
   initData();loadState();renderSidebar();
   window.addEventListener('hashchange',render);
-  const gs=$('#globalSearch');if(gs)gs.addEventListener('keydown',e=>{if(e.key==='Enter'){const q=gs.value.trim();if(q){toast('已切到首页，可在首页/日历查找「'+q+'」');go('home');}}});
+  const gs=$('#globalSearch');if(gs)gs.addEventListener('keydown',e=>{if(e.key==='Enter'){const q=gs.value.trim();if(q)globalSearch(q);else go('home');}});
   render();
 }
 init();
