@@ -253,8 +253,28 @@ table.tbl tbody tr:hover{background:rgba(124,92,255,.04)}
   .sched .sh,.sched .sd{padding:5px 2px}
   .hero .clock{font-size:38px}
   input,select,textarea{font-size:16px}
-  .home-top,.home-mid,.home-aux{grid-template-columns:1fr !important}
+  .home-top,.home-portal{grid-template-columns:1fr !important}
 }
+/* ===== redesigned home: glass launcher + MSN-like portal ===== */
+.launcher{background:rgba(255,255,255,.55);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.65);border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow-sm)}
+.launcher-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.launcher-head .ic{color:var(--purple-700)}
+.launcher-title{font-size:15px;font-weight:700;color:var(--ink)}
+.lpill{flex:none;display:inline-flex;align-items:center;padding:6px 13px;border-radius:999px;background:rgba(124,92,255,.1);color:var(--purple-700);font-size:12.5px;cursor:pointer;transition:.15s}
+.lpill:active{background:rgba(124,92,255,.2)}
+.chips-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.chips-row::-webkit-scrollbar{display:none}
+.fchip{flex:none;padding:6px 14px;border-radius:999px;background:rgba(124,92,255,.08);color:var(--ink-2);font-size:13px;cursor:pointer;white-space:nowrap;transition:.15s}
+.fchip.active{background:linear-gradient(135deg,var(--purple),var(--purple-600));color:#fff;box-shadow:var(--shadow-sm)}
+.lgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:14px 8px;margin-top:12px}
+.ltile{display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;padding:6px 2px;border-radius:14px;transition:transform .12s,background .12s}
+.ltile:active{transform:scale(.94);background:rgba(124,92,255,.07)}
+.ltile .ic-box{width:54px;height:54px;border-radius:16px;display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 8px 18px rgba(80,60,160,.22)}
+.ltile .ic-box .ic{width:26px;height:26px;stroke-width:1.9}
+.ltile .lbl{font-size:12px;color:var(--ink);text-align:center;max-width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.home-portal{display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start;margin-top:14px}
+.home-rail{display:flex;flex-direction:column;gap:14px}
+.home-rail .card{margin:0}
 </style>
 </head>
 <body>
@@ -361,7 +381,7 @@ const ICON={
   down:'<path d="M12 4v12M7 11l5 5 5-5"/><path d="M5 20h14"/>',copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
   refresh:'<path d="M21 12a9 9 0 1 1-3-6.7L21 7"/><path d="M21 3v4h-4"/>',arrowL:'<path d="M15 6l-6 6 6 6"/>',arrowR:'<path d="M9 6l6 6-6 6"/>',
   restore:'<path d="M3 12a9 9 0 1 0 3-6.7L3 7"/><path d="M3 3v4h4"/>',tag:'<path d="M3 7v5l9 9 7-7-9-9z"/><circle cx="7" cy="11" r="1.4"/>',
-  book:'<path d="M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2z"/>',map:'<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>'
+  book:'<path d="M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2z"/>',map:'<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',apps:'<rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/>'
 };
 function ic(n){return '<svg class="ic" viewBox="0 0 24 24">'+(ICON[n]||'')+'</svg>';}
 
@@ -465,32 +485,62 @@ function nextClassInfo(){
   return {best,cur};
 }
 function greeting(){const h=new Date().getHours();if(h<6)return'夜深了';if(h<9)return'早上好';if(h<12)return'上午好';if(h<14)return'中午好';if(h<18)return'下午好';if(h<22)return'晚上好';return'夜深了';}
+const MODULES=[
+  {id:'home',label:'总览',cat:'all',g:'linear-gradient(135deg,#7C5CFF,#5A35D6)',icon:'home'},
+  {id:'attendance',label:'考勤',cat:'work',g:'linear-gradient(135deg,#3B82F6,#2563EB)',icon:'check'},
+  {id:'classes',label:'上课',cat:'work',g:'linear-gradient(135deg,#10B981,#059669)',icon:'clock'},
+  {id:'schedule',label:'课表',cat:'work',g:'linear-gradient(135deg,#8B5CF6,#6D28D9)',icon:'cal'},
+  {id:'travel',label:'出差',cat:'work',g:'linear-gradient(135deg,#F59E0B,#D97706)',icon:'map'},
+  {id:'textbooks',label:'教材',cat:'work',g:'linear-gradient(135deg,#EC4899,#DB2777)',icon:'book'},
+  {id:'invigilate',label:'监考',cat:'work',g:'linear-gradient(135deg,#06B6D4,#0891B2)',icon:'bell'},
+  {id:'notes',label:'笔记',cat:'work',g:'linear-gradient(135deg,#F43F5E,#E11D48)',icon:'edit'},
+  {id:'study',label:'学习',cat:'study',g:'linear-gradient(135deg,#22C55E,#16A34A)',icon:'study'},
+  {id:'daily',label:'日常',cat:'daily',g:'linear-gradient(135deg,#A855F7,#9333EA)',icon:'daily'},
+  {id:'profile',label:'我的',cat:'sys',g:'linear-gradient(135deg,#64748B,#475569)',icon:'profile'},
+  {id:'trash',label:'回收站',cat:'sys',g:'linear-gradient(135deg,#94A3B8,#64748B)',icon:'trash'}
+];
+const CATS=[{k:'all',l:'全部'},{k:'work',l:'工作'},{k:'study',l:'学习'},{k:'daily',l:'日常'},{k:'sys',l:'系统'}];
+let launcherCat='all';
+function renderLauncher(){
+  const chips=$('#catChips'),grid=$('#launcherGrid');if(!chips||!grid)return;
+  chips.innerHTML=CATS.map(c=>'<span class="fchip'+(launcherCat===c.k?' active':'')+'" data-act="catChip" data-cat="'+c.k+'">'+c.l+'</span>').join('');
+  const list=MODULES.filter(m=>launcherCat==='all'?true:m.cat===launcherCat);
+  grid.innerHTML=list.map(m=>'<div class="ltile" data-act="nav" data-target="'+m.id+'">'+
+    '<div class="ic-box" style="background:'+m.g+'">'+ic(m.icon)+'</div><div class="lbl">'+m.label+'</div></div>').join('');
+}
 function viewHome(){
   const p=DB.get('profile',{});
   const d=new Date();
   const dateStr=d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日 星期'+cnDow[d.getDay()];
   return ''+
   '<div class="view-head"><h1>首页</h1><span class="sub">'+esc(dateStr)+'</span></div>'+
-  '<div class="grid" style="grid-template-columns:1fr">'+
-    '<div class="hero"><div class="deco"></div><div class="deco2"></div>'+
-    '<div class="greet">'+esc(greeting())+'，'+esc(p.name||'老师')+'</div>'+
-    '<h1 id="heroGreet">'+esc(dateStr)+'</h1>'+
-    '<div class="clock live" id="heroClock">--:--:--</div>'+
-    '<div class="nxt" id="heroNxt"></div>'+
-    '<div class="sw" data-act="toggleRemind">课前提醒 <span class="toggle '+(DB.get('settings',{}).remind?'on':'')+'" id="remToggle"><i></i></span></div>'+
+  '<div class="launcher">'+
+    '<div class="launcher-head"><span class="ic">'+ic('apps')+'</span><span class="launcher-title">快捷入口</span><div class="spacer"></div>'+
+    '<span class="lpill" data-act="nav" data-target="profile">个性化</span></div>'+
+    '<div class="chips-row" id="catChips"></div>'+
+    '<div class="lgrid" id="launcherGrid"></div>'+
+  '</div>'+
+  '<div class="home-portal">'+
+    '<div class="home-main">'+
+      '<div class="hero"><div class="deco"></div><div class="deco2"></div>'+
+        '<div class="greet">'+esc(greeting())+'，'+esc(p.name||'老师')+'</div>'+
+        '<h1 id="heroGreet">'+esc(dateStr)+'</h1>'+
+        '<div class="clock live" id="heroClock">--:--:--</div>'+
+        '<div class="nxt" id="heroNxt"></div>'+
+        '<div class="sw" data-act="toggleRemind">课前提醒 <span class="toggle '+(DB.get('settings',{}).remind?'on':'')+'" id="remToggle"><i></i></span></div>'+
+      '</div>'+
+      '<div class="grid home-top" style="grid-template-columns:1.5fr 1fr;margin-top:14px">'+
+        '<div class="card" id="taskCard"></div>'+
+        '<div class="card" id="todayCard"></div>'+
+      '</div>'+
+      '<div class="card" id="calCard" style="margin-top:14px"></div>'+
     '</div>'+
-  '</div>'+
-  '<div class="grid home-top" style="grid-template-columns:1.5fr 1fr;margin-top:14px">'+
-    '<div class="card" id="taskCard"></div>'+
-    '<div class="card" id="todayCard"></div>'+
-  '</div>'+
-  '<div class="grid home-mid" style="grid-template-columns:1.5fr 1fr;margin-top:14px">'+
-    '<div class="card" id="calCard"></div>'+
-    '<div style="display:flex;flex-direction:column;gap:14px"><div class="card" id="quoteCard"></div><div class="card" id="wxCard"></div></div>'+
-  '</div>'+
-  '<div class="grid home-aux" style="grid-template-columns:1fr 1fr;margin-top:14px">'+
-    '<div class="card" id="newsCard"></div>'+
-    '<div class="card" id="alarmCard"></div>'+
+    '<div class="home-rail">'+
+      '<div class="card" id="wxCard"></div>'+
+      '<div class="card" id="quoteCard"></div>'+
+      '<div class="card" id="newsCard"></div>'+
+      '<div class="card" id="alarmCard"></div>'+
+    '</div>'+
   '</div>';
 }
 function afterHome(){
@@ -507,7 +557,7 @@ function afterHome(){
     }else{clk.textContent='--:--:--';nxt.innerHTML='近期没有排课，去「课表」添加吧';}
   };
   upd();timers.push(setInterval(upd,1000));
-  renderTaskCard();renderTodayCard();renderCalCard();renderQuoteCard();renderWxCard();renderNewsCard();renderAlarmCard();
+  renderLauncher();renderTaskCard();renderTodayCard();renderCalCard();renderQuoteCard();renderWxCard();renderNewsCard();renderAlarmCard();
 }
 function isTaskDone(t){if(t.repeat&&t.repeat!=='once'){const m=t.doneMap||{};return !!m[todayStr()];}return !!t.done;}
 function renderTaskCard(){
@@ -1085,6 +1135,7 @@ function handleAct(act,el,e){
   const id=el.dataset.id;
   switch(act){
     case 'nav':go(el.dataset.target);closeSb();break;
+    case 'catChip':launcherCat=el.dataset.cat;renderLauncher();break;
     case 'toggleSb':$('#sidebar').classList.toggle('open');$('#sbMask').classList.toggle('show');break;
     case 'closeSb':closeSb();break;
     case 'toggleGroup':toggleGroup(el.dataset.g);break;
