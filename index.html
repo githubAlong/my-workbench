@@ -1179,7 +1179,7 @@ function handleAct(act,el,e){
     case 'cellAdd':{courseModal({dow:+el.dataset.dow,period:+el.dataset.period});break;}
     case 'editCourse':{const c=findById(DB.get('schedule',[]),id);courseModal(c);break;}
     case 'saveCourse':saveCourse(el.dataset.id);break;
-    case 'delCourse':{confirmDialog('删除该课程？',()=>{DB.set('schedule',DB.get('schedule',[]).filter(s=>s.id!==id));closeModal();render();toast('已删除');});break;}
+    case 'delCourse':{confirmDialog('删除该课程？可在回收站恢复。',()=>{const list=DB.get('schedule',[]);const c=findById(list,id);moveToTrash('课程',c,c.course);DB.set('schedule',list.filter(x=>x.id!==id));closeModal();render();toast('已移到回收站');});break;}
     case 'addClass':classModal();break;
     case 'editClass':classModal(findById(DB.get('classes',[]),id));break;
     case 'saveClass':saveClass(el.dataset.id);break;
@@ -1251,6 +1251,9 @@ document.addEventListener('keydown',e=>{
     if(el&&el.dataset&&el.dataset.act&&['qaTaskInput','qaStickyInput','memoInput'].includes(el.dataset.act)){handleAct(el.dataset.act,el,e);}
   }
   if(e.key==='Escape'){closeModal();closeSb();}
+});
+document.addEventListener('change',e=>{
+  if(e.target&&e.target.id==='importFile'){handleAct('importFilePick',e.target,e);}
 });
 $('#modalMask').addEventListener('click',e=>{if(e.target.id==='modalMask')closeModal();});
 
