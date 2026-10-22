@@ -332,24 +332,26 @@ const DB={
   del(k){localStorage.removeItem('wb_'+k);}
 };
 
+const SCHED_VER=2;
 const SEED_PERIODS=[
-  {period:1,start:'08:00',end:'08:45'},{period:2,start:'08:55',end:'09:40'},
-  {period:3,start:'10:00',end:'10:45'},{period:4,start:'10:55',end:'11:40'},
-  {period:5,start:'14:00',end:'14:45'},{period:6,start:'14:55',end:'15:40'},
-  {period:7,start:'16:00',end:'16:45'},{period:8,start:'19:00',end:'19:45'}
+  {period:1,start:'08:00',end:'08:40'},{period:2,start:'08:50',end:'09:30'},
+  {period:3,start:'10:00',end:'10:40'},{period:4,start:'10:50',end:'11:30'},
+  {period:5,start:'11:40',end:'12:20'},{period:6,start:'14:10',end:'14:50'},
+  {period:7,start:'15:20',end:'16:00'},{period:8,start:'16:15',end:'16:55'},
+  {period:9,start:'17:05',end:'17:45'}
 ];
 function seedSchedule(){
   return [
     {id:uid(),dow:1,period:3,course:'信息技术',cls:'5班',place:'机房2'},{id:uid(),dow:1,period:5,course:'信息技术',cls:'7班',place:'机房2'},
-    {id:uid(),dow:2,period:2,course:'信息技术',cls:'6班',place:'机房1'},{id:uid(),dow:2,period:4,course:'信息技术',cls:'15班',place:'机房1'},
-    {id:uid(),dow:3,period:1,course:'信息技术',cls:'11班',place:'机房2'},{id:uid(),dow:3,period:3,course:'信息技术',cls:'12班',place:'机房2'},{id:uid(),dow:3,period:6,course:'信息技术',cls:'8班',place:'机房1'},
-    {id:uid(),dow:4,period:2,course:'信息技术',cls:'10班',place:'机房1'},{id:uid(),dow:4,period:4,course:'信息技术',cls:'9班',place:'机房1'},{id:uid(),dow:4,period:6,course:'信息技术',cls:'16班',place:'机房1'},{id:uid(),dow:4,period:7,course:'信息技术',cls:'14班',place:'机房2'},
-    {id:uid(),dow:5,period:3,course:'信息技术',cls:'13班',place:'机房2'},{id:uid(),dow:5,period:5,course:'信息技术',cls:'18班',place:'机房1'}
+    {id:uid(),dow:2,period:5,course:'信息技术',cls:'6班',place:'机房1'},{id:uid(),dow:2,period:9,course:'信息技术',cls:'15班',place:'机房1'},
+    {id:uid(),dow:3,period:1,course:'信息技术',cls:'11班',place:'机房2'},{id:uid(),dow:3,period:3,course:'信息技术',cls:'12班',place:'机房2'},{id:uid(),dow:3,period:9,course:'信息技术',cls:'8班',place:'机房1'},
+    {id:uid(),dow:4,period:5,course:'信息技术',cls:'10班',place:'机房1'},{id:uid(),dow:4,period:6,course:'信息技术',cls:'9班',place:'机房1'},{id:uid(),dow:4,period:7,course:'信息技术',cls:'16班',place:'机房1'},{id:uid(),dow:4,period:9,course:'信息技术',cls:'14班',place:'机房2'},
+    {id:uid(),dow:5,period:1,course:'信息技术',cls:'13班',place:'机房2'},{id:uid(),dow:5,period:9,course:'信息技术',cls:'18班',place:'机房1'}
   ];
 }
 function initData(){
-  if(!DB.get('periods'))DB.set('periods',SEED_PERIODS);
-  if(!DB.get('schedule'))DB.set('schedule',seedSchedule());
+  if(DB.get('schedVer')!==SCHED_VER){DB.set('periods',SEED_PERIODS);DB.set('schedule',seedSchedule());DB.set('schedVer',SCHED_VER);}
+  else{if(!DB.get('periods'))DB.set('periods',SEED_PERIODS);if(!DB.get('schedule'))DB.set('schedule',seedSchedule());}
   if(!DB.get('profile'))DB.set('profile',{name:'阿龙',group:'信息技术组'});
   if(DB.get('tasks')===undefined)DB.set('tasks',[]);
   if(DB.get('stickies')===undefined)DB.set('stickies',[]);
@@ -696,7 +698,7 @@ function viewSchedule(){
   const sched=DB.get('schedule',[]),periods=DB.get('periods',[]);const dow=new Date().getDay();
   let h='<div class="view-head"><h1>课表</h1><span class="sub">周视图 · 点击格子新增 / 点击课程编辑</span><div class="spacer"></div><button class="btn primary" data-act="addCourse">'+ic('plus')+' 新增课程</button></div>';
   h+='<div class="card"><div class="sched"><div class="sh">节</div>';
-  for(let i=1;i<=7;i++)h+='<div class="sd'+(i===dow?' today':'')+'">周'+cnDow[i]+'</div>';
+  for(let i=1;i<=7;i++)h+='<div class="sd'+(i===dow?' today':'')+'">周'+cnDow[i%7]+'</div>';
   for(const p of periods){
     h+='<div class="sh">'+p.period+'<br><span style="font-weight:400;font-size:9px">'+p.start+'</span></div>';
     for(let i=1;i<=7;i++){
