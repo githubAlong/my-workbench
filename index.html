@@ -42,7 +42,7 @@ body{height:100vh;overflow:hidden;color:var(--ink);
 .topbar .hamb{display:none;width:36px;height:36px;border-radius:9px;align-items:center;justify-content:center}
 .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--purple),var(--purple-600));
   display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;flex:none}
-.brand{font-weight:600;font-size:15px;white-space:nowrap}
+.brand{font-weight:600;font-size:15px;white-space:nowrap;display:none}
 .search{flex:1;max-width:420px;margin:0 auto;position:relative}
 .search input{width:100%;height:36px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.7);
   padding:0 12px 0 34px;color:var(--ink)}
@@ -244,6 +244,7 @@ table.tbl tbody tr:hover{background:rgba(124,92,255,.04)}
 
 @media(max-width:768px){
   .search{display:none}
+  .brand{display:block}
   .topbar .hamb{display:flex}
   .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:50;transform:translateX(-100%);transition:.25s;box-shadow:var(--shadow-lg)}
   .sidebar.open{transform:translateX(0)}
@@ -284,7 +285,6 @@ table.tbl tbody tr:hover{background:rgba(124,92,255,.04)}
     <div class="logo">龙</div>
     <div class="brand">我的工作台</div>
     <div class="search"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input id="globalSearch" placeholder="搜索任务、便签、笔记…" data-act="search"></div>
-    <div class="top-right"><div class="avatar" id="topAvatar">龙</div></div>
   </div>
   <div class="body">
     <aside class="sidebar" id="sidebar"></aside>
@@ -432,7 +432,6 @@ function render(){
   $('#view').innerHTML=fn();
   $('#view').scrollTop=0;
   loadState();
-  const p=DB.get('profile',{name:'龙'});$('#topAvatar').textContent=(p.name||'龙').slice(0,1);
   if(v==='home')afterHome();
   if(v==='attendance'){renderSeat();renderResearch();
     const sd=$('#seatDate');if(sd)sd.addEventListener('change',()=>{const seat=DB.get('seat',{rows:seatRows(54)});seat.date=sd.value||todayStr();DB.set('seat',seat);renderSeat();});
@@ -513,7 +512,13 @@ function viewHome(){
   const d=new Date();
   const dateStr=d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日 星期'+cnDow[d.getDay()];
   return ''+
-  '<div class="view-head"><h1>首页</h1><span class="sub">'+esc(dateStr)+'</span></div>'+
+  '<div class="hero" style="margin-bottom:14px"><div class="deco"></div><div class="deco2"></div>'+
+    '<div class="greet">'+esc(greeting())+'，'+esc(p.name||'老师')+'</div>'+
+    '<h1 id="heroGreet">'+esc(dateStr)+'</h1>'+
+    '<div class="clock live" id="heroClock">--:--:--</div>'+
+    '<div class="nxt" id="heroNxt"></div>'+
+    '<div class="sw" data-act="toggleRemind">课前提醒 <span class="toggle '+(DB.get('settings',{}).remind?'on':'')+'" id="remToggle"><i></i></span></div>'+
+  '</div>'+
   '<div class="launcher">'+
     '<div class="launcher-head"><span class="ic">'+ic('apps')+'</span><span class="launcher-title">快捷入口</span><div class="spacer"></div>'+
     '<span class="lpill" data-act="nav" data-target="profile">个性化</span></div>'+
@@ -522,14 +527,7 @@ function viewHome(){
   '</div>'+
   '<div class="home-portal">'+
     '<div class="home-main">'+
-      '<div class="hero"><div class="deco"></div><div class="deco2"></div>'+
-        '<div class="greet">'+esc(greeting())+'，'+esc(p.name||'老师')+'</div>'+
-        '<h1 id="heroGreet">'+esc(dateStr)+'</h1>'+
-        '<div class="clock live" id="heroClock">--:--:--</div>'+
-        '<div class="nxt" id="heroNxt"></div>'+
-        '<div class="sw" data-act="toggleRemind">课前提醒 <span class="toggle '+(DB.get('settings',{}).remind?'on':'')+'" id="remToggle"><i></i></span></div>'+
-      '</div>'+
-      '<div class="grid home-top" style="grid-template-columns:1.5fr 1fr;margin-top:14px">'+
+      '<div class="grid home-top" style="grid-template-columns:1.5fr 1fr;margin-top:0">'+
         '<div class="card" id="taskCard"></div>'+
         '<div class="card" id="todayCard"></div>'+
       '</div>'+
@@ -597,7 +595,8 @@ function renderTodayCard(){
   let h='<div class="card-head"><span class="ic">'+ic('cal')+'</span><h2>今日课程与事项</h2></div>';
   h+='<div style="font-size:12px;color:var(--ink-2);font-weight:600;margin-bottom:6px">今日课程</div>';
   if(!sched.length)h+='<div class="empty" style="padding:10px">今天没有排课</div>';
-  for(const s of sched){h+='<div class="task"><span class="tag">第'+s.period+'节</span><span class="t-title">'+esc(s.course)+' · '+esc(s.cls)+(s.place?' · '+esc(s.place):'')+'</span><span class="t-meta">'+s.start+'</span></div>';}
+  const periods=DB.get('periods',SEED_PERIODS);
+  for(const s of sched){const per=periods.find(p=>p.period===s.period)||{};h+='<div class="task"><span class="tag">第'+s.period+'节</span><span class="t-title">'+esc(s.course)+' · '+esc(s.cls)+(s.place?' · '+esc(s.place):'')+'</span><span class="t-meta">'+esc(per.start||'')+'</span></div>';}
   h+='<div style="font-size:12px;color:var(--ink-2);font-weight:600;margin:12px 0 6px">今日事项</div>';
   if(!tasks.length)h+='<div class="empty" style="padding:10px">今天没有待办事项</div>';
   for(const t of tasks){h+='<div class="task" data-act="toggleTask" data-id="'+t.id+'"><span class="cbox'+(isTaskDone(t)?' done':'')+'">'+(isTaskDone(t)?ic('check'):'')+'</span><span class="t-title">'+esc(t.title)+'</span>'+(t.time?'<span class="t-meta">'+t.time+'</span>':'')+'</div>';}
@@ -650,7 +649,7 @@ async function loadWeather(){
   const url='https://api.open-meteo.com/v1/forecast?latitude='+(cfg.weatherLat||30.27)+'&longitude='+(cfg.weatherLng||120.15)+'&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=Asia%2FShanghai';
   const body=$('#wxBody');if(!body)return;
   try{
-    const r=await fetch(url);const j=await r.json();const c=j.current;const w=WXCODE[c.weather_code]||{t:'未知',i:'·'};
+    const r=await fetch(url);const j=await r.json();const c=j.current;const wc=WXCODE[c.weather_code]||['未知','·'];const w={t:wc[0],i:wc[1]};
     body.innerHTML='<div class="wx"><div style="font-size:34px">'+w.i+'</div><div><div class="temp">'+Math.round(c.temperature_2m)+'°</div><div class="desc">'+w.t+'</div></div></div>'+
       '<div class="wx meta"><span>湿度 '+c.relative_humidity_2m+'%</span><span>风速 '+Math.round(c.wind_speed_10m)+' km/h</span><span>'+esc(cfg.weatherCity||'杭州')+'</span></div>';
   }catch(e){
