@@ -610,7 +610,7 @@ function renderTodayCard(){
   h+='<div style="font-size:12px;color:var(--ink-2);font-weight:600;margin-bottom:6px">今日课程</div>';
   if(!sched.length)h+='<div class="empty" style="padding:10px">今天没有排课</div>';
   const periods=DB.get('periods',SEED_PERIODS);
-  for(const s of sched){const per=periods.find(p=>p.period===s.period)||{};h+='<div class="task"><span class="tag">第'+s.period+'节</span><span class="t-title">'+esc(s.course)+' · '+esc(s.cls)+(s.place?' · '+esc(s.place):'')+'</span><span class="t-meta">'+esc(per.start||'')+'</span></div>';}
+  for(const s of sched){const per=periods.find(p=>p.period===s.period)||{};h+='<div class="task"><span class="tag">第'+s.period+'节</span><span class="t-title">'+esc(s.course)+' · '+esc(s.cls)+(s.place?' · '+esc(s.place):'')+'</span><span class="t-meta">'+esc((per.start||'')+(per.end?' – '+per.end:''))+'</span></div>';}
   h+='<div style="font-size:12px;color:var(--ink-2);font-weight:600;margin:12px 0 6px">今日事项</div>';
   if(!tasks.length)h+='<div class="empty" style="padding:10px">今天没有待办事项</div>';
   for(const t of tasks){h+='<div class="task" data-act="toggleTask" data-id="'+t.id+'"><span class="cbox'+(isTaskDone(t)?' done':'')+'">'+(isTaskDone(t)?ic('check'):'')+'</span><span class="t-title">'+esc(t.title)+'</span>'+(t.time?'<span class="t-meta">'+t.time+'</span>':'')+'</div>';}
@@ -700,7 +700,7 @@ function viewSchedule(){
   h+='<div class="card"><div class="sched"><div class="sh">节</div>';
   for(let i=1;i<=7;i++)h+='<div class="sd'+(i===dow?' today':'')+'">周'+cnDow[i%7]+'</div>';
   for(const p of periods){
-    h+='<div class="sh">'+p.period+'<br><span style="font-weight:400;font-size:9px">'+p.start+'</span></div>';
+    h+='<div class="sh">第'+p.period+'节<br><span style="font-weight:400;font-size:10px;opacity:.85;white-space:nowrap">'+p.start+'–'+p.end+'</span></div>';
     for(let i=1;i<=7;i++){
       const cs=sched.filter(s=>s.dow===i&&s.period===p.period);
       h+='<div class="cell'+(i===dow?' today':'')+'" data-act="cellAdd" data-dow="'+i+'" data-period="'+p.period+'">';
