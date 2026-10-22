@@ -750,12 +750,16 @@ function viewClasses(){
   let show=list;
   if(f==='month')show=list.filter(c=>c.date&&c.date.slice(0,7)===ym);
   if(f==='last'){const lm=todayStr(new Date(new Date().getFullYear(),new Date().getMonth()-1,1)).slice(0,7);show=list.filter(c=>c.date&&c.date.slice(0,7)===lm);}
-  h+='<div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th class="idx">#</th><th>日期</th><th>节次</th><th>课程</th><th>班级</th><th>类型</th><th>进度/内容</th><th></th></tr></thead><tbody>';
+  h+='<div class="card" style="padding:0;overflow:hidden"><table class="tbl"><thead><tr><th class="idx">#</th><th>日期</th><th>节次</th><th>课程</th><th>班级</th><th>类型</th><th>内容 / 进度</th><th></th></tr></thead><tbody>';
   if(!show.length)h+='<tr><td colspan="8"><div class="empty">暂无记录</div></td></tr>';
   show.forEach((c,i)=>{
     h+='<tr><td class="idx">'+(show.length-i)+'</td><td>'+esc(c.date)+'</td><td>第'+c.period+'节</td><td>'+esc(c.course)+'</td><td>'+esc(c.cls)+'</td>'+
-      '<td><span class="tag '+(c.type==='sub'?'orange':'')+'">'+(c.type==='sub'?'代课':'自课')+'</span></td>'+
-      '<td style="max-width:240px"><div style="font-size:12px">'+esc(((c.progress||'')+(c.next?' ／下节: '+c.next:'')).slice(0,60))+'</div></td>'+
+      '<td><span class="tag '+(c.type==='sub'?'orange':'')+'">'+(c.type==='sub'?'代课':'自课')+'</span>'+
+        (c.teacher||c.subTeacher?'<div style="font-size:11px;color:var(--ink-3);margin-top:3px">上课: '+esc(c.teacher||'—')+(c.subTeacher?' ／代: '+esc(c.subTeacher):'')+'</div>':'')+'</td>'+
+      '<td style="max-width:260px">'+
+        (c.content?'<div style="font-size:12px"><b>内容:</b> '+esc(c.content)+'</div>':'')+
+        ((c.progress||c.next)?'<div style="font-size:11px;color:var(--ink-3);margin-top:2px">'+esc(((c.progress||'')+(c.next?' ／下节: '+c.next:'')))+'</div>':'')+
+        (!(c.content||c.progress||c.next)?'<span style="color:var(--ink-3)">—</span>':'')+'</td>'+
       '<td><div class="row-actions"><button data-act="editClass" data-id="'+c.id+'">'+ic('edit')+'</button><button data-act="delClass" data-id="'+c.id+'">'+ic('del')+'</button></div></td></tr>';
   });
   h+='</tbody></table></div>';
@@ -765,12 +769,17 @@ function classModal(c){
   c=c||{};
   const today=todayStr();const sched=DB.get('schedule',[]).filter(s=>s.dow===new Date().getDay());
   const def=sched[0]||{period:1,course:'信息技术',cls:''};
+  const isNewCls=!c.id;
+  const defTeacher=isNewCls&&(c.type||'self')!=='sub'?'我':(c.teacher||'');
+  const defSub=isNewCls&&(c.type||'self')==='sub'?'我':(c.subTeacher||'');
   openModal(c.id?'编辑上课记录':'记一节课',
     '<div class="row2"><div class="field"><label>日期</label><input id="fDate" type="date" value="'+(c.date||today)+'"></div>'+
     '<div class="field"><label>节次</label><select id="fPeriod">'+DB.get('periods',[]).map(p=>'<option value="'+p.period+'"'+(p.period===(c.period||def.period)?' selected':'')+'>第'+p.period+'节</option>').join('')+'</select></div></div>'+
     '<div class="row2"><div class="field"><label>课程</label><input id="fCourse" value="'+esc(c.course||def.course)+'"></div>'+
     '<div class="field"><label>班级</label><input id="fCls" value="'+esc(c.cls||def.cls)+'"></div></div>'+
     '<div class="field"><label>类型</label><div class="seg" id="fType"><button data-v="self" class="'+((c.type||'self')==='self'?'active':'')+'">自课</button><button data-v="sub" class="'+(c.type==='sub'?'active':'')+'">代课</button></div><input type="hidden" id="fTypeVal" value="'+(c.type||'self')+'"></div>'+
+    '<div class="row2"><div class="field"><label>上课人</label><input id="fTeacher" value="'+esc(defTeacher)+'" placeholder="如：我 / 王老师"></div><div class="field"><label>代课人</label><input id="fSubTeacher" value="'+esc(defSub)+'" placeholder="代课时填写，如：我"></div></div>'+
+    '<div class="field"><label>本节课上课内容</label><textarea id="fContent" placeholder="如：循环结构 for/while 语法、课堂练习 3 道">'+esc(c.content||'')+'</textarea></div>'+
     '<div class="field"><label>任务进度</label><input id="fProgress" value="'+esc(c.progress||'')+'" placeholder="如：完成循环结构讲解"></div>'+
     '<div class="field"><label>下节课内容</label><input id="fNext" value="'+esc(c.next||'')+'"></div>'+
     '<div class="row2"><div class="field"><label>违纪记录</label><input id="fDis" value="'+esc(c.discipline||'')+'" placeholder="无"></div>'+
@@ -782,6 +791,7 @@ function classModal(c){
 }
 function saveClass(id){
   const v={date:val('fDate')||todayStr(),period:+val('fPeriod'),course:val('fCourse'),cls:val('fCls'),type:val('fTypeVal')||'self',
+    teacher:val('fTeacher'),subTeacher:val('fSubTeacher'),content:val('fContent'),
     progress:val('fProgress'),next:val('fNext'),discipline:val('fDis'),homework:val('fHw'),note:val('fNote')};
   const list=DB.get('classes',[]);
   if(id){const i=list.findIndex(x=>x.id===id);if(i>=0)list[i]={...list[i],...v};}
