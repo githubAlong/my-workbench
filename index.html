@@ -32,6 +32,8 @@ body{height:100vh;overflow:hidden;color:var(--ink);
 .ic{width:18px;height:18px;display:block;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .small{font-size:11.5px}.muted{color:var(--ink-3)}
 .empty{padding:32px 16px;text-align:center;color:var(--ink-3);font-size:13px;line-height:1.7}
+.cell-in{width:100%;min-width:64px;border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-size:13px;background:#fff;color:var(--ink);box-sizing:border-box}
+.cell-in:focus{outline:none;border-color:var(--purple)}
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-thumb{background:rgba(124,92,255,.25);border-radius:8px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -422,6 +424,8 @@ function initData(){
   if(DB.get('cats')===undefined)DB.set('cats',['课件','源码','素材','其他']);
   if(DB.get('trash')===undefined)DB.set('trash',[]);
   if(DB.get('settings')===undefined)DB.set('settings',{remind:true,weatherCity:'杭州',weatherLat:30.27,weatherLng:120.15,weatherManual:false});
+  /* 一次性清除考勤模块旧版假数据（坐班表/教研签到表/签到表识别的演示种子），仅执行一次，不清真实录入 */
+  if(DB.get('attClearVer')!==1){['seat','research','attRec'].forEach(k=>DB.del(k));DB.set('attClearVer',1);}
 }
 let S={};
 let searchHiId=null;
@@ -525,6 +529,8 @@ function render(){
   if(v==='attendance'){renderSeat();renderResearch();renderAttRec();
     const sd=$('#seatDate');if(sd)sd.addEventListener('change',()=>{const seat=DB.get('seat',{rows:seatRows(54)});seat.date=sd.value||todayStr();DB.set('seat',seat);renderSeat();});
     const sm=$('#seatMeta');if(sm)sm.addEventListener('change',()=>{const seat=DB.get('seat',{rows:seatRows(54)});const mm=sm.value.match(/周(.+?)\s*(.*)/);seat.weekday=mm?mm[1]:'一';seat.period=mm?mm[2]:'全天';DB.set('seat',seat);});
+    const sb=$('#seatBody');if(sb)sb.addEventListener('input',e=>{const c=e.target.closest('[data-act="seatName"]');if(!c)return;const seat=DB.get('seat',{rows:[]});const r=seat.rows.find(x=>x.id==c.dataset.id);if(!r)return;r.name=c.value;DB.set('seat',seat);});
+    const rb=$('#researchBody');if(rb)rb.addEventListener('input',e=>{const c=e.target.closest('[data-act="researchName"]');if(!c)return;const all=DB.get('research',{});const data=all[c.dataset.g];if(!data)return;const r=data.rows.find(x=>x.id==c.dataset.id);if(!r)return;r.name=c.value;all[c.dataset.g]=data;DB.set('research',all);});
     const af=$('#attRecFile');if(af)af.addEventListener('change',e=>{if(e.target.files[0])attRecReadFile(e.target.files[0]);});
     const ab=$('#attRecBody');if(ab)ab.addEventListener('input',e=>{const c=e.target.closest('.cell');if(!c)return;const d=attRecGet();const r=d.rows.find(x=>x.id===c.dataset.id);if(!r)return;r[c.dataset.c]=c.value;attRecSet(d);});
     ['attRecTitle','attRecDate','attRecPeriod'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('input',()=>{const d=attRecGet();d[{attRecTitle:'title',attRecDate:'date',attRecPeriod:'period'}[id]]=el.value;attRecSet(d);});});
@@ -876,29 +882,34 @@ function saveClass(id){
 }
 
 /* ===================== ATTENDANCE ===================== */
-function seatRows(n){const arr=[];for(let i=1;i<=n;i++)arr.push({id:i,name:'教师'+i,checked:false});return arr;}
+function seatRows(n){return [];}
 function renderSeat(){
   const seat=DB.get('seat',{});if(!seat.rows)seat.rows=seatRows(54);
-  let h='';seat.rows.forEach(r=>{h+='<tr><td class="idx">'+r.id+'</td><td>'+esc(r.name)+'</td><td><span class="cbox'+(r.checked?' done':'')+'" data-act="seatCheck" data-id="'+r.id+'">'+(r.checked?ic('check'):'')+'</span></td></tr>';});
+  let h='';
+  if(!seat.rows.length)h='<tr><td colspan="3"><div class="empty">暂无记录，点右上角「新增」添加教师</div></td></tr>';
+  else seat.rows.forEach(r=>{h+='<tr><td class="idx">'+r.id+'</td><td><input class="cell-in" data-act="seatName" data-id="'+r.id+'" value="'+esc(r.name)+'" placeholder="姓名"></td><td><span class="cbox'+(r.checked?' done':'')+'" data-act="seatCheck" data-id="'+r.id+'">'+(r.checked?ic('check'):'')+'</span></td></tr>';});
   const body=$('#seatBody');if(body)body.innerHTML=h;
   const cnt=seat.rows.filter(r=>r.checked).length;const el=$('#seatCount');if(el)el.textContent='共 '+seat.rows.length+' 人 · 已坐班 '+cnt+' 人';
 }
 function researchDefault(g){
   const subj=g==='1'?['语文组','数学组','英语组','信息技术组']:['物理组','化学组','生物组','信息技术组'];
-  const rows=[];let id=1;subj.forEach(s=>{const n=s==='信息技术组'?8:12;for(let i=0;i<n;i++)rows.push({id:id++,name:s.slice(0,2)+'教师'+(i+1),group:s,checked:false,time:''});});
-  return {groups:subj.map(s=>({name:s})),rows};
+  return {groups:subj.map(s=>({name:s})),rows:[]};
 }
 function renderResearch(){
   const g=DB.get('researchGrade','1');
   const data=DB.get('research',{})[g]||researchDefault(g);
   let h='';
   data.groups.forEach(grp=>{
-    h+='<div style="font-weight:600;font-size:12.5px;color:var(--ink-2);margin:10px 0 4px">'+esc(grp.name)+'</div>';
-    h+='<table class="tbl"><thead><tr><th class="idx">#</th><th>姓名</th><th>签到</th><th>时间</th></tr></thead><tbody>';
-    data.rows.filter(r=>r.group===grp.name).forEach(r=>{
-      h+='<tr><td class="idx">'+r.id+'</td><td>'+esc(r.name)+'</td><td><span class="cbox'+(r.checked?' done':'')+'" data-act="researchCheck" data-g="'+g+'" data-id="'+r.id+'">'+(r.checked?ic('check'):'')+'</span></td><td class="small muted">'+(r.time||'—')+'</td></tr>';
-    });
-    h+='</tbody></table>';
+    const rows=data.rows.filter(r=>r.group===grp.name);
+    h+='<div style="font-weight:600;font-size:12.5px;color:var(--ink-2);margin:10px 0 4px;display:flex;align-items:center;gap:8px"><span>'+esc(grp.name)+'</span><button class="row-act" data-act="researchAdd" data-g="'+g+'" data-grp="'+esc(grp.name)+'">'+ic('plus')+'</button></div>';
+    if(!rows.length)h+='<div class="empty small" style="padding:6px 0">暂无记录</div>';
+    else{
+      h+='<table class="tbl"><thead><tr><th class="idx">#</th><th>姓名</th><th>签到</th><th>时间</th></tr></thead><tbody>';
+      rows.forEach(r=>{
+        h+='<tr><td class="idx">'+r.id+'</td><td><input class="cell-in" data-act="researchName" data-g="'+g+'" data-id="'+r.id+'" value="'+esc(r.name)+'" placeholder="姓名"></td><td><span class="cbox'+(r.checked?' done':'')+'" data-act="researchCheck" data-g="'+g+'" data-id="'+r.id+'">'+(r.checked?ic('check'):'')+'</span></td><td class="small muted">'+(r.time||'—')+'</td></tr>';
+      });
+      h+='</tbody></table>';
+    }
   });
   const body=$('#researchBody');if(body)body.innerHTML=h;
 }
@@ -906,7 +917,7 @@ function viewAttendance(){
   const seat=DB.get('seat',{date:todayStr(),weekday:'一',period:'全天',rows:seatRows(54)});
   let h='<div class="view-head"><h1>考勤</h1><span class="sub">坐班表 / 教研签到表</span><div class="spacer"></div>'+
     '<button class="btn" data-act="attExport">'+ic('down')+' 导出 Excel</button></div>';
-  h+='<div class="card" style="margin-bottom:14px"><div class="card-head"><span class="ic">'+ic('check')+'</span><h2>教师坐班表</h2><div class="spacer"></div><span class="small muted" id="seatCount"></span></div>';
+  h+='<div class="card" style="margin-bottom:14px"><div class="card-head"><span class="ic">'+ic('check')+'</span><h2>教师坐班表</h2><div class="spacer"></div><button class="btn" data-act="seatAdd">'+ic('plus')+' 新增</button><span class="small muted" id="seatCount"></span></div>';
   h+='<div class="row2" style="margin-bottom:10px"><div class="field" style="margin:0"><label>日期</label><input id="seatDate" type="date" value="'+esc(seat.date)+'"></div>'+
     '<div class="field" style="margin:0"><label>星期 / 节次</label><input id="seatMeta" value="周'+esc(seat.weekday)+' '+esc(seat.period)+'" placeholder="如 周一 全天"></div></div>';
   h+='<div style="overflow:auto"><table class="tbl"><thead><tr><th class="idx">#</th><th>姓名</th><th>坐班</th></tr></thead><tbody id="seatBody"></tbody></table></div></div>';
@@ -931,33 +942,13 @@ function viewAttendance(){
   h+='<div class="attrec-stats" id="attRecStats"></div>';
   h+='<div style="overflow:auto"><table class="tbl"><thead><tr><th class="idx">#</th><th>姓名</th><th>学科</th>'+
     ATT_REC_STATUS.map(s=>'<th>'+s.l+'</th>').join('')+'<th>备注</th><th></th></tr></thead><tbody id="attRecBody"></tbody></table></div>';
-  h+='<div class="attrec-hint">说明：本表为「坐班表」结构，上课 / 坐班 / 听课 / 教研 / 请假 为勾选状态（点击 ✓ 切换）。带「核」的姓名系 OCR 两次识别存疑，请对照原图核对。改动自动保存本地。</div>';
+  h+='<div class="attrec-hint">说明：本表为「坐班表」结构，上课 / 坐班 / 听课 / 教研 / 请假 为勾选状态（点击 ✓ 切换）。可上传签到表图片用 OCR 识别姓名，或点「新增」手动添加。改动自动保存本地。</div>';
   return h;
 }
 
 /* ===================== 考勤签到表识别 ===================== */
 const ATT_REC_STATUS=[{k:'sk',l:'上课'},{k:'zb',l:'坐班'},{k:'tk',l:'听课'},{k:'yj',l:'教研'},{k:'qj',l:'请假'}];
-const ATT_REC_FLAG=new Set(["童永国","陈桂平","汪远齐","向砚明","欧礼尧","覃蓉","杨黎明","朱赐沿"]);
-const ATT_REC_SEED=[
- ["李成华","语文",0,0,1,0,0],["童永国","数学",1,0,0,0,0],["黄鹏","英语",1,0,0,0,0],
- ["曾大程","物理",0,1,0,0,0],["陈桂平","生物",1,0,0,0,0],["汪远齐","化学",0,1,0,0,0],
- ["邓小玉","政治",1,0,0,0,0],["向砚明","政治",0,1,0,0,0],["吴念","政治",1,0,0,0,0],
- ["李青丰","信息",0,1,0,0,0],["邹毅","数学",1,0,0,0,0],["张琴","俄语",0,1,0,0,0],
- ["欧礼尧","英语",0,1,0,0,0],["骆钧翰","英语",0,1,0,0,0],["简讯","英语",1,1,0,0,0],
- ["冉瑞","英语",0,1,0,0,0],["殷华琴","英语",0,1,0,0,0],["王逢亮","英语",0,1,0,0,0],
- ["周玲","英语",0,1,0,0,0],["向琴芳","日语",0,1,0,0,0],["林金波","语文",0,0,1,0,0],
- ["田永江","语文",0,0,1,0,0],["何敏华","语文",1,0,0,0,0],["徐洁","语文",0,0,1,0,0],
- ["覃蓉","语文",0,0,1,0,0],["张妍","语文",0,0,1,0,0],["黄琴","历史",0,1,0,0,0],
- ["杨黎明","历史",0,1,0,0,0],["李徐宇鑫","历史",0,1,0,0,0],["周达海","物理",0,1,0,0,0],
- ["徐妮","物理",0,1,0,0,0],["孙浩","体育",0,1,0,0,0],["谭荣","体育",0,1,0,0,0],
- ["曾杰","数学",1,0,0,0,0],["朱赐沿","数学",0,1,0,0,0],["王玉华","数学",1,0,0,0,0],
- ["赵荣耀","数学",1,0,0,0,0],["王灵凤","数学",1,1,0,0,0],["王利","生物",0,1,0,0,0],
- ["陈香明","生物",0,1,0,0,0],["杨小美","化学",0,1,0,0,0],["赵冬生","化学",1,0,0,0,0],
- ["高港","地理",0,1,0,0,0],["黄盼","地理",0,1,0,0,0],["熊波","地理",0,1,0,0,0],
- ["王波","音乐",0,1,0,0,0]
-];
-function attRecDefault(){return {title:'2026年高一二老师坐班表',date:'2026年10月19日 星期一',period:'第2节',
-  rows:ATT_REC_SEED.map(r=>{const o={id:uid(),name:r[0],subject:r[1],note:'',flag:ATT_REC_FLAG.has(r[0])};ATT_REC_STATUS.forEach((s,i)=>o[s.k]=!!r[2+i]);return o;})};}
+function attRecDefault(){return {title:'',date:'',period:'',rows:[]};}
 function attRecGet(){let d=DB.get('attRec',null);if(!d){d=attRecDefault();DB.set('attRec',d);}return d;}
 function attRecSet(d){DB.set('attRec',d);}
 /* OCR 引擎：国内镜像优先（npmmirror），避免 jsdelivr / projectnaptha 在大陆被墙导致识别失败；中文语言包自托管在仓库 ocr/ 目录（同源，免翻墙） */
@@ -1395,6 +1386,8 @@ function handleAct(act,el,e){
     case 'delClass':{confirmDialog('删除该上课记录？',()=>{const list=DB.get('classes',[]);const c=findById(list,id);moveToTrash('上课记录',c,(c.date||'')+' '+c.course);DB.set('classes',list.filter(x=>x.id!==id));closeModal();render();toast('已移到回收站');});break;}
     case 'classFilter':DB.set('classFilter',el.dataset.v);render();break;
     case 'seatCheck':{const seat=DB.get('seat',{rows:seatRows(54)});if(!seat.rows)seat.rows=seatRows(54);const r=seat.rows.find(x=>x.id==id);if(r){r.checked=!r.checked;DB.set('seat',seat);renderSeat();}break;}
+    case 'seatAdd':{const seat=DB.get('seat',{date:todayStr(),weekday:'一',period:'全天',rows:[]});const nid=seat.rows.length?Math.max.apply(null,seat.rows.map(r=>r.id))+1:1;seat.rows.push({id:nid,name:'',checked:false});DB.set('seat',seat);renderSeat();const last=$('#seatBody .cell-in:last-of-type');if(last)last.focus();break;}
+    case 'researchAdd':{const g=el.dataset.g,grp=el.dataset.grp;const all=DB.get('research',{});const data=all[g]||researchDefault(g);const nid=data.rows.length?Math.max.apply(null,data.rows.map(r=>r.id))+1:1;data.rows.push({id:nid,name:'',group:grp,checked:false,time:''});all[g]=data;DB.set('research',all);renderResearch();break;}
     case 'researchGrade':DB.set('researchGrade',el.dataset.g);$$('.chip',el.parentElement).forEach(x=>x.classList.remove('active'));el.classList.add('active');renderResearch();break;
     case 'researchCheck':{const g=el.dataset.g;const data=DB.get('research',{})[g]||researchDefault(g);const r=data.rows.find(x=>x.id==id);if(r){r.checked=!r.checked;r.time=r.checked?nowHM():'';const all=DB.get('research',{});all[g]=data;DB.set('research',all);renderResearch();}break;}
     case 'attExport':{const seat=DB.get('seat',{rows:seatRows(54)});exportCSV('考勤-坐班表.csv',['编号','姓名','坐班'],seat.rows.map(r=>[r.id,r.name,r.checked?'是':'否']));break;}
@@ -1454,7 +1447,7 @@ function handleAct(act,el,e){
     case 'attRecShare':attRecShare();break;
     case 'attRecExport':{const d=attRecGet();const head=['序号','姓名','学科'].concat(ATT_REC_STATUS.map(s=>s.l)).concat(['备注']);const rows=d.rows.map((r,i)=>[i+1,r.name,r.subject].concat(ATT_REC_STATUS.map(s=>r[s.k]?'✓':'')).concat([r.note]));exportCSV((d.title||'考勤表')+'.csv',head,rows);break;}
     case 'attRecCopy':{const d=attRecGet();const head=['序号','姓名','学科'].concat(ATT_REC_STATUS.map(s=>s.l)).concat(['备注']).join('\t');const body=d.rows.map((r,i)=>[i+1,r.name,r.subject].concat(ATT_REC_STATUS.map(s=>r[s.k]?'✓':'')).concat([r.note]).join('\t')).join('\n');copyText(head+'\n'+body);toast('已复制，可粘贴到 Excel');break;}
-    case 'attRecReset':{confirmDialog('确定清空识别表并恢复示例数据？',()=>{DB.del('attRec');renderAttRec();toast('已恢复示例数据');});break;}
+    case 'attRecReset':{confirmDialog('确定清空识别表？此操作不可撤销！',()=>{DB.del('attRec');renderAttRec();toast('已清空识别表');});break;}
     default:console.log('未处理动作:',act);
   }
 }
