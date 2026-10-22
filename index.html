@@ -43,13 +43,21 @@ body{height:100vh;overflow:hidden;color:var(--ink);
 .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--purple),var(--purple-600));
   display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;flex:none}
 .brand{font-weight:600;font-size:15px;white-space:nowrap;display:none}
-.search{flex:1;max-width:420px;margin:0 auto;position:relative}
+.search{flex:1;max-width:520px;margin:0 10px 0 4px;position:relative}
 .search input{width:100%;height:36px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.7);
   padding:0 12px 0 34px;color:var(--ink)}
 .search .ic{position:absolute;left:10px;top:9px;color:var(--ink-3)}
 .top-right{display:flex;align-items:center;gap:10px;margin-left:auto}
 .avatar{width:34px;height:34px;border-radius:50%;background:var(--purple-100);color:var(--purple-700);
   display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;flex:none}
+.top-quote{flex:none;max-width:260px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-size:12.5px;color:var(--ink-2);opacity:.92;cursor:default}
+.top-wx{flex:none;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--ink);
+  padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.55);border:1px solid var(--line);cursor:pointer;white-space:nowrap}
+.top-wx:hover{background:rgba(255,255,255,.85)}
+.top-wx .tw-city{font-weight:500;color:var(--ink-2);font-size:12px}
+.sb-foot{margin-top:auto;padding-top:10px;border-top:1px solid var(--line)}
+.sb-foot .foot-me{color:var(--purple-700);font-weight:600}
 .body{flex:1;display:flex;min-height:0}
 .sidebar{flex:none;width:226px;background:rgba(255,255,255,.55);backdrop-filter:blur(18px);
   border-right:1px solid var(--line);padding:14px 10px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
@@ -121,7 +129,7 @@ body{height:100vh;overflow:hidden;color:var(--ink);
 .hero .greet{font-size:14px;opacity:.92}
 .hero h1{font-size:21px;font-weight:600;margin:2px 0 10px}
 .hero .clock{font-size:46px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.5px;line-height:1}
-.hero .nxt{margin-top:10px;font-size:13px;opacity:.95;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.hero .nxt{margin-top:14px;font-size:15px;font-weight:600;opacity:.98;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .hero .nxt b{font-weight:600}
 .hero .sw{margin-top:12px;display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.18);padding:6px 12px;border-radius:999px;font-size:12.5px;cursor:pointer}
 .hero .sw .toggle{width:34px;height:19px;border-radius:999px;background:rgba(255,255,255,.35);position:relative;transition:.2s}
@@ -245,6 +253,7 @@ table.tbl tbody tr:hover{background:rgba(124,92,255,.04)}
 @media(max-width:768px){
   .search{display:none}
   .brand{display:block}
+  .top-quote{display:none}
   .topbar .hamb{display:flex}
   .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:50;transform:translateX(-100%);transition:.25s;box-shadow:var(--shadow-lg)}
   .sidebar.open{transform:translateX(0)}
@@ -285,6 +294,8 @@ table.tbl tbody tr:hover{background:rgba(124,92,255,.04)}
     <div class="logo">龙</div>
     <div class="brand">我的工作台</div>
     <div class="search"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input id="globalSearch" placeholder="搜索任务、便签、笔记…" data-act="search"></div>
+    <div class="top-quote" id="topQuote" title="每日名言"></div>
+    <div class="top-wx" id="topWx" data-act="wxCity" title="点击设置城市"></div>
   </div>
   <div class="body">
     <aside class="sidebar" id="sidebar"></aside>
@@ -413,6 +424,8 @@ function renderSidebar(){
       h+='<div class="nav-item'+(act?' active':'')+'" data-act="nav" data-target="'+n.id+'"><span class="ic">'+ic(n.icon)+'</span>'+n.label+badge+'</div>';
     }
   }
+  const p=DB.get('profile',{});
+  h+='<div class="sb-foot"><div class="nav-item foot-me" data-act="nav" data-target="profile"><span class="ic">'+ic('profile')+'</span>'+(p.name||'我的')+'</div></div>';
   $('#sidebar').innerHTML=h;
 }
 function toggleGroup(g){DB.set('nav_'+g,!DB.get('nav_'+g,false));renderSidebar();}
@@ -534,8 +547,6 @@ function viewHome(){
       '<div class="card" id="calCard" style="margin-top:14px"></div>'+
     '</div>'+
     '<div class="home-rail">'+
-      '<div class="card" id="wxCard"></div>'+
-      '<div class="card" id="quoteCard"></div>'+
       '<div class="card" id="newsCard"></div>'+
       '<div class="card" id="alarmCard"></div>'+
     '</div>'+
@@ -555,7 +566,8 @@ function afterHome(){
     }else{clk.textContent='--:--:--';nxt.innerHTML='近期没有排课，去「课表」添加吧';}
   };
   upd();timers.push(setInterval(upd,1000));
-  renderLauncher();renderTaskCard();renderTodayCard();renderCalCard();renderQuoteCard();renderWxCard();renderNewsCard();renderAlarmCard();
+  renderLauncher();renderTaskCard();renderTodayCard();renderCalCard();renderNewsCard();renderAlarmCard();renderTopQuote();renderTopWx();
+  timers.push(setInterval(()=>{const i=(DB.get('quoteIdx',0)+1)%QUOTES.length;DB.set('quoteIdx',i);renderTopQuote();},45000));
 }
 function isTaskDone(t){if(t.repeat&&t.repeat!=='once'){const m=t.doneMap||{};return !!m[todayStr()];}return !!t.done;}
 function renderTaskCard(){
@@ -632,28 +644,26 @@ function renderCalCard(){
   ev.forEach(t=>{h+='<div class="task" data-act="toggleTask" data-id="'+t.id+'"><span class="cbox'+(isTaskDone(t)?' done':'')+'">'+(isTaskDone(t)?ic('check'):'')+'</span><span class="t-title">'+esc(t.title)+'</span>'+(t.time?'<span class="t-meta">'+t.time+'</span>':'')+'</div>';});
   $('#calCard').innerHTML=h;
 }
-function renderQuoteCard(){
+function renderTopQuote(){
+  const el=$('#topQuote');if(!el)return;
   let i=DB.get('quoteIdx',0);const q=QUOTES[i%QUOTES.length];
-  $('#quoteCard').innerHTML='<div class="card-head"><span class="ic">'+ic('book')+'</span><h2>每日名言</h2><div class="spacer"></div><button class="btn sm ghost" data-act="quoteNext">'+ic('refresh')+' 换一句</button></div>'+
-    '<div class="quote"><div class="en">“'+esc(q.en)+'”</div><div class="zh">“'+esc(q.zh)+'”</div><div class="by">— '+esc(q.by)+'</div></div>';
+  el.textContent='“'+q.zh+'” — '+q.by;
+  el.title='“'+q.en+'”  “'+q.zh+'” — '+q.by;
 }
-function renderWxCard(){
-  const cfg=DB.get('settings',{});
-  $('#wxCard').innerHTML='<div class="card-head"><span class="ic">'+ic('sun')+'</span><h2>天气预报</h2><div class="spacer"></div><button class="btn sm ghost" data-act="wxRefresh">'+ic('refresh')+'</button></div>'+
-    '<div id="wxBody"><div class="muted small">加载中…</div></div>'+
-    '<div class="small muted" style="margin-top:8px">城市：'+esc(cfg.weatherCity||'杭州')+(cfg.weatherManual?'（手动）':'（自动）')+' · <a data-act="wxCity" style="color:var(--purple-700);cursor:pointer">切换</a></div>';
+function renderTopWx(){
+  const el=$('#topWx');if(!el)return;
+  el.innerHTML='<span style="font-size:15px">⛅</span><span>--°</span><span class="tw-city">'+(DB.get('settings',{}).weatherCity||'杭州')+'</span>';
   loadWeather();
 }
 async function loadWeather(){
   const cfg=DB.get('settings',{});
   const url='https://api.open-meteo.com/v1/forecast?latitude='+(cfg.weatherLat||30.27)+'&longitude='+(cfg.weatherLng||120.15)+'&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=Asia%2FShanghai';
-  const body=$('#wxBody');if(!body)return;
+  const el=$('#topWx');if(!el)return;
   try{
     const r=await fetch(url);const j=await r.json();const c=j.current;const wc=WXCODE[c.weather_code]||['未知','·'];const w={t:wc[0],i:wc[1]};
-    body.innerHTML='<div class="wx"><div style="font-size:34px">'+w.i+'</div><div><div class="temp">'+Math.round(c.temperature_2m)+'°</div><div class="desc">'+w.t+'</div></div></div>'+
-      '<div class="wx meta"><span>湿度 '+c.relative_humidity_2m+'%</span><span>风速 '+Math.round(c.wind_speed_10m)+' km/h</span><span>'+esc(cfg.weatherCity||'杭州')+'</span></div>';
+    el.innerHTML='<span style="font-size:16px">'+w.i+'</span><span>'+Math.round(c.temperature_2m)+'°</span><span class="tw-city">'+esc(cfg.weatherCity||'杭州')+'</span>';
   }catch(e){
-    body.innerHTML='<div class="muted small">天气获取失败（离线或网络受限）。已可手动设置城市。</div>';
+    el.innerHTML='<span style="font-size:15px">⛅</span><span>--°</span><span class="tw-city">'+(cfg.weatherCity||'杭州')+'</span>';
   }
 }
 const WXCODE={0:['晴','☀'],1:['晴间多云','🌤'],2:['多云','⛅'],3:['阴','☁'],45:['雾','🌫'],48:['雾凇','🌫'],51:['小毛雨','🌦'],53:['毛毛雨','🌦'],55:['毛雨','🌦'],61:['小雨','🌧'],63:['中雨','🌧'],65:['大雨','🌧'],66:['冻雨','🌧'],71:['小雪','🌨'],73:['中雪','🌨'],75:['大雪','🌨'],80:['阵雨','🌦'],81:['强阵雨','🌧'],82:['暴雨','⛈'],85:['阵雪','🌨'],95:['雷阵雨','⛈'],96:['雷阵雨伴雹','⛈'],99:['强雷暴','⛈']};
@@ -1148,13 +1158,13 @@ function handleAct(act,el,e){
     case 'addTaskQuick':{const inp=$('#qaTask');const v=inp?inp.value.trim():'';if(!v){taskModal();break;}const list=DB.get('tasks',[]);list.push({id:uid(),title:v,date:todayStr(),time:'',cat:'',repeat:'once',done:false,doneMap:{},createdAt:Date.now()});DB.set('tasks',list);if(inp)inp.value='';renderTaskCard();renderTodayCard();renderCalCard();toast('已添加');break;}
     case 'qaTaskInput':if(e&&e.key==='Enter'){const inp=$('#qaTask');const v=inp?inp.value.trim():'';if(v){const list=DB.get('tasks',[]);list.push({id:uid(),title:v,date:todayStr(),time:'',cat:'',repeat:'once',done:false,doneMap:{},createdAt:Date.now()});DB.set('tasks',list);if(inp)inp.value='';renderTaskCard();renderTodayCard();renderCalCard();toast('已添加');}}break;
     case 'saveTask':saveTask(el.dataset.id);break;
-    case 'quoteNext':{let i=(DB.get('quoteIdx',0)+1)%QUOTES.length;DB.set('quoteIdx',i);renderQuoteCard();break;}
+    case 'quoteNext':{let i=(DB.get('quoteIdx',0)+1)%QUOTES.length;DB.set('quoteIdx',i);renderTopQuote();break;}
     case 'newsRefresh':newsPage=Math.floor(Math.random()*Math.ceil(NEWS.length/6));renderNewsCard();break;
     case 'newsPrev':newsPage--;renderNewsCard();break;
     case 'newsNext':newsPage++;renderNewsCard();break;
     case 'wxRefresh':loadWeather();break;
     case 'wxCity':{openModal('切换城市','<div class="field"><label>选择城市</label><select id="fCity">'+[['杭州',30.27,120.15],['北京',39.90,116.40],['上海',31.23,121.47],['广州',23.13,113.26],['成都',30.57,104.07],['西安',34.34,108.94],['武汉',30.59,114.30],['深圳',22.54,114.06]].map(c=>'<option value="'+c[1]+','+c[2]+'"'+(DB.get('settings',{}).weatherCity===c[0]?' selected':'')+'>'+c[0]+'</option>').join('')+'</select></div><div class="field"><label>或手动输入经纬度（纬度,经度）</label><input id="fLL" placeholder="如 30.27,120.15"></div>','<button class="btn ghost" data-act="closeModal">取消</button><button class="btn primary" data-act="saveCity">保存</button>');break;}
-    case 'saveCity':{const s=DB.get('settings',{});const sel=$('#fCity').value.split(',');const ll=$('#fLL').value.trim();if(ll){const p=ll.split(',');s.weatherLat=+p[0];s.weatherLng=+p[1];s.weatherCity='自定义';s.weatherManual=true;}else{s.weatherLat=+sel[0];s.weatherLng=+sel[1];const names={'30.27':'杭州','39.90':'北京','31.23':'上海','23.13':'广州','30.57':'成都','34.34':'西安','30.59':'武汉','22.54':'深圳'};s.weatherCity=names[sel[0]]||'自定义';s.weatherManual=false;}DB.set('settings',s);closeModal();renderWxCard();toast('城市已更新');break;}
+    case 'saveCity':{const s=DB.get('settings',{});const sel=$('#fCity').value.split(',');const ll=$('#fLL').value.trim();if(ll){const p=ll.split(',');s.weatherLat=+p[0];s.weatherLng=+p[1];s.weatherCity='自定义';s.weatherManual=true;}else{s.weatherLat=+sel[0];s.weatherLng=+sel[1];const names={'30.27':'杭州','39.90':'北京','31.23':'上海','23.13':'广州','30.57':'成都','34.34':'西安','30.59':'武汉','22.54':'深圳'};s.weatherCity=names[sel[0]]||'自定义';s.weatherManual=false;}DB.set('settings',s);closeModal();renderTopWx();toast('城市已更新');break;}
     case 'addAlarm':{openModal('新增闹钟','<div class="row2"><div class="field"><label>时间</label><input id="fTime" type="time" value="07:30"></div><div class="field"><label>标签</label><input id="fLabel" value="起床"></div></div>','<button class="btn ghost" data-act="closeModal">取消</button><button class="btn primary" data-act="saveAlarm">保存</button>');break;}
     case 'saveAlarm':{const a=DB.get('alarms',[]);a.push({id:uid(),time:val('fTime'),label:val('fLabel')||'闹钟',enabled:true});DB.set('alarms',a);closeModal();renderAlarmCard();toast('已添加');break;}
     case 'toggleAlarm':{const a=DB.get('alarms',[]);const x=findById(a,id);if(x){x.enabled=!x.enabled;DB.set('alarms',a);renderAlarmCard();}break;}
