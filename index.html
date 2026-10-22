@@ -948,8 +948,56 @@ function viewAttendance(){
 
 /* ===================== 考勤签到表识别 ===================== */
 const ATT_REC_STATUS=[{k:'sk',l:'上课'},{k:'zb',l:'坐班'},{k:'tk',l:'听课'},{k:'yj',l:'教研'},{k:'qj',l:'请假'}];
-function attRecDefault(){return {title:'',date:'',period:'',rows:[]};}
-function attRecGet(){let d=DB.get('attRec',null);if(!d){d=attRecDefault();DB.set('attRec',d);}return d;}
+const ATT_REC_SEED=[
+  {id:'s1',name:'李成华',subject:'语文',note:'',flag:false,sk:false,zb:false,tk:true,yj:false,qj:false},
+  {id:'s2',name:'童永国',subject:'数学',note:'',flag:true,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s3',name:'黄鹏',subject:'英语',note:'',flag:false,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s4',name:'曾大程',subject:'物理',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s5',name:'陈桂平',subject:'生物',note:'',flag:false,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s6',name:'汪远齐',subject:'化学',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s7',name:'邓小玉',subject:'政治',note:'',flag:false,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s8',name:'向砚明',subject:'政治',note:'',flag:true,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s9',name:'吴念',subject:'政治',note:'',flag:false,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s10',name:'李青丰',subject:'信息',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s11',name:'邹毅',subject:'数学',note:'',flag:false,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s12',name:'张琴',subject:'俄语',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s13',name:'欧阳礼尧',subject:'英语',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s14',name:'骆钧翰',subject:'英语',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s15',name:'简讯',subject:'英语',note:'',flag:false,sk:true,zb:true,tk:false,yj:false,qj:false},
+  {id:'s16',name:'冉瑞',subject:'英语',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s17',name:'殷华琴',subject:'英语',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s18',name:'王逢亮',subject:'英语',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s19',name:'周玲',subject:'英语',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s20',name:'向琴芳',subject:'日语',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s21',name:'林金波',subject:'语文',note:'',flag:false,sk:false,zb:false,tk:true,yj:false,qj:false},
+  {id:'s22',name:'田永江',subject:'语文',note:'',flag:false,sk:false,zb:false,tk:true,yj:false,qj:false},
+  {id:'s23',name:'何敏华',subject:'语文',note:'',flag:false,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s24',name:'徐洁',subject:'语文',note:'',flag:false,sk:false,zb:false,tk:true,yj:false,qj:false},
+  {id:'s25',name:'覃蓉',subject:'语文',note:'',flag:false,sk:false,zb:false,tk:true,yj:false,qj:false},
+  {id:'s26',name:'张妍',subject:'语文',note:'',flag:false,sk:false,zb:false,tk:true,yj:false,qj:false},
+  {id:'s27',name:'黄琴',subject:'历史',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s28',name:'杨黎明',subject:'历史',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s29',name:'李徐宇鑫',subject:'历史',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s30',name:'周达海',subject:'物理',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s31',name:'徐妮',subject:'物理',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s32',name:'孙浩',subject:'体育',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s33',name:'谭荣',subject:'体育',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s34',name:'曾杰',subject:'数学',note:'',flag:false,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s35',name:'朱赐沿',subject:'数学',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s36',name:'王玉华',subject:'数学',note:'',flag:false,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s37',name:'赵荣耀',subject:'数学',note:'',flag:false,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s38',name:'王灵凤',subject:'数学',note:'',flag:false,sk:true,zb:true,tk:false,yj:false,qj:false},
+  {id:'s39',name:'王利',subject:'生物',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s40',name:'陈香明',subject:'生物',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s41',name:'杨小美',subject:'化学',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s42',name:'赵冬生',subject:'化学',note:'',flag:false,sk:true,zb:false,tk:false,yj:false,qj:false},
+  {id:'s43',name:'高港',subject:'地理',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s44',name:'黄盼',subject:'地理',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s45',name:'熊波',subject:'地理',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+  {id:'s46',name:'王波',subject:'音乐',note:'',flag:false,sk:false,zb:true,tk:false,yj:false,qj:false},
+];
+function attRecDefault(){return {title:'2026年高一二老师坐班表',date:'2026年10月19日 星期一',period:'第2节',rows:JSON.parse(JSON.stringify(ATT_REC_SEED))};}
+function attRecGet(){let d=DB.get('attRec',null);if(!d||!d.rows||d.rows.length===0){d=attRecDefault();DB.set('attRec',d);}return d;}
 function attRecSet(d){DB.set('attRec',d);}
 /* OCR 引擎：国内镜像优先（npmmirror），避免 jsdelivr / projectnaptha 在大陆被墙导致识别失败；中文语言包自托管在仓库 ocr/ 目录（同源，免翻墙） */
 const _ATT_TESS_BASE=['https://registry.npmmirror.com/tesseract.js/5.1.1/files/dist/','https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/'];
