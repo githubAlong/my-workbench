@@ -1,24 +1,57 @@
 import { state, loadMe, render, parseHash, loadAuthConfig } from './ui.js';
 import { ls, toast, STATIC } from './core.js';
 
-await import('./home.js');
-await import('./work.js');
-await import('./daily.js');
-await import('./study.js');
-await import('./selfstudy.js');
-await import('./repairs.js');
-await import('./me.js');
-await import('./recycle.js');
-await import('./alarm.js');
+/* 【第 30 条 · 白屏】
+   原来这里是 9 行串行 import：
+       await import('./home.js'); await import('./work.js'); ...
+   本地看不出问题，但部署到静态托管（GitHub Pages / 任何 CDN）后，
+   每个 js 文件都要单独回源，冷启动一个文件就要 0.8~5 秒。
+   串行等 9 个 = 十几秒白屏，用户以为站坏了，直接关掉。
 
-await loadAuthConfig();
+   改并行：9 个请求同时发出，总耗时约等于最慢的那一个。
+   同时把「页面注册」和「首屏渲染」解耦——渲染只需要 ui.js + core.js，
+   早就到位了，不该陪着模块一起等。 */
+const MODULES = [
+  './home.js', './work.js', './daily.js', './study.js', './selfstudy.js',
+  './repairs.js', './me.js', './recycle.js', './alarm.js',
+];
+
+/* 先给个骨架，避免用户盯着空白页 */
+function paintSkeleton() {
+  const app = document.getElementById('app');
+  if (!app || app.innerHTML.trim()) return;
+  app.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:center;height:100vh;' +
+    'font:14px/1.6 -apple-system,BlinkMacSystemFont,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;' +
+    'color:#8e8899;flex-direction:column;gap:14px">' +
+    '<div style="width:26px;height:26px;border:2.5px solid rgba(124,92,255,.2);' +
+    'border-top-color:#7C5CFF;border-radius:50%;animation:wbspin .8s linear infinite"></div>' +
+    '<div>正在打开工作台…</div>' +
+    '<style>@keyframes wbspin{to{transform:rotate(360deg)}}</style>' +
+    '</div>';
+}
+paintSkeleton();
+
+/* 并行加载所有页面模块。这里只 await「注册完成」，不等任何网络数据。 */
+const modulesReady = Promise.all(MODULES.map((m) => import(m).catch((e) => {
+  // 单个页面模块挂了，不能让整个工作台打不开
+  console.error('页面模块加载失败：' + m, e);
+  return null;
+})));
+
+const [me] = await Promise.all([
+  loadAuthConfig().then(() => (STATIC ? loadSeed() : null)).then(() => loadMe()),
+  modulesReady,
+]);
+
 /* 静态版没有服务端，进来先灌一份示例数据（只灌一次），
    否则新用户看到一个空工作台会以为坏了。 */
-if (STATIC) {
+async function loadSeed() {
   const { seedIfEmpty } = await import('./localapi.js');
   seedIfEmpty();
 }
-state.user = await loadMe();
+
+state.user = me;
 if (!location.hash) location.hash = '#/home';
 window.addEventListener('hashchange', () => render());
 await render();
