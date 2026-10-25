@@ -21,6 +21,11 @@ import './repairs.js';
 import './me.js';
 import './recycle.js';
 import './alarm.js';
+import { autoSync, hookSave } from './cloudsync.js';
+
+/* 云同步：本地一改就排队上传（内部有防抖）；启动时看一眼云端有没有新数据。
+   没绑定云存储时 hookSave 是空操作，autoSync 直接返回，零开销。 */
+window.addEventListener('wb:localchange', hookSave);
 
 /* 先给个骨架，避免用户盯着空白页 */
 function paintSkeleton() {
@@ -73,6 +78,9 @@ await render();
 /* 注册 Service Worker（PWA，可添加到主屏幕）
    scope 用相对路径：线上可能被平台挂在 /xxx/ 子路径下，写死 '/sw.js' 会 404。 */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+
+/* 云同步启动检查：放最后，等首屏渲染完再悄悄跑，不抢首屏时间 */
+autoSync();
 
 /* 主题同步 */
 document.documentElement.dataset.theme = state.theme;

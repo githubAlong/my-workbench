@@ -3,6 +3,7 @@ import {
 } from './core.js';
 import { registerView, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, paintUnread, refreshUnread } from './ui.js';
 import { AUTH_CFG } from './ui.js';
+import { bindSheet } from './cloudsync.js';
 
 registerView(async function me(main, { query }) {
   const { path } = parseHash();
@@ -83,6 +84,7 @@ async function renderMe(main) {
     ])}
 
     ${group('数据', [
+      ['refresh', '云同步', '手机、电脑数据自动一致', 'cloud', syncBadge()],
       ['down', '数据导出与备份', '导出全部数据、导入恢复', 'backup', ''],
       ['copy', '学生短链', '课件 / 点名 / 惩罚 三合一', 'link', ''],
       ['trash', '回收站', '删除的内容可在这里找回', 'recycle', ''],
@@ -113,6 +115,7 @@ async function renderMe(main) {
     if (a === 'bind') return bindManager(sessions);
     if (a === 'security') return securitySheet();
     if (a === 'backup') return backupSheet();
+    if (a === 'cloud') return bindSheet();
     if (a === 'link') {
       const links = await api.get('/links');
       const code = links[0]?.code;
@@ -503,6 +506,18 @@ function phoneBindSheet(parent) {
 }
 
 /* ================= 备份 ================= */
+/* 云同步入口的状态小标签：绑定了显示状态，没绑定提示去开 */
+function syncBadge() {
+  try {
+    const c = JSON.parse(localStorage.getItem('wb_cloud_cfg') || 'null');
+    if (!c) return '<span class="chip" style="background:#FEF3C7;color:#92400E">未开启</span>';
+    const m = JSON.parse(localStorage.getItem('wb_cloud_meta') || '{}');
+    return m.conflict
+      ? '<span class="chip" style="background:#FEE2E2;color:#991B1B">有冲突</span>'
+      : '<span class="chip" style="background:#DCFCE7;color:#166534">已开启</span>';
+  } catch { return ''; }
+}
+
 function backupSheet() {
   const b = el(`<div class="sheet-body">
     <div class="small muted" style="margin-bottom:10px">备份包含事项、便签、上课、考勤、监考、出差、笔记、学习记录，可以在其他设备恢复。</div>

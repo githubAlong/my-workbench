@@ -14,6 +14,8 @@
    ========================================================================== */
 
 const DB_KEY = 'wb_static_db_v1';
+/* 云同步要用这个键名去读整库，导出去（cloudsync.js） */
+export { DB_KEY };
 
 /* ---------------- 表结构：照抄 server/index.mjs 的 CRUD ---------------- */
 export const TABLES = {
@@ -66,6 +68,10 @@ export function load() {
 }
 export function save() {
   try { localStorage.setItem(DB_KEY, JSON.stringify(_db)); } catch (e) { console.warn('本地存储写入失败', e); }
+  /* 云同步钩子：本地数据一变就通知 cloudsync（它内部有 3 秒防抖，
+     没绑云存储时这个事件没人听，零开销）。用事件解耦，
+     localdb 不 import cloudsync，避免模块循环依赖。 */
+  try { window.dispatchEvent(new Event('wb:localchange')); } catch {}
 }
 /* 除了 TABLES 里那 18 张「走通用 CRUD」的表，还有一批是业务表
    （点名、消息、提醒、附件、回收站……）。它们也要先建好空数组，
