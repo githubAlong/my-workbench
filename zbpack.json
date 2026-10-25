@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.zeabur.app/template.json",
+  "name": "teacher-workbench",
+  "description": "教师个人工作台：首页/工作/日常/学习/自习/维修/回收站，含学生端免登录短链",
+  "services": [
+    {
+      "name": "teacher-workbench",
+      "type": "node",
+      "buildCommand": "npm install --omit=dev",
+      "startCommand": "node server/index.mjs",
+      "healthCheckPath": "/healthz",
+      "envVars": {
+        "DATA_DIR": "/data",
+        "UPLOAD_DIR": "/data/uploads",
+        "ALLOW_REGISTER": "1",
+        "DEMO_MODE": "0",
+        "DEV_OTP_ECHO": "0"
+      },
+      "volumes": [
+        {
+          "name": "workbench-data",
+          "mountPath": "/data"
+        }
+      ]
+    }
+  ]
+}
