@@ -131,6 +131,82 @@ export async function pullNow() {
   return { before, at: remote.updated_at };
 }
 
+/* ---------------- 链接搬运：不起服务器也能换设备 ----------------
+
+   原理：整库先 deflate 压缩、再 base64，塞进 URL 的 # 后面。
+   # 之后的内容浏览器不会发给服务器（GitHub 日志里看不到），
+   页面自己解析、自己解压、自己存进 localStorage —— 全程不经过第三方。
+
+   实测：58KB 的库压完 8.9KB，链接不到 9KB，微信/短信都发得出去。
+   超长的库（比如带图片附件的）会超过浏览器地址栏上限，
+   这种情况提示用户改用备份文件，不硬塞。   */
+
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function deflate(str) {
+  const data = new TextEncoder().encode(str);
+  if (!window.CompressionStream) return null;
+  const cs = new CompressionStream('deflate-raw');
+  const w = cs.writable.getWriter();
+  w.write(data);
+  w.close();
+  const buf = await new Response(cs.readable).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+async function inflate(bytes) {
+  const ds = new DecompressionStream('deflate-raw');
+  const w = ds.writable.getWriter();
+  w.write(bytes);
+  w.close();
+  const buf = await new Response(ds.readable).arrayBuffer();
+  return new TextDecoder().decode(buf);
+}
+
+/* 生成可发到手机的链接 */
+export async function makeShareLink() {
+  const raw = localStorage.getItem(DB_KEY);
+  if (!raw) throw new Error('本机没有数据可搬');
+  const packed = await deflate(raw);
+  if (!packed) throw new Error('这个浏览器太旧，不支持压缩。请用「数据导出与备份」的 JSON 文件');
+  let bin = '';
+  const CH = 0x8000;   // 分块，避免 apply 参数过多爆栈
+  for (let i = 0; i < packed.length; i += CH) {
+    bin += String.fromCharCode.apply(null, packed.subarray(i, i + CH));
+  }
+  const b64 = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const base = location.origin + location.pathname;
+  const link = base + '#import=' + b64;
+  return { link, bytes: raw.length, packedBytes: b64.length };
+}
+
+/* 打开页面时检查地址栏有没有 #import=，有就导入 */
+export async function tryImportFromHash() {
+  const m = location.hash.match(/#import=([A-Za-z0-9_-]+)/);
+  if (!m) return false;
+  const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
+  try {
+    const pad = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const json = await inflate(b64ToBytes(pad));
+    const obj = JSON.parse(json);
+    if (!obj || typeof obj !== 'object') throw new Error('内容不像工作台数据');
+    /* 先留底：万一用户手机上有数据，导入后想找回还能从备份里捞 */
+    const old = localStorage.getItem(DB_KEY);
+    if (old) localStorage.setItem('wb_backup_before_import', old);
+    localStorage.setItem(DB_KEY, json);
+    history.replaceState(null, '', location.origin + location.pathname + '#/home');
+    return true;
+  } catch (e) {
+    history.replaceState(null, '', location.origin + location.pathname + '#/home');
+    throw new Error('链接里的数据解不开：' + e.message);
+  }
+}
+
 /* ---------------- 绑定 / 状态 UI ---------------- */
 
 export function bindSheet() {
@@ -154,6 +230,13 @@ create policy "sync" on wb_sync for all using (true) with check (true);`;
           ${m.conflict ? '<span style="color:var(--warn,#b45309)">⚠ 有未处理的冲突</span>' : ''}
         </div>
       </div>
+      <div class="card card-pad tiny" style="margin-bottom:10px">
+        <b>同步钥匙</b>（另一台设备绑定时填这把，才能连到同一份数据）：
+        <div class="row" style="margin-top:4px">
+          <code style="word-break:break-all;flex:1">${esc(c.syncKey)}</code>
+          <button class="btn ghost tiny" id="cs-copykey">复制</button>
+        </div>
+      </div>
       <button class="btn primary block" id="cs-push" style="margin-bottom:8px">⬆ 把本机数据上传到云端</button>
       <button class="btn ghost block" id="cs-pull" style="margin-bottom:8px">⬇ 用云端数据覆盖本机</button>
       <button class="btn ghost block" id="cs-unbind">解除绑定（只解绑，不动数据）</button>
@@ -174,6 +257,7 @@ create policy "sync" on wb_sync for all using (true) with check (true);`;
       </div>
       <input id="cs-url" class="input" placeholder="Project URL（https://xxxx.supabase.co）" style="margin-bottom:8px">
       <input id="cs-anon" class="input" placeholder="anon public key（一长串 eyJ…）" style="margin-bottom:8px">
+      <input id="cs-key" class="input" placeholder="同步钥匙（第一台设备留空自动生成；第二台设备必须填第一台的那把）" style="margin-bottom:8px">
       <button class="btn primary block" id="cs-gen">绑定云存储</button>
     `}`;
 
@@ -181,6 +265,9 @@ create policy "sync" on wb_sync for all using (true) with check (true);`;
 
   const $ = (id) => b.querySelector(id);
   if (c) {
+    $('#cs-copykey').onclick = () => {
+      navigator.clipboard?.writeText(c.syncKey).then(() => toast('钥匙已复制', 'ok'), () => toast('复制失败，长按钥匙文字手动复制', 'warn'));
+    };
     $('#cs-push').onclick = async () => {
       toast('正在上传…');
       try { await pushNow(); toast('已上传，云端已更新', 'ok'); }
@@ -215,7 +302,10 @@ create policy "sync" on wb_sync for all using (true) with check (true);`;
     const a = $('#cs-anon').value.trim();
     if (!/^https:\/\/.+\.supabase\.(co|in)/.test(u)) return toast('URL 不对，应该是 https://xxxx.supabase.co', 'warn');
     if (a.length < 30) return toast('anon key 不对，是一长串 eyJ 开头的字符', 'warn');
-    const key = crypto.randomUUID ? crypto.randomUUID() : 'k' + Date.now() + Math.random().toString(36).slice(2);
+    /* 同步钥匙：第一台设备留空自动生成；第二台设备必须填同一把，
+       否则两台各存各的「房间」，数据永远碰不上。 */
+    const typedKey = ($('#cs-key')?.value || '').trim();
+    const key = typedKey || (crypto.randomUUID ? crypto.randomUUID() : 'k' + Date.now() + Math.random().toString(36).slice(2));
     const c0 = { url: u, anon: a, syncKey: key };
     toast('正在验证连接…');
     try {

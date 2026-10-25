@@ -3,7 +3,7 @@ import {
 } from './core.js';
 import { registerView, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, paintUnread, refreshUnread } from './ui.js';
 import { AUTH_CFG } from './ui.js';
-import { bindSheet } from './cloudsync.js';
+import { bindSheet, makeShareLink } from './cloudsync.js';
 
 registerView(async function me(main, { query }) {
   const { path } = parseHash();
@@ -85,6 +85,7 @@ async function renderMe(main) {
 
     ${group('数据', [
       ['refresh', '云同步', '手机、电脑数据自动一致', 'cloud', syncBadge()],
+      ['copy', '搬到另一台设备', '生成一条链接，手机点开即导入', 'share', ''],
       ['down', '数据导出与备份', '导出全部数据、导入恢复', 'backup', ''],
       ['copy', '学生短链', '课件 / 点名 / 惩罚 三合一', 'link', ''],
       ['trash', '回收站', '删除的内容可在这里找回', 'recycle', ''],
@@ -116,6 +117,7 @@ async function renderMe(main) {
     if (a === 'security') return securitySheet();
     if (a === 'backup') return backupSheet();
     if (a === 'cloud') return bindSheet();
+    if (a === 'share') return shareSheet();
     if (a === 'link') {
       const links = await api.get('/links');
       const code = links[0]?.code;
@@ -507,6 +509,45 @@ function phoneBindSheet(parent) {
 
 /* ================= 备份 ================= */
 /* 云同步入口的状态小标签：绑定了显示状态，没绑定提示去开 */
+/* 搬到另一台设备：把库压成一条链接，微信发给自己、手机点开即导入。
+   不起服务器、不注册账号，比备份文件少一步「传到手机」的操作。 */
+async function shareSheet() {
+  const s = sheet({ title: '搬到另一台设备', body: '<div class="small muted" style="padding:8px 0">正在打包数据…</div>' });
+  const box = document.body.querySelector('.sheet-mask:last-of-type .sheet-body');
+  try {
+    const { link, bytes, packedBytes } = await makeShareLink();
+    const tooLong = link.length > 32000;
+    box.innerHTML = `
+      <div class="small" style="margin-bottom:10px">
+        把下面这条链接发到手机上（微信文件传输助手就行），<b>手机点开就自动导入</b>。
+      </div>
+      <div class="card card-pad tiny" style="margin-bottom:10px;line-height:1.7">
+        原始数据 ${(bytes / 1024).toFixed(1)} KB → 压缩后 ${(packedBytes / 1024).toFixed(1)} KB<br>
+        ${tooLong
+          ? '<span style="color:var(--red,#dc2626)">⚠ 数据太大，链接超长，微信可能发不出去。请改用「数据导出与备份」的 JSON 文件。</span>'
+          : '<span class="muted">链接长度正常，微信、短信都发得出去。链接里带了你的全部数据，别发到群里。</span>'}
+      </div>
+      <textarea readonly id="sh-link" style="width:100%;height:100px;font-size:11px;word-break:break-all">${esc(link)}</textarea>
+      <button class="btn primary block" id="sh-copy" style="margin-top:8px">复制链接</button>
+      <button class="btn ghost block" id="sh-open" style="margin-top:8px">在本机直接打开试试</button>
+      <div class="tiny muted" style="margin-top:10px">
+        点开链接时手机上已有的数据会先备份一份，导入后想找回还能捞。
+        导入是<b>覆盖式</b>的——手机上先改过的东西会被这条链接里的数据替换掉。
+      </div>`;
+    box.querySelector('#sh-copy').onclick = () => {
+      const t = box.querySelector('#sh-link');
+      navigator.clipboard?.writeText(link).then(
+        () => toast('链接已复制，去微信粘贴发给自己', 'ok'),
+        () => { t.select(); toast('已全选，按 Ctrl+C 复制', 'ok'); },
+      );
+    };
+    box.querySelector('#sh-open').onclick = () => { location.href = link; };
+  } catch (e) {
+    box.innerHTML = `<div class="small" style="color:var(--red,#dc2626);padding:8px 0">生成失败：${esc(e.message)}</div>`;
+  }
+  return s;
+}
+
 function syncBadge() {
   try {
     const c = JSON.parse(localStorage.getItem('wb_cloud_cfg') || 'null');

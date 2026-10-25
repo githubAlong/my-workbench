@@ -21,7 +21,7 @@ import './repairs.js';
 import './me.js';
 import './recycle.js';
 import './alarm.js';
-import { autoSync, hookSave } from './cloudsync.js';
+import { autoSync, hookSave, tryImportFromHash } from './cloudsync.js';
 
 /* 云同步：本地一改就排队上传（内部有防抖）；启动时看一眼云端有没有新数据。
    没绑定云存储时 hookSave 是空操作，autoSync 直接返回，零开销。 */
@@ -43,11 +43,23 @@ function paintSkeleton() {
 }
 paintSkeleton();
 
+/* 搬家链接（#import=…）必须在最前面跑完，而且要**同步等到结果**。
+   踩过的坑：放在后面 await，页面已经 render 过一次、hashchange 也注册了，
+   导入时改地址栏会把流程搅乱，数据看起来「没导进去」。
+   这里挪到最前，且用 await 卡住，中间不给其他异步留插队的机会。 */
+let imported = false;
+try {
+  imported = await tryImportFromHash();
+} catch (e) {
+  toast(e.message, 'err', 6000);
+}
+
 /* 静态版没有服务端，进来先灌一份示例数据（只灌一次），
-   否则新用户看到一个空工作台会以为坏了。 */
+   否则新用户看到一个空工作台会以为坏了。
+   已经用链接导入过就不再灌，否则示例数据混进来。 */
 if (STATIC) {
   const { seedIfEmpty } = await import('./localapi.js');
-  seedIfEmpty();
+  if (!imported) seedIfEmpty();
 }
 
 state.user = await loadAuthConfig().then(() => loadMe());
