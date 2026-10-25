@@ -93,7 +93,9 @@ with sync_playwright() as p:
     }))""")
     check(len(rows) == 13, '识别出 13 个有课格子', f'实际 {len(rows)}')
     nneed = sum(1 for r in rows if r['need'])
-    check(nneed == 1, '12 格自动认出、1 格标「待填」', f'待填 {nneed} 格')
+    # 这张课表已能全自动认完（含曾认不出的「14班」），所以期望 0 格待填。
+    # 若哪天又冒出待填，说明识别退化了 —— 这里要能报警，不能放宽成「无所谓」。
+    check(nneed == 0, '13 格全部自动认出，无待填', f'待填 {nneed} 格')
 
     # 【关键】没认出来的那格必须是**空**，不能填一个看起来像真班号的数字
     # 早先填的是顺序号，14 班那格显示「12」，老师极易当成识别结果直接确认
@@ -108,8 +110,19 @@ with sync_playwright() as p:
         print(f"    周{r['wd']} 第{r['p']}节  {r['cn'] + '班' if r['cn'].strip() else '(空，待填)'}"
               f"{'  ← 待填' if r['need'] else ''}")
 
-    # 4b. 空着的时候点导入，应该被拦住：弹提示、课程数不变
+    # 4b. 主动清空一格，验证「空班号不许静默丢课」这条防线还在
+    # 自动识别现在能填满 13 格，所以得自己造一个空格来测。
+    # 清空时记住原值，测完要原样填回去 —— 否则后面「13 条落库」的断言会拿脏数据比。
     # （不能用「库里少于 13 条」判断——首次打开会灌示例数据，本来就有十几条）
+    orig = pg.evaluate("""() => {
+        const inp = document.querySelector('#tt-work tbody tr [data-k=class_name]');
+        const v = inp.value;
+        inp.value = '';
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+        return v;
+    }""")
+    time.sleep(0.3)
     before = pg.evaluate("""async () => {
         const r = await window.__wbLocalApi.handle('GET', '/courses', {}, null);
         return ((r && r.data) || []).length;
@@ -129,18 +142,18 @@ with sync_playwright() as p:
           '班号空着时点导入被拦下（提示 + 不落库）',
           f'课程数 {before}→{after}，提示={hint[:40]!r}')
 
-    # 5. 把「待填」那格补成 14
-    fixed = pg.evaluate("""() => {
+    # 5. 把刚才清空的那格原样填回去（测「空着能拦住」这件事，不该改动识别结果）
+    fixed = pg.evaluate("""(orig) => {
         const rows = Array.from(document.querySelectorAll('#tt-work tbody tr'));
-        const tr = rows.find(t => t.querySelector('.tiny') && t.querySelector('.tiny').textContent.includes('待填'));
+        const tr = rows.find(t => !t.querySelector('[data-k=class_name]').value.trim());
         if (!tr) return false;
         const inp = tr.querySelector('[data-k=class_name]');
-        inp.value = '14';
+        inp.value = orig;
         inp.dispatchEvent(new Event('input', {bubbles: true}));
         inp.dispatchEvent(new Event('change', {bubbles: true}));
         return true;
-    }""")
-    check(fixed, '「待填」那格可以手工填上班号')
+    }""", orig)
+    check(fixed, '空着的格子可以手工填上班号')
 
     # 6. 点「导入到课表」
     pg.query_selector('#tt-ok').click()
