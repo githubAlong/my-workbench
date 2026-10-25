@@ -323,7 +323,7 @@ export async function render() {
         <button class="nav-item" id="side-theme" title="切换主题外观"><span class="theme-dot" style="background:${(THEME_MAP[state.theme] || THEMES[0]).sw.pri}"></span><span>主题外观</span><span class="theme-now">${esc(themeName(state.theme))}</span></button>
         <button class="nav-item" id="side-wide" title="让正文铺满整个屏幕宽度"><span class="ni">${icon('expand', 18)}</span><span>平铺整页</span><span class="theme-now" id="wide-now">关</span></button>
         <button class="nav-item" id="side-layout" title="把首页卡片恢复到默认位置"><span class="ni">${icon('grid', 18)}</span><span>重置首页布局</span></button>
-        <button class="nav-item" id="side-user"><span class="ni" style="border-radius:50%;background:var(--primary-weak);color:var(--primary);font-weight:700;font-size:12px">${esc((state.user?.nickname || '师').slice(0, 1))}</span><span>${esc(state.user?.nickname || '我的')}</span></button>
+        <button class="nav-item" id="side-user" data-nav="me"><span class="ni" style="border-radius:50%;background:var(--primary-weak);color:var(--primary);font-weight:700;font-size:12px">${esc((state.user?.nickname || '师').slice(0, 1))}</span><span>${esc(state.user?.nickname || '我的')}</span></button>
       </div>
     </aside>
     <main class="main" id="main"></main>
@@ -1347,9 +1347,27 @@ export async function refreshUnread() {
    之前只处理了「有→无」（隐藏）这一半，所以「点全部已读角标不消失」和
    「来了新消息角标不出现」是两个方向同一个 bug。
    现在两种方向都兜住：没有节点就建一个，有了就改文字，归零就隐藏。 */
+/* 未读红点。
+   【第 1 条：点「全部已读」后左侧导航红点不消失】
+   真因是侧栏底部的用户按钮（#side-user）早先没有 data-nav="me"，
+   而这里只认 [data-nav=me] —— 于是「我的」那一项的红点永远刷不到，
+   点完已读它还挂在那儿。现在补上属性，同时把「只创建不更新」的写法改掉：
+   数字变了要跟着变，不然从 3 变成 1 还显示 3。 */
 export function paintUnread() {
   const n = Number(state.unread) || 0;
   document.querySelectorAll('[data-nav=me]').forEach((nav) => {
+    let dot = nav.querySelector('.badge-dot');
+    if (n <= 0) { if (dot) dot.hidden = true; return; }
+    if (!dot) {
+      dot = document.createElement('span');
+      dot.className = 'badge-dot';
+      nav.appendChild(dot);
+    }
+    dot.textContent = n > 99 ? '99+' : String(n);
+    dot.hidden = false;
+  });
+  /* 底部导航的手机端也要同步：手机上根本没有侧栏 */
+  document.querySelectorAll('.bn-item[data-nav=me]').forEach((nav) => {
     let dot = nav.querySelector('.badge-dot');
     if (n <= 0) { if (dot) dot.hidden = true; return; }
     if (!dot) {

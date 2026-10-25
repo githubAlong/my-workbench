@@ -63,12 +63,18 @@ function cellInkStats(mono, w, box) {
   };
 }
 
-/* 判断一个格子里是 √ / × / 空。
+/* 判断一个格子里是 √ / × / 空 / 认不准（'?'）。
    思路：把墨迹位图按对角线方向做「连续性」检验。
      ×：两条对角线都几乎全是墨（\ 和 / 各一条直贯）
      √：只有「左下到中下」一小段 + 「中下到右中」一条斜线，左上角基本是空的
-   实测 √ 的左上区域总是空的，× 的左上角一定有墨 —— 就靠这一点分开。 */
-function classifyMark(mono, w, st) {
+   实测 √ 的左上区域总是空的，× 的左上角一定有墨 —— 就靠这一点分开。
+
+   【为什么要有 '?' 这一档】
+   早先认不准时直接 return '√'，理由是「宁可多记让人划掉」。
+   真实打印件/照片带扫描噪点，这个默认会把整列 √ 全判错，
+   **而且用户完全看不出来** —— 错得比空着更危险。
+   现在认不准就返回 '?'，界面上标黄，人不确认就不许导入。 */
+export function classifyMark(mono, w, st) {
   if (!st.ink || st.wSpan < 4 || st.hSpan < 4) return '';
   const { bx, by, bw, bh } = st;
   /* 网格分成 5×5 小格，看每格有没有墨，做粗略形状描述 */
@@ -100,11 +106,15 @@ function classifyMark(mono, w, st) {
   const diagA = (has(0, 0) ? 1 : 0) + (has(1, 1) ? 1 : 0) + (has(2, 2) ? 1 : 0) + (has(3, 3) ? 1 : 0) + (has(4, 4) ? 1 : 0);
   const diagB = (has(0, 4) ? 1 : 0) + (has(1, 3) ? 1 : 0) + (has(2, 2) ? 1 : 0) + (has(3, 1) ? 1 : 0) + (has(4, 0) ? 1 : 0);
 
-  if (diagA >= 4 && diagB >= 4) return '×';         // 两条对角线都在 → ×
-  if (topLeft === 0 && bottomMid >= 1) return '√';  // 左上空 + 底部有转折 → √
-  if (topRight === 0 && topLeft <= 1) return '√';
-  /* 实在分不清就当作有勾（宁可多记一笔，让人去划掉；漏记会变成「没做」） */
-  return '√';
+  /* × 判得比较硬：两条对角线基本都在 */
+  if (diagA >= 4 && diagB >= 4) return '×';
+  /* √ 也判得比较硬：左上空 + 底部有转折，两个条件同时成立才算 */
+  if (topLeft <= 1 && bottomMid >= 1 && diagB >= 2) return '√';
+  if (topRight === 0 && topLeft <= 1 && bottomMid >= 1) return '√';
+
+  /* 到这一步说明形状介于两者之间 —— 可能是手写体、噪点、或者根本不是勾叉（比如写了「√√」或打了个点）。
+     不再猜，交给人看。 */
+  return '?';
 }
 
 /* 按列的统计特征推断角色。
@@ -126,7 +136,7 @@ function classifyMark(mono, w, st) {
    早先我用「有字率 ≥ 某比例」判断，遇到勾得比较满的表就整列误判 ——
    而且序号列墨量低，直接判成空格，连带姓名列的位置也错。
    现在改成按**每列的中位墨量**来分档，因为中位数不受个别空格影响。 */
-function inferColumnRoles(grid, rows, cols) {
+export function inferColumnRoles(grid, rows, cols) {
   const stats = [];
   for (let c = 0; c < cols; c++) {
     const inks = [];
@@ -189,11 +199,30 @@ export function detectAttendance(img, opts = {}) {
   }
 
   /* 表头行：第一行通常是「序号 姓名 学科 上课 坐班…」，整行几乎每格都有字。
-     找不到就当没有表头，从第 0 行开始读（有些表直接就是名单）。 */
+     找不到就当没有表头，从第 0 行开始读（有些表直接就是名单）。
+
+     【为什么不是简单的「每格都有字」】
+     表头最后一格可能是空的（比如「备注」那列没字），或者某个格子里是
+     「上课/坐班」这种两字标题，墨量不高但确实有字。所以判据放宽成
+     「有字的格数 ≥ 列数 - 1」，但**必须同时要求这一行不是勾选行** ——
+     真实表里偶尔会出现「整行都打勾」的一行，那种行每格都有墨，
+     按旧规则会被误判成表头，然后整行数据被吃掉。
+     勾的形状墨量明显小于汉字，用中位墨量区分。 */
+  const rowInkMed = (r) => {
+    const inks = grid[r].filter((c) => c.ink > 0).map((c) => c.ink).sort((a, b) => a - b);
+    return inks.length ? inks[Math.floor(inks.length / 2)] : 0;
+  };
   let headerRow = -1;
+  let bestScore = 0;
   for (let r = 0; r < Math.min(3, rows); r++) {
     const cnt = grid[r].filter((c) => c.filled).length;
-    if (cnt >= cols - 1) { headerRow = r; break; }
+    if (cnt < cols - 1) continue;
+    /* 整行都有字，但墨量太小 → 更像是「整行打勾」，不是表头 */
+    if (rowInkMed(r) < 90) continue;
+    /* 几行都像表头时，选「墨量最接近汉字」的那一行：
+       表头是印刷体标题，笔画比勾多；数据行里混着的勾会把中位数拉低。 */
+    const score = rowInkMed(r) - r;      // 同一行墨量高者优先；墨量接近时取靠前的
+    if (score > bestScore) { bestScore = score; headerRow = r; }
   }
   const bodyStart = headerRow >= 0 ? headerRow + 1 : 0;
   if (rows - bodyStart < 1) {
@@ -231,17 +260,23 @@ export function detectAttendance(img, opts = {}) {
   const outRows = [];
   const cellsForPreview = [];
   let filledIdx = 0;
+  let unsureCount = 0;
   for (let i = 0; i < sub.length; i++) {
     const r = sub[i];
     /* 整行都没字（空行 / 合计行下面的空白）就跳过 */
     if (!r.some((c) => c.filled)) continue;
     const data = {};
+    const marks = {};          // 原样保留 √/×/?/''，给确认页逐格对照用
     let anyMark = false;
     useChecks.forEach((c, k) => {
       const st = cellInkStats(mono, g.w, r[c].box);
       const mark = classifyMark(mono, g.w, st);
-      if (mark) { data[CHECK_KEYS[k].key] = mark === '√' ? '1' : '0'; anyMark = true; }
-      cellsForPreview.push({ row: i, col: c, mark, box: r[c].box });
+      marks[CHECK_KEYS[k].key] = mark;
+      /* '?' 不写进 data —— 宁可留空让确认页标黄，也不假装它是 √ */
+      if (mark === '√') { data[CHECK_KEYS[k].key] = '1'; anyMark = true; }
+      else if (mark === '×') { data[CHECK_KEYS[k].key] = '0'; anyMark = true; }
+      else if (mark === '?') { anyMark = true; unsureCount++; }
+      cellsForPreview.push({ row: i, col: c, mark, key: CHECK_KEYS[k].key, box: r[c].box });
     });
     /* 一个勾都没有的行，多半是表尾（制表人/审核）或空白，不当教师行 */
     if (!anyMark) continue;
@@ -251,6 +286,7 @@ export function detectAttendance(img, opts = {}) {
       teacher: guess ? guess.name : `（第${bodyStart + i + 1}行）`,
       subject: guess ? (guess.subject || '') : '',
       data,
+      marks,
       _srcRow: bodyStart + i,
       _guessed: !!guess,        // true = 名字是按名册猜的，要核对
     });
@@ -282,6 +318,9 @@ export function detectAttendance(img, opts = {}) {
       cols: cols,
       nameCol,
       checkCols: useChecks,
+      checkKeys: useChecks.map((_, k) => CHECK_KEYS[k].key),
+      checkLabels: useChecks.map((_, k) => CHECK_KEYS[k].label),
+      unsure: unsureCount,
       roleStats: stats.map((s) => ({ col: s.col, role: roles[s.col], fill: Math.round(s.fillRate * 100), ink: Math.round(s.avgInk) })),
     },
     _preview: { cells: cellsForPreview, w: g.w, h: g.h },

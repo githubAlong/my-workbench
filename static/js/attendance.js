@@ -1093,17 +1093,9 @@ function confirmSheet(r, reload) {
     </div>
     <div class="acm-preview" id="acm-preview">
       <button class="acm-pv-h acm-pv-toggle" id="acm-pv-btn">
-        ${icon('down', 14)} 识别结果预览（共 ${r.rows.length} 行）<span class="acm-pv-more">点开看看认得对不对</span>
+        ${icon('down', 14)} ${isImg ? '逐行核对（原图 + 识别结果）' : '识别结果预览'}（共 ${r.rows.length} 行）<span class="acm-pv-more">点开看看认得对不对</span>
       </button>
-      <div class="acm-pv-wrap" id="acm-pv-wrap" hidden><table class="att-tbl att-tbl-compact">
-        <thead><tr><th class="th-no">#</th><th class="th-name">姓名</th><th class="th-subj">学科</th>
-        ${checkCols.map((c) => `<th class="th-check">${esc(c.label)}</th>`).join('')}</tr></thead>
-        <tbody>${r.rows.slice(0, 60).map((row, i) => `<tr>
-          <td class="td-no">${i + 1}</td><td class="td-name">${esc(row.teacher)}</td><td class="td-subj">${esc(row.subject)}</td>
-          ${checkCols.map((c) => `<td class="td-check">${row.data?.[c.key] === '1' ? '<i class="tick on">✓</i>' : row.data?.[c.key] === '0' ? '<i class="tick off">×</i>' : '<i class="tick"></i>'}</td>`).join('')}
-        </tr>`).join('')}</tbody>
-      </table></div>
-      ${r.rows.length > 60 ? `<div class="tiny muted" style="padding:6px 2px">只预览前 60 行，导入时是全部 ${r.rows.length} 行</div>` : ''}
+      <div class="acm-pv-wrap" id="acm-pv-wrap" hidden></div>
     </div>
     <div class="confirm-actions" style="position:sticky;bottom:0;background:var(--card);padding-top:8px">
       <button class="btn ghost" id="c-cancel">取消</button>
@@ -1146,14 +1138,213 @@ function confirmSheet(r, reload) {
     const dt = new Date(v + 'T00:00:00');
     if ($('#c-periods').value === '' && d.periods) $('#c-periods').value = d.periods;
   };
+  /* ===== 逐行核对表 =====
+     【为什么要有这张表】图片识别最大的风险是「错了但没人发现」：
+     姓名是按名册顺序铺的，可能整体错位；勾可能认错。
+     光给个结果表，用户没法定夺。这里把原图每一行的格子裁出来贴在旁边，
+     人眼一对比就知道认没认对，点一下就能改。
+     【为什么懒加载】一张 46 人 × 5 列的表 = 230 个格子，
+     每格一张 dataURL 会吃掉几十 MB 内存，手机上直接卡死。
+     所以只裁**勾选列**，并且只渲染前 LIMIT 行，剩下的滚动再补。 */
+  const LIMIT = 20;
+  const cells = r._preview?.cells || [];
+  const view = new Map();          // `${rowIdx}|${key}` → 格子状态，改这里，最后写回 r.rows
+  r.rows.forEach((row, i) => {
+    checkCols.forEach((c) => {
+      const m = row.marks?.[c.key] ?? (row.data?.[c.key] === '1' ? '√' : row.data?.[c.key] === '0' ? '×' : '');
+      view.set(`${i}|${c.key}`, m);
+    });
+  });
+  const CYCLE = { '√': '×', '×': '', '': '√', '?': '√' };
+  let paintedRows = 0;
+  let imgEl = null;
+
+  /* 裁格：复用 detectFromImage 已经加载好的 img，绝不新建 Image ——
+     新建会重新拉一次图，手机上慢且可能出现跨域污染 canvas */
+  const crop = (box) => {
+    try {
+      if (!imgEl) {
+        imgEl = new Image();
+        imgEl.src = r._imgURL;
+      }
+      if (!imgEl.complete || !imgEl.naturalWidth) return '';
+      const scale = 2;
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(box.w * scale));
+      cv.height = Math.max(1, Math.round(box.h * scale));
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(imgEl, box.x, box.y, box.w, box.h, 0, 0, cv.width, cv.height);
+      return cv.toDataURL('image/png');
+    } catch { return ''; }
+  };
+
+  const statCount = () => {
+    let unsure = 0, ticks = 0;
+    view.forEach((v) => { if (v === '?') unsure++; if (v === '√') ticks++; });
+    return { unsure, ticks };
+  };
+
+  const paintBar = () => {
+    const bar = $('#acm-pv-wrap').querySelector('#pv-bar');
+    if (!bar) return null;
+    const { unsure, ticks } = statCount();
+    bar.innerHTML = `
+      <div class="pv-bar-txt">
+        共 ${r.rows.length} 行 · 已勾 <b>${ticks}</b> 格
+        ${unsure ? ` · <b style="color:#B45309">${unsure} 格认不准</b>（标黄，点一下改成 √ 或 ×）` : ''}
+      </div>
+      <div class="pv-bar-ops">
+        <button class="btn ghost sm" id="pv-all-tick">整表全√</button>
+      </div>`;
+    bar.querySelector('#pv-all-tick').onclick = () => {
+      view.forEach((v, k) => { view.set(k, '√'); });
+      repaintAll();
+    };
+    return bar;
+  };
+
+  const repaintAll = () => {
+    const wrap = $('#acm-pv-wrap');
+    wrap.querySelectorAll('[data-cell]').forEach((b) => {
+      const [i, key] = b.dataset.cell.split('|');
+      const v = view.get(`${i}|${key}`) || '';
+      b.dataset.mark = v;
+      b.className = 'pv-mark' + (v === '√' ? ' on' : v === '×' ? ' off' : v === '?' ? ' unsure' : '');
+      b.textContent = v === '√' ? '✓' : v === '×' ? '×' : v === '?' ? '?' : '·';
+    });
+    paintBar();
+  };
+
+  /* 渲染一批行。原图小图只在首次渲染该行时裁，之后复用 DOM */
+  const paintRows = (from, to) => {
+    const tbody = $('#acm-pv-wrap').querySelector('tbody');
+    if (!tbody) return;
+    const frag = document.createDocumentFragment();
+    for (let i = from; i < Math.min(to, r.rows.length); i++) {
+      const row = r.rows[i];
+      const tr = document.createElement('tr');
+      const dup = r.rows.filter((x) => x.teacher === row.teacher).length > 1 && row.teacher;
+      const placeholder = /^（第\d+行）$/.test(row.teacher);
+      tr.innerHTML = `
+        <td class="pv-no">${i + 1}</td>
+        <td class="pv-thumb">${checkCols.map((c) => {
+          const cell = cells.find((x) => x.row === row._srcRow && x.key === c.key);
+          const d = cell ? crop(cell.box) : '';
+          return d ? `<img src="${d}" alt="" data-zoom="${d}">` : '';
+        }).join('')}</td>
+        <td><input class="input pv-in" data-name="${i}" value="${esc(row.teacher)}"
+             style="${placeholder || dup ? 'background:#FEF3C7' : ''}"></td>
+        <td><input class="input pv-in" data-subj="${i}" value="${esc(row.subject || '')}"></td>
+        ${checkCols.map((c) => {
+          const v = view.get(`${i}|${c.key}`) || '';
+          return `<td><button class="pv-mark${v === '√' ? ' on' : v === '×' ? ' off' : v === '?' ? ' unsure' : ''}"
+            data-cell="${i}|${c.key}" data-mark="${v}">${v === '√' ? '✓' : v === '×' ? '×' : v === '?' ? '?' : '·'}</button></td>`;
+        }).join('')}`;
+      frag.appendChild(tr);
+    }
+    tbody.appendChild(frag);
+    /* 事件用委托，但新插入的这批要单独绑（委托也能覆盖，这里省一次全表遍历） */
+    tbody.querySelectorAll('[data-cell]').forEach((b) => {
+      if (b._bound) return;
+      b._bound = true;
+      b.onclick = () => {
+        const [i, key] = b.dataset.cell.split('|');
+        const cur = view.get(`${i}|${key}`) || '';
+        const next = CYCLE[cur] ?? '√';
+        view.set(`${i}|${key}`, next);
+        repaintAll();
+      };
+    });
+    tbody.querySelectorAll('[data-name]').forEach((inp) => {
+      if (inp._bound) return;
+      inp._bound = true;
+      inp.oninput = () => { r.rows[Number(inp.dataset.name)].teacher = inp.value; };
+    });
+    tbody.querySelectorAll('[data-subj]').forEach((inp) => {
+      if (inp._bound) return;
+      inp._bound = true;
+      inp.oninput = () => { r.rows[Number(inp.dataset.subj)].subject = inp.value; };
+    });
+    /* 缩略图太小看不清勾叉的细节，点一下放大到原尺寸的 4 倍再看 */
+    tbody.querySelectorAll('[data-zoom]').forEach((im) => {
+      if (im._bound) return;
+      im._bound = true;
+      im.onclick = () => {
+        const mask = document.createElement('div');
+        mask.className = 'pv-zoom-mask';
+        mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;cursor:zoom-out';
+        const big = document.createElement('img');
+        big.src = im.dataset.zoom;
+        big.style.cssText = 'max-width:88vw;max-height:82vh;image-rendering:pixelated;background:#fff;border-radius:8px;padding:8px';
+        mask.appendChild(big);
+        mask.onclick = () => mask.remove();
+        document.body.appendChild(mask);
+      };
+    });
+    paintedRows = Math.min(to, r.rows.length);
+  };
+
+  const buildTable = () => {
+    const wrap = $('#acm-pv-wrap');
+    wrap.innerHTML = `
+      <div class="pv-bar" id="pv-bar"></div>
+      <div class="pv-scroll">
+        <table class="pv-tbl">
+          <thead><tr>
+            <th class="pv-no">#</th>
+            <th class="pv-thumb">原图</th>
+            <th>姓名（可改）</th>
+            <th>学科</th>
+            ${checkCols.map((c) => `<th class="pv-ch">${esc(c.label)}</th>`).join('')}
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      ${r.rows.length > LIMIT ? `<div class="tiny muted" style="padding:6px 2px">先显示前 ${LIMIT} 行，往下滚动自动加载</div>` : ''}`;
+    paintRows(0, LIMIT);
+    paintBar();
+    /* 滚动到底自动补下一批 */
+    wrap.querySelector('.pv-scroll').onscroll = (e) => {
+      const el0 = e.currentTarget;
+      if (paintedRows >= r.rows.length) return;
+      if (el0.scrollTop + el0.clientHeight > el0.scrollHeight - 120) {
+        paintRows(paintedRows, paintedRows + LIMIT);
+      }
+    };
+  };
+
   /* 预览折叠 */
   $('#acm-pv-btn').onclick = () => {
     const w = $('#acm-pv-wrap');
     const open = w.hidden;
     w.hidden = !open;
+    if (open && !w.querySelector('table')) buildTable();
     $('#acm-pv-btn').classList.toggle('open', open);
     const more = body.querySelector('.acm-pv-more');
     if (more) more.textContent = open ? '再点收起' : '点开看看认得对不对';
+  };
+  /* 图片识别：默认就展开核对表，因为核对是必须做的动作，不该藏在折叠里 */
+  if (isImg) {
+    $('#acm-pv-wrap').hidden = false;
+    buildTable();
+    $('#acm-pv-btn').classList.add('open');
+    const more = body.querySelector('.acm-pv-more');
+    if (more) more.textContent = '再点收起';
+  }
+
+  /* 把编辑结果写回 r.rows：勾选状态 + 姓名 + 学科 */
+  const flushEdits = () => {
+    r.rows.forEach((row, i) => {
+      row.data = row.data || {};
+      checkCols.forEach((c) => {
+        const v = view.get(`${i}|${c.key}`) || '';
+        if (v === '√') row.data[c.key] = '1';
+        else if (v === '×') row.data[c.key] = '0';
+        else delete row.data[c.key];
+      });
+    });
   };
   const addRoster = $('#add-roster');
   if (addRoster) {
@@ -1166,6 +1357,23 @@ function confirmSheet(r, reload) {
     };
   }
   saving($('#c-ok'), async () => {
+    /* 【导入前的最后一道闸】
+       有认不准的格子就先拦一下 —— 这一张表发到群里是要让老师签字的，
+       带着错数据发出去比晚发十分钟严重得多。
+       拦的时候给出路：要么去改，要么明确「当没勾」强行导入。 */
+    const { unsure } = statCount();
+    if (isImg && unsure > 0) {
+      const go = await confirmDialog(
+        `还有 ${unsure} 格没认准（表里标黄的「?」）。点「确认」会把它们当成「没勾」导入，点「取消」回去改。`,
+        { title: '有格子没认准', okText: '当没勾，继续导入', danger: false },
+      );
+      if (!go) {
+        if ($('#acm-pv-wrap').hidden) $('#acm-pv-btn').onclick();
+        return;
+      }
+      view.forEach((v, k) => { if (v === '?') view.set(k, ''); });
+    }
+    flushEdits();
     const res = await api.post('/attendance/commit', {
       name: $('#c-name').value,
       grade: $('#c-grade').value,

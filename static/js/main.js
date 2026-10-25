@@ -107,3 +107,12 @@ if (STATIC) {
 
 /* 课表图片识别也挂一份，方便排查「为什么这张图没切准」 */
 import('./ttimage.js').then((m) => { window.__wbDetect = m.detectTimetable; }).catch(() => {});
+
+/* 考勤图片识别同理。钩子也方便写离线自测：
+   拿一张已知答案的表跑一遍，逐格比对，不用点界面。 */
+import('./attimage.js').then((m) => {
+  window.__wbAttDetect = m.detectAttendance;
+  window.__wbAttRoles = m.inferColumnRoles;
+  window.__wbAttCls = m.classifyMark;
+}).catch(() => {});
+import('./ttimage.js').then((m) => { window.__wbGrid = m.detectGrid; }).catch(() => {});

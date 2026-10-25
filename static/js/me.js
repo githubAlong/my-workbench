@@ -50,10 +50,12 @@ async function renderMe(main) {
     return;
   }
 
-  const [msgs, sessions] = await Promise.all([
+  const [msgs, rawSessions] = await Promise.all([
     api.get('/messages').catch(() => ({ unread: 0, counts: {} })),
-    api.get('/me/sessions').catch(() => []),
+    api.get('/me/sessions').catch(() => null),
   ]);
+  /* 接口回的是 { rows: [...] }，这里统一成数组，后面 length / map 才不会炸 */
+  const sessions = Array.isArray(rawSessions) ? rawSessions : (rawSessions?.rows || []);
   const needProfile = !u.school || !u.subject;
   main.innerHTML = `
     <div class="me-hero">
@@ -273,12 +275,21 @@ async function renderProfile(main) {
       <div class="field"><label class="field-label">手机号</label>
         <div class="row" style="gap:8px"><input class="input" value="${esc(maskPhone(u.phone))}" disabled>
           <button class="btn ghost sm" id="p-bind" style="flex:0 0 auto">换绑</button></div></div>
-      <div class="tiny muted" style="margin-top:4px">手机号是登录凭证，换绑需要短信验证。</div>
+      <div class="tiny muted" style="margin-top:4px">手机号是登录凭证，换绑需要验证码确认。</div>
     </div>`;
 
   main.querySelector('#p-avatar').onclick = () => avatarSheet();
   main.querySelector('#p-bind').onclick = async () => {
-    const sessions = await api.get('/me/sessions').catch(() => []);
+    /* 【第 3 / 31 条真因】/me/sessions 返回的是 { rows: [...] }，
+       这里以前直接当数组往下传，bindManager 里 `sessions.map` 直接抛
+       「(t || []).map is not a function」，整个面板渲染失败 ——
+       用户看到的就是「点头像 / 点账号与绑定，什么都不出来」。
+       这里兼容两种形状，服务端和静态版都能用。 */
+    let sessions = [];
+    try {
+      const r = await api.get('/me/sessions');
+      sessions = Array.isArray(r) ? r : (r?.rows || r?.sessions || []);
+    } catch { sessions = []; }
     bindManager(sessions);
   };
   main.querySelector('#p-save').onclick = async (e) => {
@@ -362,6 +373,8 @@ function securitySheet() {
 /* ================= 账号与绑定 ================= */
 function bindManager(sessions) {
   const u = state.user;
+  /* 再兜一层：调用方传错形状也不该让整个面板白屏 */
+  if (!Array.isArray(sessions)) sessions = sessions?.rows || [];
   const b = u.bindings || {};
   const body = el(`<div class="sheet-body">
     ${bindRow('phone', `${icon('user', 15)} 手机号`, u.phone ? maskPhone(u.phone) : '未绑定', !!u.phone)}
@@ -383,8 +396,14 @@ function bindManager(sessions) {
     btn.onclick = async () => {
       const type = btn.dataset.bind;
       if (btn.dataset.act === 'unbind') {
-        try { await api.post('/auth/unbind', { type }); toast('已解绑'); sh.close(); const m = await import('./ui.js'); await m.loadMe(); render(); }
-        catch (e) { toast(e.message, 'err'); }
+        try {
+          await api.post('/auth/unbind', { type });
+          toast('已解绑');
+          sh.close();
+          const m = await import('./ui.js'); await m.loadMe(); render();
+        } catch (e) {
+          toast(e.message || '解绑失败', 'err');
+        }
         return;
       }
       if (type === 'phone') { phoneBindSheet(sh); return; }
@@ -410,10 +429,19 @@ function bindManager(sessions) {
   });
 }
 
+/* 【第 3 / 31 条】原来已绑定时只给一个「解绑」按钮，
+   想换号必须先解绑成空号再绑——中间那一秒账号是没有手机号的，
+   而且解绑后 bindManager 拿的还是旧的 state.user，界面不刷新，
+   看起来就是「点了没反应」/「输入框根本输不进手机号」。
+   现在已绑定时给两个按钮：「换绑」直接进换号流程，「解绑」留在右边。 */
 function bindRow(type, label, val, bound, disabled = false) {
+  const acts = bound
+    ? `<button class="btn ghost sm" data-bind="${type}" data-act="rebind">换绑</button>
+       <button class="btn ghost sm" data-bind="${type}" data-act="unbind" style="margin-left:6px;color:var(--text-3)">解绑</button>`
+    : `<button class="btn soft sm" data-bind="${type}" data-act="bind" ${disabled ? 'disabled' : ''}>去绑定</button>`;
   return `<div class="row" style="padding:9px 0;border-bottom:1px solid var(--line)">
     <div style="flex:1"><div class="small bold">${label}</div><div class="tiny muted">${esc(val)}</div></div>
-    <button class="btn ${bound ? 'ghost' : 'soft'} sm" data-bind="${type}" data-act="${bound ? 'unbind' : 'bind'}" ${disabled && !bound ? 'disabled' : ''}>${bound ? '解绑' : '去绑定'}</button></div>`;
+    ${acts}</div>`;
 }
 
 function phoneBindSheet(parent) {
@@ -425,6 +453,10 @@ function phoneBindSheet(parent) {
       <div class="row" style="gap:8px">
         <input class="input" id="c" placeholder="6 位验证码" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
         <button class="btn soft" id="send" style="flex:0 0 auto;min-width:104px">获取验证码</button></div></div>
+    <div class="tiny muted" id="otp-tip" style="margin-top:6px;line-height:1.6">
+      本站没有接短信通道（发真短信要买短信服务）。点「获取验证码」后，
+      验证码会直接填到上面那一栏——校验逻辑是真的，只是投递方式换成了页面提示。
+    </div>
     <div class="confirm-actions"><button class="btn ghost" id="x">取消</button><button class="btn primary" id="k">确认换绑</button></div></div>`);
   const s = sheet({ title: '换绑手机号', body: b });
   const $p = b.querySelector('#p');
@@ -458,12 +490,13 @@ function phoneBindSheet(parent) {
          只判 devCode 的话，这里既不会自动填码、也不会有任何提示，
          用户看到的就是「点了获取验证码没反应」——第 3 条报的就是这个。
          两个都要认，提示文案区分开：testCode 要明说这是测试码。 */
-      if (r?.testCode) {
-        $c.value = r.testCode;
-        toast(`测试码 ${r.testCode} 已填入（短信通道未配置，走测试通道）`, 'ok', 5500);
-      } else if (r?.devCode) {
-        $c.value = r.devCode;
-        toast(`演示环境验证码：${r.devCode}（已自动填入）`);
+      if (r?.testCode || r?.devCode || r?.code) {
+        const code = r.testCode || r.devCode || r.code;
+        $c.value = code;
+        /* 直接写在面板里，不用 toast：toast 三秒就没了，用户回头想再看一眼码没了 */
+        const tip = b.querySelector('#otp-tip');
+        if (tip) tip.innerHTML = `验证码 <b style="font-size:15px;letter-spacing:2px;color:var(--primary)">${esc(code)}</b> 已填入，5 分钟内有效。`;
+        toast('验证码已填入', 'ok', 3000);
       } else {
         toast(`验证码已发到 ${phone.slice(0, 3)}****${phone.slice(-4)}`);
       }
@@ -494,7 +527,10 @@ function phoneBindSheet(parent) {
     try {
       const r = await api.post('/auth/bind', { type: 'phone', phone, code });
       clearInterval(timer);
-      s.close(); parent?.close();
+      s.close();
+      /* 父面板（账号与绑定）也要关：它里面显示的还是旧号码，
+         留着会让人以为没换成。 */
+      try { if (parent && parent !== s) parent.close(); } catch {}
       const m = await import('./ui.js'); await m.loadMe();
       /* 服务端换完会把其他设备踢掉（保留本机）。这句要说出来，
          不然用户在别的设备上莫名其妙被登出，会以为是 bug。 */

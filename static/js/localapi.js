@@ -306,7 +306,16 @@ function tickReminders() {
   for (const r of T('reminders') || []) {
     if (r.status !== 'scheduled' || !r.fire_at) continue;
     if (Number(r.fire_at) > now + 1000) continue;
-    r.status = 'fired';
+    /* 【不能再把 status 改成 'fired'】
+       早先这里直接置 fired，而 GET /reminders 会先调 tickReminders 再返回列表，
+       于是前端 alarm.js 拿到的已经是 'fired'，它的 `status === 'scheduled'`
+       永远不成立 —— 弹层永远不出现。用户的体验就是「设了提醒，到点不提醒」。
+
+       现在改成：到点只推一条站内消息（消息中心能看到），
+       status 保持 scheduled，由前端弹层在用户点「知道了」时再 ack。
+       这样关掉页面再回来，没确认的提醒还会补弹一次，不会悄悄消失。 */
+    if (r.notified_at) continue;   // 同一条只推一次消息，避免每次 GET 都堆一条
+    r.notified_at = now;
     pushMessage({
       type: 'remind', title: r.title,
       body: r.body || ('提醒时间：' + String(r.due_at || '').replace('T', ' ')),
@@ -826,6 +835,55 @@ function parseClipboardTable(text) {
   return lines.map((l) => (l.includes('\t') ? l.split('\t') : l.split(/\s{2,}|,/)).map((s) => s.trim()));
 }
 
+/* ---------- 上传文件解码（第 26 条的真因就在这儿） ----------
+   【必须自己判编码】
+   formDataToObject 给过来的是 ArrayBuffer，原先直接 TextDecoder('utf-8') 解。
+   中文 Windows 的 Excel「另存为 CSV」默认是 GBK，UTF-8 强解出来是
+   「�հ�У��У��」这种乱码，接着 parseClipboardTable 一行都认不出，
+   detectStudents 抛 400 —— 用户看到的正是「点了导入没反应」。
+   所以：先看 BOM，再看 UTF-8 是否合法，不合法就退回 GBK。 */
+function decodeBytes(data) {
+  if (typeof data === 'string') return data;
+  const buf = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+  if (!buf || !buf.length) return '';
+  if (buf[0] === 0xFF && buf[1] === 0xFE) return new TextDecoder('utf-16le').decode(buf.subarray(2));
+  if (buf[0] === 0xFE && buf[1] === 0xFF) return new TextDecoder('utf-16be').decode(buf.subarray(2));
+  const off = (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) ? 3 : 0;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf.subarray(off));
+  } catch {
+    for (const enc of ['gb18030', 'big5']) {
+      try { return new TextDecoder(enc).decode(buf); } catch { /* 继续试下一个 */ }
+    }
+    return new TextDecoder('utf-8').decode(buf.subarray(off));
+  }
+}
+
+/* 真正的 CSV 解析：带引号的单元格里可能有逗号、换行、双写转义 ""
+   （「张三,（转学）」这种一拆就错位）。Tab 分隔的按 Tab 直切即可。 */
+function parseDelimited(text) {
+  const s = String(text).replace(/^\uFEFF/, '');
+  const tab = (s.match(/\t/g) || []).length;
+  const comma = (s.match(/,/g) || []).length;
+  const sep = tab > comma ? '\t' : (comma > 0 ? ',' : /\s{2,}/);
+  if (sep !== ',' && sep !== '\t') return parseClipboardTable(s);
+  const rows = []; let row = []; let cur = ''; let q = false;
+  for (let i = 0; i < s.length; i += 1) {
+    const ch = s[i];
+    if (q) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') { cur += '"'; i += 1; } else q = false;
+      } else cur += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === sep) { row.push(cur.trim()); cur = ''; }
+    else if (ch === '\n') { row.push(cur.trim()); rows.push(row); row = []; cur = ''; }
+    else if (ch === '\r') { /* 忽略 */ } else cur += ch;
+  }
+  row.push(cur.trim());
+  rows.push(row);
+  return rows.filter((r) => r.some((c) => c !== ''));
+}
+
 /* ============================ 点名 ============================ */
 function stuKey(s) {
   return String(s || '')
@@ -1297,12 +1355,59 @@ on('POST', '/auth/register', ({ body }) => {
   seedIfEmpty();
   return { user: publicUser(u), token: 'static', created: true };
 });
-on('POST', '/auth/otp', ({ body }) => ({ sent: true, code: '000000', demo: true, phone: body?.phone || '' }));
+/* 验证码（第 16 / 3 / 31 条）
+   用户明确说「不发短信」，而且静态版本来就没有短信通道。
+   但「换绑手机号」这个流程仍然要能走完，所以这里走「页面内验证码」：
+   生成一个真随机的 6 位码存在 meta.otp 里，5 分钟有效，
+   同时回给前端自动填入 —— 不是假装发短信，而是把「验证」这一步
+   真的做了（校验码对不对），只是投递渠道从短信换成了页面提示。
+
+   早先的坑：这里返回的字段名是 code，前端读的却是 testCode / devCode，
+   两边对不上，用户点了「获取验证码」什么反应都没有（第 3 条报的就是这个）。 */
+on('POST', '/auth/otp', ({ body }) => {
+  const phone = String(body?.phone || '').trim();
+  if (!/^1[3-9]\d{9}$/.test(phone)) fail(400, '请输入 11 位手机号');
+  const db = load();
+  db.meta = db.meta || {};
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  db.meta.otp = { phone, code, purpose: body?.purpose || 'bind', exp: Date.now() + 5 * 60000 };
+  save();
+  return {
+    sent: true, phone, code, demo: true,
+    /* 三个字段都给：前端不同版本读的名字不一样，全给上就不会再漏 */
+    testCode: code, devCode: code,
+    tip: '本站未接短信通道，验证码直接显示在这里',
+  };
+});
 on('POST', '/auth/logout', () => ({ ok: true }));
 on('POST', '/auth/forgot', () => fail(400, '静态版没有服务端密码，直接在「我的」里改昵称即可'));
 on('GET', '/auth/forgot/:phone', () => ({ exists: false }));
-on('POST', '/auth/bind', () => fail(400, '静态版不支持第三方账号绑定'));
-on('POST', '/auth/unbind', () => fail(400, '静态版不支持第三方账号绑定'));
+/* 换绑手机号：真的校验验证码，真的写进账号 */
+on('POST', '/auth/bind', ({ body }) => {
+  const type = body?.type || 'phone';
+  if (type !== 'phone') fail(400, '静态版只支持手机号，微信 / QQ 绑定需要服务端');
+  const phone = String(body?.phone || '').trim();
+  const code = String(body?.code || '').trim();
+  if (!/^1[3-9]\d{9}$/.test(phone)) fail(400, '请输入 11 位手机号');
+  const db = load();
+  const otp = db.meta?.otp;
+  if (!otp || otp.phone !== phone) fail(400, '请先点「获取验证码」');
+  if (Number(otp.exp) < Date.now()) fail(400, '验证码已过期，请重新获取');
+  if (String(otp.code) !== code) fail(400, '验证码不对，请核对后重填');
+  const u = currentUser();
+  u.phone = phone;
+  saveUser(u);
+  delete db.meta.otp;   // 用过就作废，防止同一个码重复换绑
+  save();
+  return { ok: true, user: publicUser(u), kicked: false };
+});
+on('POST', '/auth/unbind', ({ body }) => {
+  if ((body?.type || '') !== 'phone') fail(400, '静态版只支持手机号解绑');
+  const u = currentUser();
+  u.phone = '';
+  saveUser(u);
+  return { ok: true, user: publicUser(u) };
+});
 on('POST', '/auth/qr', () => fail(400, '静态版没有服务端，扫码登录不可用'));
 on('GET', '/auth/qr/:id', () => fail(400, '静态版没有服务端，扫码登录不可用'));
 on('GET', '/auth/qr/:id/peek', () => fail(400, '静态版没有服务端，扫码登录不可用'));
@@ -1997,14 +2102,17 @@ on('POST', '/attendance/commit', ({ body }) => commitAttendanceSheet(body));
 /* 学生名单识别：读 CSV / 文本，抽姓名 + 年级 + 班级 + 学号。
    静态版不能解析 .xlsx 二进制（需要额外解压库），所以提示用户另存为 CSV。 */
 function detectStudents(body) {
-  const mp = body?.multipart || {};
-  const file = (mp.files || []).find((f) => f.field === 'file') || (mp.files || [])[0];
+  /* core.js 的 formDataToObject 给的是扁平 { files, fields }，
+     早先这里写成 body.multipart.files，于是永远取不到文件，
+     一律报「没有收到文件」—— 用户的体验就是「点了导入没反应」。 */
+  const mp = body?.multipart || body || {};
+  const file = (mp.files || []).find((f) => f.field === 'file' || f.field === 'files') || (mp.files || [])[0];
   if (!file) fail(400, '没有收到文件');
-  const text = typeof file.data === 'string' ? file.data : new TextDecoder('utf-8').decode(file.data);
-  if (/\.xlsx?$/i.test(file.filename || '')) {
-    fail(400, '静态版无法直接读 Excel，请在 Excel / WPS 里「另存为 CSV」后再导入');
+  const text = decodeBytes(file.data);
+  if (/\.xlsx?m?$/i.test(file.filename || '')) {
+    fail(400, '这是 Excel 文件，浏览器里打不开它。请在 Excel / WPS 里「另存为 → CSV」，再把 CSV 拖进来');
   }
-  const grid = parseClipboardTable(text);
+  const grid = parseDelimited(text);
   if (!grid.length) fail(400, '文件是空的');
   const HEAD_NAME = /^(姓名|名字|学生|学生姓名|name)$/i;
   const HEAD_GRADE = /^(年级|级部|grade)$/i;
@@ -2050,12 +2158,14 @@ function detectStudents(body) {
 
 /* 考勤表识别：同样只支持 CSV / 文本。第一行是表头，第一列是姓名。 */
 function detectAttendanceSheet(body) {
-  const mp = body?.multipart || {};
-  const file = (mp.files || []).find((f) => f.field === 'file') || (mp.files || [])[0];
+  /* core.js 的 formDataToObject 给的是扁平 { files, fields }，
+     早先这里写成 body.multipart.files，于是永远取不到文件，
+     一律报「没有收到文件」—— 用户的体验就是「点了导入没反应」。 */
+  const mp = body?.multipart || body || {};
+  const file = (mp.files || []).find((f) => f.field === 'file' || f.field === 'files') || (mp.files || [])[0];
   if (!file) fail(400, '没有收到文件');
-  if (/\.xlsx?$/i.test(file.filename || '')) fail(400, '静态版无法直接读 Excel，请另存为 CSV 后再导入');
-  const text = typeof file.data === 'string' ? file.data : new TextDecoder('utf-8').decode(file.data);
-  const grid = parseClipboardTable(text).filter((r) => r && r.some((c) => String(c ?? '').trim()));
+  const text = decodeBytes(file.data);
+  const grid = parseDelimited(text).filter((r) => r && r.some((c) => String(c ?? '').trim()));
   if (!grid.length) return { ok: false, reason: '文件是空的', filename: file.filename, sheets: [] };
   const header = grid[0].map((c) => String(c ?? '').trim());
   const nameIdx = header.findIndex((h) => /姓名|名字|老师|教师/.test(h));

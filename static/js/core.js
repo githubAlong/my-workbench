@@ -237,6 +237,14 @@ export function toast(msg, type = 'ok', ms = 2400) {
 }
 
 /* ---------- 弹层：底部抽屉（移动）/居中弹窗（桌面） ---------- */
+/* 弹层层级自增。
+   【为什么需要它】所有弹层原本共用 .sheet-mask 的同一个 z-index，
+   叠两层时（比如「头像」面板里点「移除头像」弹出确认框），
+   后弹的确认框并不保证压在上面 —— 用户看到确认框出现了，
+   但点「移除」点在的是下面那层的遮罩上，事件被吃掉，
+   表现就是「点了确认没反应」（第 2 条）。
+   改成每开一层 +1，永远保证最后打开的在最上面。 */
+let zBase = 200;
 export function sheet({ title = '', body = '', footer = '', wide = false, onMount, onClose, cls = '' }) {
   const wrap = el(`<div class="sheet-mask">
     <div class="sheet ${wide ? 'sheet-wide' : ''} ${cls}">
@@ -248,6 +256,7 @@ export function sheet({ title = '', body = '', footer = '', wide = false, onMoun
       ${footer ? '<div class="sheet-foot"></div>' : ''}
     </div>
   </div>`);
+  wrap.style.zIndex = String(++zBase);
   const bodyEl = wrap.querySelector('.sheet-body');
   if (typeof body === 'string') bodyEl.innerHTML = body; else if (body) bodyEl.appendChild(body);
   if (footer) { const f = wrap.querySelector('.sheet-foot'); if (typeof footer === 'string') f.innerHTML = footer; else f.appendChild(footer); }
@@ -258,7 +267,13 @@ export function sheet({ title = '', body = '', footer = '', wide = false, onMoun
   const close = () => {
     if (closed) return; closed = true;
     if (onKey) document.removeEventListener('keydown', onKey);
-    wrap.classList.remove('in'); setTimeout(() => wrap.remove(), 220); onClose?.();
+    wrap.classList.remove('in');
+    setTimeout(() => {
+      wrap.remove();
+      /* 全部关掉后把层级归位，避免长时间使用后 z-index 越滚越大 */
+      if (!document.querySelector('.sheet-mask')) zBase = 200;
+    }, 220);
+    onClose?.();
   };
   // Esc 关闭：桌面上点 X 离手太远，键盘用户也指望这个键。
   // 只在「最上层」弹层响应，避免嵌套弹层一按 Esc 全关。

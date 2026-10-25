@@ -678,7 +678,18 @@ async function renderTimetable(box) {
         <thead><tr><th style="width:96px">节次</th>${wd.map((d) => `<th>周${WD_SHORT[d]}</th>`).join('')}</tr></thead>
         <tbody>${Array.from({ length: maxP }, (_, i) => i + 1).map((p) => {
           const per = periods.find((x) => Number(x.period_no) === p);
-          return `<tr><td><b>第${p}节</b><div class="tiny muted mono">${per ? per.start_time + '-' + per.end_time : '未设置'}</div></td>
+          /* 【第 40 条：课表中间没有午休】
+             老师看课表的习惯是「上午四节 → 午休 → 下午四节」，
+             真实贴在墙上的课表中间一定有一条「午休」。
+             这里按节次时间的空隙自动判断：
+               上一节结束到这一节开始，跨过了 12:00 且间隔 ≥ 40 分钟 → 就是午休。
+             不去读「午休」这种行，是因为节次表里根本没存它；
+             按时间算出来的，改了节次时间也自动跟着对。 */
+          const prev = periods.find((x) => Number(x.period_no) === p - 1);
+          const lunch = lunchGap(prev, per);
+          const lunchRow = lunch ? `<tr class="tt-lunch">
+            <td colspan="${wd.length + 1}">🍚 午休 ${lunch}</td></tr>` : '';
+          return `${lunchRow}<tr><td><b>第${p}节</b><div class="tiny muted mono">${per ? per.start_time + '-' + per.end_time : '未设置'}</div></td>
             ${wd.map((d) => {
               const c = get(d, p);
               return `<td data-cell="${d}-${p}" style="cursor:pointer;min-width:104px;height:52px;background:${c ? colorBg(c.class_name) : 'transparent'}">
@@ -706,6 +717,24 @@ async function renderTimetable(box) {
   };
   await load();
 }
+/* 判断两节课之间是不是午休。
+   条件：后一节在 12:00 之后开始、前一节在 13:30 之前结束、中间空 ≥40 分钟。
+   返回 "12:00-14:10" 这样的时间段，不是午休返回空串。
+   注意：前 4 节常见的 11:20 下、14:00 上 → 间隔 160 分钟，命中。 */
+function lunchGap(prev, next) {
+  if (!prev || !next) return '';
+  const toMin = (t) => {
+    const m = String(t || '').match(/^(\d{1,2}):(\d{2})/);
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  };
+  const a = toMin(prev.end_time); const b = toMin(next.start_time);
+  if (a == null || b == null || b <= a) return '';
+  if (b < 12 * 60) return '';          // 后一节在中午前，不是午休
+  if (a > 13 * 60 + 30) return '';     // 前一节在 13:30 后才下课，不是午休
+  if (b - a < 40) return '';           // 只隔 10 分钟是课间，不是午休
+  return `${prev.end_time}-${next.start_time}`;
+}
+
 function colorBg(name) {
   const c = ['#eef4ff', '#f3eeff', '#e6f7f7', '#fff6e5', '#ffeef6', '#eef0ff'][(String(name).length + String(name).charCodeAt(1) || 1) % 6];
   return c;
@@ -2008,7 +2037,16 @@ function studentUrl(code) {
     if (v) keep.set(k, v);
   }
   const q = keep.toString();
-  return `${location.origin}/s/${code}${q ? '?' + q : ''}`;
+  /* 【第 15 条：学生短链显示的是长链 / 打不开】
+     根子上是两点：
+     ① 直拼 `${location.origin}/s/xxx`，丢掉了部署子路径。
+        本站托管在 GitHub Pages 的 /my-workbench/ 下，
+        拼出来的 .../s/abc 是 404 —— 老师发到群里，学生一律打不开。
+     ② 界面上应该显示「/s/abc」这种一眼能看懂的短链，
+        完整地址只在「点开 / 复制」时才给。
+     所以这里按「当前页面所在目录」拼，子路径自动带上。 */
+  const base = location.pathname.replace(/[^/]*$/, '');
+  return `${location.origin}${base}s/${code}${q ? '?' + q : ''}`;
 }
 
 /* 屏幕上只显示路径部分。
@@ -2092,6 +2130,160 @@ function applyRollStats(sessions) {
   }
   const tag = document.querySelector('#roll-live');
   if (tag) tag.hidden = !live;
+}
+
+/* ================= 抽人（第 19 条） =================
+   用户原话：「抽人改成自己填班级 + 人数 + 抽几个，按号码抽」。
+
+   原来的问题是：抽人绑死在「班级名册」上，没有名册就抽不了；
+   而且抽出来的是姓名，课堂上点名不方便 —— 老师喊的是「3 号」，
+   学生看的是自己座位号 / 学号。
+
+   所以这里完全按用户说的做：
+     · 班级随便填（有名册就下拉选，没有就直接打字）；
+     · 人数自己填（40 人），不需要提前导入名单；
+     · 抽几个自己填（1~N）；
+     · 按 1~人数 的号码抽，结果同时显示号码和姓名（名册里有对应就叫名字）。
+   号码和名册的对应关系：名册第 k 个 = k 号。这样不用额外维护学号字段，
+   名册顺序就是座位号顺序，跟老师手里的点名册一致。 */
+function paintPickCard(rosters) {
+  return `<div class="card card-pad pick-card">
+    <div class="row wrap" style="gap:10px;align-items:center">
+      <div style="flex:1;min-width:180px">
+        <div class="bold">${icon('user', 15)} 抽人
+          <span class="tiny muted" style="margin-left:6px">按号码抽，不重复</span></div>
+        <div class="small muted">填班级和人数，选抽几个，点一下就抽。</div>
+      </div>
+      <button class="btn primary sm" id="pick-open">${icon('refresh', 15)} 开始抽</button>
+    </div>
+  </div>`;
+}
+
+function pickStudentDialog(rosters) {
+  const body = el(`<div class="sheet-body">
+    <div class="form-grid">
+      <div class="field"><label class="field-label">班级</label>
+        <input class="input" id="pk-cls" list="pk-cls-list" placeholder="如：高二(3)班" value="${esc(rosters[0] ? clsName(rosters[0].grade, rosters[0].class_name) : '')}">
+        <datalist id="pk-cls-list">${rosters.map((r) => `<option>${esc(clsName(r.grade, r.class_name))}</option>`).join('')}</datalist></div>
+      <div class="field"><label class="field-label">总人数</label>
+        <input class="input" id="pk-total" type="number" min="1" max="200" value="${esc(String(rosters[0]?.count || 40))}" inputmode="numeric"></div>
+    </div>
+    <div class="form-grid">
+      <div class="field"><label class="field-label">抽几个</label>
+        <input class="input" id="pk-n" type="number" min="1" max="50" value="1" inputmode="numeric"></div>
+      <div class="field"><label class="field-label">已抽过的</label>
+        <div class="row" style="gap:8px;align-items:center;height:38px">
+          <label class="row" style="gap:6px;align-items:center;font-size:13px">
+            <input type="checkbox" id="pk-norepeat" checked> 不重复抽
+          </label>
+          <button class="btn ghost sm" id="pk-reset" style="margin-left:auto">重置</button>
+        </div></div>
+    </div>
+    <div class="pk-stage" id="pk-stage">
+      <div class="pk-hint">点下面的按钮开始</div>
+    </div>
+    <div class="pk-history-wrap">
+      <div class="tiny muted" id="pk-his-tip">这轮还没抽</div>
+      <div class="row wrap" id="pk-history" style="gap:6px;margin-top:6px"></div>
+    </div>
+    <div class="confirm-actions"><button class="btn ghost" id="pk-close">关闭</button>
+      <button class="btn primary" id="pk-go">${icon('refresh', 15)} 抽</button></div>
+  </div>`);
+  const s = sheet({ title: '抽人', body, wide: true });
+  const $ = (q) => body.querySelector(q);
+  const stage = $('#pk-stage');
+  const drawn = [];        // 已抽出的号码（跨次累积，用于「不重复」）
+
+  /* 名册：班级名对上就取名字，对不上就只显示号码。
+     优先精确匹配「高二(3)班」，其次按 grade+class_name 拼出来的名字匹配。 */
+  const namesFor = (cls) => {
+    const hit = rosters.find((r) => clsName(r.grade, r.class_name) === cls) || rosters.find((r) => r.class_name === cls);
+    return Array.isArray(hit?.names) ? hit.names : [];
+  };
+  const totalOf = () => {
+    const n = Number($('#pk-total').value);
+    return Number.isFinite(n) && n > 0 ? Math.min(200, Math.floor(n)) : 0;
+  };
+
+  /* 选班级时自动带出人数：名册里有 count 就用它，省得用户再数一遍 */
+  $('#pk-cls').onchange = () => {
+    const names = namesFor($('#pk-cls').value);
+    if (names.length) $('#pk-total').value = String(names.length);
+  };
+
+  const paintHis = () => {
+    const names = namesFor($('#pk-cls').value);
+    $('#pk-his-tip').textContent = drawn.length ? `这轮已抽 ${drawn.length} 个` : '这轮还没抽';
+    $('#pk-history').innerHTML = drawn.map((no, i) => `<span class="pk-chip">
+      <b>${no}</b>${names[no - 1] ? `<i>${esc(names[no - 1])}</i>` : ''}
+      <button data-un="${i}" title="撤销这个">×</button></span>`).join('');
+    $('#pk-history').querySelectorAll('[data-un]').forEach((b) => {
+      b.onclick = () => { drawn.splice(Number(b.dataset.un), 1); paintHis(); };
+    });
+  };
+
+  /* 抽签：从 1..total 里排除已抽过的，用 crypto 取随机数。
+     不用 Math.random 是因为它的种子可预测，连着抽会出现明显规律；
+     课堂上「怎么又是 3 号」是要被学生起哄的。 */
+  const randInt = (max) => {
+    if (window.crypto?.getRandomValues) {
+      const a = new Uint32Array(1);
+      const lim = Math.floor(0xFFFFFFFF / max) * max;
+      let v = 0;
+      do { window.crypto.getRandomValues(a); v = a[0]; } while (v >= lim);
+      return v % max;
+    }
+    return Math.floor(Math.random() * max);
+  };
+
+  const go = async () => {
+    const total = totalOf();
+    const want = Math.max(1, Math.min(50, Number($('#pk-n').value) || 1));
+    if (!total) return toast('先填总人数', 'warn');
+    const noRepeat = $('#pk-norepeat').checked;
+    const pool = [];
+    for (let i = 1; i <= total; i += 1) if (!noRepeat || !drawn.includes(i)) pool.push(i);
+    if (!pool.length) {
+      stage.innerHTML = `<div class="pk-hint pk-done">1~${total} 号都抽完了，点「重置」重新开始</div>`;
+      return;
+    }
+    const pickCount = Math.min(want, pool.length);
+    const picked = [];
+    for (let i = 0; i < pickCount; i += 1) {
+      const k = randInt(pool.length);
+      picked.push(pool[k]);
+      pool.splice(k, 1);       // 同一次里也不重复
+    }
+    /* 滚动动画：号码快速跳 600ms 再定格。
+       不是为了炫，是为了「抽」这个动作有过程感 —— 直接出结果像内定的。 */
+    stage.innerHTML = `<div class="pk-roll"><span id="pk-roll-num">?</span></div>`;
+    const spin = $('#pk-roll-num');
+    const t0 = Date.now();
+    const timer = setInterval(() => {
+      spin.textContent = String(1 + randInt(total));
+    }, 55);
+    await new Promise((r) => setTimeout(r, 620));
+    clearInterval(timer);
+    void t0;
+    const names = namesFor($('#pk-cls').value);
+    stage.innerHTML = `<div class="pk-result">
+      ${picked.map((no) => `<div class="pk-one">
+        <span class="pk-no">${no}</span>
+        <span class="pk-name">${names[no - 1] ? esc(names[no - 1]) : '<i class="muted">未在名册</i>'}</span>
+      </div>`).join('')}
+    </div>`;
+    picked.forEach((no) => { if (!drawn.includes(no)) drawn.push(no); });
+    paintHis();
+  };
+
+  $('#pk-go').onclick = go;
+  $('#pk-reset').onclick = () => {
+    drawn.length = 0;
+    stage.innerHTML = '<div class="pk-hint">点下面的按钮开始</div>';
+    paintHis();
+  };
+  $('#pk-close').onclick = s.close;
+  paintHis();
 }
 
 /* 惩罚盲盒：学生抽到什么，这里能看到；任务清单也在这里维护 */
@@ -2306,6 +2498,8 @@ async function renderMaterials(box) {
 
       ${paintRollCard(rollSess, rosters)}
 
+      ${paintPickCard(rosters)}
+
       ${paintPunishCard(punishes, punRecs)}
 
       <div class="row wrap" style="gap:8px;margin-bottom:12px">
@@ -2367,6 +2561,9 @@ async function renderMaterials(box) {
         toast('已结束签到'); load();
       };
     });
+    /* —— 抽人 —— */
+    box.querySelector('#pick-open')?.addEventListener('click', () => pickStudentDialog(rosters));
+
     /* —— 惩罚盲盒 —— */
     box.querySelector('#pb-add')?.addEventListener('click', () => punishEditor(null, load));
     box.querySelectorAll('[data-pb-edit]').forEach((b) => {
