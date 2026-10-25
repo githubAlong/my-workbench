@@ -2,6 +2,7 @@ import { api, el, esc, clsName, startPoll, toast, sheet, saving, confirmDialog, 
 import { printStatement } from './pdfprint.js';
 import { registerView, state, icon, go, pageHead, tabsBar, bindTabs, WORK_TABS, onViewLeave } from './ui.js';
 import { renderAttendance } from './attendance.js';
+import { detectTimetable } from './ttimage.js';
 
 const M = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 /* 备注字段统一生成器。
@@ -662,6 +663,7 @@ async function renderTimetable(box) {
     box.innerHTML = `
       <div class="row wrap" style="margin-bottom:12px">
         <button class="btn primary sm" id="add-course">${icon('plus', 15)} 添加课程</button>
+        <button class="btn ghost sm" id="import-tt">${icon('download', 15)} 导入课表</button>
         <button class="btn ghost sm" id="edit-periods">编辑节次时间</button>
         <button class="btn ghost sm" id="print-tt">${icon('download', 15)} 打印/导出课表</button>
         <span style="flex:1"></span>
@@ -689,6 +691,7 @@ async function renderTimetable(box) {
       };
     });
     box.querySelector('#add-course').onclick = () => courseEditor(null, load);
+    box.querySelector('#import-tt').onclick = () => importTimetableDialog(load);
     box.querySelector('#edit-periods').onclick = () => periodEditor(periods, load);
     box.querySelector('#print-tt').onclick = async () => {
       const w = window.open('', '_blank');
@@ -702,6 +705,439 @@ function colorBg(name) {
   const c = ['#eef4ff', '#f3eeff', '#e6f7f7', '#fff6e5', '#ffeef6', '#eef0ff'][(String(name).length + String(name).charCodeAt(1) || 1) % 6];
   return c;
 }
+/* ================= 课表批量导入 ================= */
+/* 【为什么要做这个】
+   教务处给的是图片或者一张表，在格子里手工点 13~20 次太累，还容易点错行。
+   这里支持两种最贴近真实的输入：
+     1) 直接粘贴表格文本（从 Excel/WPS 复制出来就是这种，Tab 分隔）
+     2) 粘贴 JSON（工作台自己导出的格式，换设备时用）
+
+   解析规则按老师手里真实的表来设计：
+     - 表头第一格是「节次」，后面是「星期一…星期日」；
+     - 第一列是节次（1 / 第1节 / 第一节 都认）；
+     - 第二列如果是时间（8:00-8:40），当成节次时间读，不是就当班级；
+     - 「午休」「中午」这类合并行整行跳过；
+     - 单元格里「11班」「高一(11)班」都行。 */
+function parseWeekday(s) {
+  const t = String(s || '').trim();
+  const m = t.match(/[周星期]\s*([一二三四五六日天1-7])/);
+  if (!m) return 0;
+  const map = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7 };
+  return map[m[1]] || 0;
+}
+function parsePeriodNo(s) {
+  const t = String(s || '').trim();
+  if (!t) return 0;
+  const late = { 晚一: 10, 晚二: 11, 晚三: 12, 晚四: 13 };
+  for (const [k, v] of Object.entries(late)) if (t.startsWith(k)) return v;
+  const m = t.match(/(\d{1,2})/);
+  if (m) return Number(m[1]);
+  const cn = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+  const m2 = t.match(/第?([一二三四五六七八九十])/);
+  return m2 ? (cn[m2[1]] || 0) : 0;
+}
+function parseTimeRange(s) {
+  const m = String(s || '').match(/(\d{1,2})[:：](\d{2})\s*[-–—~至]\s*(\d{1,2})[:：](\d{2})/);
+  if (!m) return null;
+  const p = (h, mi) => String(h).padStart(2, '0') + ':' + mi;
+  return [p(m[1], m[2]), p(m[3], m[4])];
+}
+
+function parseTimetableText(text) {
+  const lines = String(text || '').split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) return { courses: [], periods: [], errors: ['没有内容'] };
+
+  const courses = [];
+  const periods = [];
+  const errors = [];
+  let headerDays = null;   // 表头每一列对应星期几
+
+  for (const line of lines) {
+    const cells = line.split('\t').map((c) => c.trim());
+    const joined = cells.join('');
+
+    if (!headerDays && /节次/.test(joined) && /周[一二三四五六日天]|星期/.test(joined)) {
+      headerDays = cells.map(parseWeekday);
+      continue;
+    }
+    if (/^(午休|中午|休息|课间|备注|合计)/.test(cells[0]) && cells.filter(Boolean).length <= 2) continue;
+
+    const pn = parsePeriodNo(cells[0]);
+    if (!pn) continue;
+
+    let colStart = 1;
+    const tr = parseTimeRange(cells[1]);
+    if (tr) { periods.push({ period_no: pn, start_time: tr[0], end_time: tr[1] }); colStart = 2; }
+
+    const dayCols = headerDays || [0, 1, 2, 3, 4, 5, 6, 7];
+    for (let i = colStart; i < cells.length; i++) {
+      const v = cells[i];
+      if (!v || v === '—' || v === '-' || v === '/') continue;
+      const wd = dayCols[i] ?? 0;
+      if (!wd) continue;
+      courses.push({ weekday: wd, period_no: pn, class_name: v });
+    }
+  }
+
+  if (!courses.length) errors.push('没解析出课程，请检查第一列是不是节次、第一行是不是星期');
+  return { courses, periods, errors };
+}
+
+/* ============ 导入课表：图片识别 / 粘贴表格 / 节次时间 ============ */
+/* 三个页签是一条流水线的三种来源，最终都落到同一份 courses 上：
+     图片：切开网格 → 找出有课的格子 → 人工确认班号
+     表格：粘贴 Excel 文本 → 解析
+     节次：单独维护上课时间 */
+async function importTimetableDialog(reload) {
+  let tab = 'image';
+  let imgResult = null;   // detectTimetable 的返回值
+  let imgURL = '';
+  let assign = [];        // [{weekday, period, class_name}]
+
+  const body = el(`<div class="sheet-body">
+    <div class="row" style="gap:6px;margin-bottom:12px" id="tt-tabs">
+      <button class="btn primary sm" data-t="image">① 传课表图片</button>
+      <button class="btn ghost sm" data-t="text">② 粘贴表格</button>
+      <button class="btn ghost sm" data-t="period">③ 节次时间</button>
+    </div>
+    <div id="tt-pane"></div>
+    <div class="confirm-actions">
+      <button class="btn ghost" id="tt-cancel">关闭</button>
+      <button class="btn primary" id="tt-ok">导入到课表</button>
+    </div></div>`);
+  const s = sheet({ title: '导入课表', body, wide: true });
+  const pane = body.querySelector('#tt-pane');
+  const okBtn = body.querySelector('#tt-ok');
+  body.querySelector('#tt-cancel').onclick = s.close;
+
+  const setTab = (t) => {
+    tab = t;
+    body.querySelectorAll('#tt-tabs button').forEach((b) => {
+      b.className = b.dataset.t === t ? 'btn primary sm' : 'btn ghost sm';
+    });
+    okBtn.style.display = t === 'period' ? 'none' : '';
+    paint();
+  };
+
+  /* ---------- 图片页 ---------- */
+  const paintImage = () => {
+    pane.innerHTML = `
+      <div class="small muted" style="line-height:1.8;margin-bottom:10px">
+        把课表截图（或拍照）传上来，我会自动切出表格、找出<b>有课的格子</b>，
+        再把格子里的<b>班号数字</b>读出来。<br>
+        全程在你自己的浏览器里算，图片不外传。少数认不准的格子会标成橙色，填个班号就行。
+      </div>
+      <div class="row wrap" style="gap:8px;align-items:center">
+        <label class="btn primary sm" style="cursor:pointer">
+          ${icon('download', 15)} 选择图片
+          <input type="file" id="tt-file" accept="image/*" style="display:none">
+        </label>
+        <span class="tiny muted" id="tt-hint">支持截图、拍照，斜着拍的也能试</span>
+      </div>
+      <div id="tt-work" style="margin-top:12px"></div>`;
+    const file = pane.querySelector('#tt-file');
+    file.onchange = async () => {
+      const f = file.files && file.files[0];
+      if (!f) return;
+      const work = pane.querySelector('#tt-work');
+      work.innerHTML = '<div class="small muted">识别中…</div>';
+      if (imgURL) URL.revokeObjectURL(imgURL);
+      imgURL = URL.createObjectURL(f);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          imgResult = detectTimetable(img);
+        } catch (e) {
+          work.innerHTML = `<div class="small" style="color:var(--red)">识别失败：${esc(e.message)}</div>`;
+          return;
+        }
+        if (!imgResult.ok) {
+          work.innerHTML = `<div class="small" style="color:var(--red)">${esc(imgResult.reason)}</div>`;
+          return;
+        }
+        /* 班号：优先用图片里认出来的数字（16×16 位图模板匹配）。
+           认不出的那几格**留空**，不填任何字。
+           早先这里填的是顺序号 String(autoNo)，结果 14 班那格显示成「12」——
+           顺序号长得跟真班号一模一样，老师扫一眼只会看「需核对」三个小字，
+           多半直接点确认，错班就进课表了。留空反而最安全：空着就必须填。 */
+        assign = imgResult.cells.map((c) => {
+          const guess = c.classGuess || '';
+          return {
+            weekday: c.weekday,
+            period: c.periodGuess,
+            class_name: guess,
+            row: c.row, col: c.col,
+            guessed: !!guess,          // true = 是认出来的，不是顺序填的
+            confidence: c.classConfidence || 0,
+          };
+        });
+        paintImagePreview(work);
+      };
+      img.onerror = () => { work.innerHTML = '<div class="small" style="color:var(--red)">图片打不开，换一张试试</div>'; };
+      img.src = imgURL;
+    };
+  };
+
+  const paintImagePreview = (work) => {
+    const R = imgResult;
+    const scale = Math.min(1, 620 / R.w);
+    /* 认出来的格子用紫色实框，没认出来的用橙色虚线框 —— 一眼看出哪些要核对 */
+    const marks = R.cells.map((c) => {
+      const b = c.box;
+      const sure = !!c.classGuess;
+      return `<rect x="${b.x * scale}" y="${b.y * scale}" width="${b.w * scale}" height="${b.h * scale}"
+        fill="${sure ? 'rgba(124,92,255,.22)' : 'rgba(245,158,11,.20)'}"
+        stroke="${sure ? '#7C5CFF' : '#F59E0B'}" stroke-width="1"
+        ${sure ? '' : 'stroke-dasharray="3 2"'}/>`;
+    }).join('');
+    const nSure = R.cells.filter((c) => c.classGuess).length;
+    const nUnsure = R.cells.length - nSure;
+    work.innerHTML = `
+      <div class="small" style="margin-bottom:8px;line-height:1.8">
+        切出 <b>${R.rows}</b> 行 × <b>${R.cols}</b> 列，其中 <b>${R.cells.length}</b> 格有课。<br>
+        <span style="color:var(--green)">紫色实框 ${nSure} 格：班号已从图里认出来</span>${nUnsure ? `　<span style="color:#B45309">橙色虚框 ${nUnsure} 格：没认出来，班号空着，请你填</span>` : ''}
+      </div>
+      <div style="position:relative;display:inline-block;max-width:100%">
+        <img src="${imgURL}" style="max-width:${Math.round(R.w * scale)}px;display:block;border-radius:8px">
+        <svg style="position:absolute;left:0;top:0;width:${Math.round(R.w * scale)}px;height:${Math.round(R.h * scale)}px;pointer-events:none"
+          viewBox="0 0 ${R.w * scale} ${R.h * scale}">${marks}</svg>
+      </div>
+      <div class="table-wrap" style="margin-top:12px;max-height:280px;overflow:auto">
+        <table class="tbl" style="min-width:0">
+          <thead><tr><th>星期</th><th>第几节</th><th>班级（可改）</th><th></th></tr></thead>
+          <tbody>${assign.map((a, i) => `<tr data-i="${i}"${a.guessed ? '' : ' style="background:rgba(245,158,11,.08)"'}>
+            <td><select class="cell-input" data-k="weekday">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<option value="${d}" ${a.weekday === d ? 'selected' : ''}>周${WD_SHORT[d]}</option>`).join('')}</select></td>
+            <td><input class="cell-input mono" data-k="period" type="number" min="1" max="14" value="${a.period}" style="width:64px"></td>
+            <td><div class="row" style="gap:6px;align-items:center">
+              <input class="cell-input" data-k="class_name" value="${esc(a.class_name)}"
+                placeholder="${a.guessed ? '' : '填写班号'}"
+                style="width:88px;${a.guessed ? '' : 'border-color:#F59E0B;background:#FFF7ED'}"
+                title="${a.guessed ? '从图片识别' : '这一格没认出来，请填班号'}">
+              ${a.guessed ? '' : '<span class="tiny" style="color:#B45309;white-space:nowrap;font-weight:600">待填</span>'}
+            </div></td>
+            <td><button class="icon-btn sm" data-del="1">${icon('close', 14)}</button></td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:8px;gap:8px">
+        <button class="btn ghost sm" id="tt-fill">空着的按 1,2,3… 填</button>
+        <button class="btn ghost sm" id="tt-rows">按行号当节次</button>
+      </div>
+      <div class="tiny muted" style="margin-top:8px">
+        改完直接点右下角「导入到课表」。格子认错了可以删掉那一行。<br>
+        班号是从图里的数字认出来的（不用联网）。<b style="color:#B45309">橙色的行是没认出来的，班号空着，必须填上才能导入</b>。
+      </div>`;
+    work.querySelectorAll('[data-k]').forEach((inp) => {
+      inp.oninput = inp.onchange = () => {
+        const tr = inp.closest('tr');
+        const i = Number(tr.dataset.i);
+        const k = inp.dataset.k;
+        assign[i][k] = k === 'weekday' || k === 'period' ? Number(inp.value) : inp.value;
+      };
+    });
+    work.querySelectorAll('[data-del]').forEach((b) => {
+      b.onclick = () => {
+        const i = Number(b.closest('tr').dataset.i);
+        assign.splice(i, 1);
+        paintImagePreview(work);
+      };
+    });
+    work.querySelector('#tt-fill').onclick = () => {
+      /* 手动把空着的行填成 1,2,3…：只在「图里一个数字都没认出来、只能靠顺序」时才用得上。
+         它填的是序号，不是真班号 —— 所以填完 guessed 仍是 false（行还是橙的），
+         提醒老师这些值不是从图上认出来的，得自己核一遍。 */
+      let k = 0;
+      assign.forEach((a) => {
+        k++;
+        if (String(a.class_name || '').trim()) return;   // 已认出来的不动
+        a.class_name = String(k);
+      });
+      paintImagePreview(work);
+    };
+    work.querySelector('#tt-rows').onclick = () => {
+      // 按格子在原图里所在的行重新推节次（表头下方第几行 = 第几节）
+      const base = R.headerRow >= 0 ? R.headerRow + 1 : 0;
+      assign.forEach((a) => { a.period = a.row - base + 1; });
+      paintImagePreview(work);
+    };
+  };
+
+  /* ---------- 粘贴表格页 ---------- */
+  const paintText = () => {
+    pane.innerHTML = `
+      <div class="small muted" style="line-height:1.8;margin-bottom:10px">
+        从 Excel / WPS 选中整个课表区域（含表头和星期）→ 复制 → 粘到下面。<br>
+        也可以粘贴 JSON（换设备时用）。
+      </div>
+      <textarea id="tt-src" class="cell-input" rows="10" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.6"
+        placeholder="节次	时间	星期一	星期二	星期三&#10;1	8:00-8:40		11班&#10;3	10:00-10:40	5班	"></textarea>
+      <div id="tt-preview" class="small" style="margin-top:10px"></div>`;
+    const src = pane.querySelector('#tt-src');
+    const preview = pane.querySelector('#tt-preview');
+    src.oninput = () => {
+      const t = src.value;
+      if (!t.trim()) { preview.innerHTML = ''; return; }
+      const r = parseTimetableAny(t);
+      if (r.errors.length) preview.innerHTML = `<div style="color:var(--red)">${r.errors.map(esc).join('<br>')}</div>`;
+      else {
+        const byDay = {};
+        for (const c of r.courses) byDay[c.weekday] = (byDay[c.weekday] || 0) + 1;
+        preview.innerHTML = `<div style="color:var(--green)">识别到 <b>${r.courses.length}</b> 节课`
+          + `${r.periods.length ? `、<b>${r.periods.length}</b> 个节次时间` : ''}（`
+          + Object.keys(byDay).sort().map((d) => `周${WD_SHORT[d]} ${byDay[d]}`).join('，') + '）</div>';
+      }
+    };
+  };
+
+  /* ---------- 节次时间页 ---------- */
+  const paintPeriod = () => {
+    const rows = PERIOD_PRESET;
+    pane.innerHTML = `
+      <div class="small muted" style="line-height:1.8;margin-bottom:10px">
+        课表上那一列「时间」照抄到这里。以后「今日课程」「上课提醒」都按这个算。
+      </div>
+      <div class="table-wrap"><table class="tbl" style="min-width:0">
+        <thead><tr><th>节次</th><th>开始</th><th>结束</th></tr></thead>
+        <tbody>${rows.map((r, i) => `<tr><td><b>${r[0]}</b></td>
+          <td><input class="cell-input mono" data-p="${i}" data-k="s" type="time" value="${r[1]}"></td>
+          <td><input class="cell-input mono" data-p="${i}" data-k="e" type="time" value="${r[2]}"></td>
+        </tr>`).join('')}</tbody></table></div>
+      <div class="row" style="margin-top:10px"><button class="btn primary sm" id="tt-savep">保存节次时间</button></div>`;
+    pane.querySelector('#tt-savep').onclick = async () => {
+      const exist = await api.get('/periods');
+      let n = 0;
+      for (const r of rows) {
+        const sEl = pane.querySelector(`input[data-p="${rows.indexOf(r)}"][data-k="s"]`);
+        const eEl = pane.querySelector(`input[data-p="${rows.indexOf(r)}"][data-k="e"]`);
+        if (!sEl.value || !eEl.value) continue;
+        const hit = exist.find((x) => Number(x.period_no) === Number(r[0]));
+        const payload = { period_no: Number(r[0]), name: r[3] || `第${r[0]}节`, start_time: sEl.value, end_time: eEl.value };
+        if (hit) await api.patch('/periods/' + hit.id, payload).catch(() => {});
+        else await api.post('/periods', payload).catch(() => {});
+        n += 1;
+      }
+      toast(`已保存 ${n} 个节次时间`);
+    };
+  };
+
+  const paint = () => {
+    if (tab === 'image') paintImage();
+    else if (tab === 'text') paintText();
+    else paintPeriod();
+  };
+
+  body.querySelectorAll('#tt-tabs button').forEach((b) => { b.onclick = () => setTab(b.dataset.t); });
+
+  /* ---------- 导入 ---------- */
+  saving(okBtn, async () => {
+    let list = [];
+    if (tab === 'image') {
+      if (!assign.length) { toast('先传一张课表图片', 'err'); return; }
+      /* 【空班号必须拦住，不能悄悄过滤】
+         图片里认不出的格子班号是空的。这里如果直接 filter 掉，那节课会**无声消失**
+         —— 老师以为导了 13 节，实际只进 12 节，少的那节要等到上课才发现。
+         所以先检查有没有空行，有就报出在第几行、带着节次，让他直接去填。 */
+      const blank = assign
+        .map((a, i) => ({ a, i }))
+        .filter(({ a }) => !String(a.class_name || '').trim());
+      if (blank.length) {
+        const rowsTxt = blank
+          .map(({ a }) => `周${WD_SHORT[a.weekday] || a.weekday}第${a.period}节`)
+          .join('、');
+        toast(`还有 ${blank.length} 行没填班号（${rowsTxt}），填完再导入`, 'err');
+        const first = pane.querySelector(`tr[data-i="${blank[0].i}"] [data-k=class_name]`);
+        if (first) { first.focus(); first.scrollIntoView({ block: 'center' }); }
+        return;
+      }
+      list = assign
+        .filter((a) => a.weekday && a.period)
+        .map((a) => ({ weekday: a.weekday, period_no: a.period, class_name: String(a.class_name).trim() }));
+    } else {
+      const src = pane.querySelector('#tt-src');
+      const r = parseTimetableAny(src ? src.value : '');
+      if (r.errors.length) { toast(r.errors[0], 'err'); return; }
+      list = r.courses;
+    }
+    if (!list.length) { toast('没有可导入的课程', 'err'); return; }
+
+    const old = await api.get('/courses');
+    for (const c of old) await api.del('/courses/' + c.id).catch(() => {});
+    const ps = await api.get('/periods');
+    const pmap = new Map(ps.map((p) => [Number(p.period_no), p]));
+
+    /* 【顺手把节次时间也写进去】
+       老师课表截图上「时间」那一列就是权威作息：8:00-8:40、10:00-10:40…
+       只导课程不导时间的话，课表页会显示系统自带的 07:40-08:25，一眼就看出不对。
+       所以这里把 PERIOD_PRESET（照老师这张表抄的）一并落库。
+
+       什么情况不覆盖：用户自己手动改过的时间要留住。
+       判断依据 = 现有时间「既不是预设值、也不在系统内置默认值里」→ 认为是他改的。
+       内置默认值放一张常量表，是为了区分「从没动过的初始值」和「用户改过的」。 */
+    const BUILTIN_DEFAULT = new Set(['07:40-08:25', '08:35-09:20', '09:35-10:20', '10:30-11:15',
+      '11:25-12:10', '14:20-15:05', '15:15-16:00', '16:10-16:55', '17:10-17:55', '19:00-19:45',
+      '19:55-20:40', '20:45-21:30', '21:35-22:20', '']);
+    let np = 0;
+    for (const [no, st, en, nm] of PERIOD_PRESET) {
+      const hit = pmap.get(no);
+      const cur = hit ? `${hit.start_time || ''}-${hit.end_time || ''}` : '';
+      const same = cur === `${st}-${en}`;
+      if (hit && !same && !BUILTIN_DEFAULT.has(cur)) continue;   // 用户手动改过，尊重他
+      if (same) continue;                                        // 已经对了，不用写
+      const payload = { period_no: no, name: nm, start_time: st, end_time: en };
+      try {
+        if (hit) await api.patch('/periods/' + hit.id, payload);
+        else await api.post('/periods', payload);
+        pmap.set(no, { ...(hit || {}), ...payload });
+        np += 1;
+      } catch { /* 单个节次失败不阻断 */ }
+    }
+
+    let n = 0;
+    for (const c of list) {
+      const p = pmap.get(Number(c.period_no)) || {};
+      try {
+        await api.post('/courses', {
+          weekday: Number(c.weekday), period_no: Number(c.period_no),
+          start_time: c.start_time || p.start_time || '', end_time: c.end_time || p.end_time || '',
+          grade: c.grade || '', class_name: c.class_name,
+          subject: c.subject || '信息技术', room: c.room || '', color: c.color || '',
+        });
+        n += 1;
+      } catch (e) { /* 单条失败不阻断 */ }
+    }
+    toast(`已导入 ${n} 节课${np ? `，节次时间也一并更新了 ${np} 条` : ''}`);
+    s.close();
+    reload();
+  });
+
+  setTab('image');
+}
+
+/* 统一解析入口：JSON 走 JSON，其余按 Tab 表格解析 */
+function parseTimetableAny(text) {
+  const t = String(text || '').trim();
+  if (!t) return { courses: [], periods: [], errors: ['还没有内容'] };
+  if (/^[[{]/.test(t)) {
+    try {
+      const j = JSON.parse(t);
+      const cs = j.courses || (Array.isArray(j) ? j : []);
+      return { courses: cs, periods: j.periods || [], errors: cs.length ? [] : ['这个 JSON 里没有课程数据'] };
+    } catch (e) { return { courses: [], periods: [], errors: ['JSON 解析失败：' + e.message] }; }
+  }
+  return parseTimetableText(t);
+}
+
+/* 节次时间预设：[节次, 开始, 结束, 名称] */
+const PERIOD_PRESET = [
+  [1, '08:00', '08:40', '第一节'], [2, '08:50', '09:30', '第二节'],
+  [3, '10:00', '10:40', '第三节'], [4, '10:50', '11:30', '第四节'],
+  [5, '11:40', '12:20', '第五节'], [6, '14:10', '14:50', '第六节'],
+  [7, '15:20', '16:00', '第七节'], [8, '16:15', '16:55', '第八节'],
+  [9, '17:05', '17:45', '第九节'], [10, '18:25', '18:40', '晚一'],
+  [11, '19:30', '20:10', '晚二'], [12, '20:20', '21:00', '晚三'],
+  [13, '21:10', '21:55', '晚四'],
+];
+
 function printTimetableHTML(courses, periods, maxP) {
   const get = (d, p) => courses.find((c) => Number(c.weekday) === d && Number(c.period_no) === p);
   return `<!doctype html><meta charset="utf-8"><title>${state.user?.nickname || ''} 课表</title>

@@ -84,3 +84,6 @@ ls.set('theme', state.theme);
 if (STATIC) {
   import('./localapi.js').then((m) => { window.__wbLocalApi = m; }).catch(() => {});
 }
+
+/* 课表图片识别也挂一份，方便排查「为什么这张图没切准」 */
+import('./ttimage.js').then((m) => { window.__wbDetect = m.detectTimetable; }).catch(() => {});
