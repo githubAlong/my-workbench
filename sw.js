@@ -18,7 +18,7 @@
       现在 activate 里 clients.claim() 接管，并通知所有页面可以更新。
 
    资源清单用相对路径：线上可能挂在 /xxx/ 子路径下，写死 '/' 会缓存错东西。 */
-const CACHE = 'wb-v64';
+const CACHE = 'wb-v65';
 
 /* 只列构建产物里确实存在的文件。
    student.html 依赖 student.bundle.js，两个都带上。 */
@@ -32,16 +32,56 @@ const ASSETS = [
   './manifest.webmanifest',
 ];
 
+/* 【预缓存的超时】
+   线上实测（GitHub Pages）：manifest 只有 603 字节，也要 36 秒；
+   app.js 674KB 要 35 秒，css/app.css 193KB 要 40 秒。
+   不是文件大小的问题，是每个请求都要排进同一条慢队列。
+   而 install 事件是等 waitUntil 里的 Promise 全部落地才算装完，
+   任一请求挂住，整个 SW 就永远停在 installing：
+     · active 永远是 null → 页面压根没被 SW 接管
+     · 缓存只写进一半（实测只有 4/7 个文件）
+     · 断网也就打不开
+   以前这里没有任何超时，浏览器等得不耐烦就把安装任务丢掉，
+   表现出来就是「加了新版本但用户那边永远不生效」。
+   现在给每个文件 8 秒上限：拿不到就算了，不拖累整体。
+   断网兜底只要求 index.html + app.js 在，这两个优先、超时放宽到 15 秒。 */
+const TIMEOUT_MS = 8000;
+const CORE = new Set(['./', './index.html', './app.js']);
+
+function withTimeout(p, ms, label) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('超时 ' + ms + 'ms: ' + label)), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
+
 self.addEventListener('install', (e) => {
   // 立刻进入 waiting → activate，不等所有旧标签页关掉
   self.skipWaiting();
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    // 逐个添加：某个文件 404 不影响其它文件落进缓存
-    await Promise.all(ASSETS.map(async (u) => {
-      try { await c.add(new Request(u, { cache: 'reload' })); }
-      catch (err) { console.warn('[sw] 预缓存失败，跳过：', u, err && err.message); }
-    }));
+    /* 逐个添加，且**互不等待**：某个文件慢或 404 都不影响其它文件落进缓存。
+       核心文件（首页与 app.js）放最后并且单独一串，超时更宽，
+       这样即使前面几个静态资源全部超时，断网也还能打开站点。 */
+    const others = ASSETS.filter((u) => !CORE.has(u));
+    const cores = ASSETS.filter((u) => CORE.has(u));
+    const grab = (u, ms) => withTimeout(
+      fetch(new Request(u, { cache: 'reload' })).then((r) => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return c.put(u, r);
+      }),
+      ms, u,
+    ).catch((err) => {
+      console.warn('[sw] 预缓存失败，跳过：', u, err && err.message);
+    });
+    // 两串并发跑，谁先完成都不影响谁
+    await Promise.all([
+      Promise.all(others.map((u) => grab(u, TIMEOUT_MS))),
+      Promise.all(cores.map((u) => grab(u, 15000))),
+    ]);
   })());
 });
 
