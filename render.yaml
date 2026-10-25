@@ -1,0 +1,41 @@
+# Render 部署配置（Blueprint）
+#
+# 关键点：SQLite 是文件数据库，而 Render 的容器文件系统是**临时的**——
+# 每次重新部署都会换一个新容器，写在 ./data 里的数据库会跟着消失。
+# 所以必须挂一块持久化磁盘（disk），并把 DATA_DIR / UPLOAD_DIR 指到磁盘里。
+#
+# 用法：Render → New → Blueprint → 选这个仓库，会自动读取本文件。
+services:
+  - type: web
+    name: teacher-workbench
+    runtime: node
+    plan: starter          # 持久化磁盘需要付费计划；免费计划不支持挂盘
+    region: singapore      # 国内访问相对快
+    buildCommand: npm install --omit=dev
+    startCommand: node server/index.mjs
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # 指向持久化磁盘，否则重启即丢数据
+      - key: DATA_DIR
+        value: /var/data
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      # 单人使用：允许收码即建号
+      - key: ALLOW_REGISTER
+        value: "1"
+      # 线上关掉演示模式与验证码回显
+      - key: DEMO_MODE
+        value: "0"
+      - key: DEV_OTP_ECHO
+        value: "0"
+      # 以下敏感项请在 Render 控制台手动填写，不要写进仓库：
+      #   SMS_SIGN_NAME / SMS_TEMPLATE_CODE / SMS_ACCESS_KEY_ID / SMS_ACCESS_KEY_SECRET
+      #   （或腾讯云 SMS_SECRET_ID / SMS_SECRET_KEY / SMS_SDK_APP_ID，或自建 SMS_WEBHOOK_URL）
+      #   TEST_PASSCODE / ALLOW_TEST_PASSCODE —— 没配短信时用来登录的测试码，
+      #   配好真短信后请把 ALLOW_TEST_PASSCODE 设为 0
+    disk:
+      name: workbench-data
+      mountPath: /var/data
+      sizeGB: 1
