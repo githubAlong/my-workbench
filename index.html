@@ -7,8 +7,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="我的工作台">
-<meta name="theme-color" content="#007aff">
-<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#f2f2f7">
+<!-- 相对路径必须带 ./ ：线上挂在 /my-workbench/ 子路径下，
+     href="manifest.webmanifest" 会被解析成 /manifest.webmanifest → 404，
+     结果是「添加到主屏幕」拿不到图标和名称。 -->
+<link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="css/app.css">
 <script>
