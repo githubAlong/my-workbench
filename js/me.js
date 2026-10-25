@@ -78,7 +78,7 @@ async function renderMe(main) {
         msgs.unread ? `<span class="msg-badge">${msgs.unread > 99 ? '99+' : msgs.unread}</span>` : ''],
       ['user', '个人信息', needProfile ? '昵称、学校、学科填一下' : '昵称、头像、学校、学科、职务', 'profile', ''],
       ['shield', '账号安全', '本机 PIN 锁、打开需验证', 'security', ''],
-      ['qr', '账号与绑定', '微信 / QQ / 手机号', 'bind', ''],
+      ['qr', '账号', '登录账号与改密码', 'bind', ''],
     ], needProfile)}
 
     ${group('个性化', [
