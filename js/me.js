@@ -115,7 +115,7 @@ async function renderMe(main) {
       if (await confirmDialog('确定退出登录？')) { await api.post('/auth/logout'); state.user = null; location.hash = '#/home'; render(); }
       return;
     }
-    if (a === 'bind') return bindManager(sessions);
+    if (a === 'bind') return bindManager();
     if (a === 'security') return securitySheet();
     if (a === 'backup') return backupSheet();
     if (a === 'cloud') return bindSheet();
@@ -448,62 +448,23 @@ export function lockScreen(onOk) {
 }
 
 /* ================= 账号与绑定 ================= */
-function bindManager(sessions) {
-  const u = state.user;
-  /* 再兜一层：调用方传错形状也不该让整个面板白屏 */
-  if (!Array.isArray(sessions)) sessions = sessions?.rows || [];
-  const b = u.bindings || {};
+/* 账号面板：只剩「账号 + 改密码」。
+   微信 / QQ / WorkBuddy 三行原来一直在，但静态版没有任何授权通道，
+   点「去绑定」只会弹一句「未开通」——留着就是三个假按钮。
+   手机号那一行同理：它的意义是「换绑后用手机号登录」，而登录已经不要手机号了。
+   与其摆一排点了没用的东西，不如只留真正能用的那一个。 */
+function bindManager() {
+  const u = state.user || {};
   const body = el(`<div class="sheet-body">
     ${bindRow('account', `${icon('user', 15)} 登录账号`, u.account || '未设置', !!u.account, false, '改密码')}
-    ${bindRow('wechat', '微信', b.wechat ? (u.wx_nick || '已绑定') : '未绑定', !!b.wechat)}
-    ${bindRow('qq', 'QQ', b.qq ? (u.qq_nick || '已绑定') : '未绑定', !!b.qq)}
-    ${bindRow('workbuddy', `${icon('zap', 15)} WorkBuddy 账号`, b.workbuddy ? '已绑定' : '未绑定', !!b.workbuddy)}
-    <div class="hr"></div>
-    <div class="small bold" style="margin-bottom:6px">登录设备</div>
-    ${(sessions || []).map((s) => `<div class="row small" style="padding:5px 0">
-      <span>${esc(s.device)}</span><span class="tiny muted" style="margin-left:8px">${esc(s.ip || '')}</span>
-      <span style="flex:1"></span><span class="tiny muted">${s.current ? '本设备' : fmtDateTime(s.last_seen)}</span></div>`).join('')}
-    <button class="btn ghost sm block" id="revoke" style="margin-top:8px">退出其他所有设备</button>
+    <div class="tiny muted" style="margin-top:12px;line-height:1.7">
+      账号和密码都只存在这台设备上，换设备或清浏览器数据之后就没了。
+      平时记得在「数据导出与备份」里导出一份。
+    </div>
   </div>`);
-  const sh = sheet({ title: '账号与绑定', body });
-  body.querySelector('#revoke').onclick = async () => {
-    await api.post('/me/sessions/revoke'); toast('其他设备已退出'); sh.close();
-  };
+  const sh = sheet({ title: '账号', body });
   body.querySelectorAll('[data-bind]').forEach((btn) => {
-    btn.onclick = async () => {
-      const type = btn.dataset.bind;
-      if (btn.dataset.act === 'unbind') {
-        try {
-          await api.post('/auth/unbind', { type });
-          toast('已解绑');
-          sh.close();
-          const m = await import('./ui.js'); await m.loadMe(); render();
-        } catch (e) {
-          toast(e.message || '解绑失败', 'err');
-        }
-        return;
-      }
-      if (type === 'account') { accountPwdSheet(sh); return; }
-      if (type === 'phone') { phoneBindSheet(sh); return; }
-      if (type === 'workbuddy') {
-        /* WorkBuddy 绑定走整页跳转授权，回来由回调接口把 wb_uid 挂到当前登录的账号上。
-           所以必须先关掉这个面板——不然跳走再回来，面板状态早没了。 */
-        sh.close();
-        const m = await import('./ui.js');
-        m.startWorkBuddyLogin('bind');
-        return;
-      }
-      /* 微信 / QQ 走扫码授权。原来这里无论有没有接开放平台，都会弹一个「二维码」，
-         而那个码是伪随机画的假图案——扫了没反应，点「模拟确认」还会真的写上一个
-         假 openid（`wechat_demo_1` 这种）。用户因此以为自己绑好了，
-         实际上那条绑定是假的，而假绑定又能用来解绑手机号，账号会被搞坏。
-
-         现在的规矩：没接开放平台就直接说没开通，一个假码都不给。
-         和登录页那边「不再兜假二维码」是同一条原则。
-         这一段不再调用任何弹窗，只负责把话说清楚。 */
-      sh.close();
-      toast(`${type === 'wechat' ? '微信' : 'QQ'}绑定尚未开通：本站没接入开放平台，拿不到能验证身份的授权`, 'warn', 5000);
-    };
+    btn.onclick = () => { if (btn.dataset.bind === 'account') accountPwdSheet(sh); };
   });
 }
 
@@ -566,104 +527,6 @@ function accountPwdSheet(parent) {
   };
 }
 
-function phoneBindSheet(parent) {
-  const b = el(`<div class="sheet-body">
-    <div class="tiny muted" style="margin-bottom:10px">当前手机号 <b>${esc(maskPhone(state.user?.phone))}</b>，换绑后用它登录。</div>
-    <div class="field"><label class="field-label">新手机号</label>
-      <input class="input" id="p" placeholder="11 位手机号" maxlength="11" inputmode="numeric" autocomplete="tel"></div>
-    <div class="field"><label class="field-label">验证码</label>
-      <div class="row" style="gap:8px">
-        <input class="input" id="c" placeholder="6 位验证码" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
-        <button class="btn soft" id="send" style="flex:0 0 auto;min-width:104px">获取验证码</button></div></div>
-    <div class="tiny muted" id="otp-tip" style="margin-top:6px;line-height:1.6">
-      本站没有接短信通道（发真短信要买短信服务）。点「获取验证码」后，
-      验证码会直接填到上面那一栏——校验逻辑是真的，只是投递方式换成了页面提示。
-    </div>
-    <div class="confirm-actions"><button class="btn ghost" id="x">取消</button><button class="btn primary" id="k">确认换绑</button></div></div>`);
-  const s = sheet({ title: '换绑手机号', body: b });
-  const $p = b.querySelector('#p');
-  const $c = b.querySelector('#c');
-  const $send = b.querySelector('#send');
-  let left = 0, timer = null;
-
-  const tick = () => {
-    if (left <= 0) {
-      clearInterval(timer); timer = null;
-      $send.disabled = false;
-      $send.textContent = '获取验证码';
-      return;
-    }
-    $send.disabled = true;
-    $send.textContent = `${left}s 后重发`;
-    left -= 1;
-  };
-
-  $send.onclick = async () => {
-    const phone = $p.value.trim();
-    /* 前端先挡一道：不带手机号直接点，服务端只会回一个 400，
-       用户看到的是「没反应」。现在点之前就把问题指出来。 */
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入 11 位手机号', 'warn');
-    $send.disabled = true;
-    $send.textContent = '发送中…';
-    try {
-      const r = await api.post('/auth/otp', { phone, purpose: 'bind' });
-      /* 【原来只认 devCode（演示模式），漏了 testCode】
-         本站没配短信通道，走的是「测试通行证」那条路，服务端回的是 testCode。
-         只判 devCode 的话，这里既不会自动填码、也不会有任何提示，
-         用户看到的就是「点了获取验证码没反应」——第 3 条报的就是这个。
-         两个都要认，提示文案区分开：testCode 要明说这是测试码。 */
-      if (r?.testCode || r?.devCode || r?.code) {
-        const code = r.testCode || r.devCode || r.code;
-        $c.value = code;
-        /* 直接写在面板里，不用 toast：toast 三秒就没了，用户回头想再看一眼码没了 */
-        const tip = b.querySelector('#otp-tip');
-        if (tip) tip.innerHTML = `验证码 <b style="font-size:15px;letter-spacing:2px;color:var(--primary)">${esc(code)}</b> 已填入，5 分钟内有效。`;
-        toast('验证码已填入', 'ok', 3000);
-      } else {
-        toast(`验证码已发到 ${phone.slice(0, 3)}****${phone.slice(-4)}`);
-      }
-      left = 60; tick();
-      timer = setInterval(tick, 1000);
-      $c.focus();
-    } catch (e) {
-      $send.disabled = false;
-      $send.textContent = '获取验证码';
-      /* 未配置短信通道是最常见的原因（服务端回 501 + smsNotConfigured），
-         这时候别让用户一直点，直接把话说明白。 */
-      if (e?.extra?.smsNotConfigured) {
-        toast('本站没配短信服务，收不到验证码。请在服务器上配置短信通道，或先用微信/QQ 登录', 'err', 6000);
-      } else {
-        toast(e.message || '验证码发送失败', 'err');
-      }
-    }
-  };
-
-  b.querySelector('#x').onclick = () => { clearInterval(timer); s.close(); };
-  b.querySelector('#k').onclick = async (e) => {
-    const phone = $p.value.trim();
-    const code = $c.value.trim();
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入 11 位手机号', 'warn');
-    if (!/^\d{6}$/.test(code)) return toast('请输入 6 位验证码', 'warn');
-    const btn = e.currentTarget;
-    btn.disabled = true; btn.textContent = '换绑中…';
-    try {
-      const r = await api.post('/auth/bind', { type: 'phone', phone, code });
-      clearInterval(timer);
-      s.close();
-      /* 父面板（账号与绑定）也要关：它里面显示的还是旧号码，
-         留着会让人以为没换成。 */
-      try { if (parent && parent !== s) parent.close(); } catch {}
-      const m = await import('./ui.js'); await m.loadMe();
-      /* 服务端换完会把其他设备踢掉（保留本机）。这句要说出来，
-         不然用户在别的设备上莫名其妙被登出，会以为是 bug。 */
-      toast(r?.kicked ? '手机号已换绑，其他设备已退出登录' : '手机号已换绑');
-      render();
-    } catch (err) {
-      btn.disabled = false; btn.textContent = '确认换绑';
-      toast(err.message || '换绑失败', 'err');
-    }
-  };
-}
 
 /* ================= 备份 ================= */
 /* 云同步入口的状态小标签：绑定了显示状态，没绑定提示去开 */

@@ -1424,9 +1424,22 @@ on('GET', '/auth/config', () => ({
    以前这里无条件给一个「老师」，于是 render() 的 `if (!state.user) renderAuth()`
    永远不成立 —— 打开页面直接进工作台，登录页从来没出现过。
    现在账号是否存在就是登录态本身：没有 account 就是没登录。 */
+/* 【登录态 = 有账号 且 本次没主动退出】
+   只判「有没有账号」是不够的：点「退出登录」后账号还在库里（不然密码就丢了），
+   刷新一次又被判成已登录，人会以为退出没生效。
+   所以用 sessionStorage 记一个「这一次已经退出」的标记 —— 关掉标签页就没了，
+   下次打开还是要输密码，这才是「退出登录」该有的样子。 */
+const LOGOUT_FLAG = 'wb_logged_out';
+function loggedOut() {
+  try { return sessionStorage.getItem(LOGOUT_FLAG) === '1'; } catch { return false; }
+}
+function setLoggedOut(v) {
+  try { v ? sessionStorage.setItem(LOGOUT_FLAG, '1') : sessionStorage.removeItem(LOGOUT_FLAG); } catch {}
+}
+
 on('GET', '/auth/me', () => {
   const u = currentUser();
-  if (!u.account) return { user: null };
+  if (!u.account || loggedOut()) return { user: null };
   return { user: publicUser(u) };
 });
 
@@ -1453,6 +1466,7 @@ on('POST', '/auth/register', async ({ body }) => {
   u.pwd = await hashPwd(password);
   u.nickname = account;
   saveUser(u);
+  setLoggedOut(false);
   seedIfEmpty();
   return { user: publicUser(u), token: 'static', created: true };
 });
@@ -1468,6 +1482,7 @@ on('POST', '/auth/login', async ({ body }) => {
   if (u.account !== account || u.pwd !== await hashPwd(password)) {
     fail(401, '账号或密码不对');
   }
+  setLoggedOut(false);
   seedIfEmpty();
   return { user: publicUser(u), token: 'static' };
 });
@@ -1488,7 +1503,7 @@ on('POST', '/auth/password', async ({ body }) => {
   return { ok: true };
 });
 
-on('POST', '/auth/logout', () => ({ ok: true }));
+on('POST', '/auth/logout', () => { setLoggedOut(true); return { ok: true }; });
 /* 忘记密码：没有服务端、没有手机号，唯一的出路是清掉本地数据重来。
    不假装能「找回」—— 说清楚代价，让用户自己决定。 */
 on('POST', '/auth/forgot', () => fail(400, '账号只存在这台设备上，没有服务端无法找回。忘记密码可在登录页用「重置本机数据」重新注册。'));
