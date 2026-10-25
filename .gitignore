@@ -29,3 +29,7 @@ Thumbs.db
 # 开发过程截图（体积大，保留在本地即可）
 screenshots/
 preview/shots/
+
+# 打包产物（由 tools/build_bundle.py 生成，部署时现构建）
+dist/
+.tmp_student_entry.js
