@@ -254,7 +254,73 @@ img { max-width: 100%; }
    「点全部已读红点不消失」的根本原因在这里，不在 JS。 */
 .nav-item .badge-dot { margin-left: auto; background: var(--red); color: #fff; font-size: 10.5px; min-width: 17px; height: 17px; border-radius: 9px; display: grid; place-items: center; padding: 0 4px; }
 .nav-item .badge-dot[hidden] { display: none; }
-.sidebar-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
+.nav-item .nav-caret { margin-left: auto; display: grid; place-items: center; color: var(--text-3); }
+.nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 二级 / 三级导航（侧栏） ----------
+   一级导航下面缩进一层是二级，二级「课件」再缩一层是三级。
+   缩进用左侧竖线表示层级，不用额外的箭头图标：竖线本身就说清了「这些属于上面那个」。 */
+.side-nav {
+  /* 【侧栏会被挤出屏幕】
+     加了二级、三级之后侧栏内容超过一屏，而 .sidebar 是 height:100vh 的纵向 flex。
+     .side-nav 不设 flex 收缩的话，底部的「主题外观 / 平铺整页 / 重置首页布局」
+     会被顶到可视区外，鼠标根本够不到。
+     这里让 .side-nav 吃掉剩余高度并自己滚，.sidebar-foot 保持贴底。 */
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  margin: 0 -4px; padding: 0 4px; scrollbar-width: thin;
+}
+.side-nav::-webkit-scrollbar { width: 4px; }
+.side-nav::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+.nav-sub { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 2px 22px; padding-left: 8px; border-left: 1.5px solid var(--line); }
+.nav-sub[hidden] { display: none; }
+.nav-subitem {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 9px;
+  color: var(--text-2); font-size: 13.5px; font-weight: 500; width: 100%; text-align: left; transition: .14s;
+}
+.nav-subitem svg { flex: 0 0 auto; opacity: .8; }
+.nav-subitem:hover { background: var(--bg-sunken); color: var(--text); }
+.nav-subitem.on { background: var(--primary-weak); color: var(--primary); font-weight: 650; }
+.nav-subitem.on svg { opacity: 1; }
+.nav-subitem .nav-caret { margin-left: auto; display: grid; place-items: center; color: var(--text-3); }
+.nav-sub3 { display: flex; flex-direction: column; gap: 1px; margin: 1px 0 3px 14px; padding-left: 8px; border-left: 1.5px dashed var(--line-2); }
+.nav-subitem.lv3 { font-size: 13px; padding: 6px 9px; }
+
+/* ---------- 二级导航（手机顶部横条） ----------
+   底部导航只有 6 格一级，二级必须另有入口，否则手机上点不到「维修」「考勤」。
+   桌面侧栏已经列出来了，这里只在 <=1100px 显示。 */
+.sub-nav-bar { display: none; }
+.sub-nav-wrap { display: none; }
+@media (max-width: 1100px) {
+  /* 【.app 在窄屏必须竖排】
+     桌面是「侧栏 + 正文」横排。≤1100px 侧栏已经变成抽屉（display:none /
+     position:fixed），横排布局就没意义了 —— 手机端顶部二级条作为 .app 的第一个
+     flex item 会被摆到 .main 左边（order:-1 只是换个位置，还在同一行），
+     .main 被压成 28px 宽，整页横向溢出 190px。
+     改成竖排后，二级条在上、正文在下，跟 iOS 的导航栏一致。 */
+  .app { flex-direction: column; }
+  .sub-nav-wrap { display: block; width: 100%; flex: 0 0 auto; }
+  .sub-nav-bar {
+    display: block; position: sticky; top: 0; z-index: 40;
+    background: var(--nav-bg); backdrop-filter: saturate(180%) blur(14px);
+    border-bottom: 1px solid var(--line); padding: 8px 12px 6px; width: 100%;
+    box-sizing: border-box; max-width: 100vw; overflow: hidden;
+  }
+  .snb-title {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650;
+    color: var(--text-2); margin-bottom: 6px; min-width: 0;
+  }
+  .snb-list {
+    display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch; padding-bottom: 2px; max-width: 100%;
+  }
+  .snb-list::-webkit-scrollbar { display: none; }
+  .snb-item {
+    flex: 0 0 auto; padding: 6px 13px; border-radius: 99px; font-size: 13px;
+    font-weight: 600; color: var(--text-2); background: var(--bg-sunken); white-space: nowrap;
+  }
+  .snb-item.on { background: var(--primary); color: #fff; box-shadow: 0 3px 10px rgba(0,122,255,.25); }
+}
+.sidebar-foot { flex: 0 0 auto; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
 /* 【平铺】以前死写 max-width:1320px，在 2560 的屏上正文只占 51%，
    左右各空出 733px 的白条，看着就是一个居中的窄条。
    现在随屏幕放宽：窄屏照旧，超宽屏最多放到 2000px 保持行宽可读。 */
@@ -2888,4 +2954,28 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .pin-state.on {
   background: var(--green-weak); color: var(--green);
   border-color: color-mix(in srgb, var(--green) 26%, transparent);
+}
+
+/* ---------- 三级导航页里的统计卡（教材/抽人/盲盒/自习） ----------
+   这些页面用的是 3 列内联网格。手机上 390px 三列每张只剩 110px，
+   「盒子里的任务」标题要折成两行，数字和说明挤在一起。
+   窄屏统一退到 2 列（3 张卡时最后一张占满整行），再窄就 1 列。 */
+@media (max-width: 720px) {
+  .mod-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .mod-stats > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@media (max-width: 360px) {
+  .mod-stats { grid-template-columns: 1fr !important; }
+}
+
+/* 顶部二级条是 sticky 的，toast 从 top:16px 弹出来会正好压住它。
+   窄屏把 toast 往下挪到二级条底下，用户点完「考勤」等页面跳转时
+   不会有一块黑条挡着导航。 */
+@media (max-width: 1100px) {
+  .toast-box { top: calc(96px + var(--safe-t)); }
+}
+
+/* 侧栏二级项在窄屏里不需要（改用顶部二级条），但抽屉打开时仍要能滚 */
+@media (max-width: 1100px) {
+  .side-nav { flex: 1 1 auto; }
 }
