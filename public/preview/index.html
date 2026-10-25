@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>我的工作台 · 界面预览</title>
+<style>
+  :root { --bg:#f2f2f7; --card:#fff; --text:#1c1c1e; --text2:#6c6c70; --line:#e5e5ea; --brand:#007aff; }
+  html[data-theme=dark] { --bg:#000; --card:#1c1c1e; --text:#fff; --text2:#aeaeb2; --line:#38383a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+  header { position:sticky; top:0; z-index:20; background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:blur(12px); border-bottom:1px solid var(--line); padding:16px 24px; }
+  .top { max-width:1400px; margin:0 auto; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  h1 { font-size:17px; margin:0; letter-spacing:-.3px; }
+  .sub { color:var(--text2); font-size:12.5px; }
+  nav { margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; }
+  nav a { font-size:12.5px; padding:6px 11px; border-radius:99px; color:var(--text2); text-decoration:none; border:1px solid var(--line); background:var(--card); }
+  nav a:hover { border-color:var(--brand); color:var(--brand); }
+  main { max-width:1400px; margin:0 auto; padding:24px; display:flex; flex-direction:column; gap:28px; }
+  .item { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px 20px 20px; }
+  .item-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:14px; }
+  .item-head h2 { font-size:16px; margin:0 0 2px; }
+  .item-head p { margin:0; color:var(--text2); font-size:12.5px; }
+  .tag { margin-left:auto; font:11px/1 ui-monospace,monospace; color:var(--text2); background:var(--bg); border:1px solid var(--line); padding:5px 8px; border-radius:6px; }
+  .shots { display:grid; grid-template-columns:1fr auto; gap:16px; align-items:start; }
+  figure { margin:0; }
+  figcaption { font-size:11.5px; color:var(--text2); margin-bottom:6px; }
+  figure img { width:100%; display:block; border:1px solid var(--line); border-radius:12px; background:var(--bg); }
+  figure.phone img { width:280px; border-radius:20px; }
+  @media (max-width:900px) {
+    .shots { grid-template-columns:1fr; }
+    figure.phone img { width:100%; max-width:340px; }
+    nav { margin-left:0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <div>
+      <h1>我的工作台 · 界面预览</h1>
+      <div class="sub">共 13 个页面，每页上方为电脑、下方（或右侧）为手机 · <a href="./" style="color:var(--brand)">进入应用 →</a></div>
+    </div>
+    <nav><a href="#home">首页</a><a href="#work-lessons">工作 · 上课</a><a href="#work-tt">工作 · 课表</a><a href="#work-att">工作 · 考勤</a><a href="#work-inv">工作 · 监考</a><a href="#work-trip">工作 · 出差</a><a href="#work-mat">工作 · 课件</a><a href="#work-note">工作 · 笔记</a><a href="#daily-sticky">日常 · 便签</a><a href="#daily-hw">日常 · 作业</a><a href="#study">学习</a><a href="#recycle">回收站</a><a href="#me">我的</a></nav>
+  </div>
+</header>
+<main>
+  <section class="item" id="home">
+    <div class="item-head">
+      <div><h2>首页 <span style="font-size:11.5px;color:var(--brand);font-weight:600">已按需求精修</span></h2><p>秒级时钟 + 醒目星期徽标 · 自动定位天气与穿搭建议 · 下一个日程倒计时 · 今日事项在上、今日课程在下 · 苹果风月历（点某天日历下方展开当天安排）· 每日名言中英对照 + 喇叭朗读</p></div>
+      <span class="tag">home</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-home.png" alt="首页 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-home.png" alt="首页 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="work-lessons">
+    <div class="item-head">
+      <div><h2>工作 · 上课</h2><p>月度课时统计、代课对账、完整字段记录</p></div>
+      <span class="tag">work-lessons</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-work-lessons.png" alt="工作 · 上课 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-work-lessons.png" alt="工作 · 上课 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="work-tt">
+    <div class="item-head">
+      <div><h2>工作 · 课表</h2><p>节次时间完整显示，点格子即可修改</p></div>
+      <span class="tag">work-tt</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-work-tt.png" alt="工作 · 课表 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-work-tt.png" alt="工作 · 课表 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="work-att">
+    <div class="item-head">
+      <div><h2>工作 · 考勤</h2><p>教研签到表 / 坐班表，粘贴导入、OCR、整表截图</p></div>
+      <span class="tag">work-att</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-work-att.png" alt="工作 · 考勤 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-work-att.png" alt="工作 · 考勤 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="work-inv">
+    <div class="item-head">
+      <div><h2>工作 · 监考</h2><p>金额、是否已支付、领卷地点</p></div>
+      <span class="tag">work-inv</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-work-inv.png" alt="工作 · 监考 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-work-inv.png" alt="工作 · 监考 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="work-trip">
+    <div class="item-head">
+      <div><h2>工作 · 出差</h2><p>公里数、过路费、发票、审核状态</p></div>
+      <span class="tag">work-trip</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-work-trip.png" alt="工作 · 出差 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-work-trip.png" alt="工作 · 出差 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="work-mat">
+    <div class="item-head">
+      <div><h2>工作 · 课件</h2><p>分类管理 + 学生短链</p></div>
+      <span class="tag">work-mat</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-work-mat.png" alt="工作 · 课件 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-work-mat.png" alt="工作 · 课件 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="work-note">
+    <div class="item-head">
+      <div><h2>工作 · 笔记</h2><p>类飞书知识库，Markdown 预览</p></div>
+      <span class="tag">work-note</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-work-note.png" alt="工作 · 笔记 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-work-note.png" alt="工作 · 笔记 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="daily-sticky">
+    <div class="item-head">
+      <div><h2>日常 · 便签</h2><p>未开始 / 进行中 / 已完成 三态</p></div>
+      <span class="tag">daily-sticky</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-daily-sticky.png" alt="日常 · 便签 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-daily-sticky.png" alt="日常 · 便签 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="daily-hw">
+    <div class="item-head">
+      <div><h2>日常 · 作业</h2><p>一键导入学生、记录完成情况</p></div>
+      <span class="tag">daily-hw</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-daily-hw.png" alt="日常 · 作业 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-daily-hw.png" alt="日常 · 作业 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="study">
+    <div class="item-head">
+      <div><h2>学习</h2><p>月度统计、年度查看、连续天数</p></div>
+      <span class="tag">study</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-study.png" alt="学习 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-study.png" alt="学习 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="me">
+    <div class="item-head">
+      <div><h2>我的</h2><p>个人信息、账号绑定、安全设置</p></div>
+      <span class="tag">me</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-me.png" alt="我的 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-me.png" alt="我的 手机版"></figure>
+    </div>
+  </section>
+  <section class="item" id="recycle">
+    <div class="item-head">
+      <div><h2>回收站</h2><p>还原 / 彻底删除 / 清空</p></div>
+      <span class="tag">recycle</span>
+    </div>
+    <div class="shots">
+      <figure><figcaption>电脑 1440px</figcaption><img loading="lazy" src="shots/pc-recycle.png" alt="回收站 电脑版"></figure>
+      <figure class="phone"><figcaption>手机 390px</figcaption><img loading="lazy" src="shots/mo-recycle.png" alt="回收站 手机版"></figure>
+    </div>
+  </section>
+</main>
+<script>
+  const saved = localStorage.getItem('pv-theme');
+  if (saved) document.documentElement.dataset.theme = saved;
+</script>
+</body>
+</html>

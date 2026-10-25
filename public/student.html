@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>班级资料站</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#007aff">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  body { background: linear-gradient(170deg, #eef4ff 0%, #f7f9ff 42%, #f5f7fb 100%); min-height: 100vh; }
+  html[data-theme=dark] body { background: linear-gradient(170deg, #101a2c, #0f131c 50%); }
+  .s-wrap { max-width: 820px; margin: 0 auto; padding: 18px 14px 40px; }
+  .s-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .s-logo { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg,#007aff,#af52de); color: #fff; display: grid; place-items: center; font-weight: 700; }
+  .s-tabs { display: flex; gap: 6px; background: rgba(255,255,255,.8); padding: 5px; border-radius: 14px; margin-bottom: 16px; box-shadow: var(--shadow-s); }
+  html[data-theme=dark] .s-tabs { background: rgba(255,255,255,.06); }
+  .s-tabs button { display: flex; align-items: center; justify-content: center; gap: 4px; flex: 1; min-width: 0;
+    height: 40px; border-radius: 10px; font-weight: 650; font-size: 14px; color: var(--text-2);
+    white-space: nowrap; overflow: hidden; }
+  .s-tabs button svg { flex: 0 0 auto; }
+  @media (max-width: 400px) { .s-tabs button { font-size: 13px; gap: 3px; } .s-tabs button svg { width: 15px; height: 15px; } }
+  .s-tabs button.on { background: var(--primary); color: #fff; box-shadow: 0 4px 12px rgba(60,123,246,.3); }
+  .big-num { font-family: var(--mono); font-size: 84px; font-weight: 700; line-height: 1; letter-spacing: -4px; }
+  .pick-num { display: inline-grid; place-items: center; min-width: 84px; height: 84px; border-radius: 22px; background: linear-gradient(135deg,#007aff,#af52de); color: #fff; font-size: 38px; font-weight: 700; font-family: var(--mono); margin: 6px; }
+  .mat-card { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-bottom: 1px solid var(--line); }
+  .mat-card:last-child { border-bottom: 0; }
+  /* 签到 */
+  .s-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff3b30; display: inline-block; margin-left: 2px; animation: sb 1.4s infinite; }
+  @keyframes sb { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+  .ck-me { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 9px 12px;
+    border-radius: 10px; background: rgba(0,122,255,.08); font-size: 13.5px; }
+  html[data-theme=dark] .ck-me { background: rgba(10,132,255,.15); }
+  .ck-grid { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 16px; }
+  .ck-b { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    height: 84px; border-radius: 16px; border: 1.5px solid var(--line); background: var(--card);
+    font-size: 15px; font-weight: 650; color: var(--text); cursor: pointer; transition: .15s; font-family: inherit; }
+  .ck-b:active { transform: scale(.97); }
+  .ck-b:disabled { opacity: .55; }
+  .ck-b.ok { border-color: rgba(52,199,89,.5); color: #248a3d; background: rgba(52,199,89,.07); }
+  .ck-b.warn { border-color: rgba(255,159,10,.5); color: #b26b00; background: rgba(255,159,10,.07); }
+  .ck-b.mute { padding: 0 18px; font-size: 13.5px; color: var(--text-2); }
+  html[data-theme=dark] .ck-b.ok { color: #30d158; }
+  html[data-theme=dark] .ck-b.warn { color: #ff9f0a; }
+  .ck-done { padding: 11px 13px; border-radius: 10px; background: rgba(52,199,89,.1);
+    border: 1px solid rgba(52,199,89,.28); font-size: 13.5px; line-height: 1.5; }
+  @media (max-width: 380px) { .ck-grid { grid-template-columns: 1fr 1fr; } .ck-b.mute { grid-column: span 2; height: 44px; } }
+  .roll { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 6px; }
+
+  /* ---------- 抽人：滚动轮播 + 揭晓 ---------- */
+  .pick-stage { position: relative; display: grid; place-items: center; min-height: 132px; margin: 16px 0 4px;
+    border-radius: 18px; background: rgba(0,122,255,.06); overflow: hidden; }
+  html[data-theme=dark] .pick-stage { background: rgba(10,132,255,.12); }
+  .pick-roll { font-size: 40px; font-weight: 700; line-height: 1.15; letter-spacing: -1px;
+    color: var(--text-2); transition: filter .12s; }
+  .pick-roll.blur { filter: blur(1.2px); opacity: .75; }
+  .pick-win { font-size: 46px; font-weight: 750; line-height: 1.12; letter-spacing: -1.5px;
+    color: var(--primary); animation: pop .38s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes pop { 0% { transform: scale(.55); opacity: 0 } 100% { transform: scale(1); opacity: 1 } }
+  .pick-names { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
+  .pick-win.sm { font-size: 26px; display: inline-block; padding: 8px 16px; border-radius: 14px;
+    background: var(--primary); color: #fff; letter-spacing: -.5px; animation: pop .38s cubic-bezier(.34,1.56,.64,1); }
+  /* 抽人（第 19 条）：班级/人数/抽几个 三个输入并排 */
+  .pk-grid { display: grid; grid-template-columns: 1.4fr .8fr .8fr; gap: 10px; }
+  @media (max-width: 420px) { .pk-grid { grid-template-columns: 1fr 1fr; } .pk-grid > .field:first-child { grid-column: 1 / -1; } }
+  .pk-recent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 10px; }
+  .pk-chip { padding: 5px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--card);
+    font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+  .pk-chip:active { background: var(--primary-weak); }
+  .pk-mode { display: flex; width: 100%; }
+  .pk-mode button { flex: 1; }
+  .pk-mode button[disabled] { opacity: .42; cursor: not-allowed; }
+  .pk-nr { display: flex; align-items: center; gap: 9px; margin-top: 12px; font-size: 14px; }
+  .pk-nr input { width: 18px; height: 18px; accent-color: var(--primary); }
+  .cfg-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 11px 13px; border-radius: 11px; background: var(--bg-sunken); margin-top: 10px; font-size: 14px; }
+  .sw { position: relative; flex: 0 0 auto; width: 44px; height: 26px; border-radius: 99px;
+    background: var(--line); border: 0; cursor: pointer; transition: .18s; }
+  .sw::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: .18s; }
+  .sw.on { background: var(--green, #34c759); }
+  .sw.on::after { left: 21px; }
+
+  /* ---------- 惩罚盲盒 ---------- */
+  .box-stage { position: relative; display: grid; place-items: center; min-height: 168px; margin: 14px 0;
+    border-radius: 20px; padding: 18px 14px; text-align: center;
+    background: linear-gradient(150deg, rgba(0,122,255,.1), rgba(175,82,222,.1));
+    border: 1.5px dashed rgba(0,122,255,.35); transition: .25s; }
+  html[data-theme=dark] .box-stage { background: linear-gradient(150deg, rgba(10,132,255,.16), rgba(191,90,242,.14));
+    border-color: rgba(10,132,255,.45); }
+  .box-stage.open { border-style: solid; border-color: transparent; animation: pop .4s cubic-bezier(.34,1.56,.64,1); }
+  .box-stage.open::after { content: ''; position: absolute; inset: 0; border-radius: 20px;
+    background: radial-gradient(circle at 50% 0%, rgba(255,214,10,.28), transparent 65%); pointer-events: none; }
+  .box-icon { font-size: 46px; line-height: 1; }
+  .box-shake { animation: shake .42s ease-in-out infinite; }
+  @keyframes shake { 0%,100% { transform: rotate(-7deg) } 50% { transform: rotate(7deg) } }
+  .box-text { font-size: 25px; font-weight: 750; line-height: 1.35; letter-spacing: -.5px; margin-top: 8px;
+    position: relative; z-index: 1; }
+  .box-lv { display: inline-block; margin-top: 10px; font-size: 12px; font-weight: 650; letter-spacing: .3px;
+    padding: 3px 10px; border-radius: 99px; position: relative; z-index: 1; }
+  .box-lv.l1 { background: rgba(52,199,89,.16); color: #248a3d; }
+  .box-lv.l2 { background: rgba(255,159,10,.18); color: #a86200; }
+  .box-lv.l3 { background: rgba(255,59,48,.15); color: #c22a22; }
+  html[data-theme=dark] .box-lv.l1 { color: #30d158; }
+  html[data-theme=dark] .box-lv.l2 { color: #ff9f0a; }
+  html[data-theme=dark] .box-lv.l3 { color: #ff453a; }
+  .box-who { font-size: 13px; color: var(--text-2); margin-top: 10px; position: relative; z-index: 1; }
+</style>
+</head>
+<body>
+<div class="s-wrap" id="s-app"><div class="empty">加载中…</div></div>
+<script type="module">
+const code = location.pathname.split('/').filter(Boolean)[1] || '';
+const $ = (s) => document.querySelector(s);
+const ICON = { mat: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5h7l5 5v12H6z"/><path d="M13 3.5v5h5"/></svg>',
+  dl: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19.5h14"/></svg>',
+  dice: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1.2"/><circle cx="15" cy="15" r="1.2"/></svg>',
+  target: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
+  lock: '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/></svg>',
+  check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg>',
+  clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+  more: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9.5 6 6 6-6 6"/></svg>' };
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const api = async (p, body) => {
+  const init = body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  const r = await fetch('/api' + p, init);
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || '加载失败');
+  return j.data;
+};
+/* 记住我是谁：学号/姓名存本地，下次自动带出 */
+const ME_KEY = 'wb_stu_' + code;
+const recall = () => { try { return JSON.parse(localStorage.getItem(ME_KEY) || 'null'); } catch { return null; } };
+const remember = (v) => { try { localStorage.setItem(ME_KEY, JSON.stringify(v)); } catch {} };
+/* 班级名拼接：库里存的常是"高二(5)班"，年级也是"高二"，直接拼会重复成"高二 高二(5)班" */
+function clsName(grade, cls) {
+  const g = String(grade || '').trim();
+  const c = String(cls || '').trim();
+  if (!g) return c;
+  if (!c) return g;
+  return c.startsWith(g) ? c : g + ' ' + c;
+}
+let data = null;
+let tab = null;   // 有签到任务时默认进签到
+let cur = null;
+
+async function init() {
+  try { data = await api(`/public/link/${code}`); }
+  catch (e) { $('#s-app').innerHTML = `<div class="card card-pad empty"><div class="em">${ICON.lock}</div>${esc(e.message)}</div>`; return; }
+  document.title = data.link.title + ' · ' + (data.teacher?.nickname || '');
+  tab = (data.roll && data.roll.length) ? 'checkin' : 'material';
+  paint();
+}
+function paint() {
+  $('#s-app').innerHTML = `
+    <div class="s-head">
+      <div class="s-logo">${esc((data.teacher?.nickname || '师').slice(0, 1))}</div>
+      <div style="flex:1"><div class="bold">${esc(data.link.title)}</div>
+        <div class="tiny muted">${esc(data.teacher?.nickname || '')} ${data.teacher?.subject ? '· ' + esc(data.teacher.subject) : ''} ${data.teacher?.school ? '· ' + esc(data.teacher.school) : ''}</div></div>
+    </div>
+    <div class="s-tabs">
+      ${data.roll && data.roll.length ? `<button data-t="checkin" class="${tab === 'checkin' ? 'on' : ''}">${ICON.check} 签到 <span class="s-dot"></span></button>` : ''}
+      <button data-t="material" class="${tab === 'material' ? 'on' : ''}">${ICON.mat} 课件</button>
+      <button data-t="roll" class="${tab === 'roll' ? 'on' : ''}">${ICON.dice} 抽人</button>
+      <button data-t="punish" class="${tab === 'punish' ? 'on' : ''}">${ICON.target} 抽任务</button>
+    </div>
+    <div id="s-body"></div>`;
+  document.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { tab = b.dataset.t; cur = null; paint(); }; });
+  if (tab === 'checkin') paintCheckin();
+  if (tab === 'material') paintMaterials();
+  if (tab === 'roll') paintRoll();
+  if (tab === 'punish') paintPunish();
+}
+/* ---------- 签到：学生点一下，老师端实时看到 ---------- */
+const ST_LABEL = { present: '已到', late: '迟到', leave: '请假' };
+function paintCheckin() {
+  const sess = data.roll || [];
+  if (!sess.length) {
+    $('#s-body').innerHTML = `<div class="card card-pad" style="text-align:center">
+      <div class="muted" style="font-size:40px;margin:10px 0">${ICON.clock}</div>
+      <div class="bold">现在没有在进行的签到</div>
+      <div class="tiny muted" style="margin-top:6px">老师开始点名后，这里会出现签到按钮</div>
+      <button class="btn ghost sm" id="reload" style="margin-top:16px">刷新看看</button></div>`;
+    $('#reload').onclick = () => init();
+    return;
+  }
+  const me = recall();
+  const s0 = sess[0];
+  $('#s-body').innerHTML = `<div class="card card-pad">
+    <div class="row" style="align-items:center;gap:8px">
+      <div style="flex:1"><div class="bold" style="font-size:17px">${esc(clsName(s0.grade, s0.class_name))}</div>
+        <div class="tiny muted">${s0.period_no ? '第 ' + s0.period_no + ' 节 · ' : ''}${esc(s0.subject || '')} · 应到 ${s0.expect} 人</div></div>
+      <span class="chip blue" id="cnt">—</span>
+    </div>
+    ${me ? `<div class="ck-me">你是 <b>${esc(me.name || me.stu_no)}</b> <button class="btn ghost sm" id="swho" style="margin-left:auto">不是我</button></div>` : ''}
+    <div id="who" class="${me ? 'hidden' : ''}" style="margin-top:14px">
+      <div class="field"><label class="field-label">填一下你的学号或姓名</label>
+        <input class="input" id="myname" placeholder="如 张一诺 或 20240312" ${me ? `value="${esc(me.name || '')}"` : ''} autocomplete="off"></div>
+      <div class="tiny muted">只需填一次，以后打开自动记住；老师能看到谁到了、谁没到</div>
+    </div>
+    <div class="ck-grid" id="btns">
+      <button class="ck-b ok" data-st="present">${ICON.check}<span>我到了</span></button>
+      <button class="ck-b warn" data-st="late">${ICON.clock}<span>迟到了</span></button>
+      <button class="ck-b mute" data-st="leave">请假</button>
+    </div>
+    <div id="ckmsg" style="margin-top:12px"></div>
+  </div>`;
+  if (me) $('#swho').onclick = () => { try { localStorage.removeItem(ME_KEY); } catch {} ; paintCheckin(); };
+  document.querySelectorAll('[data-st]').forEach((b) => {
+    b.onclick = async () => {
+      const nameEl = document.getElementById('myname');
+      const name = (me?.name || me?.stu_no || nameEl?.value || '').trim();
+      const no = (me?.stu_no || '').trim();
+      if (!name) { document.getElementById('myname')?.focus(); document.getElementById('ckmsg').innerHTML = '<div class="tiny" style="color:var(--red)">请先填学号或姓名</div>'; return; }
+      const btns = document.querySelectorAll('[data-st]');
+      btns.forEach((x) => { x.disabled = true; });
+      try {
+        const r = await api(`/public/link/${code}/roll/${s0.id}`, { name, stu_no: no, status: b.dataset.st });
+        remember({ name, stu_no: no });
+        document.getElementById('cnt').textContent = `${r.present + r.late} / ${s0.expect}`;
+        document.getElementById('ckmsg').innerHTML = `<div class="ck-done">${ICON.check} 已登记：<b>${ST_LABEL[r.mine] || '已到'}</b>
+          <div class="tiny muted" style="margin-top:4px">本班已签 ${r.present + r.late} 人（含迟到 ${r.late}）</div>
+          <div class="tiny muted">如果点错了，可以直接再点一次改正</div>
+          <button class="btn ghost sm" id="notme" style="margin-top:8px">不是我，换个名字</button></div>`;
+        document.getElementById('notme').onclick = () => {
+          try { localStorage.removeItem(ME_KEY); } catch {}
+          paintCheckin();
+        };
+        try { navigator.vibrate?.(60); } catch {}
+      } catch (e) {
+        document.getElementById('ckmsg').innerHTML = `<div class="tiny" style="color:var(--red)">${esc(e.message)}</div>`;
+      } finally { btns.forEach((x) => { x.disabled = false; }); }
+    };
+  });
+  // 拉一次当前人数
+  api(`/public/link/${code}`).then((d) => {
+    const c = document.getElementById('cnt');
+    if (c && d.roll?.[0]) c.textContent = `应到 ${d.roll[0].expect}`;
+  }).catch(() => {});
+}
+
+function paintMaterials() {
+  if (cur) return paintMaterialDetail();
+  const mats = data.materials;
+  $('#s-body').innerHTML = `<div class="card">
+    <div class="card-pad" style="padding-bottom:6px"><div class="card-title">全部资料 <span class="chip blue">${mats.length}</span></div>
+      <div class="tiny muted" style="margin-top:4px">点开即可在线查看或下载，无教材时也能跟上进度</div></div>
+    ${mats.length ? mats.map((m) => `<div class="mat-card" data-m="${m.id}" style="cursor:pointer">
+      <div class="doc-ico">${ICON.mat}</div>
+      <div style="flex:1;min-width:0"><div class="bold small">${esc(m.title)}</div>
+        <div class="tiny muted">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · '))}</div></div>
+      <span class="tiny muted">查看 ${ICON.more}</span></div>`).join('') : '<div class="empty">老师还没有上传资料</div>'}
+  </div>`;
+  document.querySelectorAll('[data-m]').forEach((d) => { d.onclick = () => { cur = Number(d.dataset.m); paintMaterialDetail(); }; });
+}
+async function paintMaterialDetail() {
+  $('#s-body').innerHTML = '<div class="card card-pad small muted">加载中…</div>';
+  try {
+    const d = await api(`/public/link/${code}/materials/${cur}`);
+    $('#s-body').innerHTML = `<div class="card card-pad">
+      <button class="btn ghost sm" id="back">‹ 返回列表</button>
+      <h2 style="margin:12px 0 4px;font-size:19px">${esc(d.material.title)}</h2>
+      <div class="tiny muted">${esc(d.material.descr || '')}</div>
+      <div class="col" style="margin-top:14px">
+        ${d.files.length ? d.files.map((f) => `<a class="btn ghost block" href="${f.url}" target="_blank" style="justify-content:flex-start;gap:10px">
+          <span style="flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis">${esc(f.name)}</span>
+          <span class="tiny muted">${(f.size / 1024 / 1024).toFixed(1)} MB</span></a>`).join('')
+          : '<div class="muted small">这份资料还没有文件</div>'}
+      </div>
+      <div class="row wrap" style="gap:8px;margin-top:14px">
+        ${d.files.map((f) => `<a class="btn soft sm" href="/api/public/link/${code}/file/${f.id}?dl=1" download>${ICON.dl} 下载 ${esc(f.name).slice(0, 12)}</a>`).join('')}
+      </div>
+      <div class="tiny muted" style="margin-top:14px">看不到内容？请点“下载”后用 WPS / Office 打开；也可以在教室电脑上直接打开。</div>
+    </div>`;
+    document.getElementById('back').onclick = () => { cur = null; paint(); };
+  } catch (e) { $('#s-body').innerHTML = `<div class="card card-pad">${esc(e.message)}</div>`; }
+}
+/* ---------- 抽人：选班级 → 点一下 → 滚出名字 ---------- */
+const ROLL_ME = 'wb_pick_';
+function paintRoll() {
+  /* 【第 19 条】以前这里有一道硬拦截：没有班级名单就直接「老师还没有设置班级名单」，
+     整页什么都不给。可老师最常见的用法恰恰是「报个班号，从 1 号抽到 50 号」——
+     根本不需要名单。名单现在只是「按名字抽」这个可选项的数据来源，
+     没有名单就默认走按号码，页面照常可用。 */
+  const rosters = data.rosters || [];
+  const liveCls = (data.roll && data.roll[0]) || null;
+  const first = (liveCls && rosters.find((r) => String(r.id) === String(liveCls.roster_id)))
+    || rosters[0]
+    || { id: 0, grade: '', class_name: '', names: [], count: 0 };
+  /* 【第 19 条：抽人改成自填班级 + 人数 + 抽几个，按号码抽】
+     原来只能从老师预置的名单里选班，名单没建就没得抽；
+     「同时抽 N 人」藏在右上角一个不起眼的数字框里；抽的永远是名字。
+     老师实际用法通常是：随便报个班号，从 1 号抽到 50 号，抽 3 个。
+     所以这里三件事都摊开：班级自己填（可点常用班回填）、人数自己填、抽几个自己填，
+     并且默认按号码抽（学生名单里没名字时本来就只能按号）。
+     模式二选一：按号码 / 按名单名字。 */
+  const names0 = (first.names || []).filter(Boolean);
+  const hasNames = names0.length > 0;
+  const cnt0 = Math.max(1, Math.min(200, Number(first.count) || first.roster_count || names0.length || 40));
+  const recentCls = (() => {
+    try { return JSON.parse(localStorage.getItem('wb_pick_cls') || '[]').slice(0, 6); } catch { return []; }
+  })();
+
+  $('#s-body').innerHTML = `<div class="card card-pad">
+    <div class="pk-grid">
+      <div class="field"><label class="field-label">班级</label>
+        <input class="input" id="pk-cls" placeholder="如 高一(3)班" value="${esc(clsName(first.grade, first.class_name))}" autocomplete="off"></div>
+      <div class="field"><label class="field-label">人数</label>
+        <input class="input" id="pk-total" type="number" inputmode="numeric" min="1" max="200" value="${cnt0}"></div>
+      <div class="field"><label class="field-label">抽几个</label>
+        <input class="input" id="pk-num" type="number" inputmode="numeric" min="1" max="20" value="1"></div>
+    </div>
+    ${recentCls.length ? `<div class="pk-recent"><span class="tiny muted">最近：</span>${recentCls.map((c) => `<button class="pk-chip" data-cls="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
+    <div class="field" style="margin-top:4px">
+      <label class="field-label">怎么抽</label>
+      <div class="seg pk-mode">
+        <button class="on" data-mode="no">按号码</button>
+        <button data-mode="name" ${hasNames ? '' : 'disabled title="这个班还没有名单，去老师那里导入名单后才能按名字抽"'}>按名单名字</button>
+      </div>
+    </div>
+    <label class="pk-nr"><input type="checkbox" id="pk-norepeat"><span>不重复抽同一人 <span class="tiny muted">（抽完一轮前不会再出现）</span></span></label>
+    <button class="btn primary block" id="go" style="height:56px;font-size:17px;margin-top:14px">${ICON.dice} 开始抽</button>
+    <div class="pick-stage"><div class="pick-roll" id="stage">填好上面三项，点「开始抽」</div></div>
+    <div id="history" class="tiny muted" style="text-align:center;min-height:18px"></div>
+  </div>`;
+
+  let mode = 'no';
+  let norepeat = false;
+  let pool = [];        // 不重复模式下「还没抽到过」的
+  let poolKey = '';     // 班级|人数|模式，变了就重置池子
+
+  const clsOf = () => ($('#pk-cls').value || '').trim() || '未命名班级';
+  const totalOf = () => Math.max(1, Math.min(200, Number($('#pk-total').value) || 1));
+  // 池子：号码是 1..人数；名字是名单（人数框跟着名单长度走）
+  const allOf = () => {
+    if (mode === 'name' && hasNames) return names0.slice();
+    const n = totalOf();
+    return Array.from({ length: n }, (_, i) => String(i + 1));
+  };
+  const keyOf = () => `${clsOf()}|${mode}|${mode === 'name' ? names0.length : totalOf()}`;
+  const resetPool = (force = false) => {
+    const k = keyOf();
+    if (!force && k === poolKey) return;
+    poolKey = k; pool = allOf();
+  };
+  const saveCls = () => {
+    const c = clsOf();
+    const old = (() => { try { return JSON.parse(localStorage.getItem('wb_pick_cls') || '[]'); } catch { return []; } })()
+      .filter((x) => x !== c);
+    try { localStorage.setItem('wb_pick_cls', JSON.stringify([c, ...old].slice(0, 6))); } catch {}
+  };
+
+  // 常用班一键回填
+  $('#s-body').querySelectorAll('[data-cls]').forEach((b) => {
+    b.onclick = () => { $('#pk-cls').value = b.dataset.cls; resetPool(true); };
+  });
+  // 模式切换
+  $('#s-body').querySelectorAll('[data-mode]').forEach((b) => {
+    b.onclick = () => {
+      if (b.disabled) return;
+      mode = b.dataset.mode;
+      $('#s-body').querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('on', x === b));
+      if (mode === 'name') $('#pk-total').value = names0.length;
+      resetPool(true);
+      $('#history').textContent = norepeat ? `已抽 0/${pool.length}，抽完自动洗牌` : '';
+    };
+  });
+  $('#pk-norepeat').onchange = (e) => {
+    norepeat = e.target.checked;
+    resetPool(true);
+    $('#history').textContent = norepeat ? `已抽 0/${pool.length}，抽完自动洗牌重新开始` : '';
+  };
+  ['#pk-cls', '#pk-total'].forEach((s2) => { $(s2).oninput = () => { if (norepeat) resetPool(); }; });
+  resetPool(true);
+
+  $('#go').onclick = () => {
+    saveCls();
+    resetPool();
+    const k = Math.max(1, Math.min(20, Number($('#pk-num').value) || 1));
+    const whole = allOf();
+    if (norepeat && pool.length < k) { pool = whole.slice(); poolKey = keyOf(); }
+    const source = (norepeat ? pool : whole).slice();
+    const picks = [];
+    for (let i = 0; i < k && source.length; i++) {
+      picks.push(source.splice(Math.floor(Math.random() * source.length), 1)[0]);
+    }
+    if (norepeat) pool = pool.filter((x) => !picks.includes(x));
+    const label = (v) => (mode === 'name' ? v : v + ' 号');
+
+    const btn = $('#go');
+    btn.disabled = true;
+    stage.className = 'pick-roll blur';
+    let c = 0;
+    const total = 16 + Math.floor(Math.random() * 6);
+    const shown = whole.length ? whole : ['1'];
+    const t = setInterval(() => {
+      stage.textContent = label(shown[Math.floor(Math.random() * shown.length)]);
+      if (++c > total) {
+        clearInterval(t);
+        btn.disabled = false;
+        stage.className = '';
+        if (picks.length === 1) {
+          stage.className = 'pick-win';
+          stage.textContent = label(picks[0]);
+        } else {
+          stage.innerHTML = `<div class="pick-names">${picks.map((p) => `<span class="pick-win sm">${esc(label(p))}</span>`).join('')}</div>`;
+        }
+        try { navigator.vibrate?.([40, 60, 90]); } catch {}
+        const cls = clsOf();
+        if (norepeat) {
+          $('#history').textContent = pool.length
+            ? `${cls} · 已抽 ${whole.length - pool.length}/${whole.length} 人，还剩 ${pool.length} 人`
+            : `${cls} · 全班都抽过了，下次点击自动洗牌重来`;
+        } else {
+          $('#history').textContent = `${cls} · 从 ${whole.length} ${mode === 'name' ? '个名字' : '个号码'}里抽了 ${picks.length} 个`;
+        }
+      }
+    }, 62);
+  };
+  return;
+}
+
+/* ---------- 惩罚盲盒：点一下，摇晃、开箱、亮出任务 ---------- */
+const LV_NAME = { light: '轻松', average: '有点挑战', heavy: '大冒险' };
+const LV_CLASS = { light: 'l1', average: 'l2', heavy: 'l3' };
+/* 用 SVG 而不是 emoji：部分安卓机/电脑缺 emoji 字体，会渲染成方框 */
+const BOX_ICO = {
+  closed: '<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11.5" rx="2"/><path d="M2.5 9h19v3.5h-19zM12 9v11.5"/><path d="M12 9S10.6 4 8.2 4a2.4 2.4 0 0 0 0 5M12 9s1.4-5 3.8-5a2.4 2.4 0 0 1 0 5"/></svg>',
+  light: '<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.2 5.6L20 10l-4.4 3.6L16.6 20 12 16.8 7.4 20l1-6.4L4 10l5.8-1.4z"/></svg>',
+  average: '<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>',
+  heavy: '<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c3 4 6 6.6 6 10a6 6 0 0 1-12 0c0-3.4 3-6 6-10z"/><path d="M12 17a2.6 2.6 0 0 1-2.6-2.6c0-1.5 1.3-2.6 2.6-4.4 1.3 1.8 2.6 2.9 2.6 4.4A2.6 2.6 0 0 1 12 17z"/></svg>',
+};
+/* 这一轮还剩几个没抽过（第 20 条） */
+function leftCount(list) {
+  let done = [];
+  try { done = JSON.parse(localStorage.getItem('wb_punish_done_' + code) || '[]'); } catch { done = []; }
+  const ids = new Set(done.map(String));
+  return list.filter((x) => !ids.has(String(x.id))).length;
+}
+
+function paintPunish() {
+  const list = data.punishments || [];
+  const me = recall();
+  $('#s-body').innerHTML = `<div class="card card-pad" style="text-align:center">
+    <div class="card-title" style="justify-content:center">${ICON.target} 惩罚盲盒</div>
+    <div class="tiny muted">点一下开箱，抽到什么就做什么</div>
+    <div class="box-stage" id="box">
+      <div>
+        <div class="box-icon" id="bico">${BOX_ICO.closed}</div>
+        <div class="box-text" id="ptext" style="font-size:18px;font-weight:600;color:var(--text-2)">点下面按钮开箱</div>
+        <div id="plv"></div>
+        ${me ? `<div class="box-who">给 <b>${esc(me.name || me.stu_no)}</b> 抽的</div>` : ''}
+      </div>
+    </div>
+    <button class="btn primary block" id="spin" style="height:54px;font-size:16px" ${list.length ? '' : 'disabled'}>
+      ${ICON.target} <span id="spintxt">${list.length ? '开箱' : '老师还没设置任务'}</span>
+    </button>
+    <div class="tiny muted" id="pcnt" style="margin-top:12px">${list.length ? `盲盒里共 ${list.length} 个任务 · 这一轮还剩 ${leftCount(list)} 个没抽过` : '请老师到「工作 - 课件」里添加'}</div>
+  </div>`;
+  if (!list.length) return;
+
+  const box = $('#box'); const icon = $('#bico'); const text = $('#ptext'); const lv = $('#plv');
+  let busy = false;
+  $('#spin').onclick = () => {
+    if (busy) return;
+    busy = true;
+    const btn = $('#spin');
+    btn.disabled = true;
+    $('#spintxt').textContent = '摇一摇…';
+    box.classList.remove('open');
+    lv.innerHTML = '';
+    icon.innerHTML = BOX_ICO.closed;
+    icon.className = 'box-icon box-shake';
+    text.style.cssText = 'font-size:18px;font-weight:600;color:var(--text-2)';
+    text.textContent = '摇一摇…';
+    let c = 0;
+    let picked = null;
+    const total = 12 + Math.floor(Math.random() * 6);
+    /* 【第 20 条：抽任务不能重复】
+       原来每一轮都是从全部任务里完全随机取，同一个任务一节课能被抽到三次，
+       学生一眼就看出「又是这个」，盲盒的公平性也就没了。
+       现在按「本轮已抽」记账：优先从没抽过的里抽；全部抽完才洗牌重来，
+       并在界面上说清「这一轮抽完了，已重新洗牌」，而不是悄悄从头开始。 */
+    const KEY_DONE = 'wb_punish_done_' + code;
+    const readDone = () => {
+      try { return JSON.parse(localStorage.getItem(KEY_DONE) || '[]'); } catch { return []; }
+    };
+    const writeDone = (arr) => { try { localStorage.setItem(KEY_DONE, JSON.stringify(arr)); } catch {} };
+    // 只认当前还存在的任务（老师删掉的任务不该永久占着名额）
+    let done = readDone().filter((id) => list.some((x) => String(x.id) === String(id)));
+    let reshuffled = false;
+    const pickFrom = () => {
+      const left = list.filter((x) => !done.some((id) => String(id) === String(x.id)));
+      if (!left.length) { done = []; reshuffled = true; return list[Math.floor(Math.random() * list.length)]; }
+      return left[Math.floor(Math.random() * left.length)];
+    };
+    const t = setInterval(() => {
+      picked = list[Math.floor(Math.random() * list.length)];
+      text.textContent = picked.text;
+      if (++c > total) {
+        clearInterval(t);
+        reshuffled = false;
+        picked = pickFrom();
+        done.push(picked.id);
+        writeDone(done);
+        icon.className = 'box-icon';
+        icon.innerHTML = BOX_ICO[picked.level] || BOX_ICO.light;
+        text.style.cssText = '';   // 交回 .box-text 的样式
+        text.textContent = picked.text;
+        if (picked.level) lv.innerHTML = `<span class="box-lv ${LV_CLASS[picked.level] || 'l1'}">${LV_NAME[picked.level] || '任务'}</span>`;
+        box.classList.add('open');
+        btn.disabled = false;
+        busy = false;
+        const pc = $('#pcnt');
+        if (pc && list.length) {
+          const lf = leftCount(list);
+          pc.textContent = reshuffled
+            ? `这一轮 ${list.length} 个都抽过了，已重新洗牌 · 还剩 ${lf} 个没抽过`
+            : `盲盒里共 ${list.length} 个任务 · 这一轮还剩 ${lf} 个没抽过`;
+        }
+        $('#spintxt').textContent = '再来一个';
+        try { navigator.vibrate?.([40, 60, 90]); } catch {}
+        // 开箱即留痕：老师那边能看到谁、什么时候、抽到了什么
+        const cls = (data.roll && data.roll[0]) || {};
+        api(`/public/link/${code}/punish`, {
+          text: picked.text, stu_name: me?.name || '', grade: cls.grade || '', class_name: cls.class_name || '',
+          roster_id: cls.roster_id || null,
+        }).catch(() => {});
+      }
+    }, 78);
+  };
+}
+init();
+</script>
+</body>
+</html>

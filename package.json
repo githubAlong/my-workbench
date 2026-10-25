@@ -1,0 +1,12 @@
+{
+  "name": "myworkbench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "我的个人工作台 - 教师个人工作台（首页/工作/日常/学习/我的/回收站）",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "dev": "node --watch server/index.mjs"
+  }
+}
