@@ -1126,6 +1126,34 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
 .acm-pv-wrap { max-height: 42vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
 .acm-pv-wrap[hidden] { display: none !important; }
 
+/* 逐行核对表：左边原图裁切，右边识别结果，认错了一眼能看出来 */
+.pv-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; background: var(--card); border-bottom: 1px solid var(--line); font-size: 12px; }
+.pv-bar-txt { flex: 1; min-width: 0; color: var(--text-2); }
+.pv-bar-txt b { font-family: var(--mono); color: var(--text); }
+.pv-bar-ops { display: flex; gap: 5px; flex: 0 0 auto; }
+.pv-scroll { max-height: 46vh; overflow: auto; }
+.pv-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pv-tbl th { position: sticky; top: 0; background: var(--bg-sunken); font-weight: 600; color: var(--text-3);
+  padding: 5px 4px; white-space: nowrap; z-index: 1; }
+.pv-tbl td { padding: 3px 4px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); vertical-align: middle; }
+.pv-no { width: 26px; text-align: center; color: var(--text-3); font-family: var(--mono); }
+.pv-thumb { width: auto; white-space: nowrap; }
+.pv-thumb img { height: 32px; width: auto; max-width: 64px; object-fit: contain;
+  border: 1px solid var(--line); border-radius: 4px; margin-right: 3px; background: #fff;
+  vertical-align: middle; cursor: zoom-in; }
+.pv-thumb img:hover { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-weak); }
+.pv-in { height: 28px; font-size: 12px; padding: 0 6px; min-width: 62px; }
+.pv-ch { width: 44px; text-align: center; }
+.pv-mark { width: 30px; height: 28px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--card); cursor: pointer; font-size: 14px; line-height: 1; color: var(--text-3);
+  display: inline-flex; align-items: center; justify-content: center; }
+.pv-mark.on { background: color-mix(in srgb, var(--green) 16%, transparent); border-color: var(--green); color: var(--green); font-weight: 700; }
+.pv-mark.off { background: color-mix(in srgb, var(--red) 14%, transparent); border-color: var(--red); color: var(--red); font-weight: 700; }
+.pv-mark.unsure { background: #FEF3C7; border-color: #F59E0B; color: #B45309; font-weight: 700;
+  animation: pvPulse 1.4s ease-in-out infinite; }
+@keyframes pvPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(245,158,11,.45) } 50% { box-shadow: 0 0 0 4px rgba(245,158,11,0) } }
+
 /* 教师名册 */
 .att-roster-dialog .sheet { max-width: 620px; }
 .ars-tabs { display: flex; gap: 5px; background: var(--bg-sunken); padding: 3px; border-radius: 12px; margin-bottom: 12px; width: fit-content; }
@@ -2729,3 +2757,42 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   .rp-fault, .rp-meta { margin-left: 0; }
   .rp-head { flex-wrap: wrap; }
 }
+
+/* ---------- 课表午休行（第 40 条） ---------- */
+/* 午休不是一节课，视觉上要跟「第 N 节」明确区分：
+   底色压暗一点、字用次级色、整行不分格，一眼就能看出这是分隔带。 */
+.tbl tr.tt-lunch td {
+  background: color-mix(in srgb, var(--line) 42%, transparent);
+  text-align: center; font-size: 12.5px; color: var(--text-2);
+  letter-spacing: .5px; height: 30px; padding: 5px 8px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--line) 90%, var(--text-3));
+}
+
+/* ---------- 抽人（第 19 条） ---------- */
+.pick-card { margin-bottom: 14px; }
+.pk-stage {
+  margin: 14px 0 10px; padding: 20px 14px; border-radius: 14px; min-height: 110px;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  background: var(--primary-weak); border: 1px solid color-mix(in srgb, var(--primary) 16%, transparent);
+}
+.pk-hint { font-size: 13.5px; color: var(--text-2); }
+.pk-hint.pk-done { color: var(--amber); }
+.pk-roll { font-size: 52px; font-weight: 800; letter-spacing: 2px; color: var(--primary); font-variant-numeric: tabular-nums; }
+.pk-result { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.pk-one {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-width: 78px; padding: 10px 14px; border-radius: 12px; background: var(--card);
+  border: 1px solid var(--line); box-shadow: 0 1px 2px rgba(20,30,60,.05);
+}
+.pk-no { font-size: 26px; font-weight: 800; color: var(--primary); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.pk-name { font-size: 12.5px; color: var(--text-2); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-history-wrap { margin-top: 4px; }
+.pk-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px 3px 9px;
+  border-radius: 999px; background: color-mix(in srgb, var(--primary) 10%, transparent);
+  font-size: 12.5px; color: var(--primary);
+}
+.pk-chip b { font-variant-numeric: tabular-nums; }
+.pk-chip i { font-style: normal; color: var(--text-2); }
+.pk-chip button { border: 0; background: none; color: var(--text-3); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+.pk-chip button:hover { color: var(--red); }
