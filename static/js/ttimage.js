@@ -568,3 +568,52 @@ export function detectTimetable(img) {  const { mono, w, h } = imageToMono(img);
     cells,
   };
 }
+
+/* ==========================================================================
+   通用网格识别 —— 给考勤表之类的「规整表格」复用
+   --------------------------------------------------------------------------
+   课表和考勤表长得像：都是横竖线划出一格一格的表，每格里有字或没字。
+   真正需要「懂课表」的只有后面那步（把列认成星期、把字认成班号），
+   而「找线、切格、判断哪格有字」是完全通用的。
+
+   所以这里把前半段单独导出来。考勤只关心「哪几格有 √」，不需要班号，
+   调用它拿到网格和每格的墨量就够了。
+   ========================================================================== */
+export function detectGrid(img) {
+  const { mono, w, h } = imageToMono(img);
+  const { hs, vs } = findLines(mono, w, h);
+  if (hs.length < 3 || vs.length < 3) {
+    return { ok: false, reason: '没找到表格线。请截得正一点（别斜拍），或者把表格拍满一些。', w, h };
+  }
+  const rows = hs.length - 1;
+  const cols = vs.length - 1;
+  const pad = 5;
+  const cellW = (vs[vs.length - 1] - vs[0]) / cols;
+  const cellH = (hs[hs.length - 1] - hs[0]) / rows;
+  const thr = Math.max(INK_MIN, Math.round(cellW * cellH * 0.004));
+
+  const grid = [];
+  for (let r = 0; r < rows; r++) {
+    const line = [];
+    for (let c = 0; c < cols; c++) {
+      const y0 = hs[r] + pad, y1 = hs[r + 1] - pad;
+      const x0 = vs[c] + pad, x1 = vs[c + 1] - pad;
+      const n = (y1 > y0 && x1 > x0) ? cellInk(mono, w, y0, y1, x0, x1) : 0;
+      line.push({ row: r, col: c, ink: n, filled: n >= thr, box: { x: vs[c], y: hs[r], w: vs[c + 1] - vs[c], h: hs[r + 1] - hs[r] } });
+    }
+    grid.push(line);
+  }
+  return { ok: true, w, h, rows, cols, grid, thr, mono, hs, vs };
+}
+
+/* 把某一格单独渲染成小图，用于人工核对（考勤里给「这格我认成了 √」做预览）。
+   返回 dataURL；格子太小或没字返回 ''。 */
+export function cellImage(img, box, scale = 2) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(box.w * scale));
+  c.height = Math.max(1, Math.round(box.h * scale));
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(img, box.x, box.y, box.w, box.h, 0, 0, c.width, c.height);
+  return c.toDataURL('image/png');
+}

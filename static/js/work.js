@@ -658,7 +658,12 @@ async function renderTimetable(box) {
   const load = async () => {
     const [courses, periods] = await Promise.all([api.get('/courses'), api.get('/periods')]);
     const maxP = Math.max(8, ...periods.map((p) => Number(p.period_no)));
-    const wd = [0, 1, 2, 3, 4, 5, 6];
+    /* 【列顺序】周一到周日，周日放最后。
+       数据里 weekday 用 0 表示周日（跟 Date.getDay() 一致），
+       但「0 排最前」是 JS 的约定，不是人的习惯 —— 老师看课表都是从周一开始。
+       所以这里单独定一张显示顺序表，不直接拿数字排序。 */
+    const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
+    const wd = WD_ORDER;
     const get = (d, p) => courses.find((c) => Number(c.weekday) === d && Number(c.period_no) === p);
     box.innerHTML = `
       <div class="row wrap" style="margin-bottom:12px">

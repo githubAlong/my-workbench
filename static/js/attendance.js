@@ -855,23 +855,26 @@ function uploadDialog(grade, reload) {
     <div class="att-drop" id="drop">
       <div class="ad-ico">${icon('upload', 26)}</div>
       <div class="ad-t">点这里选文件，或把表格拖进来</div>
-      <div class="ad-s">支持 .xlsx / .csv，单表 12MB 以内</div>
-      <input type="file" id="file" accept=".xlsx,.xlsm,.csv,.txt,.tsv" hidden>
+      <div class="ad-s">支持 <b>截图 / 拍照</b>、.xlsx / .csv，单表 12MB 以内</div>
+      <input type="file" id="file" accept=".xlsx,.xlsm,.csv,.txt,.tsv,image/*" hidden>
     </div>
     <div class="att-tips">
       <div class="att-tip-h">能自动认出这些</div>
       <div class="att-tip-grid">
-        <div>${icon('check', 14)} 年级（高一 / 高二）</div>
+        <div>${icon('check', 14)} 哪一列是姓名、哪几列要打勾</div>
+        <div>${icon('check', 14)} 每一格是 √ 还是 ×（空白保持未填）</div>
         <div>${icon('check', 14)} 表类型（坐班 / 教研）</div>
-        <div>${icon('check', 14)} 年 月 日 星期</div>
-        <div>${icon('check', 14)} 第几节</div>
-        <div>${icon('check', 14)} 姓名 + 学科</div>
-        <div>${icon('check', 14)} 上课/坐班/听课/教研/请假</div>
+        <div>${icon('check', 14)} 年 月 日 星期、第几节</div>
+        <div>${icon('check', 14)} 姓名 + 学科（Excel 版）</div>
+        <div>${icon('check', 14)} 左右两栏排版自动合并</div>
       </div>
-      <div class="att-tip-note">左右两栏排版的表也能自动合并成一份名单；勾选只认 √ 和 ×，空格会留成「未填写」。</div>
+      <div class="att-tip-note">
+        传图片时，勾选状态在你自己浏览器里算，图片不上传；<b>姓名需要你照着原图补一下</b>
+        —— 手写名字认不准，认错比认不出更麻烦。行数和顺序会跟原表保持一致。
+      </div>
     </div>
     <div class="att-manual">
-      <button class="link-btn" id="paste-mode">表格还在纸上？先把纸表拍成照片存起来 →</button>
+      <button class="link-btn" id="paste-mode">只想把纸表照片存起来、不想识别？建个空表 →</button>
     </div>
   </div>`);
   const s = sheet({ title: '上传表格，自动识别', body });
@@ -961,6 +964,25 @@ async function photoOnlyDialog(grade, reload) {
 
 async function doDetect(file, s, grade, reload) {
   if (file.size > 12 * 1024 * 1024) return toast('文件太大了（上限 12MB）', 'warn');
+
+  /* 【图片走本地识别，跟课表一个体验】
+     拍张照直接能导，不用先转 Excel。
+     全程在浏览器里算，图片不上传 —— 考勤表上有全校老师的名字，
+     能不传就不传。 */
+  if (/^image\//i.test(file.type || '') || /\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name || '')) {
+    toast('正在识别图片…');
+    let r;
+    try {
+      r = await detectFromImage(file, grade);
+    } catch (e) {
+      return toast('识别失败：' + e.message, 'err');
+    }
+    if (!r.ok) return toast(r.reason || '没识别出来', 'err');
+    s.close();
+    confirmSheet(r, reload);
+    return;
+  }
+
   toast('正在识别…');
   const fd = new FormData();
   fd.append('file', file);
@@ -976,15 +998,68 @@ async function doDetect(file, s, grade, reload) {
   confirmSheet(r, reload);
 }
 
+/* 图片 → 与 CSV 识别同构的结果 */
+async function detectFromImage(file, grade) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  await new Promise((res, rej) => {
+    img.onload = res;
+    img.onerror = () => rej(new Error('图片打不开，换一张试试'));
+    img.src = url;
+  });
+
+  /* 名册是为了「铺名字」用的：认不出手写名字，就按名册顺序先填上，
+     老师核对时只改顺序不一致的几行，比从零敲 46 个名字快。
+     名册拿不到也不影响识别，只是名字变成占位符。 */
+  let roster = [];
+  try {
+    const g = grade || '';
+    const all = await api.get('/teachers');
+    const list = Array.isArray(all) ? all : (all?.data || []);
+    roster = list
+      .filter((t) => !t.deleted_at && (!g || !t.grade || t.grade === g))
+      .sort((a, b) => (Number(a.sort) || 0) - (Number(b.sort) || 0))
+      .map((t) => ({ name: t.name, subject: t.subject || '' }));
+    /* 该年级没单独标 grade 的，退回全量名册 */
+    if (!roster.length) {
+      roster = list.filter((t) => !t.deleted_at)
+        .sort((a, b) => (Number(a.sort) || 0) - (Number(b.sort) || 0))
+        .map((t) => ({ name: t.name, subject: t.subject || '' }));
+    }
+  } catch { roster = []; }
+
+  const { detectAttendance } = await import('./attimage.js');
+  const r = detectAttendance(img, { grade, roster });
+  r.filename = file.name;
+  /* 确认页要显示原图，供对照 */
+  r._imgURL = url;
+  return r;
+}
+
 /* 识别结果确认页 */
 function confirmSheet(r, reload) {
   const d = r.detected || {};
   const checkCols = (r.columns || []).filter((c) => c.type === 'check');
+  /* 图片识别看不出日期（表头文字认不了），默认给今天；CSV 那边从表头解析出年月日就用它 */
+  const defDate = d.year
+    ? `${d.year}-${String(d.month || '1').padStart(2, '0')}-${String(d.day || '1').padStart(2, '0')}`
+    : ymd();
+  const isImg = r.source === 'image';
   const body = el(`<div class="att-confirm">
     <div class="acm-file">
       <span class="acm-f">${icon('file', 15)} ${esc(r.filename)}</span>
       ${r.stats?.dual_column ? '<span class="chip">检测到双栏排版，已合并</span>' : ''}
+      ${isImg ? '<span class="chip">图片识别</span>' : ''}
     </div>
+    ${isImg ? `<div class="acm-roster" style="background:#FFFBEB;border-color:#FDE68A">
+      <div><b>名字是按名册顺序铺的，请扫一眼核对。</b>手写名字认不出来，我没硬猜 ——
+        认错名字比让你改顺序麻烦得多。</div>
+      <div class="tiny muted" style="margin-top:4px">
+        勾选状态（√ / × / 空）已经照原图认好了，行数和顺序跟原表一致。名字如果整体错位，
+        直接在表里上下改一下就行。识别详情：切出 ${r.stats.rows} 行 × ${r.stats.cols} 列，
+        姓名在第 ${r.stats.nameCol + 1} 列，${r.stats.checkCols.length} 个勾选列。
+      </div>
+    </div>` : ''}
     <div class="acm-grid">
       <div class="field"><label class="field-label">年级</label>
         <select class="input" id="c-grade">${['高一', '高二', d.grade].filter((v, i, a) => v && a.indexOf(v) === i).map((g) => `<option ${g === d.grade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
@@ -993,7 +1068,7 @@ function confirmSheet(r, reload) {
           <option value="seat" ${d.sheet_type !== 'research' ? 'selected' : ''}>教师坐班表</option>
           <option value="research" ${d.sheet_type === 'research' ? 'selected' : ''}>教师教研签到表</option>
         </select></div>
-      <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="c-date" value="${d.year}-${String(d.month || '1').padStart(2, '0')}-${String(d.day || '1').padStart(2, '0')}"></div>
+      <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="c-date" value="${defDate}"></div>
       <div class="field"><label class="field-label">节次</label><input class="input" id="c-periods" value="${esc(d.periods || '')}" placeholder="如 1-2"></div>
     </div>
     <div class="field"><label class="field-label">表格名称</label><input class="input" id="c-name" value="${esc(r.filename.replace(/\.(xlsx|xlsm|csv|txt|tsv)$/i, ''))}"></div>
