@@ -39,11 +39,6 @@ const modulesReady = Promise.all(MODULES.map((m) => import(m).catch((e) => {
   return null;
 })));
 
-const [me] = await Promise.all([
-  loadAuthConfig().then(() => (STATIC ? loadSeed() : null)).then(() => loadMe()),
-  modulesReady,
-]);
-
 /* 静态版没有服务端，进来先灌一份示例数据（只灌一次），
    否则新用户看到一个空工作台会以为坏了。 */
 async function loadSeed() {
@@ -51,10 +46,24 @@ async function loadSeed() {
   seedIfEmpty();
 }
 
-state.user = me;
+/* 【渐进式首屏】
+   render() 依赖 views 里已经注册好的页面函数。如果等 modulesReady 再渲染，
+   用户就得盯着骨架等到最后一个模块回来（实测冷缓存 20 秒以上）。
+   所以：先只等 localapi（种子数据），立刻渲染一次——这时 ui.js 已经能画出
+   侧栏和导航，只是具体页面还没注册；模块陆续到位后再补一次 render。
+   用户感知从「白屏 20 秒」变成「0.5 秒看到框架」。 */
+const seedReady = STATIC ? loadSeed() : Promise.resolve();
+const authReady = loadAuthConfig().then(() => seedReady).then(() => loadMe());
+
+state.user = await authReady;
 if (!location.hash) location.hash = '#/home';
 window.addEventListener('hashchange', () => render());
+
+// 第一帧：框架先出来
 await render();
+
+// 模块到齐后补一帧，把真正的页面内容填进去
+modulesReady.then(() => render());
 
 /* WorkBuddy 授权回调带回来的结果。
    回调是整页跳转回来的，页面会整个重载，所以提示只能靠 URL 参数传。
