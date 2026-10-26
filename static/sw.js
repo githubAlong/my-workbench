@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v71';
+const CACHE = 'wb-v72';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -49,6 +49,7 @@ const ASSETS = [
   './js/cloudsync.js',
   './js/cloud.js',
   './js/auth.js',
+  './js/migrate.js',
   /* 数据层 */
   './js/localapi.js',
   './js/localdb.js',
