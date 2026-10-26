@@ -221,6 +221,23 @@ export function loginSheet(opts = {}) {
       注册完回到这里用同一个邮箱密码登录，云端就接上了。
     </div>
 
+    ${(() => {
+      /* 注册时云端那一步被后台开关挡住的，在这里补一句怎么开。
+         这句话以前是注册成功后弹出的 toast，位置不对 —— 人刚进工作台，
+         看到的是一句警告，会以为注册失败。挪到这里才合理：
+         主动点进「云同步」的人，本来就想知道为什么连不上。 */
+      let st = '';
+      try { st = localStorage.getItem('wb_signup_cloud_state') || ''; } catch { }
+      if (st === 'off') {
+        return `<div class="cl-tip" style="border-color:#FCD34D;background:#FFFBEB">
+          <b>你的账号已经建好，可以直接用。</b> 只是云端同步还差一步：
+          去 Supabase 后台 → Authentication → Providers → Email，
+          打开 <b>Allow new users to sign up</b>，之后用同一个账号重新注册一次就能连上。
+        </div>`;
+      }
+      return '';
+    })()}
+
     ${cloud.cfg() ? `<button class="btn ghost block" id="cl-adv" style="margin-top:8px;justify-content:center;font-size:13px">换一个 Supabase 项目</button>` : ''}
   </div>`);
 

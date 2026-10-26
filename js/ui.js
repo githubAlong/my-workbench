@@ -712,6 +712,18 @@ function acctOk(v) {
   return ACCT_MAIL_RE.test(a) ? a.length <= 64 : ACCT_NAME_RE.test(a);
 }
 
+/* 【注册时云端那一步的结果，只记不说】
+   值：ok / off（后台开关关着）/ exists（云端已有同邮箱）/ need_confirm（要收确认邮件）/ error
+   存在 localStorage 而不是弹窗，是因为这东西不该打断人：
+   账号已经建好、人已经进工作台了，再甩一条红字警告只会让人以为"注册失败了"。
+   真正需要看它的是「我的 → 云同步」那一行 —— 那里本来就要显示云端状态。 */
+function rememberCloudState(v) {
+  try { localStorage.setItem('wb_signup_cloud_state', v); } catch { }
+}
+export function signupCloudState() {
+  try { return localStorage.getItem('wb_signup_cloud_state') || ''; } catch { return ''; }
+}
+
 function authPassword() {
   const isReg = authMode === 'register';
   const body = document.getElementById('auth-body');
@@ -782,35 +794,47 @@ function authPassword() {
         local = null;
       }
 
-      let cloudMsg = '';
+      /* ---------------- 云端那半边 ----------------
+         【结果不再用弹层告知】
+         以前这里会在注册成功后固定弹一条「云端注册开关还关着…」停留 9 秒。
+         实际效果是：账号明明建好了、也进得去工作台，右上角却挂着一句警告，
+         让人以为"注册出问题了"。而且每次注册都要问候一次 Supabase，
+         网络慢一点还会拖慢整个注册流程。
+
+         现在改成：
+           · 云端连上了 → 什么都不说，一切照常
+           · 云端没连上 → 什么都不弹，只把这个状态存进 localStorage，
+             由「我的 → 云同步」那一行如实显示（本来那里就该写"未登录"）
+           · 注册页顶部那行小字（say()）已经在提交前把云端状态讲清楚了，
+             不需要进了工作台再讲一遍
+         这样"注册成功"就是纯粹的注册成功，不再自带一条吓人的附注。 */
       try {
         const cloud = await import('./cloud.js');
         const mail = cloud.toCloudEmail(acct);
         const up = await cloud.signUp(mail, pwd);
         if (up.needConfirm) {
-          cloudMsg = '云端账号已创建，但还需要去邮箱点一下确认邮件，之后才会开始同步。';
+          rememberCloudState('need_confirm');
         } else {
           const uid = cloud.cloudUid();
           const rc = await api.post('/auth/register-cloud',
             { account: acct, password: pwd, email: mail, uid }, { silent: true });
           if (rc?.user) local = rc;
+          rememberCloudState('ok');
           try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
         }
       } catch (e) {
-        if (e.code === 'signup_disabled') {
-          cloudMsg = '账号已建好。云端注册开关还关着，去 Supabase 后台打开 Allow new users to sign up 之后，重新注册一次就能连上云。';
-        } else if (e.code === 'exists') {
-          cloudMsg = '本机账号已建好；这个邮箱在云端已经有了，去「我的 → 云同步」用原密码登录即可接上。';
-        } else {
-          cloudMsg = '账号已建好。云端这次没连上（' + (e.message || e) + '），不影响本机使用。';
-        }
+        /* 只记状态，不弹提示。原因见上。 */
+        if (e.code === 'signup_disabled') rememberCloudState('off');
+        else if (e.code === 'exists') rememberCloudState('exists');
+        else rememberCloudState('error');
+        console.warn('[signup] 云端这一步没成：', e.message || e);
       }
 
       if (!local) {
         /* 409 且账号密码也与本机一致 —— 相当于重登，不需要云端再做一遍 */
         local = await api.post('/auth/login', { account: acct, password: pwd });
       }
-      await done(local.user, true, cloudMsg);
+      await done(local.user, true);
     } catch (e) {
       btn.disabled = false; btn.textContent = isReg ? '注册并登录' : '登录';
       toast(e.message || '登录失败', 'err');
@@ -818,16 +842,13 @@ function authPassword() {
   };
 
   /* 登录/注册成功后的共同收尾：写 state、跳页面、给提示 */
-  async function done(user, isReg, cloudMsg) {
+  async function done(user, isReg) {
     state.user = user;
     try { await loadMe(); } catch { }
     const back = takeQrReturn();
     location.hash = back ? `#/qr?id=${back}` : '#/home';
     render();
     toast(isReg ? '账号已创建，开始使用吧' : '欢迎回来', 'ok');
-    /* 云端那半边的结果必须单独说一次：
-       "注册成功"和"能不能看到云端数据"是两件事，混在一句话里只会让人困惑 */
-    if (cloudMsg) setTimeout(() => toast(cloudMsg, 'warn', 9000), 900);
   }
 
   document.getElementById('do-login').onclick = submit;

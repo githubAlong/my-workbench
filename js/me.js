@@ -550,6 +550,19 @@ function syncBadge() {
   if (cloudOn()) {
     return '<span class="chip" style="background:#DCFCE7;color:#166534">已登录</span>';
   }
+  /* 【注册时云端那一步没成的，在这里如实说】
+     以前这种情况会在注册成功后弹一条 9 秒的警告，人已经进了工作台，
+     右上角却挂着一句"云端开关还关着"，看起来像注册失败。
+     现在不弹了，改成在这里标一下 —— 想知道的人点进「云同步」能看明白，
+     不想管的人完全不会被打扰。 */
+  let st = '';
+  try { st = localStorage.getItem('wb_signup_cloud_state') || ''; } catch { }
+  if (st === 'off') {
+    return '<span class="chip" style="background:#FEF3C7;color:#92400E">云端注册未开</span>';
+  }
+  if (st === 'need_confirm') {
+    return '<span class="chip" style="background:#FEF3C7;color:#92400E">待邮箱确认</span>';
+  }
   try {
     const c = JSON.parse(localStorage.getItem('wb_cloud_cfg') || 'null');
     if (!c) return '<span class="chip" style="background:#FEF3C7;color:#92400E">未登录</span>';
