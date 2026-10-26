@@ -182,77 +182,243 @@ async function rest(path, opts = {}) {
   return data;
 }
 
-/* ---------------- 课时 CRUD（与 localapi 的语义对齐） ---------------- */
+/* ---------------- 字段清洗与表配置 ---------------- */
 
 /* 前端传进来的字段可能带这些「本地专用」的东西，云端不认，剔掉
    id 不能传：云端主键是自增的，传了会冲突 */
-const DROP = new Set(['id', 'created_at', 'updated_at', 'deleted_at']);
+const DROP = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'seq']);
 
-function toRow(body) {
+/* ============================================================================
+   通用表读写
+   ────────────────────────────────────────────────────────────────────────────
+   课时是最简单的单表，照着它写一遍就行。但考勤是「主表 + 明细」两张表，
+   监考还有 jsonb 字段 —— 如果每张表都复制一份 list/create/update/delete，
+   四张表就是四份几乎一样的代码，第五张再复制一遍。改一个分页逻辑要改四处。
+
+   所以这里抽出一层「表配置」，各表只在配置里声明差异：
+     order   排序
+     filter  允许按哪些字段过滤
+     json    哪些字段是 jsonb（写入前要序列化）
+     num     哪些字段是数字（空字符串要转成 null，否则 numeric 列会报错）
+     date    哪些字段是日期（'' → null，'2026/9/3' → '2026-09-03'）
+
+   上面这套转换不是洁癖 —— 是踩过的坑：本机数据里 period_no 存的是字符串 '3'，
+   直接丢给 int 列会 400；日期存的是 '2026/9/3'，直接丢给 date 列会整批失败。
+   ========================================================================== */
+
+const TABLES = {
+  lessons: {
+    order: 'order=date.desc.nullslast,period_no.desc.nullslast',
+    filter: ['date', 'month', 'grade', 'class_name', 'subject', 'period_no'],
+  },
+  invigilations: {
+    /* start_at / end_at 在库里是 timestamptz，但前端把它当"日期+时间"直接显示，
+       排序用 date 更稳：同一天多场按开始时间排。 */
+    order: 'order=date.desc.nullslast,start_time.asc.nullslast',
+    filter: ['date', 'month', 'grade', 'subject', 'status', 'type', 'duty_type'],
+    date: ['date'],
+    num: ['minutes', 'duration_min', 'seat_count', 'amount', 'pay_amount',
+          'pay_hours', 'unit_price', 'peer_id'],
+    int: ['need_paper', 'paid', 'school_paid', 'seq'],
+    ts: ['start_at', 'end_at', 'settled_at'],
+  },
+  attendance_tables: {
+    order: 'order=month.desc.nullslast,id.desc',
+    filter: ['month', 'grade', 'subject', 'kind', 'sheet_type'],
+    date: ['sheet_date'],
+    json: ['columns', 'meta'],
+    jsonDefault: { columns: [], meta: {} },
+  },
+  attendance_rows: {
+    order: 'order=table_id.asc,sort.asc.nullslast',
+    filter: ['table_id'],
+    num: ['sort', 'table_id'],
+    json: ['data'],
+    jsonDefault: { data: {} },
+  },
+};
+
+/* '' / undefined / null → null；数字字符串原样保留，交给数据库转 */
+function cleanVal(v, spec, key) {
+  const isJson = spec.json?.includes(key);
+  const isNum = spec.num?.includes(key) || spec.int?.includes(key);
+  const isDate = spec.date?.includes(key);
+  const isTs = spec.ts?.includes(key);
+
+  if (isJson) {
+    if (v === undefined) return undefined;
+    if (typeof v === 'string') {
+      /* 本机存的就是 JSON 字符串，原样传会变成「字符串套字符串」 */
+      try { return JSON.parse(v); } catch { return spec.jsonDefault?.[key] ?? null; }
+    }
+    return v ?? spec.jsonDefault?.[key] ?? null;
+  }
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return isJson ? null : null;
+
+  if (isNum) {
+    const n = parseFloat(String(v).replace(/[^\d.\-]/g, ''));
+    if (Number.isNaN(n)) return null;
+    return spec.int?.includes(key) ? Math.trunc(n) : n;
+  }
+  if (isDate) return toDateStr(v);
+  if (isTs) return toTsStr(v);
+  return v;
+}
+
+function toDateStr(v) {
+  if (v == null || v === '') return null;
+  const s = String(v).trim();
+  let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(s);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  m = /^(\d{4})-?(\d{2})-?(\d{2})/.exec(s);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return null;
+}
+
+function toTsStr(v) {
+  if (v == null || v === '') return null;
+  const s = String(v).trim();
+  /* '2026-09-10T09:00' 这种不带秒的，Postgres 也认；原样传最保险 */
+  if (/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?/.test(s)) return s.replace(' ', 'T');
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function rowOf(table, body) {
+  const spec = TABLES[table] || {};
   const row = {};
   for (const [k, v] of Object.entries(body || {})) {
     if (DROP.has(k)) continue;
     if (v === undefined) continue;
-    row[k] = v;
+    const c = cleanVal(v, spec, k);
+    if (c === undefined) continue;
+    row[k] = c;
   }
   return row;
 }
 
-/* 按 localdb 的排序规则：日期倒序，同一天按节次倒序 */
-const ORDER = 'order=date.desc.nullslast,period_no.desc.nullslast';
-
-export async function listLessons(query = {}) {
-  const qs = ['select=*', ORDER];
-  /* 只取未删除的（与前端软删除语义一致） */
-  qs.push('deleted_at=is.null');
-  /* 支持前端常用的过滤：月份、日期、年级、班级 */
+function queryOf(table, query) {
+  const spec = TABLES[table] || {};
+  if (table === 'attendance_rows' && query.table_id != null && query.table_id !== '') {
+    return 'table_id=eq.' + encodeURIComponent(query.table_id);
+  }
   const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(query)) {
+  for (const [k, v] of Object.entries(query || {})) {
     if (v === undefined || v === null || v === '') continue;
+    if (!(spec.filter || []).includes(k)) continue;
     if (k === 'month' && /^\d{4}-\d{2}$/.test(String(v))) {
-      /* 按月过滤：date >= 月初 且 date < 下月初 */
       const [y, m] = String(v).split('-').map(Number);
       const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
       p.set('date', `gte.${v}-01`);
       p.append('date', `lt.${next}-01`);
       continue;
     }
-    if (['date', 'grade', 'class_name', 'subject', 'period_no'].includes(k)) {
-      p.set(k, 'eq.' + v);
-    }
+    p.set(k, 'eq.' + v);
   }
-  const extra = p.toString();
-  const url = 'lessons?' + qs.join('&') + (extra ? '&' + extra : '');
-  const rows = await rest(url);
+  return p.toString();
+}
+
+export async function listRows(table, query = {}) {
+  const spec = TABLES[table];
+  if (!spec) throw new Error('这张表还没接云端：' + table);
+  const parts = ['select=*', 'deleted_at=is.null'];
+  if (spec.order) parts.push(spec.order);
+  const extra = queryOf(table, query);
+  const rows = await rest(`${table}?${parts.join('&')}${extra ? '&' + extra : ''}`);
   return Array.isArray(rows) ? rows : [];
 }
 
-export async function createLesson(body) {
-  const rows = await rest('lessons?select=*', {
+export async function createRow(table, body) {
+  if (!TABLES[table]) throw new Error('这张表还没接云端：' + table);
+  const rows = await rest(`${table}?select=*`, {
     method: 'POST',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify(toRow(body)),
+    body: JSON.stringify(rowOf(table, body)),
   });
   return Array.isArray(rows) ? rows[0] : rows;
 }
 
-export async function updateLesson(id, body) {
-  const rows = await rest(`lessons?id=eq.${encodeURIComponent(id)}&select=*`, {
+export async function updateRow(table, id, body) {
+  if (!TABLES[table]) throw new Error('这张表还没接云端：' + table);
+  const rows = await rest(`${table}?id=eq.${encodeURIComponent(id)}&select=*`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify(toRow(body)),
+    body: JSON.stringify(rowOf(table, body)),
   });
   if (!Array.isArray(rows) || !rows.length) throw new Error('记录不存在，或不属于你这个账号');
   return rows[0];
 }
 
 /* 软删除：与前端一致，打 deleted_at 而不是真删（回收站还能找回） */
-export async function deleteLesson(id) {
-  const rows = await rest(`lessons?id=eq.${encodeURIComponent(id)}&select=id`, {
+export async function deleteRow(table, id) {
+  if (!TABLES[table]) throw new Error('这张表还没接云端：' + table);
+  const rows = await rest(`${table}?id=eq.${encodeURIComponent(id)}&select=id`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
     body: JSON.stringify({ deleted_at: new Date().toISOString() }),
   });
   if (!Array.isArray(rows) || !rows.length) throw new Error('记录不存在，或不属于你这个账号');
   return { ok: true };
+}
+
+/* ---------------- 课时（保留原接口名，别的地方还在调） ---------------- */
+
+const ORDER = TABLES.lessons.order;
+
+export const listLessons = (query = {}) => listRows('lessons', query);
+export const createLesson = (body) => createRow('lessons', body);
+export const updateLesson = (id, body) => updateRow('lessons', id, body);
+export const deleteLesson = (id) => deleteRow('lessons', id);
+
+/* ---------------- 考勤：主表 + 明细 ---------------- */
+
+/* 取单条。找不到返回 null，不抛错 —— 调用方要能区分
+   「这条不存在」和「网络/权限出问题」，前者可以兜底，后者必须报给用户。 */
+export async function getRow(table, id) {
+  if (!TABLES[table]) throw new Error('这张表还没接云端：' + table);
+  const rows = await rest(`${table}?id=eq.${encodeURIComponent(id)}&deleted_at=is.null&select=*`);
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+/* 一张考勤表可能带 40~60 行明细。逐条 POST 就是 60 次往返，
+   手机上要等十几秒。PostgREST 支持一次提交数组，所以这里必须批量。 */
+export async function createRows(table, list) {
+  if (!TABLES[table]) throw new Error('这张表还没接云端：' + table);
+  if (!Array.isArray(list) || !list.length) return [];
+  const rows = await rest(`${table}?select=*`, {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(list.map((b) => rowOf(table, b))),
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
+/* 删一张考勤表 = 软删主表 + 软删它下面所有明细。
+   为什么不用数据库的外键 cascade：见 SQL 里的注释 ——
+   前端是"先删主表再看明细"，cascade 会把明细删得前端反应不过来。 */
+export async function deleteAttendanceTable(id) {
+  const ts = new Date().toISOString();
+  await rest(`attendance_rows?table_id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ deleted_at: ts }),
+  }).catch(() => { });
+  return deleteRow('attendance_tables', id);
+}
+
+/* 一次读齐：主表 + 所有明细。考勤页打开就要这两样，
+   分两次请求会多一个来回，也容易出现"表出来了但格子空着"的闪烁。 */
+export async function listAttendance(query = {}) {
+  const [tables, rows] = await Promise.all([
+    listRows('attendance_tables', query),
+    listRows('attendance_rows', {}),
+  ]);
+  const ids = new Set(tables.map((t) => String(t.id)));
+  return {
+    tables,
+    rows: rows.filter((r) => ids.has(String(r.table_id))),
+  };
 }

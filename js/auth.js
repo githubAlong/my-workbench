@@ -22,7 +22,7 @@
 import { toast, el, esc, sheet, confirmDialog } from './core.js';
 import { icon } from './ui.js';
 import * as cloud from './cloud.js';
-import { migrateLessons, previewMigration } from './migrate.js';
+import { migrateLessons, previewMigration, migrateInvigilations, migrateAttendance } from './migrate.js';
 
 /* ---------------------------------------------------------------------------
    ★★★ 部署前要填这两个值 ★★★
@@ -452,7 +452,7 @@ async function migrateSheet() {
     <div class="cl-hero">
       <div class="cl-ico">${icon('upload', 24)}</div>
       <div>
-        <div class="bold">把本机课时搬到云端</div>
+        <div class="bold">把本机数据搬到云端</div>
         <div class="tiny muted" style="margin-top:3px" id="mg-sub">先检查一下本机数据…</div>
       </div>
     </div>
@@ -462,9 +462,18 @@ async function migrateSheet() {
   const body = b.querySelector('#mg-body');
   const sub = b.querySelector('#mg-sub');
 
-  let info;
+  /* 三类数据一起体检：课时、监考、考勤。
+     一张表一张表搬太累，老师只想点一次。 */
+  let lessons = null; let invig = 0; let attTables = 0; let attRows = 0;
   try {
-    info = await previewMigration();
+    lessons = await previewMigration();
+    const m = await import('./localdb.js');
+    const db = m.load() || {};
+    invig = (db.invigilations || []).filter((r) => !r.deleted_at).length;
+    const liveTables = (db.attendance_tables || []).filter((r) => !r.deleted_at);
+    attTables = liveTables.length;
+    const ids = new Set(liveTables.map((t) => String(t.id)));
+    attRows = (db.attendance_rows || []).filter((r) => !r.deleted_at && ids.has(String(r.table_id))).length;
   } catch (e) {
     body.innerHTML = `<div class="small" style="color:var(--red)">读不到本机数据：${esc(e.message || e)}</div>`;
     return;
@@ -472,20 +481,21 @@ async function migrateSheet() {
 
   sub.textContent = '检查完毕，请确认';
 
-  if (!info.total) {
-    body.innerHTML = `<div class="card card-pad small">本机没有课时记录，不需要迁移。</div>`;
+  const anyData = (lessons?.realRows || 0) + invig + attTables > 0;
+  if (!anyData) {
+    body.innerHTML = `<div class="card card-pad small">本机没有需要迁移的记录。</div>`;
     return;
   }
 
   const warn = [];
-  if (info.badDate) warn.push(`${info.badDate} 条的日期认不出来，会存成空日期（记录本身不会丢）`);
-  if (info.emptyRows) warn.push(`${info.emptyRows} 条是空记录（没日期也没内容），会自动跳过`);
+  if (lessons?.badDate) warn.push(`${lessons.badDate} 条课时的日期认不出来，会存成空日期（记录本身不会丢）`);
+  if (lessons?.emptyRows) warn.push(`${lessons.emptyRows} 条空课时记录（没日期也没内容），会自动跳过`);
 
   body.innerHTML = `
     <div class="cl-list">
-      <div class="cl-row"><span>本机课时</span><b>${info.total} 条</b></div>
-      <div class="cl-row"><span>其中有内容</span><b>${info.realRows} 条</b></div>
-      <div class="cl-row"><span>带金额的</span><b>${info.withMoney} 条</b></div>
+      <div class="cl-row"><span>课时</span><b>${lessons?.realRows || 0} 条</b></div>
+      <div class="cl-row"><span>监考</span><b>${invig} 场</b></div>
+      <div class="cl-row"><span>考勤表</span><b>${attTables} 张（${attRows} 人次）</b></div>
     </div>
 
     ${warn.length ? `<div class="cl-tip">
@@ -496,11 +506,12 @@ async function migrateSheet() {
       <b>放心几点：</b><br>
       · 只往云端<b>复制</b>，本机数据一条都不删<br>
       · 已经传过的会自动跳过，重复点不会重复插<br>
-      · 中途断了可以再点一次，接着传
+      · 中途断了可以再点一次，接着传<br>
+      · 考勤表的明细会挂到对应的表下面，不会串行
     </div>
 
     <button class="btn primary block" id="mg-go" style="margin-top:14px;justify-content:center">
-      开始迁移（${info.realRows} 条）
+      开始迁移
     </button>
     <div id="mg-prog" class="tiny muted" style="margin-top:10px;text-align:center;min-height:18px"></div>
   `;
@@ -508,35 +519,59 @@ async function migrateSheet() {
   const go = body.querySelector('#mg-go');
   const prog = body.querySelector('#mg-prog');
 
+  const showProg = (text, pct) => {
+    prog.innerHTML = `${esc(text)}<div style="height:4px;border-radius:2px;background:var(--line,#e6e8ec);margin-top:6px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:var(--blue,#2563eb);transition:width .2s"></div></div>`;
+  };
+
   go.onclick = async () => {
     go.disabled = true;
     go.textContent = '迁移中…';
     try {
-      const r = await migrateLessons(({ done, total, text }) => {
-        prog.textContent = text;
-        /* 进度条：几百条时纯文字看不出进展，给一条细线 */
-        const pct = total ? Math.round((done / total) * 100) : 0;
-        prog.innerHTML = `${esc(text)}<div style="height:4px;border-radius:2px;background:var(--line,#e6e8ec);margin-top:6px;overflow:hidden">
-          <div style="height:100%;width:${pct}%;background:var(--blue,#2563eb);transition:width .2s"></div></div>`;
-      });
+      /* 三块依次跑。任何一块抛错都记下来继续跑下一块 ——
+         不能因为监考表没建好，把考勤也一起卡死。 */
+      const fails = [];
+      let l = { total: 0, added: 0, skipped: 0, failed: 0, errors: [] };
+      let iv = { total: 0, added: 0, skipped: 0, failed: 0, errors: [] };
+      let at = { total: 0, added: 0, skipped: 0, failed: 0, errors: [], tables: 0, rows: 0 };
 
-      const bad = r.errors.length
+      if (lessons?.realRows) {
+        try {
+          l = await migrateLessons(({ done, total, text }) => showProg(text, total ? Math.round((done / total) * 100) : 0));
+        } catch (e) { fails.push('课时：' + (e.message || e)); }
+      }
+      if (invig) {
+        try {
+          iv = await migrateInvigilations(({ done, total, text }) => showProg(text, total ? Math.round((done / total) * 100) : 0));
+        } catch (e) { fails.push('监考：' + (e.message || e)); }
+      }
+      if (attTables) {
+        try {
+          at = await migrateAttendance(({ done, total, text }) => showProg(text, total ? Math.round((done / total) * 100) : 0));
+        } catch (e) { fails.push('考勤：' + (e.message || e)); }
+      }
+
+      const errors = [...l.errors, ...iv.errors, ...at.errors];
+      const totalFailed = l.failed + iv.failed + at.failed + fails.length;
+      const bad = (errors.length || fails.length)
         ? `<div class="cl-tip" style="margin-top:10px;color:var(--red)">
-             ${r.errors.length} 条失败：<br>${r.errors.slice(0, 5).map(esc).join('<br>')}
-             ${r.errors.length > 5 ? '<br>…还有其他 ' + (r.errors.length - 5) + ' 条' : ''}
+             ${fails.map(esc).join('<br>')}
+             ${errors.length ? `<br>${errors.slice(0, 5).map(esc).join('<br>')}` : ''}
+             ${errors.length > 5 ? '<br>…还有其他 ' + (errors.length - 5) + ' 条' : ''}
            </div>`
         : '';
 
       body.innerHTML = `
         <div class="cl-list">
-          <div class="cl-row"><span>本机共</span><b>${r.total} 条</b></div>
-          <div class="cl-row"><span>新上传</span><b style="color:#166534">${r.added} 条</b></div>
-          <div class="cl-row"><span>跳过（已存在/空）</span><b>${r.skipped} 条</b></div>
-          <div class="cl-row"><span>失败</span><b style="color:${r.failed ? 'var(--red)' : 'inherit'}">${r.failed} 条</b></div>
+          <div class="cl-row"><span>课时 新上传</span><b style="color:#166534">${l.added} 条</b></div>
+          <div class="cl-row"><span>监考 新上传</span><b style="color:#166534">${iv.added} 场</b></div>
+          <div class="cl-row"><span>考勤 新上传</span><b style="color:#166534">${at.tables || 0} 张 / ${at.rows || 0} 人</b></div>
+          <div class="cl-row"><span>跳过（已存在/空）</span><b>${l.skipped + iv.skipped + at.skipped} 条</b></div>
+          <div class="cl-row"><span>失败</span><b style="color:${totalFailed ? 'var(--red)' : 'inherit'}">${totalFailed} 条</b></div>
         </div>
         ${bad}
         <div class="tiny muted" style="margin-top:10px;line-height:1.7">
-          ${r.failed ? '有失败的，可以再点一次「开始迁移」重试（已成功的会自动跳过）。' : '迁移完成。回到「上课」页刷新一下就能看到。'}
+          ${totalFailed ? '有失败的，可以再点一次「开始迁移」重试（已成功的会自动跳过）。' : '迁移完成。去「上课」「监考」「考勤」各刷新一下就能看到。'}
         </div>
         <button class="btn primary block" id="mg-done" style="margin-top:14px;justify-content:center">知道了</button>
       `;
@@ -544,7 +579,8 @@ async function migrateSheet() {
         sh.close();
         window.dispatchEvent(new HashChangeEvent('hashchange'));
       };
-      toast(`迁移完成：新增 ${r.added} 条，跳过 ${r.skipped} 条`, r.failed ? 'warn' : 'ok', 6000);
+      const sum = l.added + iv.added + (at.tables || 0);
+      toast(`迁移完成：新增 ${sum} 项`, totalFailed ? 'warn' : 'ok', 6000);
     } catch (e) {
       go.disabled = false;
       go.textContent = '重试';

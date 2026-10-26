@@ -1,5 +1,7 @@
 /* ============================================================================
-   本地课时 → 云端课时 的迁移
+   本机数据 → 云端 的迁移
+   目前覆盖：课时（lessons）、监考（invigilations）、考勤（attendance_tables
+   主表 + attendance_rows 明细）。
 
    【为什么需要专门的脚本，而不是「导出 JSON 再导入」】
    本地数据是「能存什么就存什么」，云端是真正的数据库，有类型约束。
@@ -11,13 +13,14 @@
 
    所以这里逐个字段做类型清洗：能转的转，空的变 null，废弃的丢掉。
 
-   【幂等：重复点不会重复插入】
-   用「日期 + 节次 + 班级 + 内容」做指纹。迁移前先读云端已有的，
-   指纹一样的跳过。这样用户可以放心点两次、三次，不会把账目搞乱。
+   【考勤要多一步：id 重映射】
+   本地 attendance_rows.table_id 指向本地主表的流水号，云端主表是新 id。
+   如果照搬 table_id，明细就会挂到别人的表下面 —— 表现是"表建了，但里面是空的"。
+   所以这里维护一张「本地 id → 云端 id」的映射表，明细按映射表挂。
 
-   【不删本地数据】
-   迁移只是「复制到云端」，本地一行不动。确认云端没问题之后，
-   再由用户自己决定要不要清本机。
+   【幂等：重复点不会重复插入】
+   课时用「日期 + 节次 + 班级 + 内容」做指纹；监考用「日期 + 考试名 + 时段」；
+   考勤用「年级 + 日期 + 类型 + 表名」。迁移前先读云端已有的，指纹一样的跳过。
    ========================================================================== */
 
 import * as cloud from './cloud.js';
@@ -129,6 +132,22 @@ async function readLocal() {
   return Array.isArray(rows) ? rows : [];
 }
 
+/* 读本地任意一张表（迁移要读的是"活的"数组，不能走 rowsOf ——
+   rowsOf 会过滤掉已删除的行，但迁移需要对"回收站里的"做判断） */
+async function readLocalTable(name) {
+  const m = await import('./localdb.js');
+  const db = m.load();
+  const rows = db?.[name];
+  return Array.isArray(rows) ? rows : [];
+}
+
+/* 解析本地存成字符串的 JSON（考勤的 columns / meta / data 都是） */
+function parseJSON(v, dflt) {
+  if (v == null) return dflt;
+  if (typeof v === 'object') return v;
+  try { return JSON.parse(v) ?? dflt; } catch { return dflt; }
+}
+
 /**
  * 执行迁移。
  * @param {(p: {done:number, total:number, text:string}) => void} onProgress
@@ -203,4 +222,189 @@ export async function previewMigration() {
     }
   }
   return { total: local.length, realRows, emptyRows, badDate, withMoney };
+}
+
+/* ============================================================================
+   监考：本机 → 云端
+   本地监考表同时存了新旧两套字段（amount/place 与 pay_amount/room，
+   minutes 与 duration_min），迁移时两套都带上，前端读哪套都能对上。
+   ========================================================================== */
+function cleanInvig(r) {
+  return {
+    date: toDate(r.date),
+    exam_name: toText(r.exam_name || r.subject),
+    subject: toText(r.subject || r.exam_name),
+    grade: toText(r.grade),
+    type: toText(r.type),
+    duty_type: toText(r.duty_type),
+    person: toText(r.person),
+    peer_name: toText(r.peer_name || r.person),
+    peer_id: toInt(r.peer_id),
+    orig_teacher: toText(r.orig_teacher),
+    start_at: toTs(r.start_at),
+    end_at: toTs(r.end_at),
+    start_time: toText(r.start_time),
+    end_time: toText(r.end_time),
+    minutes: toInt(r.minutes),
+    duration_min: toInt(r.duration_min || r.minutes),
+    place: toText(r.place || r.room),
+    room: toText(r.room || r.place),
+    seat_count: toInt(r.seat_count),
+    need_paper: toInt(r.need_paper) || 0,
+    paper_place: toText(r.paper_place),
+    amount: toNum(r.amount),
+    pay_amount: toNum(r.pay_amount || r.amount),
+    pay_hours: toNum(r.pay_hours),
+    unit_price: toNum(r.unit_price),
+    pay_rule: toText(r.pay_rule),
+    pay_note: toText(r.pay_note),
+    paid: toInt(r.paid) || 0,
+    school_paid: toInt(r.school_paid) || 0,
+    settled_at: toTs(r.settled_at),
+    settle_key: toText(r.settle_key),
+    status: toText(r.status),
+    remark: toText(r.remark),
+  };
+}
+
+function invigFingerprint(r) {
+  return [r.date || '', r.exam_name || '', r.start_time || '', r.peer_name || '', r.pay_amount ?? ''].join('|');
+}
+
+export async function migrateInvigilations(onProgress = () => {}) {
+  if (!cloud.cfg() || !cloud.session()) throw new Error('请先登录云端账号');
+  onProgress({ done: 0, total: 1, text: '读取本机监考记录…' });
+  const local = (await readLocalTable('invigilations')).filter((r) => !r.deleted_at);
+  if (!local.length) return { total: 0, added: 0, skipped: 0, failed: 0, errors: [] };
+
+  onProgress({ done: 0, total: local.length, text: '读取云端已有记录…' });
+  const remote = await cloud.listRows('invigilations', {});
+  const seen = new Set(remote.map(invigFingerprint));
+
+  let added = 0, skipped = 0, failed = 0;
+  const errors = [];
+  for (let i = 0; i < local.length; i += 1) {
+    const row = cleanInvig(local[i]);
+    const fp = invigFingerprint(row);
+    if (seen.has(fp)) { skipped += 1; continue; }
+    if (!row.date) { skipped += 1; continue; }
+    try {
+      await cloud.createRow('invigilations', row);
+      seen.add(fp); added += 1;
+      onProgress({ done: i + 1, total: local.length, text: `已上传 ${added} 场（${i + 1}/${local.length}）` });
+    } catch (e) {
+      failed += 1;
+      errors.push(`第 ${i + 1} 场（${row.date} ${row.exam_name || ''}）：${e.message || e}`);
+    }
+  }
+  return { total: local.length, added, skipped, failed, errors };
+}
+
+/* ============================================================================
+   考勤：本机 → 云端（主表 + 明细）
+   按「表」为单位迁移：一张表 + 它下面的几十行明细，一起走。
+   中途某张表失败不影响其他表，错误里会写清是哪张。
+   ========================================================================== */
+function cleanAttTable(t) {
+  const cols = parseJSON(t.columns, []);
+  const meta = parseJSON(t.meta, {});
+  const sheetType = t.sheet_type === 'research' || t.kind === 'research' ? 'research' : 'seat';
+  return {
+    name: toText(t.name) || '未命名考勤表',
+    kind: sheetType,
+    sheet_type: sheetType,
+    grade: toText(t.grade) || '高一',
+    subject: toText(t.subject),
+    month: toText(t.month),
+    sheet_date: toDate(t.sheet_date),
+    weekday: toText(t.weekday),
+    periods: toText(t.periods),
+    columns: Array.isArray(cols) ? cols : [],
+    meta: meta && typeof meta === 'object' ? meta : {},
+  };
+}
+
+function attFingerprint(t) {
+  return [t.grade || '', t.sheet_date || '', t.sheet_type || '', t.name || ''].join('|');
+}
+
+/**
+ * 迁移考勤。返回结果里多了 tables / rows 两个数字，方便告诉用户
+ * "搬了几张表、几个人的格子"。
+ */
+export async function migrateAttendance(onProgress = () => {}) {
+  if (!cloud.cfg() || !cloud.session()) throw new Error('请先登录云端账号');
+  onProgress({ done: 0, total: 1, text: '读取本机考勤表…' });
+
+  const tables = (await readLocalTable('attendance_tables')).filter((t) => !t.deleted_at);
+  const allRows = (await readLocalTable('attendance_rows')).filter((r) => !r.deleted_at);
+  if (!tables.length) return { total: 0, added: 0, skipped: 0, failed: 0, errors: [], tables: 0, rows: 0 };
+
+  onProgress({ done: 0, total: tables.length, text: '读取云端已有考勤表…' });
+  const remote = await cloud.listRows('attendance_tables', {});
+  const seen = new Map(remote.map((t) => [attFingerprint(t), t]));
+
+  let addedT = 0; let skippedT = 0; let failedT = 0; let addedR = 0;
+  const errors = [];
+
+  for (let i = 0; i < tables.length; i += 1) {
+    const local = tables[i];
+    const row = cleanAttTable(local);
+    const fp = attFingerprint(row);
+
+    try {
+      let cloudId;
+      const hit = seen.get(fp);
+      if (hit) {
+        /* 已经搬过这张表：明细可能还没搬（上次中途断了），
+           所以不直接跳过，而是接着走明细这一步。 */
+        cloudId = hit.id;
+        skippedT += 1;
+      } else {
+        const created = await cloud.createRow('attendance_tables', row);
+        cloudId = created.id;
+        seen.set(fp, created);
+        addedT += 1;
+      }
+
+      /* 明细：按本地 table_id 找出来，挂到云端 id 上 */
+      const mine = allRows.filter((r) => String(r.table_id) === String(local.id));
+      if (mine.length) {
+        /* 已经有明细就不再插，避免重复点导致翻倍 */
+        const exist = await cloud.listRows('attendance_rows', { table_id: cloudId });
+        const existNames = new Set(exist.map((r) => r.teacher));
+        const batch = [];
+        let sort = exist.reduce((mx, r) => Math.max(mx, Number(r.sort) || 0), 0);
+        for (const r of mine) {
+          const nm = String(r.teacher || '').trim();
+          if (!nm || existNames.has(nm)) continue;
+          sort += 1;
+          batch.push({
+            table_id: cloudId,
+            teacher: nm,
+            subject: String(r.subject || ''),
+            data: parseJSON(r.data, {}),
+            sort,
+          });
+        }
+        for (let k = 0; k < batch.length; k += 200) {
+          await cloud.createRows('attendance_rows', batch.slice(k, k + 200));
+        }
+        addedR += batch.length;
+      }
+
+      onProgress({
+        done: i + 1, total: tables.length,
+        text: `已搬 ${addedT} 张表 / ${addedR} 人（${i + 1}/${tables.length}）`,
+      });
+    } catch (e) {
+      failedT += 1;
+      errors.push(`「${row.name}」（${row.sheet_date || '无日期'}）：${e.message || e}`);
+    }
+  }
+
+  return {
+    total: tables.length, added: addedT, skipped: skippedT, failed: failedT,
+    errors, tables: addedT, rows: addedR,
+  };
 }

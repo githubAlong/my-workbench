@@ -877,8 +877,11 @@ function attTableDetail(id) {
   };
 }
 
-function attStats(id) {
-  const d = attTableDetail(id);
+/* 统计只做计算，不碰库。所以拆成"先拿详情，再算"两步：
+   本地版给 attTableDetail，云端版把详情直接递进来。
+   这样一份算法两边共用，不会出现「云端算出来的数字和本地不一样」。 */
+function attStats(id, presetDetail) {
+  const d = presetDetail || attTableDetail(id);
   const cols = d.columns;
   const keyOf = (re) => cols.find((c) => re.test(c.label))?.key;
   const kReason = keyOf(/原因|备注/) || 'remark';
@@ -989,7 +992,7 @@ function rollCount(sessionId) {
 }
 
 /* ============================ 导出（CSV / JSON / HTML） ============================ */
-function buildExport(kind, month) {
+async function buildExport(kind, month) {
   const M = (col) => (month ? (r) => String(r[col] || '').startsWith(month) : () => true);
   let title = '导出'; let headers = []; let rows = []; let extraHtml = '';
   if (kind === 'lessons') {
@@ -1029,12 +1032,17 @@ function buildExport(kind, month) {
       }
     }
   } else if (kind === 'attendance') {
-    const t = byId('attendance_tables', Number(month) || 0);
-    if (!t) { headers = ['提示']; rows = [['未找到考勤表，请传 month 参数为表 id']]; }
-    else {
-      const d = attTableDetail(t.id);
-      colsPush(d, (title2, headers2, rows2) => { title = title2; headers = headers2; rows = rows2; });
+    /* 考勤表的 id 是从前端传进来的（month 参数复用成了 table id）。
+       云端模式下本地库是空的，所以先问云端，问不到再退回本地。 */
+    const tid = Number(month) || 0;
+    let d = null;
+    if (tid && await cloudReady()) d = await cloudAttendanceDetail(tid);
+    if (!d) {
+      const t = byId('attendance_tables', tid);
+      if (t) d = attTableDetail(t.id);
     }
+    if (!d) { headers = ['提示']; rows = [['未找到考勤表，请传 month 参数为表 id']]; }
+    else colsPush(d, (title2, headers2, rows2) => { title = title2; headers = headers2; rows = rows2; });
   } else if (kind === 'students') {
     title = '学生名单'; headers = ['序号', '年级', '班级', '姓名', '编号'];
     rows = rowsOf('students').sort((a, b) => String(a.grade).localeCompare(String(b.grade)) || String(a.class_name).localeCompare(String(b.class_name)) || num(a.no) - num(b.no))
@@ -2323,17 +2331,28 @@ on('POST', '/attendance/:id/import', ({ params, body }) => {
   save();
   return { added, detected_header: isHeader, columns };
 });
-on('GET', '/attendance/:id/stats', ({ params }) => attStats(params.id));
-on('GET', '/attendance/:id/photos', ({ params }) => {
-  const t = byId('attendance_tables', params.id);
-  if (!t) fail(404, '表不存在');
+/* 统计：云端模式下详情来自 Supabase，本地模式下来自本地库。
+   先在这里把详情取好再交给 attStats，算法只有一份。 */
+on('GET', '/attendance/:id/stats', async ({ params }) => {
+  if (await cloudReady()) {
+    const d = await cloudAttendanceDetail(params.id);
+    if (d) return attStats(params.id, d);
+  }
+  return attStats(params.id);
+});
+on('GET', '/attendance/:id/photos', async ({ params }) => {
+  /* 附件本身还在本地 attachments 表（没上云），但"这张表存不存在"要按云端判断 ——
+     不然云端模式下本地没有 attendance_tables，会误报"表不存在"，
+     用户点「原件」就看到红字，以为照片丢了。 */
+  const exists = (await cloudReady()) ? !!(await cloudAttendanceDetail(params.id)) : !!byId('attendance_tables', params.id);
+  if (!exists) fail(404, '表不存在');
   return (load().attachments || [])
-    .filter((a) => !a.deleted_at && a.owner_type === 'attendance' && String(a.owner_id) === String(t.id))
+    .filter((a) => !a.deleted_at && a.owner_type === 'attendance' && String(a.owner_id) === String(params.id))
     .map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, created_at: a.created_at, url: a.url || '' }));
 });
 on('POST', '/attendance/:id/photos', async ({ params, body }) => {
-  const t = byId('attendance_tables', params.id);
-  if (!t) fail(404, '表不存在');
+  const exists = (await cloudReady()) ? !!(await cloudAttendanceDetail(params.id)) : !!byId('attendance_tables', params.id);
+  if (!exists) fail(404, '表不存在');
   const files = body?.files || [];
   if (!files.length) fail(400, '没有收到图片');
   const saved = [];
@@ -2341,7 +2360,7 @@ on('POST', '/attendance/:id/photos', async ({ params, body }) => {
     if (!/^image\//i.test(f.mime || '')) fail(400, '只能是图片（jpg / png / heic）');
     if (f.data.length > 12 * 1024 * 1024) fail(400, '图片太大了（上限 12MB）');
     const url = await blobToDataURL(f.data, f.mime);
-    const id = saveAttachment('attendance', t.id, f.filename, f.mime, f.data.length, url);
+    const id = saveAttachment('attendance', params.id, f.filename, f.mime, f.data.length, url);
     saved.push({ id, url, name: f.filename, mime: f.mime, size: f.data.length });
   }
   return saved;
@@ -2349,7 +2368,7 @@ on('POST', '/attendance/:id/photos', async ({ params, body }) => {
 
 /* ---- 上传识别 ---- */
 on('POST', '/students/detect', ({ body }) => detectStudents(body));
-on('POST', '/attendance/detect', ({ body }) => detectAttendanceSheet(body));
+on('POST', '/attendance/detect', async ({ body }) => detectAttendanceSheet(body, await cloudReady()));
 on('POST', '/attendance/commit', ({ body }) => commitAttendanceSheet(body));
 
 /* 学生名单识别：读 CSV / 文本，抽姓名 + 年级 + 班级 + 学号。
@@ -2409,8 +2428,11 @@ function detectStudents(body) {
   };
 }
 
-/* 考勤表识别：同样只支持 CSV / 文本。第一行是表头，第一列是姓名。 */
-function detectAttendanceSheet(body) {
+/* 考勤表识别：同样只支持 CSV / 文本。第一行是表头，第一列是姓名。
+   useCloud=true 时，跟教师名册的比对改读云端 ——
+   否则云端模式下本地 teachers 是空的，"和名册对上几个"永远显示 0，
+   用户会以为导入的人一个都没认出来。 */
+async function detectAttendanceSheet(body, useCloud = false) {
   /* core.js 的 formDataToObject 给的是扁平 { files, fields }，
      早先这里写成 body.multipart.files，于是永远取不到文件，
      一律报「没有收到文件」—— 用户的体验就是「点了导入没反应」。 */
@@ -2447,7 +2469,11 @@ function detectAttendanceSheet(body) {
     rows.push({ teacher, subject: '', data });
   }
   if (!rows.length) return { ok: false, reason: '表里没有姓名数据', filename: file.filename, sheets: ['CSV'] };
-  const roster = rowsOf('teachers');
+  /* teachers（教师名册）这张表还没上云，所以 useCloud 时读不到人。
+     这不影响导入本身 —— 名册比对只是"顺手提醒有没有漏人"，
+     比对不上就不显示这一栏，比给个错的 0/0 更诚实。 */
+  let roster = rowsOf('teachers');
+  if (useCloud) roster = [];
   const rosterNames = new Set(roster.map((r) => r.name));
   const sheetNames = new Set(rows.map((r) => r.teacher));
   return {
@@ -2954,8 +2980,8 @@ on('DELETE', '/punish/records/:id', ({ params }) => {
 });
 
 /* ---- 导出 / 导入 ---- */
-on('GET', '/export/:kind', ({ params, query }) => {
-  const data = buildExport(params.kind, query.month || '');
+on('GET', '/export/:kind', async ({ params, query }) => {
+  const data = await buildExport(params.kind, query.month || '');
   return { format: query.format || 'csv', ...data };
 });
 on('POST', '/import/:kind', ({ params, body }) => {
@@ -3500,23 +3526,31 @@ on('DELETE', '/:table/:id', ({ params }) => {
 export async function handle(method, path, query = {}, body = undefined) {
   const clean = path.split('?')[0];
 
-  /* ================= 【A 方案：课时走真云端】 =================
-     只有 /lessons 这一族接口转发到 Supabase，其余 140 多个接口
+  /* ================= 【云端优先：已上云的表走 Supabase】 =================
+     CLOUD_TABLES 里的表族接口转发到 Supabase，其余 140 多个接口
      继续走下面的本地逻辑。这样做的理由：
        · 一次全改风险太高，改坏一处整个工作台都用不了
-       · 先用一张表在真机上跑通，确认「登录→看到→改→另一设备看到」
-       · 跑通后逐张表推进，随时可以停下来回滚
+       · 每张表先在真机上跑通「登录→看到→改→另一设备看到」再往上加
      开关：只有配置了 Supabase 且已登录时才走云端。
-     没配置 / 没登录时，课时仍然用本地数据 —— 保证随时可用，
-     不会因为网络或配置问题把已有功能拖死。 */
+     没配置 / 没登录时，这些表仍然用本地数据 —— 保证随时可用，
+     不会因为网络或配置问题把已有功能拖死。
+
+     【云端返回 null 的含义】cloudRoute 里有些接口（考勤统计、原件照片）
+     还在本地实现，此时它返回 null。绝不能把这个 null 当成数据交给前端，
+     否则点「学科统计」会看到一片空白。null 一律视为「没接云端」，
+     掉到下面的本地循环里处理 —— 这也是本地数据还能救急的地方。 */
   if (CLOUD_TABLES.has(clean.split('/')[1]) && await cloudReady()) {
+    let data;
     try {
-      const data = await cloudRoute(method, clean, query, body);
-      return { ok: true, data };
+      data = await cloudRoute(method, clean, query, body);
     } catch (e) {
       /* 云端出错时说清楚是云端的事，别让用户以为是本地坏了 */
       return { ok: false, error: '云端：' + (e.message || e), code: 502, cloud: true };
     }
+    /* null = 这个接口还没上云（统计 / 原件照片），继续往下走本地实现。
+       其他值一律当云端结果返回，包括空数组 —— 空数组是"真的没有数据"，
+       和 null 的"不归我管"必须分开，否则统计页会拿到空壳白屏。 */
+    if (data !== null && data !== undefined) return { ok: true, data };
   }
 
   for (const r of R) {
@@ -3537,8 +3571,19 @@ export async function handle(method, path, query = {}, body = undefined) {
   return { ok: false, error: '接口不存在（静态版）：' + method + ' ' + clean, code: 404 };
 }
 
-/* 哪些表已经迁到云端。推进时往这里加表名即可 */
-const CLOUD_TABLES = new Set(['lessons']);
+/* 哪些表已经迁到云端。推进时往这里加表名即可。
+
+   【为什么 'attendance' 也要写进去】
+   前端调的路径是 /attendance、/attendance/:id，而云端表叫 attendance_tables /
+   attendance_rows。cloudRoute 里用 'attendance' 作为这一族的路由前缀。
+   漏写它不会报错，只会安静地走本地逻辑 —— 表现为「云端有数据但页面是空的」，
+   这种 bug 最难查，所以这里单独写一句提醒。 */
+const CLOUD_TABLES = new Set([
+  'lessons', 'invigilations',
+  'attendance',        // 路由前缀：/attendance、/attendance/:id、/attendance/:id/rows
+  'attendance_tables', // 前端删表走 /attendance_tables/:id
+  'attendance_rows',
+]);
 
 async function cloudReady() {
   try {
@@ -3547,19 +3592,393 @@ async function cloudReady() {
   } catch { return false; }
 }
 
+/* 云端模式下取一张考勤表的完整详情（含 columns/meta/rows）。
+   给统计、截图、导出这些"只读整表"的功能用 —— 它们原本读本地库，
+   上云之后本地库是空的，直接调会报「考勤表不存在」。
+   取不到就返回 null，调用方自己决定是报错还是给空结果。 */
+async function cloudAttendanceDetail(id) {
+  try {
+    return await cloudRoute('GET', '/attendance/' + encodeURIComponent(id), {}, undefined) || null;
+  } catch { return null; }
+}
+
+/* 云端路由。
+   ────────────────────────────────────────────────────────────────────────────
+   原来这里写死了 lessons，加一张表就要加一串 if。现在改成通用映射：
+   「接口路径 → 云端表名」，路由本身不再关心具体是哪张表。
+
+   为什么不直接把 /xxx 当表名用：
+   有几处名字对不上 —— 比如前端调 /attendance/:id，云端表却叫 attendance_tables；
+   /attendance/:id/rows 是 attendance_rows 且要带 table_id 过滤；
+   删表前端走的是 /attendance_tables/:id，改表走的却是 /attendance/:id。
+   这些差异放在映射表里最清楚，比散在 if 里好维护。
+
+   【另一件必须在这里做的事：把云端行整成本地行的形状】
+   本地版返回的考勤详情是「已经加工过的」：columns 是数组、meta 是对象、
+   rows[].data 是对象，还多一个 photo_count。云端返回的是裸行。
+   如果直接把裸行丢给前端，attendance.js 里 t.columns.slice() / r.data?.xx
+   就会因为拿到字符串或 undefined 而崩 —— 而这类崩溃只有打开某张表时才出现，
+   跑一遍首页根本发现不了。所以整形统一放在路由这一层，前端一行都不用改。 */
 async function cloudRoute(method, clean, query, body) {
   const m = await import('./cloud.js');
   const seg = clean.split('/').filter(Boolean);   // ['lessons'] 或 ['lessons','12']
-  const table = seg[0];
-  const id = seg[1];
+  const head = seg[0];
+  const second = seg[1];
+  const third = seg[2];
 
-  if (table !== 'lessons') throw new Error('该表还没接云端：' + table);
+  /* ================= 考勤 ================= */
+  if (head === 'attendance' || head === 'attendance_tables') {
+    /* ---- 明细：/attendance/:id/rows ---- */
+    if (head === 'attendance' && second && third === 'rows') {
+      const tid = decodeURIComponent(second);
+      if (method === 'GET') {
+        const rows = await m.listRows('attendance_rows', { table_id: tid });
+        return rows.map(attRowShape);
+      }
+      if (method === 'POST') {
+        /* 前端只用批量形式 { rows: [...] }，单条也兼容一下 */
+        const list = Array.isArray(body?.rows) ? body.rows : [body || {}];
+        const ids = [];
+        /* 【sort 必须在服务端算，不能让前端传】
+           本地版是在写入时算「当前最大值 + 1」。云端这里同理：
+           先读一次现有明细，拿到最大 sort，之后每插入一条自增。
+           不这么做的话新行 sort 全是 undefined，
+           数据库按 sort 排序时它们会排到最前面，
+           表现是「新加的人跑到名单第一行去了」。 */
+        let sortSeq = 0;
+        let needSort = false;
+        for (const r of list) {
+          if (r && (r.id === undefined || r.id === null || String(r.id) === '')) { needSort = true; break; }
+        }
+        if (needSort) {
+          const exist = await m.listRows('attendance_rows', { table_id: tid });
+          sortSeq = exist.reduce((mx, x) => Math.max(mx, num(x.sort)), 0);
+        }
+        for (const r of list) {
+          if (!r) continue;
+          const row = { ...r, table_id: tid };
+          const isNew = r.id === undefined || r.id === null || String(r.id) === '';
+          if (isNew) {
+            sortSeq += 1;
+            row.sort = sortSeq;
+          }
+          if (!isNew) {
+            let u = null;
+            try {
+              u = await m.updateRow('attendance_rows', r.id, row);
+            } catch (e) {
+              /* 这条明细已经在另一台设备上被删了。
+                 不能因为一行找不到，就让整次「保存」失败 ——
+                 老师在手机上勾完一保存就弹红字，只会以为数据坏了。
+                 当成新行插进去，勾的内容照样留住。 */
+              if (!/不存在|不属于|0 rows|PGRST116|no rows/i.test(e.message || '')) throw e;
+            }
+            if (u) { ids.push(u.id); continue; }
+            /* 删了又原地复活：sort 也要补上，否则它排到队首 */
+            sortSeq += 1;
+            row.sort = sortSeq;
+          }
+          const c = await m.createRow('attendance_rows', row);
+          ids.push(c.id);
+        }
+        return { ids, saved: ids.length };
+      }
+      throw new Error(`云端暂不支持：${method} ${clean}`);
+    }
 
-  if (method === 'GET' && !id) return m.listLessons(query);
-  if (method === 'POST' && !id) return m.createLesson(body || {});
-  if ((method === 'PATCH' || method === 'PUT') && id) return m.updateLesson(id, body || {});
-  if (method === 'DELETE' && id) return m.deleteLesson(id);
+    /* ---- 删表：前端走 /attendance_tables/:id ---- */
+    if (head === 'attendance_tables' && method === 'DELETE' && second) {
+      return m.deleteAttendanceTable(decodeURIComponent(second));
+    }
+
+    /* ---- 统计：必须在「详情」之前判断 ----
+       纯计算，详情从云端取，算完直接返回。
+       为什么放最前面：下面那个「详情」分支只判断 `second`，
+       /attendance/9/stats 的 second 就是 9，会被它先拦下来，
+       于是统计接口返回的是整张表。这种顺序错位不会报错，只会静默返回错数据。 */
+    if (head === 'attendance' && method === 'GET' && second && third === 'stats') {
+      const d = await cloudAttendanceDetail(decodeURIComponent(second));
+      if (!d) throw new Error('考勤表不存在');
+      return attStats(d.id, d);
+    }
+
+    /* ---- 详情：/attendance/:id ---- */
+    if (method === 'GET' && second) {
+      const id = decodeURIComponent(second);
+      const t = await m.getRow('attendance_tables', id);
+      if (!t) throw new Error('考勤表不存在（可能已在另一台设备上删除）');
+      const rows = await m.listRows('attendance_rows', { table_id: id });
+      return attDetailShape(t, rows.map(attRowShape));
+    }
+
+    /* ---- 列表：/attendance ---- */
+    if (method === 'GET' && !second) {
+      const { tables, rows } = await m.listAttendance(query);
+      return attListShape(tables, rows);
+    }
+
+    /* ---- 新建：/attendance ---- */
+    if (method === 'POST' && !second) {
+      const sheetType = body?.sheet_type || (body?.kind === 'research' ? 'research' : 'seat');
+      const cols = Array.isArray(body?.columns) && body.columns.length
+        ? body.columns : defaultCols(sheetType);
+      const meta = {
+        periods: body?.periods || '',
+        year: String(body?.sheet_date || '').slice(0, 4) || String(new Date().getFullYear()),
+        weekday: body?.weekday || '',
+        ...(body?.meta || {}),
+      };
+      const row = await m.createRow('attendance_tables', {
+        ...body,
+        kind: sheetType,
+        sheet_type: sheetType,
+        name: body?.name || '新建考勤表',
+        month: body?.month || String(body?.sheet_date || todayStr()).slice(0, 7),
+        grade: body?.grade || '高一',
+        sheet_date: body?.sheet_date || '',
+        weekday: body?.weekday || '',
+        periods: body?.periods || '',
+        subject: body?.subject || '',
+        columns: cols,
+        meta,
+      });
+      /* 返回也整成本地形状：前端紧接着就会用 r.columns / r.meta */
+      return { ...row, columns: cols, meta };
+    }
+
+    /* ---- 改表：/attendance/:id ---- */
+    if ((method === 'PATCH' || method === 'PUT') && second) {
+      const patch = { ...(body || {}) };
+      /* 前端改类型时只送 sheet_type，DB 里的 kind 要跟着变：
+         列表页按 sheet_type 分组、统计页按 kind 分支，不同步就会打架。 */
+      if ('sheet_type' in patch) patch.kind = patch.sheet_type === 'research' ? 'research' : 'seat';
+      const row = await m.updateRow('attendance_tables', decodeURIComponent(second), patch);
+      return { ...row, columns: attCols(row), meta: safeJSON(row.meta, {}) };
+    }
+
+    /* ---- 粘贴导入：/attendance/:id/import ---- */
+    if (head === 'attendance' && second && third === 'import') {
+      /* 解析逻辑原样复用本地版，只在落库前换成云端写入 ——
+         表头识别、列对齐这些规则改一次就够，不该有第二个版本。 */
+      const t = await m.getRow('attendance_tables', decodeURIComponent(second));
+      if (!t) throw new Error('考勤表不存在');
+      const text = String(body?.text || '');
+      const grid = Array.isArray(body?.grid) && body.grid.length ? body.grid : parseClipboardTable(text);
+      const columns = Array.isArray(body?.columns) && body.columns.length ? body.columns : attCols(t);
+      const header = grid[0] || [];
+      const isHeader = header.some((h) => /日期|姓名|老师|星期|签到|时间|状态|备注/.test(String(h)));
+      const bodyRows = isHeader ? grid.slice(1) : grid;
+      const mapName = isHeader ? header.findIndex((h) => /姓名|老师|教师/.test(String(h))) : 0;
+      const exist = await m.listRows('attendance_rows', { table_id: t.id });
+      let sort = exist.reduce((mx, r) => Math.max(mx, num(r.sort)), 0);
+      const batch = [];
+      for (const line of bodyRows) {
+        if (!line.length || line.every((c) => !String(c).trim())) continue;
+        const teacher = String(line[mapName] ?? line[0] ?? '').trim();
+        if (!teacher) continue;
+        const data = {};
+        if (isHeader) {
+          columns.forEach((c) => {
+            const idx = header.findIndex((h) => String(h).replace(/\s/g, '') === String(c.label).replace(/\s/g, ''));
+            if (idx >= 0) data[c.key] = String(line[idx] ?? '').trim();
+          });
+        } else {
+          columns.forEach((c, i) => { if (i + 1 < line.length) data[c.key] = String(line[i + 1]).trim(); });
+        }
+        sort += 1;
+        batch.push({ table_id: t.id, teacher, subject: '', data, sort });
+      }
+      if (batch.length) await m.createRows('attendance_rows', batch);
+      return { added: batch.length, detected_header: isHeader, columns };
+    }
+
+    /* ---- 粘贴表格批量建表：/attendance/commit ---- */
+    if (head === 'attendance' && method === 'POST' && second === 'commit') {
+      return commitAttendanceCloud(m, body);
+    }
+
+    /* ---- 原件照片：附件表还没上云，交回本地实现 ---- */
+    if (third === 'photos') {
+      return null;   // handle() 会接着走本地循环
+    }
+
+    throw new Error(`云端暂不支持：${method} ${clean}`);
+  }
+
+  /* ================= 单表通用：/invigilations、/invigilations/:id ================= */
+  const table = head;
+  if (!CLOUD_TABLES.has(table)) throw new Error('该表还没接云端：' + table);
+
+  if (method === 'GET' && !second) return m.listRows(table, query);
+  if (method === 'POST' && !second) {
+    if (Array.isArray(body)) return m.createRows(table, body);
+    return m.createRow(table, body || {});
+  }
+  if ((method === 'PATCH' || method === 'PUT') && second) {
+    return m.updateRow(table, decodeURIComponent(second), body || {});
+  }
+  if (method === 'DELETE' && second) return m.deleteRow(table, decodeURIComponent(second));
   throw new Error(`云端暂不支持：${method} ${clean}`);
+}
+
+/* ---------- 云端行 → 本地行形状 ----------
+   下面三个函数是「接口契约」的唯一落点：本地版的 attTablesList /
+   attTableDetail / attCols 吐什么形状，这里就得吐什么形状。
+   改其中任何一个，都要顺手回去看一眼对应的本地实现。 */
+function attRowShape(r) {
+  return { ...r, data: safeJSON(r.data, {}) };
+}
+
+function attListShape(tables, rows) {
+  const byTable = new Map();
+  for (const r of rows) {
+    const k = String(r.table_id);
+    if (!byTable.has(k)) byTable.set(k, []);
+    byTable.get(k).push(r);
+  }
+  return (tables || []).map((t) => {
+    const mine = byTable.get(String(t.id)) || [];
+    const cols = attCols(t);
+    let leaveCount = 0; let unchecked = 0; const leaveNames = [];
+    for (const r of mine) {
+      const d = safeJSON(r.data, {});
+      const isLeave = Object.entries(d).some(([k, v]) => /请假/.test(k) && v === '1');
+      if (isLeave) { leaveCount += 1; leaveNames.push(r.teacher); }
+      const anyChecked = cols.some((c) => c.type === 'check' && /上课|坐班|签到|教研|听课/.test(c.label) && d[c.key] === '1');
+      if (!anyChecked && !isLeave) unchecked += 1;
+    }
+    const subjects = [...new Set(mine.map((r) => r.subject).filter(Boolean))];
+    return {
+      ...t,
+      sheet_type: t.sheet_type || t.kind,
+      columns: cols,
+      meta: safeJSON(t.meta, {}),
+      row_count: mine.length,
+      subjects,
+      summary: { leave: leaveCount, leave_names: leaveNames.slice(0, 6), none: unchecked },
+    };
+  }).sort((a, b) => String(b.sheet_date || '').localeCompare(String(a.sheet_date || ''))
+    || Number(b.id) - Number(a.id));
+}
+
+function attDetailShape(t, rows) {
+  return {
+    ...t,
+    sheet_type: t.sheet_type || t.kind,
+    columns: attCols(t),
+    meta: safeJSON(t.meta, {}),
+    /* 附件（原件照片 / 原表留档）还在本地 attachments 表，没上云。
+       云端模式下这里恒为 0，按钮照样能点 —— 打开后看到的是空列表而不是报错。
+       等 attachments 上云后改成真实计数。 */
+    photo_count: 0,
+    rows: rows.slice().sort((a, b) => (num(a.sort) - num(b.sort)) || Number(a.id) - Number(b.id)),
+  };
+}
+
+/* 粘贴表格 → 建表 + 铺明细，全在云端。
+   【为什么不能直接用本地 commitAttendanceSheet】
+   它一半逻辑是"算 id"（找 max(id)+1、维护 sort 快照），那是本地版的生存方式；
+   云端 id 由数据库发，算 id 反而会撞。所以这里只保留业务规则：
+   同名教师合并、新建表时顺手补教师名册、meta 记来源文件名。 */
+async function commitAttendanceCloud(m, body) {
+  const rows = Array.isArray(body?.rows) ? body.rows : [];
+  if (!rows.length) throw new Error('没有可导入的数据');
+  const sheetType = body?.sheet_type === 'research' ? 'research' : 'seat';
+  const grade = String(body?.grade || '高一').trim();
+  const year = String(body?.year || new Date().getFullYear());
+  const month = String(body?.month || '').padStart(2, '0') || String(new Date().getMonth() + 1).padStart(2, '0');
+  const day = String(body?.day || '').padStart(2, '0') || String(new Date().getDate()).padStart(2, '0');
+  const dateStr = body?.sheet_date || `${year}-${month}-${day}`;
+  const periods = String(body?.periods || '');
+  const name = String(body?.name || '').trim()
+    || `${year}年${grade}${sheetType === 'seat' ? '老师坐班表' : '老师教研签到表'}${periods ? ' · 第' + periods + '节' : ''}`;
+  const columns = Array.isArray(body?.columns) && body.columns.length ? body.columns : defaultCols(sheetType);
+  const meta = {
+    periods, year, weekday: body?.weekday || '', source: body?.source || 'upload',
+    filename: body?.filename || '', imported_at: nowISO(), imported_rows: rows.length,
+  };
+
+  const tableId = Number(body?.table_id) || 0;
+
+  if (tableId) {
+    /* ---- 往已有表里追加 / 覆盖 ---- */
+    const t = await m.getRow('attendance_tables', tableId);
+    if (!t) throw new Error('目标表不存在');
+    const exist = await m.listRows('attendance_rows', { table_id: tableId });
+    const byName = new Map(exist.map((r) => [r.teacher, r]));
+    let sort = exist.reduce((mx, r) => Math.max(mx, num(r.sort)), 0);
+    let updated = 0; let added = 0;
+    for (const row of rows) {
+      const nm = String(row.teacher || '').trim();
+      if (!nm) continue;
+      const old = byName.get(nm);
+      if (old) {
+        /* 合并而不是覆盖：老表里已经勾过的格子要留住，
+           新导入只补它带来的那几列。 */
+        const merged = { ...safeJSON(old.data, {}), ...(row.data || {}) };
+        await m.updateRow('attendance_rows', old.id, {
+          data: merged,
+          subject: String(row.subject || old.subject || ''),
+        });
+        updated += 1;
+      } else {
+        sort += 1;
+        await m.createRow('attendance_rows', {
+          table_id: tableId, teacher: nm, subject: String(row.subject || ''),
+          data: row.data || {}, sort,
+        });
+        added += 1;
+      }
+    }
+    await m.updateRow('attendance_tables', tableId, { columns, meta });
+    return { table_id: tableId, added, updated, merged: true };
+  }
+
+  /* ---- 新建整张表 ---- */
+  const t = await m.createRow('attendance_tables', {
+    kind: sheetType, sheet_type: sheetType, name, grade,
+    month: `${year}-${month}`, sheet_date: dateStr,
+    weekday: body?.weekday || '', periods, subject: body?.subject || '',
+    columns, meta,
+  });
+  const newId = t.id;
+
+  /* 名册补齐：老师上传一张表，往往名册还是空的。
+     顺手把他表里的人补进当前年级名册，下次建表就能一键铺名单。 */
+  let rosterAdded = 0;
+  try {
+    const teachers = await m.listRows('teachers', { grade }).catch(() => []);
+    if (Array.isArray(teachers) && teachers.length >= 0 && m.TABLES?.teachers) {
+      const have = new Set(teachers.map((x) => x.name));
+      let sort = teachers.reduce((mx, x) => Math.max(mx, num(x.sort)), 0);
+      const add = [];
+      for (const row of rows) {
+        const nm = String(row.teacher || '').trim();
+        if (!nm || have.has(nm)) continue;
+        have.add(nm); sort += 1;
+        add.push({ grade, name: nm, subject: String(row.subject || ''), sort, active: 1 });
+      }
+      if (add.length) { await m.createRows('teachers', add); rosterAdded = add.length; }
+    }
+  } catch { /* 名册补不上不影响导入本身 */ }
+
+  /* 明细批量一次写：一张表四五十行，逐条就是四五十次往返 */
+  const batch = [];
+  let sort = 0;
+  for (const row of rows) {
+    const nm = String(row.teacher || '').trim();
+    if (!nm) continue;
+    sort += 1;
+    batch.push({ table_id: newId, teacher: nm, subject: String(row.subject || ''), data: row.data || {}, sort });
+  }
+  if (batch.length) {
+    /* PostgREST 单次请求有限制，按 200 条一批切开 */
+    for (let i = 0; i < batch.length; i += 200) {
+      await m.createRows('attendance_rows', batch.slice(i, i + 200));
+    }
+  }
+
+  return { table_id: newId, added: batch.length, updated: 0, merged: false, roster_added: rosterAdded };
 }
 
 /* ============================ 小工具 ============================ */
