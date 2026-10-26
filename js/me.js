@@ -402,10 +402,21 @@ async function renderProfile(main) {
   };
   main.querySelector('#p-save').onclick = async (e) => {
     const btn = e.currentTarget;
+    /* 【昵称不能存成空】
+       只填了学校/科目就把昵称删光点保存，库里 nickname 变成 ''，
+       左上角、头像、"我的"页面全变成「未设置昵称」，别人也没法在成员列表里认出你。
+       （头像首字还会退化成「师」，看起来像是账号出了问题。）
+       昵称是唯一的口头称呼来源，必须留着。 */
+    const nick = main.querySelector('#f-nickname').value.trim();
+    if (!nick) {
+      toast('昵称不能为空，留个称呼吧', 'warn');
+      main.querySelector('#f-nickname').focus();
+      return;
+    }
     btn.disabled = true; btn.textContent = '保存中…';
     try {
       const r = await api.patch('/me', {
-        nickname: main.querySelector('#f-nickname').value.trim(),
+        nickname: nick,
         school: main.querySelector('#f-school').value.trim(),
         subject: main.querySelector('#f-subject').value.trim(),
         title: main.querySelector('#f-title').value.trim(),

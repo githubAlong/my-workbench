@@ -635,8 +635,27 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
     $('#pay_amount').value = Math.round(ph * up * 100) / 100;
     syncType();
   };
-  $('#pay_hours').oninput = recalc;
-  $('#le_price').oninput = recalc;
+  /* 【课时 / 单价不接受负数】
+     type=number 写了 min="0"，但浏览器只在"提交表单"时才管它，
+     这里的输入框是手动读 .value 再算的，压根不会触发校验。
+     所以填 -5 时，金额框会老老实实显示 -150，保存时却被 Number(...)||0 变成别的数 ——
+     屏幕上和存下来的不是同一个数，用户回头对账会以为自己记错了。
+     现在：输入即时夹紧到 >= 0 并回写到输入框，让用户看见的就是真正会存的。 */
+  const clampNum = (q, min = 0) => {
+    const el = $(q);
+    const v = el.value === '' ? '' : Number(el.value);
+    if (v !== '' && (Number.isNaN(v) || v < min)) {
+      el.value = min;
+      return min;
+    }
+    return v === '' ? 0 : v;
+  };
+  $('#pay_hours').oninput = () => { clampNum('#pay_hours'); recalc(); };
+  $('#pay_hours').onblur = () => { clampNum('#pay_hours'); recalc(); };
+  $('#le_price').oninput = () => { clampNum('#le_price'); recalc(); };
+  $('#le_price').onblur = () => { clampNum('#le_price'); recalc(); };
+  $('#hours').oninput = () => clampNum('#hours');
+  $('#hours').onblur = () => clampNum('#hours');
   /* 「按单价重算」也要跟着当前单价走，同时把单价写回这一条记录 */
   const resetBtn = $('#le-reset');
   if (resetBtn) resetBtn.onclick = () => { recalc(); };
@@ -685,18 +704,27 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
       orig_teacher: type === '替他人上' ? peer : '',
       swap_from: type === '换课' ? $('#swap_from').value.trim() : '',
       swap_to: type === '换课' ? $('#swap_to').value.trim() : '',
-      hours: type === '他人替我上' ? 0 : (Number($('#hours').value) || 0),
-      pay_hours: Number($('#pay_hours').value) || 0,
+      /* 负数在这里再兜一道：界面上已经夹紧了，但用户可能用键盘删掉重输后直接回车，
+         blur 不一定来得及跑。存进库的必须是 >= 0 的数。 */
+      hours: type === '他人替我上' ? 0 : Math.max(0, Number($('#hours').value) || 0),
+      pay_hours: Math.max(0, Number($('#pay_hours').value) || 0),
       /* 单价跟着这一条走。存下来有两个用处：
          ① 以后改全局单价时，历史记录的单价和金额不会被一起改掉（对账要能复现）；
          ② 编辑旧记录时输入框回填的就是当时那个单价，而不是现在的默认值。 */
-      unit_price: $('#le_price').value === '' ? null : Number($('#le_price').value),
-      pay_amount: Number($('#pay_amount').value) || 0,
+      unit_price: $('#le_price').value === '' ? null : Math.max(0, Number($('#le_price').value) || 0),
+      pay_amount: Math.max(0, Number($('#pay_amount').value) || 0),
       content: $('#content').value, progress: $('#progress').value,
       next_content: $('#next_content').value, discipline: $('#discipline').value,
       remark: $('#remark').value,
     };
     if (!payload.date) return toast('请选择日期', 'warn');
+    /* 【班级是必填的】
+       原来只校验了日期，班级空着也能存 →
+       列表里显示「-- 未填科目」，一节课没有任何归属，
+       到月底统计课时和课时费的时候既不能按班汇总，也没法查是哪节课。
+       科目可以先空着（有时候临时顶课，事后才补），但班级必须选。 */
+    payload.class_name = String(payload.class_name || '').trim();
+    if (!payload.class_name) { toast('请选择或填写班级，不然这节课没法归到哪个班', 'warn'); return; }
     if (isNew) await api.post('/lessons', payload); else await api.patch('/lessons/' + row.id, payload);
     s.close(); toast('已保存'); reload();
   });
@@ -1683,10 +1711,16 @@ function invEditor(row, reload, month, rules, people) {
     q('mins').value = d;
     syncAmt(true);
   };
-  q('st').onchange = calcMins; q('et').onchange = calcMins;
+
+  /* 【新建时不再无条件预填金额】
+     原来这里有一行 `if (isNew) syncAmt(true);`，一打开表单就把金额填成"单价 × 1 场"（默认 60 元）。
+     用户什么都没填就点保存，存的是一条 60 元的空记录。
+     现在：只有用户真的碰过时间/时长，才自动算金额；
+     全新的空表单保持空白，留空就存 0，不再凭空生出钱。 */
   q('mins').onchange = () => syncAmt(true);
+  if (!isNew) syncAmt(true);
+  q('st').onchange = calcMins; q('et').onchange = calcMins;
   syncKind();
-  if (isNew) syncAmt(true);
 
   body.querySelector('#c').onclick = s.close;
   body.querySelector('#k').onclick = async () => {
@@ -1713,6 +1747,16 @@ function invEditor(row, reload, month, rules, people) {
       end_at: q('date').value && q('et').value ? `${q('date').value}T${q('et').value}` : '',
     };
     if (dt !== 'school' && !payload.peer_name) { toast('请填对方老师姓名', 'err'); return; }
+    /* 【空监考单曾能一路存进去，还自带 60 元】
+       原来这里只校验了"代别人/别人代我"要填对方姓名，学校和价、考场、时间一个都没管。
+       用户什么都不填点保存 → 成功 → 库里多出一条 60 元、状态"已完成"的记录。
+       60 元是上面 calc() 按单价自动算的，月底对账会真实地算进"学校应发"，
+       用户会以为学校少发了钱。
+       现在要求：考试名称 / 考场 / 开始时间，至少有一个 —— 有了这个才有对账依据。 */
+    if (!payload.exam_name && !payload.room && !payload.start_time) {
+      toast('至少填一下考试名称、考场或开始时间，不然这条没法对账', 'warn');
+      return;
+    }
     try {
       if (isNew) await api.post('/invigilations', payload); else await api.patch('/invigilations/' + row.id, payload);
       s.close(); toast('已保存'); reload();
@@ -2090,10 +2134,22 @@ function tripEditor(row, reload) {
   });
   const num = (id) => Number(body.querySelector('#' + id).value) || 0;
   body.querySelector('#k').onclick = async () => {
+    /* 目的地和事由至少填一个。
+       原来只校验出发日期（还是默认今天的），别的全靠用户自觉 ——
+       点开「记录出差」什么都不填直接保存，就会生成一张空的出差单：
+       列表里显示「去『未填目的地』」，统计里也算一次出差，月底补贴还要按它算。
+       目的地是这张单子的主语，先要它。 */
+    const toPlace = body.querySelector('#to').value.trim();
+    const reason = body.querySelector('#reason').value.trim();
+    if (!toPlace) {
+      toast('去哪出差？先填一下目的地', 'warn');
+      body.querySelector('#to').focus();
+      return;
+    }
     const payload = {
       start_date: body.querySelector('#sd').value, end_date: body.querySelector('#ed').value || null,
-      from_place: body.querySelector('#from').value, to_place: body.querySelector('#to').value,
-      reason: body.querySelector('#reason').value, companions: body.querySelector('#comp').value,
+      from_place: body.querySelector('#from').value.trim(), to_place: toPlace,
+      reason, companions: body.querySelector('#comp').value,
       transport: num('transport'), hotel: num('hotel'), taxi: num('taxi'),
       toll: num('toll'), parking: num('park'), other: num('other'),
       advance: num('advance'), km: num('km'),

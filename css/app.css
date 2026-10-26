@@ -314,6 +314,26 @@ img { max-width: 100%; }
     -webkit-overflow-scrolling: touch; padding-bottom: 2px; max-width: 100%;
   }
   .snb-list::-webkit-scrollbar { display: none; }
+  /* 【右边还有内容，要看得出来】
+     这一条是横向滚动的（工作下面有 9 个二级，手机一屏放不下 4 个以上），
+     但滚动条被藏了、最后一项又刚好被切一半，用户根本不知道右边还有「考勤」「维修」「回收站」。
+     做法：给 .sub-nav-bar 叠两层渐隐 —— 右边缘一直有个 28px 的淡出，
+     滑到底时淡出消失（.at-end），一进来就全展开时右侧也不显示（.no-scroll）。
+     两层都是纯 CSS + 一个类名，不影响点击（pointer-events:none）。 */
+  .sub-nav-bar { position: relative; }
+  .sub-nav-bar::after {
+    content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 34px;
+    background: linear-gradient(to right, transparent, var(--nav-bg) 70%);
+    pointer-events: none; opacity: 1; transition: opacity .18s ease;
+  }
+  .sub-nav-bar.no-scroll::after, .sub-nav-bar.at-end::after { opacity: 0; }
+  /* 左边滑走之后，左边缘也补一层 —— 否则最左的胶囊是"半截"贴在边上，像被裁掉的 bug */
+  .sub-nav-bar::before {
+    content: ''; position: absolute; top: 0; left: 0; bottom: 0; width: 22px;
+    background: linear-gradient(to left, transparent, var(--nav-bg) 70%);
+    pointer-events: none; opacity: 0; transition: opacity .18s ease;
+  }
+  .sub-nav-bar.at-start-off::before { opacity: 1; }
   .snb-item {
     flex: 0 0 auto; padding: 6px 13px; border-radius: 99px; font-size: 13px;
     font-weight: 600; color: var(--text-2); background: var(--bg-sunken); white-space: nowrap;

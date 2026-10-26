@@ -1660,6 +1660,14 @@ on('PATCH', '/me', ({ body }) => {
   for (const k of ['nickname', 'school', 'subject', 'title', 'avatar']) prev[k] = u[k];
   const prevSettings = u.settings;
 
+  /* 【昵称是硬性非空】前端已经拦了一道，这里再兜一道：
+     昵称一旦存成空串，"我的"页、头像首字、成员列表全都会退化成「未设置昵称」。
+     万一以后有别的入口（或脚本）直接调这个接口，也不能把名字清掉。
+     校验放在前面，不碰任何字段，也不用还原快照。 */
+  if ('nickname' in (body || {}) && !String(body.nickname ?? '').trim()) {
+    fail(422, '昵称不能为空');
+  }
+
   for (const k of ['nickname', 'school', 'subject', 'title', 'avatar']) {
     if (k in (body || {})) u[k] = String(body[k] ?? '');
   }
@@ -3584,6 +3592,25 @@ for (const table of CRUD_TABLES) {
   on('GET', '/' + table, ({ query }) => listTable(table, query));
   on('POST', '/' + table, ({ body }) => {
     const b = { ...(body || {}) };
+    /* 【表级必填，服务端兜底】
+       前端各表单已经拦了，这里再拦一道 —— 接口是可以被"导入""批量"等
+       别的入口调到的，只在界面拦等于没拦。
+       挑的都是「空着这条记录就没意义」的字段，不做格式校验，不打扰正常录入。 */
+    const REQUIRED = {
+      lessons: [['class_name', '班级不能为空']],
+      trips: [['to_place', '目的地不能为空']],
+      invigilations: [['__atLeastOne', '考试名称 / 考场 / 开始时间至少填一个']],
+    }[table];
+    if (REQUIRED) {
+      for (const [k, msg] of REQUIRED) {
+        if (k === '__atLeastOne') {
+          const any = ['exam_name', 'room', 'start_time'].some((f) => String(b[f] ?? '').trim());
+          if (!any) fail(422, msg);
+        } else if (!String(b[k] ?? '').trim()) {
+          fail(422, msg);
+        }
+      }
+    }
     // 监考表旧列 type 是 NOT NULL，新逻辑用 duty_type，这里补一份映射
     if (table === 'invigilations' && !b.type) {
       const m = { school: '学校分配', '替他人': '我代他人', '他人替我': '他人代我' };

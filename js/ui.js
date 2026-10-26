@@ -508,10 +508,48 @@ export async function render() {
       <div class="snb-list">${rootNode.sub.map((s) => `<button class="snb-item${cur === s.id ? ' on' : ''}" data-nav="${rootId}/${s.id}">${esc(s.label)}</button>`).join('')}</div>
     </div></div>`);
     bar.querySelectorAll('[data-nav]').forEach((b) => { b.onclick = () => go(b.dataset.nav); });
+    /* 【滑到头就收掉渐隐】
+       每个二级项都是 nowrap，一屏放不下就横向滚动。滚动条已经藏掉，
+       所以右边必须留个"还能滑"的视觉暗示（CSS 的 ::after 渐隐）。
+       但滑到最后一项时，渐隐还在 → 看起来永远有内容没露出来，很别扭。
+       这里按 scrollLeft 实时加/去类名，三种状态：
+         · 完全不需要滚动 → no-scroll（两边都不渐隐）
+         · 在最左边       → 只右边渐隐
+         · 在中间         → 两边都渐隐
+         · 在最右边       → 只左边渐隐（at-end）
+       用户一进工作页时，同步滚动到当前选中项，避免"选中的那个在屏幕外"。 */
+    const barEl = bar.querySelector('.sub-nav-bar');
+    const listEl = bar.querySelector('.snb-list');
+    const syncEdge = () => {
+      const max = listEl.scrollWidth - listEl.clientWidth;
+      const x = listEl.scrollLeft;
+      barEl.classList.toggle('no-scroll', max <= 2);
+      barEl.classList.toggle('at-end', max > 2 && x >= max - 2);
+      barEl.classList.toggle('at-start-off', max > 2 && x > 2 && x < max - 2);
+    };
+    listEl.addEventListener('scroll', syncEdge, { passive: true });
+    // 字体/图标加载完宽度会变，resize 时重算
+    window.addEventListener('resize', syncEdge, { passive: true });
+    /* 【滚到当前选中项 + 算边缘状态，都要等挂进 DOM 之后】
+       未挂载的元素 clientWidth / scrollWidth 恒为 0，
+       在这里算会把「其实要滚」判成「不用滚」（no-scroll），右侧渐隐反而被关掉 ——
+       手机上右边明明还有 5 个二级看不见，边缘却一点暗示都没有。
+       所以统一放到插入之后做，再补一帧等字体/图标把宽度撑开。 */
+    const initEdge = () => {
+      const onItem = listEl.querySelector('.snb-item.on');
+      if (onItem && listEl.scrollWidth > listEl.clientWidth) {
+        // 用 scrollLeft 手算而不是 scrollIntoView：后者会把整页一起滚下去
+        const want = onItem.offsetLeft - listEl.clientWidth / 2 + onItem.offsetWidth / 2;
+        listEl.scrollLeft = Math.max(0, Math.min(want, listEl.scrollWidth - listEl.clientWidth));
+      }
+      syncEdge();
+    };
     /* app 里此时只有 .app 一个孩子，main 是 .app 里更深一层的节点，
        所以必须插到 .app 的第一个子节点前面，不能直接拿 main 当参照
        （insertBefore 的参照点必须是 app 的直接子节点）。 */
     app.firstElementChild.insertBefore(bar, app.firstElementChild.firstChild);
+    initEdge();
+    requestAnimationFrame(initEdge);
   }
   try {
     await fn(main, { tab: tab || defaultTab(seg), third: third || '', query });
