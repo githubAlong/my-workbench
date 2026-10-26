@@ -33,5 +33,50 @@
 <div id="app"></div>
 <div id="alarm-root"></div>
 <script type="module" src="js/main.js"></script>
+<script>
+  /* 【加载失败兜底：别让人对着一片空白】
+     这个站点是静态页 + ES Module。只要 js/main.js 因为网络卡住、
+     或者浏览器里存着过期的 module 缓存没拉下来，页面上就只剩一个空的 #app，
+     用户看到的就是纯灰白 —— 分不清是「坏了」还是「在加载」。
+     这里做两件事：
+       1) 4 秒后还没渲染出内容，就把 #app 撑起来显示「正在加载…」；
+       2) 12 秒还没好，改成「加载失败 + 重新加载按钮」，并自动重试一次。
+     正常的快网络下这两段都不会触发，用户看不到任何多余的东西。 */
+  (function () {
+    var app = document.getElementById('app');
+    var t1, t2, tried = 0;
+    function box(text, showBtn) {
+      if (!app) return;
+      app.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;'
+        + 'font-family:-apple-system,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;padding:24px;box-sizing:border-box">'
+        + '<div style="max-width:340px;text-align:center">'
+        + '<div style="width:52px;height:52px;border-radius:15px;margin:0 auto 16px;display:grid;place-items:center;'
+        + 'background:linear-gradient(135deg,#4f6ef7,#7b5cf0);color:#fff;font-size:22px;font-weight:700">台</div>'
+        + '<div style="font-size:15px;color:#2a2f3a;line-height:1.7">' + text + '</div>'
+        + (showBtn ? '<button onclick="location.reload()" style="margin-top:18px;width:100%;height:44px;border:0;'
+            + 'border-radius:12px;background:#4f6ef7;color:#fff;font-size:15px;font-weight:600;'
+            + 'font-family:inherit;cursor:pointer">重新加载</button>' : '')
+        + '</div></div>';
+    }
+    function rendered() {
+      return app && app.children.length > 0 && app.innerText.trim().length > 20;
+    }
+    t1 = setTimeout(function () {
+      if (!rendered()) box('正在加载…', false);
+    }, 4000);
+    t2 = setTimeout(function () {
+      if (rendered()) return;
+      box('页面没能加载出来<br>多半是网络卡了一下，或者浏览器里存着旧版本。', true);
+      /* 自动再试一次：很多情况是第一次请求超时，重试就通了 */
+      if (!tried && navigator.onLine) { tried = 1; setTimeout(function () { location.reload(); }, 1200); }
+    }, 12000);
+    /* main.js 自己跑通了会调用 window.__wbBooted */
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        if (rendered()) { clearTimeout(t1); clearTimeout(t2); }
+      }, 800);
+    });
+  })();
+</script>
 </body>
 </html>
