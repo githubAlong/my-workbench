@@ -78,10 +78,27 @@ async function pushRemote(cfg0, dbObj) {
   return now;
 }
 
+/* 【写完 localStorage 必须让内存缓存失效，否则这次拉取等于白拉】
+   2026-10 修：原来这里只 localStorage.setItem 就返回了。
+   但 localdb.load() 有内存缓存 _db，页面启动后早被填满了。
+   于是：云端数据写进磁盘 → 内存里还是旧库 → 下一次 save() 把旧库
+   原样写回磁盘，把刚拉下来的云端数据整个盖掉。
+   表现就是「点了同步云端、提示成功了，一刷新还是老数据」。
+   tryImportFromHash（搬家链接导入）早就踩过并修过这个坑，
+   云同步这条路当时漏了，现在补齐，两边写法保持一致。 */
 function applyRemote(payload) {
   if (!payload || typeof payload !== 'object') throw new Error('云端数据是空的');
   localStorage.setItem(DB_KEY, JSON.stringify(payload));
-  setMeta({ lastPull: new Date().toISOString(), localChanged: false });
+  /* 用动态 import 拿 replaceMemFromDisk：与 tryImportFromHash 里的写法保持一致，
+     不新增静态依赖边（避免 localdb ↔ cloudsync 循环引用）。
+     注意这是 async 函数，调用方 await 它，刷新前一定来得及。 */
+  return (async () => {
+    try {
+      const m2 = await import('./localdb.js');
+      m2.replaceMemFromDisk?.();
+    } catch { }
+    setMeta({ lastPull: new Date().toISOString(), localChanged: false });
+  })();
 }
 
 /* ---------------- 对外三个动作 ---------------- */
@@ -101,7 +118,7 @@ export async function autoSync() {
         toast('云端有新数据，本地也有改动。打开「我的 → 云同步」选择保留哪边', 'warn', 6000);
         setMeta({ conflict: true });
       } else {
-        applyRemote(remote.payload);
+        await applyRemote(remote.payload);
         toast('已同步云端最新数据', 'ok', 2500);
         setTimeout(() => location.reload(), 900);
       }
@@ -127,7 +144,7 @@ export async function pullNow() {
   const remote = await fetchRemote(c);
   if (!remote) throw new Error('云端还没有数据');
   const before = localStorage.getItem(DB_KEY);
-  applyRemote(remote.payload);
+  await applyRemote(remote.payload);
   return { before, at: remote.updated_at };
 }
 
@@ -320,7 +337,7 @@ create policy "sync" on wb_sync for all using (true) with check (true);`;
         const r = await fetchRemote(c);
         if (!r) return toast('云端还没有数据', 'warn');
         if (!(await confirmDialog('会用云端数据覆盖本机。本机数据可以先「上传到云端」留底，确定继续？'))) return;
-        applyRemote(r.payload);
+        await applyRemote(r.payload);
         toast('已覆盖，刷新中…', 'ok');
         s.close();
         setTimeout(() => location.reload(), 800);
