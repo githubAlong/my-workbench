@@ -1406,7 +1406,7 @@ const on = (method, pattern, fn) => {
 
 /* ---- 账号 ---- */
 on('GET', '/auth/config', () => ({
-  allowRegister: true,
+  allowRegister: false,
   demoMode: true,
   smsEnabled: false,
   testPasscode: false,
@@ -1451,6 +1451,11 @@ on('GET', '/auth/me', () => {
 const ACCT_RE = /^[A-Za-z0-9_]{3,20}$/;
 
 on('POST', '/auth/register', async ({ body }) => {
+  /* 界面上已经拿掉「注册一个」，这里再挡一层。
+     光藏按钮不叫禁用 —— 任何人打开控制台发一个请求就能绕过。
+     真正要"只有我能用"，靠的就是这条 403 + Supabase 后台的注册开关。 */
+  fail(403, '注册入口已关闭。账号由管理员在 Supabase 后台创建。');
+
   const account = String(body?.account || '').trim();
   const password = String(body?.password || '');
   if (!ACCT_RE.test(account)) fail(400, '账号要 3~20 位字母、数字或下划线');
@@ -1505,7 +1510,9 @@ on('POST', '/auth/login', async ({ body }) => {
   if (!account || !password) fail(400, '请填写账号和密码');
 
   const u = currentUser();
-  if (!u.account) fail(400, '这台设备还没有账号，请先点「注册一个」');
+  /* 注册入口已关，就不能再说"请先点注册一个"——界面上没有那个按钮了，
+     这句话只会让人到处找。改成告诉他真正该去哪。 */
+  if (!u.account) fail(400, '这台设备还没登录过。请用邮箱密码登录，或在「我的」里用换设备链接登录');
   /* 账号不对和密码不对回同一句话，不告诉试探者「账号是存在的」 */
   if (u.account !== account || u.pwd !== await hashPwd(password)) {
     fail(401, '账号或密码不对');
@@ -1534,7 +1541,7 @@ on('POST', '/auth/password', async ({ body }) => {
 on('POST', '/auth/logout', () => { setLoggedOut(true); return { ok: true }; });
 /* 忘记密码：没有服务端、没有手机号，唯一的出路是清掉本地数据重来。
    不假装能「找回」—— 说清楚代价，让用户自己决定。 */
-on('POST', '/auth/forgot', () => fail(400, '账号只存在这台设备上，没有服务端无法找回。忘记密码可在登录页用「重置本机数据」重新注册。'));
+on('POST', '/auth/forgot', () => fail(400, '密码由 Supabase 管理。忘记密码请去 Supabase 后台 → Authentication → Users，重置该用户密码。'));
 
 on('POST', '/auth/qr', () => fail(400, '静态版没有服务端，扫码登录不可用'));
 on('GET', '/auth/qr/:id', () => fail(400, '静态版没有服务端，扫码登录不可用'));

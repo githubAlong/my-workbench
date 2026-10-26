@@ -548,7 +548,7 @@ const QQ_G = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor
 /* 登录页当前是「登录」还是「注册」——只在这两个之间切换，没有第三种方式 */
 let authMode = 'login';
 
-export const AUTH_CFG = { allowRegister: true, demoMode: false, smsEnabled: false, qrEnabled: false, siteQrLogin: true, wbEnabled: false, testPasscode: false };
+export const AUTH_CFG = { allowRegister: false, demoMode: false, smsEnabled: false, qrEnabled: false, siteQrLogin: true, wbEnabled: false, testPasscode: false };
 
 export async function loadAuthConfig() {
   try {
@@ -564,13 +564,24 @@ export async function loadAuthConfig() {
 
    所以这里不再有验证码页签、扫码页签、第三方登录按钮 —— 全部删掉，
    只留「账号 / 密码」两个输入框，加一个「登录」和一行「还没有账号？注册」。
-   把「选哪种方式」这道题从界面上彻底拿掉。 */
+
+   【2026-10 起注册入口关闭】
+   工作台已经接上 Supabase，账号由教师在 Supabase 后台自己建，只建一个。
+   页面上再留「注册一个」，等于让任何打开网址的人都能在这台设备上建个账号，
+   建完就进了工作台 —— 虽然读不到云端数据（RLS 挡着），但会让人以为是"谁都能用"，
+   也会让教师自己在正式账号之外多出一个本地空账号，反而更容易搞混。
+
+   现在只保留登录。真要开回来，把 ALLOW_SIGNUP 改成 true 就行，
+   不用去翻散落在各处的判断。 */
+const ALLOW_SIGNUP = false;
+
 function authTabsHTML() {
   const mode = authMode === 'register' ? '注册新账号' : '登录';
   const other = authMode === 'register' ? '已有账号？去登录' : '还没有账号？注册一个';
   return {
-    html: `<button class="on">${mode}</button>
-      <button class="auth-switch" id="auth-switch">${other}</button>`,
+    html: `<button class="on">${mode}</button>` +
+      (ALLOW_SIGNUP ? `
+      <button class="auth-switch" id="auth-switch">${other}</button>` : ''),
     def: null,
   };
 }
@@ -621,10 +632,10 @@ function authLogin() {
     <div class="auth-legal">
       <label><input type="checkbox" id="agree" checked><span>我已阅读并同意《服务协议》与《隐私政策》。登录即表示你同意我们按隐私政策处理你的数据。</span></label>
     </div>`;
-  document.getElementById('auth-switch').onclick = () => {
+  document.getElementById('auth-switch')?.addEventListener('click', () => {
     authMode = authMode === 'register' ? 'login' : 'register';
     authLogin();
-  };
+  });
   authPassword();
 }
 
@@ -699,7 +710,7 @@ function authPassword() {
     ${isReg ? '<div class="auth-input"><input id="pwd2" type="password" autocomplete="new-password" placeholder="再输一遍密码" maxlength="32"></div>' : ''}
     <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册并登录' : '登录'}</button>
     <div class="small muted" style="margin-top:10px;line-height:1.6">
-      ${isReg ? '账号密码由你自己设，不需要手机号、不需要短信验证码。' : '账号和密码正确就能进，数据只存在这台设备上。'}
+      ${isReg ? '账号密码由你自己设，不需要手机号、不需要短信验证码。' : '登录后数据跟着账号走，手机、电脑打开是同一份。'}
     </div>`;
 
   const submit = async () => {
