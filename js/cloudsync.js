@@ -410,14 +410,40 @@ grant execute on function public.wb_put(text, jsonb) to anon;`;
     toast('正在验证连接…');
     try {
       await fetchRemote(c0);   // 通了就行，404 行不存在也算通
-      localStorage.setItem(CFG_KEY, JSON.stringify(c0));
-      setMeta({ localChanged: true });   // 第一次绑定后把本地推上去
-      await pushNow().catch(() => {});
-      toast('绑定成功，本机数据已上传。同步钥匙：' + key, 'ok', 8000);
-      s.close();
     } catch (e) {
-      toast('连不上：' + e.message + '。检查 URL/key 和 SQL 是否跑过', 'err', 6000);
+      return toast('连不上：' + e.message + '。检查 URL/key 和 SQL 是否跑过', 'err', 6000);
     }
+
+    /* 【先写配置，再上传 —— 但上传失败必须让用户看见】
+       2026-10 修：原来是这样写的：
+           await pushNow().catch(() => {});                  // 失败被吞
+           toast('绑定成功，本机数据已上传。同步钥匙：' + key);  // 无论如何都这么说
+       结果上传失败了，界面照样报「已上传」，只是一闪而过没人注意。
+       用户以为绑好了，去另一台设备一拉——空的。
+       现在分三步，每步结果都如实说：
+         ① 配置写进去（拉取/后续同步要用）
+         ② 真的上传一次，拿到结果
+         ③ 成功报成功；失败就明说失败，并把钥匙给用户留着，
+            让他可以在弹层里点「把本机数据上传到云端」重试。 */
+    localStorage.setItem(CFG_KEY, JSON.stringify(c0));
+    setMeta({ localChanged: true });   // 第一次绑定后把本地推上去
+
+    let pushErr = null;
+    try {
+      await pushNow();
+    } catch (e) {
+      pushErr = e && e.message ? e.message : '未知错误';
+    }
+
+    if (pushErr) {
+      /* 上传失败：钥匙照样显示出来（已经生成了，别让用户白等一次），
+         但要明确告诉他「还没传上去」，以及下一步该做什么。 */
+      toast('已连接云端，但本机数据没传上去：' + pushErr + '。请在云同步里点「把本机数据上传到云端」重试。', 'err', 12000);
+      s.close();
+      return;
+    }
+    toast('绑定成功，本机数据已上传。同步钥匙：' + key, 'ok', 8000);
+    s.close();
   };
 }
 
@@ -440,18 +466,62 @@ function fmt(iso) {
   const d = new Date(iso);
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+/* 【弹层样式要与应用内其它弹层保持一致】
+   2026-10 改：原来这里是自己写的一套：
+       max-height:86vh; overflow:auto;
+   把标题栏和内容放进同一个滚动区。后果：
+     · 一滚动，标题和「×」跟着滚出去，用户找不到怎么关
+     · 手机上右侧会出现一条突兀的滚动条压住内容
+     · 底部「绑定云存储」按钮离屏幕边缘太近，容易被当成页面尽头而忽略
+   现在改成三段式：标题固定、内容区独立滚动、按钮贴在底部常驻。
+   max-height 也从 86vh 提到 90vh（手机上 94vh），尽量少滚。 */
 function sheet({ title, body }) {
-  /* 跟 me.js 里的 sheet 同款最小实现，避免循环依赖 ui.js */
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
   const box = document.createElement('div');
-  box.style.cssText = 'background:var(--card,#fff);width:min(520px,100%);max-height:86vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px';
-  box.innerHTML = `<div class="row" style="margin-bottom:12px"><b>${esc(title)}</b><span style="flex:1"></span><button id="cs-close" style="border:0;background:none;font-size:20px;cursor:pointer">×</button></div>`;
-  box.appendChild(body);
+  box.style.cssText = [
+    'background:var(--card,#fff)',
+    'width:min(520px,100%)',
+    'max-height:90vh',
+    'border-radius:16px 16px 0 0',
+    'display:flex',
+    'flex-direction:column',
+    'overflow:hidden',
+    'box-shadow:0 -8px 32px rgba(0,0,0,.18)',
+  ].join(';');
+  /* 标题固定，不随内容滚动 */
+  const head = document.createElement('div');
+  head.style.cssText = 'display:flex;align-items:center;gap:8px;padding:16px 16px 10px;flex:0 0 auto';
+  head.innerHTML = `<b style="font-size:15px">${esc(title)}</b><span style="flex:1"></span>
+    <button id="cs-close" aria-label="关闭" style="border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted,#888);padding:0 4px">×</button>`;
+  /* 内容区独立滚动 */
+  const scroll = document.createElement('div');
+  scroll.style.cssText = 'flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 16px 16px';
+  scroll.appendChild(body);
+  box.appendChild(head);
+  box.appendChild(scroll);
   wrap.appendChild(box);
   document.body.appendChild(wrap);
+
+  /* 小屏再抬一点高度，同时给底部留出安全区（iPhone 那条横条）。
+     667px 高的手机（iPhone SE/8）实测差 15px 需要滚，这里把
+     标题栏和内容区各收一点边距，争取一屏放下、不用滚。 */
+  const mq = window.matchMedia('(max-width: 760px)');
+  const applyH = () => {
+    const small = mq.matches;
+    box.style.maxHeight = small ? '96vh' : '90vh';
+    box.style.paddingBottom = small ? 'env(safe-area-inset-bottom, 0px)' : '0';
+    head.style.padding = small ? '12px 16px 8px' : '16px 16px 10px';
+    scroll.style.padding = small ? '0 16px 10px' : '0 16px 16px';
+  };
+  applyH();
+  mq.addEventListener?.('change', applyH);
+
   wrap.onclick = (e) => { if (e.target === wrap) close(); };
-  box.querySelector('#cs-close').onclick = close;
-  function close() { wrap.remove(); }
+  head.querySelector('#cs-close').onclick = close;
+  function close() {
+    mq.removeEventListener?.('change', applyH);
+    wrap.remove();
+  }
   return { close };
 }

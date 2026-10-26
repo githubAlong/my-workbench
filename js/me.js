@@ -118,7 +118,31 @@ async function renderMe(main) {
     if (a === 'bind') return bindManager();
     if (a === 'security') return securitySheet();
     if (a === 'backup') return backupSheet();
-    if (a === 'cloud') return bindSheet();
+    if (a === 'cloud') {
+      bindSheet();
+      /* 【绑定/解绑后要让状态标签跟着变】
+         这个「我的」页面是一次性渲染的，syncBadge() 在渲染那一刻读一次
+         localStorage 就定死了。用户在弹层里绑定成功后，弹层一关，
+         列表里那行「云同步」还挂着「未开启」——用户以为没绑上，
+         反复重试，甚至怀疑自己操作错了。
+         这里在弹层关闭时补一次轻量重绘：只换那个 chip，不整页重渲染，
+         用户不丢滚动位置、不闪。 */
+      const paint = () => {
+        const el = main.querySelector('[data-act="cloud"] .chip');
+        if (el) el.outerHTML = syncBadge();
+        else {
+          // 原来没有 chip（未绑定时是有 chip 的，这里兜底处理异常情况）
+          const btn = main.querySelector('[data-act="cloud"]');
+          if (btn) btn.insertAdjacentHTML('beforeend', syncBadge());
+        }
+      };
+      // 弹层关闭（绑定成功/解绑都会 close）后重绘
+      const obs = new MutationObserver(() => {
+        if (!document.body.querySelector('.sheet-mask')) { paint(); obs.disconnect(); }
+      });
+      obs.observe(document.body, { childList: true, subtree: true });
+      return;
+    }
     if (a === 'share') return shareSheet();
     if (a === 'link') {
       const links = await api.get('/links');
@@ -574,9 +598,18 @@ function syncBadge() {
     const c = JSON.parse(localStorage.getItem('wb_cloud_cfg') || 'null');
     if (!c) return '<span class="chip" style="background:#FEF3C7;color:#92400E">未开启</span>';
     const m = JSON.parse(localStorage.getItem('wb_cloud_meta') || '{}');
-    return m.conflict
-      ? '<span class="chip" style="background:#FEE2E2;color:#991B1B">有冲突</span>'
-      : '<span class="chip" style="background:#DCFCE7;color:#166534">已开启</span>';
+    if (m.conflict) return '<span class="chip" style="background:#FEE2E2;color:#991B1B">有冲突</span>';
+    /* 【绑了但一次都没传成功，要说出来】
+       以前只要 localStorage 里有配置就一律显示「已开启」。
+       可「绑上了」和「数据真的在云上」是两件事 ——
+       绑定时上传失败会被静默吞掉（见 bindSheet 的注释），
+       界面却照样报成功、标签照样变绿，用户以为万事大吉，
+       换设备时才发现云端是空的。
+       这里把「已经传过」和「还没传成」分开显示。 */
+    if (!m.lastPush) {
+      return '<span class="chip" style="background:#FEF3C7;color:#92400E">已绑定·未上传</span>';
+    }
+    return '<span class="chip" style="background:#DCFCE7;color:#166534">已开启</span>';
   } catch { return ''; }
 }
 
