@@ -116,6 +116,11 @@ function currentUser() {
   if (!db.meta.user) db.meta.user = DEFAULT_USER();
   return db.meta.user;
 }
+/* 【为什么不在这里检查 save() 的返回值】
+   这个函数有十几处调用，其中好几处在 /auth/* 里。如果它写失败就抛错，
+   「注册成功但没落盘」会被前端当成「注册失败」，用户被锁在门外 —— 比丢一条设置严重得多。
+   所以这里维持「尽力写、不抛错」，需要严格语义的接口（PATCH /me、POST/DELETE /me/avatar）
+   自己调 load()+save() 并检查返回值。 */
 function saveUser(u) {
   const db = load();
   db.meta.user = u;
@@ -1646,6 +1651,15 @@ on('GET', '/auth/workbuddy/start', () => fail(400, '静态版不支持 WorkBuddy
 on('GET', '/me', () => ({ user: publicUser(currentUser()), settings: currentUser().settings || {} }));
 on('PATCH', '/me', ({ body }) => {
   const u = currentUser();
+  /* 【先拍快照，写失败要能退回原样】
+     save() 在 localStorage 满了（QuotaExceeded）时会返回 false 而不是抛错，
+     原来的写法直接忽略返回值 —— 于是「保存成功」的 toast 照弹，界面显示新值，
+     一刷新全没了。用户看到的是「明明保存了，怎么又变回去」。
+     这里改完先试写，写不进去就把内存对象还原，再明确告诉用户存不下。 */
+  const prev = {};
+  for (const k of ['nickname', 'school', 'subject', 'title', 'avatar']) prev[k] = u[k];
+  const prevSettings = u.settings;
+
   for (const k of ['nickname', 'school', 'subject', 'title', 'avatar']) {
     if (k in (body || {})) u[k] = String(body[k] ?? '');
   }
@@ -1656,7 +1670,13 @@ on('PATCH', '/me', ({ body }) => {
   if (body?.settings && typeof body.settings === 'object') {
     u.settings = { ...(u.settings || {}), ...body.settings };
   }
-  saveUser(u);
+  const db = load();
+  db.meta.user = u;
+  if (!save()) {
+    Object.assign(u, prev);
+    u.settings = prevSettings;
+    fail(507, '本机存储空间不足，这次修改没保存下来。删掉几个附件或旧记录再试。');
+  }
   return { user: publicUser(u) };
 });
 /* 【原来是 fail(400, '静态版没有服务端密码，不需要修改')】—— 按钮点了永远弹这句，
@@ -1756,8 +1776,20 @@ on('POST', '/me/avatar', async ({ body }) => {
 });
 on('DELETE', '/me/avatar', () => {
   const u = currentUser();
+  /* 和上面 POST 一样要检查写入结果。
+     移除头像本身是「减体积」，理论上不会因为满了而失败，
+     但 disk 上可能还有别的写失败原因（隐私模式、被别的标签页写坏）。
+     失败还返回成功的话，用户会看到头像消失、一刷新又回来了。 */
+  const prev = u.avatar;
   u.avatar = '';
-  saveUser(u);
+  const db = load();
+  db.meta.user = u;
+  if (!save()) {
+    u.avatar = prev;
+    db.meta.user = u;
+    save();
+    fail(507, '本机存储写入失败，头像没能移除。稍后重试或换个浏览器试试。');
+  }
   return { user: publicUser(u) };
 });
 

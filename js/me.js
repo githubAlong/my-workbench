@@ -1,7 +1,7 @@
 import {
   api, el, esc, toast, sheet, confirmDialog, fmtDateTime, download, saveBlob, ls, ymd,
 } from './core.js';
-import { registerView, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, paintUnread, refreshUnread } from './ui.js';
+import { registerView, onViewLeave, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, paintUnread, refreshUnread } from './ui.js';
 import { AUTH_CFG } from './ui.js';
 import { makeShareLink } from './cloudsync.js';
 import { loginSheet, cloudOn } from './auth.js';
@@ -11,6 +11,11 @@ registerView(async function me(main, { query }) {
   // 每次 render() 都会重建 main 节点，这里加类不会残留到别的页面。
   // 桌面端靠 .page-me 把卡片收窄，否则菜单行会被拉成一整条 1100px 的长条。
   main.classList.add('page-me');
+  /* 离开个人信息页就把草稿丢掉。
+     不丢的话，下次再进来会看到上一次没保存的残字，比清空更让人困惑。 */
+  onViewLeave(() => {
+    if (parseHash().path !== 'profile') profileDraft = null;
+  });
   if (path === 'messages') return renderMessages(main);
   if (path === 'profile') return renderProfile(main);
   return renderMe(main);
@@ -60,7 +65,7 @@ async function renderMe(main) {
   const needProfile = !u.school || !u.subject;
   main.innerHTML = `
     <div class="me-hero">
-      ${avatarHTML(u, 74, 'me-avatar-lg')}
+      ${avatarHTML(u, 74, 'me-avatar-lg', true)}
       <div class="me-hero-info">
         <div class="me-name">${esc(u.nickname || '未设置昵称')}</div>
         <div class="me-sub">${esc(u.account || '')}${u.school ? ' · ' + esc(u.school) : ''}${u.subject ? ' · ' + esc(u.subject) : ''}</div>
@@ -159,14 +164,42 @@ async function renderMe(main) {
 
 const maskPhone = (p) => (p ? String(p).replace(/(\d{3})\d{4}(\d{4})/, '$1****$2') : '未绑定手机号');
 
-/* 有头像就显示图片，没有就用首字 + 渐变底 */
-function avatarHTML(u, size = 44, cls = '') {
+/* 有头像就显示图片，没有就用首字 + 渐变底。
+   slot=true 时额外打上 data-avatar-* 标记，供 refreshAvatarUI() 原地替换。
+
+   【为什么要这个标记】
+   换头像成功后如果走整页 render()，用户手输但还没保存的学校/学科/职务会一起没掉。
+   正确做法是只把头像那个 span 换掉，其它 DOM 一动不动。
+   可 avatarHTML() 一共被三处用（我的主页 74px、个人信息页 68px、换头像弹层里 96px 预览），
+   尺寸/类名各不相同，靠选择器猜容易把弹层里的预览也换掉，
+   所以让调用方显式声明「这块要能被刷新」。 */
+function avatarHTML(u, size = 44, cls = '', slot = false) {
   const first = esc((u.nickname || '师').slice(0, 1));
+  // data-avatar-* 只在 slot 模式下输出，避免污染弹层预览和列表里的一次性头像
+  const mark = slot ? ` data-avatar-slot data-avatar-size="${size}" data-avatar-cls="${esc(cls)}"` : '';
   if (u.avatar) {
-    return `<span class="avatar ${cls}" style="width:${size}px;height:${size}px">
+    return `<span class="avatar ${cls}"${mark} style="width:${size}px;height:${size}px">
       <img src="${esc(u.avatar)}" alt="头像" loading="lazy"></span>`;
   }
-  return `<span class="avatar ${cls} avatar-fallback" style="width:${size}px;height:${size};font-size:${Math.round(size * 0.4)}px">${first}</span>`;
+  return `<span class="avatar ${cls} avatar-fallback"${mark} style="width:${size}px;height:${size};font-size:${Math.round(size * 0.4)}px">${first}</span>`;
+}
+
+/* 只刷新页面上带 data-avatar-slot 的头像节点，不重建 DOM。
+
+   换头像 / 移除头像调这里，不调 render()。
+   注意替换的是 span 本身（outerHTML），但外层容器不动 ——
+   「个人信息」页的点击事件绑在 #p-avatar 这个 button 上，
+   button 不动，onclick 就还活着，换完还能接着点。 */
+function refreshAvatarUI(u) {
+  const nodes = document.querySelectorAll('[data-avatar-slot]');
+  for (const node of nodes) {
+    const size = Number(node.getAttribute('data-avatar-size')) || 44;
+    const cls = node.getAttribute('data-avatar-cls') || '';
+    node.outerHTML = avatarHTML(u, size, cls, true);
+  }
+  // 弹层里的「移除头像」按钮：第一次上传后才该出现，移除后又要消失
+  const del = document.querySelector('#av-del');
+  if (del && !u.avatar) del.remove();
 }
 
 /* ================= 头像 ================= */
@@ -203,7 +236,13 @@ function avatarSheet() {
       state.user = r.user;
       sh.close();
       toast('头像已更新');
-      render();
+      /* 【这里原来调的是 render()，就是用户报的那个 bug】
+         整页重绘会把用户手输但还没保存的学校/学科/职务冲掉。
+         现在只换头像节点，输入框里的字一个都不碰。
+         captureProfileDraft() 是为了兜住弹层开着时补一次快照 ——
+         万一别处触发了整页重绘，草稿还能把字救回来。 */
+      captureProfileDraft();
+      refreshAvatarUI(r.user);
     } catch (e) {
       hint.textContent = '';
       toast(e.message || '上传失败', 'err');
@@ -222,7 +261,9 @@ function avatarSheet() {
       state.user = r.user;
       sh.close();
       toast('已移除');
-      render();
+      // 同上：移除头像也不整页重绘
+      captureProfileDraft();
+      refreshAvatarUI(r.user);
     } catch (e) {
       del.disabled = false;
       del.textContent = '移除头像';
@@ -260,6 +301,43 @@ function cropSquare(file, size = 192) {
   });
 }
 
+/* ================= 个人信息页的输入草稿 =================
+   【要解决什么】
+   这四个输入框（昵称/学校/学科/职务）的 value 原本只从 state.user 取。
+   只要中间发生一次整页 render()（app.innerHTML 重建整棵 DOM），
+   用户刚敲进去、还没点保存的字就会全部变回旧值 ——
+   用户看到的就是「上传照片把我填的信息清空了」。
+
+   第一层修法是让换头像/移除头像不再整页重绘（见 refreshAvatarUI）。
+   但整页重绘的入口不止一个：保存成功、改完密码返回、云同步重新登录回来、
+   切主题、另一台设备推了 wb:remote……任何一个都会再冲一次。
+   所以再加这一层：把输入框里的字实时镜像到 profileDraft，
+   renderProfile 回填时优先用草稿。
+
+   草稿什么时候清掉？
+     · 保存成功（已经落盘了，草稿没用了）
+     · 离开个人信息页（不能把上一页没保存的字带到下次进来）
+   focusout 时不抓、input 时才抓 —— 因为 input 事件是「值真的变了」，
+   而 focusout 只是「光标走了」，抓了会白存一份同样的值。 */
+let profileDraft = null;
+const PROFILE_FIELDS = ['nickname', 'school', 'subject', 'title'];
+
+/* 把当前页面上四个输入框的值快照到 profileDraft。
+   页面不在个人信息页、或者四个框都不在，就什么都不做。 */
+function captureProfileDraft() {
+  const box = document.querySelector('#f-nickname');
+  if (!box) return;                       // 不在个人信息页
+  const d = {};
+  let any = false;
+  for (const k of PROFILE_FIELDS) {
+    const inp = document.querySelector('#f-' + k);
+    if (!inp) continue;
+    d[k] = inp.value;
+    any = true;
+  }
+  if (any) profileDraft = d;
+}
+
 /* ================= 个人信息（独立页） ================= */
 async function renderProfile(main) {
   const u = state.user;
@@ -268,23 +346,25 @@ async function renderProfile(main) {
     main.innerHTML = '<div class="empty" style="padding:40px 20px">登录状态已过期，请刷新页面重新登录</div>';
     return;
   }
+  // 有草稿就用草稿，没有才用云端/本机里已保存的值
+  const uv = (k) => esc(profileDraft ? (profileDraft[k] ?? '') : (u[k] || ''));
   main.innerHTML = pageHead('个人信息', '改完点右上角保存', '<button class="btn primary sm" id="p-save">保存</button>') + `
     <div class="card card-pad" style="margin-bottom:14px">
       <div class="profile-av-row">
-        <button id="p-avatar" class="profile-av-btn">${avatarHTML(u, 68)}<span class="pa-tip">${icon('camera', 13)} 换头像</span></button>
+        <button id="p-avatar" class="profile-av-btn">${avatarHTML(u, 68, '', true)}<span class="pa-tip">${icon('camera', 13)} 换头像</span></button>
         <div class="tiny muted" style="flex:1">头像支持 JPG / PNG，2MB 以内，会自动裁成正方形。</div>
       </div>
     </div>
     <div class="card card-pad">
       <div class="field"><label class="field-label">昵称</label>
-        <input class="input" id="f-nickname" maxlength="20" value="${esc(u.nickname || '')}" placeholder="怎么称呼你"></div>
+        <input class="input" id="f-nickname" maxlength="20" value="${uv('nickname')}" placeholder="怎么称呼你"></div>
       <div class="field"><label class="field-label">学校</label>
-        <input class="input" id="f-school" maxlength="40" value="${esc(u.school || '')}" placeholder="如：市第二中学"></div>
+        <input class="input" id="f-school" maxlength="40" value="${uv('school')}" placeholder="如：市第二中学"></div>
       <div class="form-grid">
         <div class="field"><label class="field-label">学科</label>
-          <input class="input" id="f-subject" maxlength="20" value="${esc(u.subject || '')}" placeholder="如：语文"></div>
+          <input class="input" id="f-subject" maxlength="20" value="${uv('subject')}" placeholder="如：语文"></div>
         <div class="field"><label class="field-label">职务</label>
-          <input class="input" id="f-title" maxlength="20" value="${esc(u.title || '')}" placeholder="如：班主任"></div>
+          <input class="input" id="f-title" maxlength="20" value="${uv('title')}" placeholder="如：班主任"></div>
       </div>
       <div class="field"><label class="field-label">登录账号</label>
         <div class="row" style="gap:8px"><input class="input" value="${esc(u.account || '')}" disabled>
@@ -292,10 +372,32 @@ async function renderProfile(main) {
       <div class="tiny muted" style="margin-top:4px">账号 + 密码是本机唯一的登录凭证，账号不可改，密码可随时修改。</div>
     </div>`;
 
-  main.querySelector('#p-avatar').onclick = () => avatarSheet();
+  /* 边打字边存草稿。留着这个引用，页面被换掉之后节点已脱离文档，
+     事件自然不会再触发，不需要手动解绑。 */
+  for (const k of PROFILE_FIELDS) {
+    const inp = main.querySelector('#f-' + k);
+    if (!inp) continue;
+    inp.addEventListener('input', () => {
+      if (!profileDraft) profileDraft = {};
+      profileDraft[k] = inp.value;
+    });
+  }
+
+  const av = main.querySelector('#p-avatar');
+  /* 点头像前先抓一次快照。
+     用 mousedown/touchstart 而不是 click：click 的时机是手指抬起之后，
+     万一将来有人在 click 里塞了别的东西，快照可能已经晚了。 */
+  const snap = () => captureProfileDraft();
+  av.addEventListener('mousedown', snap);
+  av.addEventListener('touchstart', snap, { passive: true });
+  av.onclick = () => {
+    snap();
+    avatarSheet();
+  };
   main.querySelector('#p-bind').onclick = async () => {
     /* 这里原来的按钮是「换绑手机号」，现在只做改密码 ——
        拉 /me/sessions 没有意义（那套「登录设备」是服务端会话，静态版恒为空）。 */
+    captureProfileDraft();           // 去改密码再回来，字还在
     accountPwdSheet(null);
   };
   main.querySelector('#p-save').onclick = async (e) => {
@@ -309,11 +411,13 @@ async function renderProfile(main) {
         title: main.querySelector('#f-title').value.trim(),
       });
       state.user = r.user;
+      profileDraft = null;           // 已经落盘，草稿使命结束
       toast('已保存');
       render();
     } catch (err) {
       toast(err.message || '保存失败', 'err');
     } finally {
+      // 注意：render() 之后 btn 已脱离文档，但改它不会报错，也不影响新页面
       btn.disabled = false; btn.textContent = '保存';
     }
   };
