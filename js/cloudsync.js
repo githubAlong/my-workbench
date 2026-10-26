@@ -53,27 +53,45 @@ function headers(cfg0) {
   };
 }
 
-/* ---------------- Supabase REST 读写 ---------------- */
+/* ---------------- Supabase REST 读写 ----------------
+
+   【为什么走 RPC 而不是直接读写表】
+   早先这里用的是 /rest/v1/wb_sync 表接口。那种写法要能跑通，
+   数据库那边就必须给 anon 开表的读写权限，而 anon key 是公开的
+   （就在网页 JS 里），于是任何人都能：
+     · 不带过滤 GET 整张表 → 拿到所有人的 sync_key
+     · 拿着别人的 key POST 覆盖 → 数据被改，本人毫不知情
+   现在数据库只开放两个函数（见 supabase_setup.sql）：
+     wb_get(钥匙)        只返回那一行，钥匙不对返回空
+     wb_put(钥匙, 数据)  只写那一行
+   表本身对 anon 没有任何权限，连 SELECT 都不给，所以列举不出来。
+   这两个函数在 PostgREST 里就是 /rest/v1/rpc/wb_get 这样的地址。 */
 
 async function fetchRemote(cfg0) {
-  const u = url(cfg0, `/rest/v1/wb_sync?sync_key=eq.${encodeURIComponent(cfg0.syncKey)}&select=updated_at,payload`);
-  const r = await fetch(u, { headers: headers(cfg0) });
-  if (!r.ok) throw new Error('云端读取失败 ' + r.status);
+  const u = url(cfg0, '/rest/v1/rpc/wb_get');
+  const r = await fetch(u, {
+    method: 'POST',
+    headers: headers(cfg0),
+    body: JSON.stringify({ k: cfg0.syncKey }),
+  });
+  if (!r.ok) throw new Error('云端读取失败 ' + r.status + (r.status === 404 ? '（数据库还没建函数，先跑一遍 supabase_setup.sql）' : ''));
   const rows = await r.json();
-  return rows[0] || null;
+  /* 函数返回 table 类型，PostgREST 给的是数组；没命中就是空数组 */
+  return Array.isArray(rows) ? (rows[0] || null) : (rows || null);
 }
 
 async function pushRemote(cfg0, dbObj) {
   const now = new Date().toISOString();
-  const body = { sync_key: cfg0.syncKey, payload: dbObj, updated_at: now };
-  /* upsert：key 冲突就更新，没有就插入 */
-  const u = url(cfg0, '/rest/v1/wb_sync?on_conflict=sync_key');
+  const u = url(cfg0, '/rest/v1/rpc/wb_put');
   const r = await fetch(u, {
     method: 'POST',
-    headers: { ...headers(cfg0), Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify(body),
+    headers: headers(cfg0),
+    body: JSON.stringify({ k: cfg0.syncKey, p: dbObj }),
   });
-  if (!r.ok) throw new Error('云端写入失败 ' + r.status);
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error('云端写入失败 ' + r.status + (detail ? '：' + detail.slice(0, 120) : ''));
+  }
   setMeta({ lastPush: now, localChanged: false });
   return now;
 }
@@ -271,12 +289,35 @@ export async function tryImportFromHash() {
 export function bindSheet() {
   const c = cfg();
   const m = meta();
-  const sql = `create table if not exists wb_sync (
+  /* 【这段 SQL 与 supabase_setup.sql 保持一致】
+     不要换成网上随处可见的 using (true) 写法 —— 那等于谁都能读写全部行，
+     而 anon key 是公开的。表对 anon 一律不开放，只开放两个函数。 */
+  const sql = `create table if not exists public.wb_sync (
   sync_key text primary key,
   payload jsonb not null,
   updated_at timestamptz not null default now());
-alter table wb_sync enable row level security;
-create policy "sync" on wb_sync for all using (true) with check (true);`;
+alter table public.wb_sync enable row level security;
+alter table public.wb_sync force row level security;
+revoke all on public.wb_sync from anon, authenticated, public;
+
+create or replace function public.wb_get(k text)
+returns table (updated_at timestamptz, payload jsonb)
+language sql security definer set search_path = public as $$
+  select s.updated_at, s.payload from public.wb_sync s
+  where s.sync_key = k and length(k) >= 32; $$;
+
+create or replace function public.wb_put(k text, p jsonb)
+returns void language sql security definer set search_path = public as $$
+  insert into public.wb_sync (sync_key, payload, updated_at)
+  values (k, p, now())
+  on conflict (sync_key) do update
+    set payload = excluded.payload, updated_at = excluded.updated_at
+  where length(k) >= 32; $$;
+
+revoke all on function public.wb_get(text) from public;
+revoke all on function public.wb_put(text, jsonb) from public;
+grant execute on function public.wb_get(text) to anon;
+grant execute on function public.wb_put(text, jsonb) to anon;`;
 
   const b = document.createElement('div');
   b.innerHTML = `
