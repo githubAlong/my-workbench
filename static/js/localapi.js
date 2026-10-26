@@ -82,6 +82,11 @@ function bumpSeq(table) {
 /* ============================ 用户 & 设置 ============================ */
 const DEFAULT_USER = () => ({
   id: 1,
+  account: '',
+  /* 只是本地口令，不是真加密：静态版没有服务端，数据全在这台设备的 localStorage 里。
+     真正要防的是「别人拿到你手机后随手打开」，这里存一个不可逆的摘要就够，
+     而且 publicUser() 绝不下发这个字段。 */
+  pwd: '',
   phone: '',
   nickname: '老师',
   avatar: '',
@@ -90,6 +95,21 @@ const DEFAULT_USER = () => ({
   title: '',
   settings: {},
 });
+
+/* 口令摘要：加盐 SHA-256，避免明文躺在 localStorage 里被一眼看光。
+   crypto.subtle 只在 https / localhost 可用，file:// 打开时降级成明文，
+   否则本地双击打开 html 会直接抛错进不去。 */
+const PWD_SALT = 'myworkbench:v1:';
+async function hashPwd(pwd) {
+  const s = PWD_SALT + String(pwd);
+  if (globalThis.crypto?.subtle) {
+    try {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+      return 's:' + [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    } catch { /* 非安全上下文，走降级 */ }
+  }
+  return 'p:' + s;
+}
 
 function currentUser() {
   const db = load();
@@ -104,10 +124,9 @@ function saveUser(u) {
 function publicUser(u) {
   if (!u) return null;
   return {
-    id: u.id, phone: u.phone, nickname: u.nickname, avatar: u.avatar,
+    id: u.id, account: u.account || '', nickname: u.nickname, avatar: u.avatar,
     school: u.school, subject: u.subject, title: u.title,
-    wx_nick: u.wx_nick || '', qq_nick: u.qq_nick || '',
-    bindings: { phone: !!u.phone, wechat: false, qq: false, workbuddy: false },
+    bindings: { phone: false, wechat: false, qq: false, workbuddy: false },
     /* settings 必须带上：前端 state.user 来自 /auth/me 的返回值，
        这里不含 settings 的话，课时单价永远读回默认值 30 元。 */
     settings: u.settings || {},
@@ -251,6 +270,51 @@ function pickQuote(dateISO) {
   used[dateISO] = q.id;
   save();
   return q;
+}
+
+/* ============================ 本机 PIN ============================
+   静态版没有服务端，「重置登录密码」这件事本身不成立——没有密码可改。
+   但用户真正想解决的是「别人拿到我手机/电脑，点开就能看到全部工作台数据」。
+   所以这里做的是**本机 PIN 锁**：四到六位数字，不动数据、不联网，
+   只在本机验证一次，决定要不要把界面显示出来。
+
+   存的是哈希不是明文：localStorage 是明文的，直接存 '1234' 等于把密码写在便签上。
+   用 SHA-256(pin + 每台设备独有的盐 + 账号 id)，只在本地算。
+
+   说清楚它挡不住什么，比吹它能挡什么重要：
+   懂技术的人打开开发者工具就能读到同名 localStorage 里的整库数据。
+   所以面板文案写的是「防止顺手翻看」，不是「加密」。 */
+const PIN_KEY = 'pin';
+
+function bytesToHex(buf) {
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function pinHash(pin, salt) {
+  const data = new TextEncoder().encode(`wb-pin|${salt}|${pin}`);
+  if (globalThis.crypto?.subtle) {
+    const buf = await crypto.subtle.digest('SHA-256', data);
+    return bytesToHex(buf);
+  }
+  /* 非安全上下文（http 访问局域网 IP）没有 crypto.subtle，退一个简单的混算。
+     强度弱一些，但这种场景本来就是内网自用，够挡住顺手翻看。 */
+  let h1 = 0x811c9dc5; let h2 = 5381;
+  for (const b of data) { h1 = (h1 ^ b) * 16777619 >>> 0; h2 = ((h2 << 5) + h2 + b) >>> 0; }
+  return (h1.toString(16) + h2.toString(16)).padStart(16, '0');
+}
+
+function pinInfo(u) {
+  const p = u?.settings?.[PIN_KEY];
+  return p && p.hash ? p : null;
+}
+
+/* 当前是否已经在本机解锁过。会话级（sessionStorage），关掉标签页就重新锁上。 */
+const PIN_SESSION = 'wb_pin_ok';
+function pinUnlocked() {
+  try { return sessionStorage.getItem(PIN_SESSION) === '1'; } catch { return true; }
+}
+function setPinUnlocked(v) {
+  try { v ? sessionStorage.setItem(PIN_SESSION, '1') : sessionStorage.removeItem(PIN_SESSION); } catch { }
 }
 
 /* ============================ 消息 ============================ */
@@ -759,10 +823,12 @@ function attTablesList(q = {}) {
     .sort((a, b) => String(b.sheet_date || '').localeCompare(String(a.sheet_date || '')) || b.id - a.id);
   return out.map((t) => {
     const rows = (load().attendance_rows || []).filter((r) => !r.deleted_at && String(r.table_id) === String(t.id));
-    const cols = typeof t.columns === 'string' ? JSON.parse(t.columns || '[]') : (t.columns || []);
+    /* 这里早先是裸 JSON.parse：导入过别人的备份、或早期版本留下一条坏 JSON，
+       整个 GET /attendance 就抛 500，考勤页整页白屏。统一走 safeJSON + 数组校验。 */
+    const cols = attCols(t);
     let leaveCount = 0; let unchecked = 0; const leaveNames = [];
     for (const r of rows) {
-      const d = typeof r.data === 'string' ? JSON.parse(r.data || '{}') : (r.data || {});
+      const d = safeJSON(r.data, {});
       const isLeave = Object.entries(d).some(([k, v]) => /请假/.test(k) && v === '1');
       if (isLeave) { leaveCount++; leaveNames.push(r.teacher); }
       const anyChecked = cols.some((c) => c.type === 'check' && /上课|坐班|签到|教研|听课/.test(c.label) && d[c.key] === '1');
@@ -773,12 +839,25 @@ function attTablesList(q = {}) {
       ...t,
       sheet_type: t.sheet_type || t.kind,
       columns: cols,
-      meta: typeof t.meta === 'string' ? JSON.parse(t.meta || '{}') : (t.meta || {}),
+      meta: safeJSON(t.meta, {}),
       row_count: rows.length,
       subjects,
       summary: { leave: leaveCount, leave_names: leaveNames.slice(0, 6), none: unchecked },
     };
   });
+}
+
+/* 考勤表的列定义可能来自三处：数据库字符串、对象、或者坏数据。
+   统一在这里收敛成一个「一定是数组、每项一定有 key/label/type」的形状，
+   免得每个调用点各写一遍 JSON.parse 然后各崩一次。 */
+function attCols(t) {
+  const raw = safeJSON(t?.columns, []);
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr.filter((c) => c && typeof c === 'object' && c.key).map((c) => ({
+    key: String(c.key),
+    label: String(c.label ?? c.key),
+    type: c.type === 'check' ? 'check' : (c.type || 'text'),
+  }));
 }
 
 function attTableDetail(id) {
@@ -787,12 +866,12 @@ function attTableDetail(id) {
   const rows = (load().attendance_rows || [])
     .filter((r) => !r.deleted_at && String(r.table_id) === String(t.id))
     .sort((a, b) => (num(a.sort) - num(b.sort)) || a.id - b.id)
-    .map((r) => ({ ...r, data: typeof r.data === 'string' ? JSON.parse(r.data || '{}') : (r.data || {}) }));
+    .map((r) => ({ ...r, data: safeJSON(r.data, {}) }));
   const photoCount = (load().attachments || []).filter((a) => !a.deleted_at && a.owner_type === 'attendance' && String(a.owner_id) === String(t.id)).length;
   return {
     ...t,
-    columns: typeof t.columns === 'string' ? JSON.parse(t.columns || '[]') : (t.columns || []),
-    meta: typeof t.meta === 'string' ? JSON.parse(t.meta || '{}') : (t.meta || {}),
+    columns: attCols(t),
+    meta: safeJSON(t.meta, {}),
     photo_count: photoCount,
     rows,
   };
@@ -1025,8 +1104,15 @@ const PUNISH = [
 export function seedIfEmpty() {
   const db = load();
   if (db.meta.seeded) return false;
+  /* 判断「是不是空库」要看得宽一点：
+     早先只探 periods/courses/students/categories 四张表，
+     于是从搬家链接导入一份只有笔记/事项的数据后，这四张表仍然为空，
+     刷新一次就被判成「新用户」，又灌了一整套示例课表进来和真数据混在一起。
+     现在再加一条「任何一张表有东西就不灌」，以及「有没有导入过」的标记。 */
+  if (db.meta.importedAt) { db.meta.seeded = true; save(); return false; }
+  const anyData = Object.keys(db).some((t) => t !== 'meta' && t !== 'seqs' && Array.isArray(db[t]) && db[t].length);
   const probe = ['periods', 'courses', 'students', 'categories'].some((t) => (db[t] || []).length);
-  if (probe) { db.meta.seeded = true; save(); return false; }
+  if (probe || anyData) { db.meta.seeded = true; save(); return false; }
 
   const now = nowISO();
   let idC = {};
@@ -1184,8 +1270,11 @@ export function seedIfEmpty() {
     });
   }
 
-  // 考勤表（教研签到 & 坐班）
-  seedAttendance(db, now);
+  /* 考勤：不再塞假的「张老师/李老师」考勤表。
+     那些示例表的列结构（签到时间/教研地点/上午坐班…）跟老师真实用的纸表对不上，
+     打开一看全是别人编的数据，反而碍事。
+     真正有用的是名册：高一 46 人、高二 54 人，是老师那四张纸表上的人。 */
+  seedRoster(db, now); /* 幂等，见 /grades 注释 */
 
   // 出差 & 监考示例
   const inv1 = db.invigilations.reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
@@ -1223,89 +1312,84 @@ export function seedIfEmpty() {
   return true;
 }
 
-function seedAttendance(db, now) {
-  const t = new Date();
-  const month = `${t.getFullYear()}-${pad2(t.getMonth() + 1)}`;
-  const teachers = ['张老师', '李老师', '王老师', '赵老师', '陈老师', '刘老师', '杨老师', '黄老师'];
-  const WD_CN_S = ['日', '一', '二', '三', '四', '五', '六'];
-  const dstr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+/* 教师名册：来自老师给的四张纸表（高一坐班表 / 高一教研签到表 /
+   高二坐班表 / 高二教研签到表）。数组顺序 = 纸表上的「序号」顺序，
+   这样新建表带出来的名单跟纸表一模一样，照着勾就行。
 
-  const tid = (T('attendance_tables').reduce((mx, x) => Math.max(mx, num(x.id)), 0)) + 1;
-  const colsResearch = [
-    { key: 'date', label: '日期', type: 'text', w: 92 },
-    { key: 'weekday', label: '星期', type: 'text', w: 56 },
-    { key: 'sign_in', label: '签到时间', type: 'text', w: 88 },
-    { key: 'sign_out', label: '签退时间', type: 'text', w: 88 },
-    { key: 'place', label: '教研地点', type: 'text', w: 110 },
-    { key: 'topic', label: '教研主题', type: 'text', w: 150 },
-    { key: 'status', label: '状态', type: 'select', options: ['已参加', '请假', '缺席', '公出'], w: 76 },
-    { key: 'remark', label: '备注', type: 'text', w: 130 },
-  ];
-  T('attendance_tables').push({
-    id: tid, kind: 'research', name: '高二语文教研签到表', month,
-    columns: JSON.stringify(colsResearch),
-    meta: JSON.stringify({ title: '高二语文教研签到表', org: '高二年级组', owner: '语文备课组', signer: '年级主任' }),
-    grade: '高二', sheet_type: 'research', sheet_date: '', weekday: '', periods: '', subject: '',
-    created_at: now, updated_at: now, deleted_at: null,
-  });
-  let sort = 0;
-  let rid = T('attendance_rows').reduce((mx, x) => Math.max(mx, num(x.id)), 0);
-  for (const teacher of teachers) {
-    for (let i = 0; i < 4; i += 1) {
-      const d = new Date(t.getFullYear(), t.getMonth(), 2 + i * 7);
-      if (d.getMonth() !== t.getMonth()) continue;
-      const absent = i === 2 && teacher === '赵老师';
-      const data = {
-        date: dstr(d), weekday: '周' + WD_CN_S[d.getDay()],
-        sign_in: absent ? '' : '09:0' + (i % 6),
-        sign_out: absent ? '' : '11:3' + (i % 6),
-        place: '高二语文组办公室',
-        topic: ['集体备课《劝学》', '月考质量分析', '作文批改标准', '期中复习计划'][i],
-        status: absent ? '缺席' : (i === 1 && teacher === '黄老师' ? '公出' : '已参加'),
-        remark: absent ? '外出参加区里培训' : '',
-      };
-      rid += 1;
+   为什么放在代码里而不是让老师手打：一共 102 个人名，
+   手打一遍要半小时还容易错字；而这些人名本来就是固定的，
+   一学期最多调进调出一两个，用「名册」页面改就行。
+
+   【两张纸表打架时怎么取数，别再反复改】
+   高二坐班表 54 人。教研表条数更多，但：
+     · 毕晓鸿写了两遍（语文 1、4），于妙然写了两遍（语文 4、7）→ 重人，算 1 个；
+     · 周玉琴在教研表语文 11，坐班表语文 9 已有 → 也是同一个人；
+     · 雷春（地理 5）、龚道荣（政治 4，挤在「政治/历史」格里最下面）只在教研表上有。
+   取并集去重 = 54 + 2 = 56。宁可多列两个人现场划掉，也不能漏人——
+   漏掉的人当天等于「没查」，这是查班最怕的事。
+
+   seedRoster 只在首次初始化时跑（看 db.meta.rosterSeeded）。
+   已经自己导入过名册的老师：同年级同名同科的跳过，不覆盖他改过的学科。 */
+const SEED_ROSTER = {
+  高一: [
+    ['李成华', '语文'], ['章承国', '数学'], ['黄鹏', '英语'], ['曾大程', '物理'],
+    ['陈桂平', '生物'], ['汪远齐', '化学'], ['邓小玉', '政治'], ['何顺明', '政治'],
+    ['吴恋', '政治'], ['李青丰', '信息'], ['邹毅', '数学'], ['张琴', '俄语'],
+    ['欧阳礼圣', '英语'], ['骆约翰', '英语'], ['简讯', '英语'], ['冉瑞', '英语'],
+    ['殷华琴', '英语'], ['王逢亮', '英语'], ['周玲', '英语'], ['向琴芳', '日语'],
+    ['林金波', '语文'], ['田永江', '语文'], ['何敏华', '语文'], ['徐洁', '语文'],
+    ['覃蓉', '语文'], ['张妍', '语文'], ['黄琴', '历史'], ['杨黎明', '历史'],
+    ['李徐宁鑫', '历史'], ['周达海', '物理'], ['徐焜', '物理'], ['孙浩', '体育'],
+    ['谭荣', '体育'], ['曾杰', '数学'], ['朱赐诏', '数学'], ['王玉华', '数学'],
+    ['赵荣耀', '数学'], ['王灵凤', '数学'], ['王利', '生物'], ['陈香明', '生物'],
+    ['杨小美', '化学'], ['赵冬生', '化学'], ['高港', '地理'], ['黄盼', '地理'],
+    ['熊玻', '地理'], ['王波', '音乐'],
+  ],
+  高二: [
+    /* 高二语文 9 人，按「2026年高二老师坐班表」左栏 1~9。
+       教研表那张纸上语文列写成
+       毕晓鸿/秦媛媛/姚蔼纹/毕晓鸿/于妙然/向琼/于妙然/田玲玲/舒春艳/王晶攀/周玉琴,
+       第 4 个重复了毕晓鸿、第 7 个重复了于妙然，是排版重人，不是新人。 */
+    ['毕晓鸿', '语文'], ['秦媛媛', '语文'], ['姚蔼纹', '语文'], ['于妙然', '语文'],
+    ['向琼', '语文'], ['田玲玲', '语文'], ['舒春艳', '语文'], ['王晶攀', '语文'],
+    ['周玉琴', '语文'], ['余智', '数学'], ['姚芙蓉', '数学'], ['张胜清', '数学'],
+    ['张庆红', '数学'], ['李岳龙', '数学'], ['刘宗钊', '数学'], ['刘娇', '数学'],
+    ['张志祥', '数学'], ['刘雪峰', '数学'], ['龚敏', '英语'], ['王捷', '英语'],
+    ['饶继刚', '英语'], ['肖淑丹', '英语'], ['孙钰', '英语'], ['叶琼', '英语'],
+    ['蒲雯华', '英语'], ['杨阳', '英语'], ['袁正涛', '英语'], ['马未', '物理'],
+    ['蔡学斌', '物理'], ['吴奎灵', '物理'], ['邹国强', '物理'], ['刘展容', '化学'],
+    ['李彬', '化学'], ['朱婷婷', '化学'], ['高政', '化学'], ['谢细忠', '生物'],
+    ['刘杨杰', '生物'], ['张园园', '生物'], ['赵勇', '历史'], ['刘世坤', '历史'],
+    ['江鑫', '历史'], ['谭克涛', '历史'], ['吴欣桃', '政治'], ['周洁', '政治'],
+    /* 龚道荣：只在教研表政治 4（那一格印在「政治/历史」框最下面，容易看漏）。 */
+    ['何鑫', '政治'], ['龚道荣', '政治'],
+    /* 雷春：只在教研表地理 5。 */
+    ['张琼', '地理'], ['张磊', '地理'], ['邢栋', '地理'], ['官浩', '地理'],
+    ['雷春', '地理'],
+    ['宋振鹏', '体育'], ['全冬', '体育'], ['向宇', '美术'],
+    ['邹青倩', '音乐'], ['廖晓晗', '日语'],
+  ],
+};
+
+function seedRoster(db, now) {
+  db.meta = db.meta || {};
+  if (db.meta.rosterSeeded) return;
+  db.teachers = db.teachers || [];
+  /* 已经有人名册了就不动（老用户升级上来的情况） */
+  if (db.teachers.some((t) => !t.deleted_at)) { db.meta.rosterSeeded = 1; return; }
+  let id = db.teachers.reduce((mx, t) => Math.max(mx, num(t.id)), 0);
+  for (const [grade, people] of Object.entries(SEED_ROSTER)) {
+    let sort = 0;
+    for (const [name, subject] of people) {
       sort += 1;
-      T('attendance_rows').push({ id: rid, table_id: tid, teacher, subject: '', data: JSON.stringify(data), sort, created_at: now, updated_at: now, deleted_at: null });
+      id += 1;
+      db.teachers.push({
+        id, grade, name, subject, sort, active: 1,
+        created_at: now, updated_at: now, deleted_at: null,
+      });
     }
   }
-
-  const tid2 = tid + 1;
-  const colsSeat = [
-    { key: 'date', label: '日期', type: 'text', w: 92 },
-    { key: 'weekday', label: '星期', type: 'text', w: 56 },
-    { key: 'morning', label: '上午坐班', type: 'select', options: ['是', '否', '请假', '公出'], w: 82 },
-    { key: 'afternoon', label: '下午坐班', type: 'select', options: ['是', '否', '请假', '公出'], w: 82 },
-    { key: 'evening', label: '晚自习', type: 'select', options: ['是', '否', '无'], w: 76 },
-    { key: 'hours', label: '时长(h)', type: 'number', w: 70 },
-    { key: 'remark', label: '缺勤原因', type: 'text', w: 150 },
-  ];
-  T('attendance_tables').push({
-    id: tid2, kind: 'seat', name: '高二教师坐班表', month,
-    columns: JSON.stringify(colsSeat),
-    meta: JSON.stringify({ title: '高二教师坐班表', org: '高二年级组', owner: '年级组', signer: '年级主任' }),
-    grade: '高二', sheet_type: 'seat', sheet_date: '', weekday: '', periods: '', subject: '',
-    created_at: now, updated_at: now, deleted_at: null,
-  });
-  sort = 0;
-  for (const teacher of teachers) {
-    for (let i = 0; i < 3; i += 1) {
-      const d = new Date(t.getFullYear(), t.getMonth(), 3 + i * 9);
-      if (d.getMonth() !== t.getMonth()) continue;
-      const leave = i === 1 && teacher === '刘老师';
-      const data = {
-        date: dstr(d), weekday: '周' + WD_CN_S[d.getDay()],
-        morning: leave ? '请假' : '是',
-        afternoon: leave ? '否' : '是',
-        evening: i === 2 ? '无' : '是',
-        hours: i === 2 ? 6 : 8,
-        remark: leave ? '病假（已报备）' : '',
-      };
-      rid += 1;
-      sort += 1;
-      T('attendance_rows').push({ id: rid, table_id: tid2, teacher, subject: '', data: JSON.stringify(data), sort, created_at: now, updated_at: now, deleted_at: null });
-    }
-  }
+  db.meta.rosterSeeded = 1;
 }
 
 /* ============================ 路由表 ============================ */
@@ -1334,80 +1418,94 @@ on('GET', '/auth/config', () => ({
   staticMode: true,
 }));
 
-on('GET', '/auth/me', () => ({ user: publicUser(currentUser()) }));
+/* 【没账号就返回 null，不能回一个「默认用户」】
+   以前这里无条件给一个「老师」，于是 render() 的 `if (!state.user) renderAuth()`
+   永远不成立 —— 打开页面直接进工作台，登录页从来没出现过。
+   现在账号是否存在就是登录态本身：没有 account 就是没登录。 */
+/* 【登录态 = 有账号 且 本次没主动退出】
+   只判「有没有账号」是不够的：点「退出登录」后账号还在库里（不然密码就丢了），
+   刷新一次又被判成已登录，人会以为退出没生效。
+   所以用 sessionStorage 记一个「这一次已经退出」的标记 —— 关掉标签页就没了，
+   下次打开还是要输密码，这才是「退出登录」该有的样子。 */
+const LOGOUT_FLAG = 'wb_logged_out';
+function loggedOut() {
+  try { return sessionStorage.getItem(LOGOUT_FLAG) === '1'; } catch { return false; }
+}
+function setLoggedOut(v) {
+  try { v ? sessionStorage.setItem(LOGOUT_FLAG, '1') : sessionStorage.removeItem(LOGOUT_FLAG); } catch {}
+}
 
-/* 静态版没有真正的账号体系：第一次打开就是「已登录」，
-   昵称可在「我的」里改，手机号可填可不填（只用于显示）。 */
-on('POST', '/auth/login', ({ body }) => {
+on('GET', '/auth/me', () => {
   const u = currentUser();
-  if (body?.phone) u.phone = String(body.phone).trim();
-  if (!u.nickname || u.nickname === '老师') u.nickname = body?.phone ? '老师' + String(body.phone).slice(-4) : '老师';
-  saveUser(u);
-  seedIfEmpty();
-  return { user: publicUser(u), token: 'static' };
+  if (!u.account || loggedOut()) return { user: null };
+  return { user: publicUser(u) };
 });
-on('POST', '/auth/register', ({ body }) => {
+
+/* 【登录：只有账号 + 密码】
+   用户明确要求「只支持账号和密码登录和注册，不需要发送短信，自己设置账号密码就行，
+   只要账号和密码正确就可以登录成功」。所以这里没有验证码、没有手机号、没有扫码。
+
+   静态版没有服务端，「数据库」就是这台设备的 localStorage：
+   注册 = 把账号和口令摘要写进 db.meta.user；登录 = 拿输入和它比对。
+   这意味着数据跟着浏览器走 —— 换设备 / 清缓存就没了，界面上要和用户说清楚。 */
+const ACCT_RE = /^[A-Za-z0-9_]{3,20}$/;
+
+on('POST', '/auth/register', async ({ body }) => {
+  const account = String(body?.account || '').trim();
+  const password = String(body?.password || '');
+  if (!ACCT_RE.test(account)) fail(400, '账号要 3~20 位字母、数字或下划线');
+  if (password.length < 6) fail(400, '密码至少 6 位');
+
   const u = currentUser();
-  if (body?.phone) u.phone = String(body.phone).trim();
-  if (body?.nickname) u.nickname = String(body.nickname);
-  else if (u.phone) u.nickname = '老师' + u.phone.slice(-4);
+  /* 已经有账号了就不许再「注册」覆盖 —— 否则谁打开页面都能把别人的号顶掉 */
+  if (u.account) fail(409, '这台设备已经注册过账号「' + u.account + '」，请直接登录');
+
+  u.account = account;
+  u.pwd = await hashPwd(password);
+  u.nickname = account;
   saveUser(u);
+  setLoggedOut(false);
   seedIfEmpty();
   return { user: publicUser(u), token: 'static', created: true };
 });
-/* 验证码（第 16 / 3 / 31 条）
-   用户明确说「不发短信」，而且静态版本来就没有短信通道。
-   但「换绑手机号」这个流程仍然要能走完，所以这里走「页面内验证码」：
-   生成一个真随机的 6 位码存在 meta.otp 里，5 分钟有效，
-   同时回给前端自动填入 —— 不是假装发短信，而是把「验证」这一步
-   真的做了（校验码对不对），只是投递渠道从短信换成了页面提示。
 
-   早先的坑：这里返回的字段名是 code，前端读的却是 testCode / devCode，
-   两边对不上，用户点了「获取验证码」什么反应都没有（第 3 条报的就是这个）。 */
-on('POST', '/auth/otp', ({ body }) => {
-  const phone = String(body?.phone || '').trim();
-  if (!/^1[3-9]\d{9}$/.test(phone)) fail(400, '请输入 11 位手机号');
-  const db = load();
-  db.meta = db.meta || {};
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  db.meta.otp = { phone, code, purpose: body?.purpose || 'bind', exp: Date.now() + 5 * 60000 };
-  save();
-  return {
-    sent: true, phone, code, demo: true,
-    /* 三个字段都给：前端不同版本读的名字不一样，全给上就不会再漏 */
-    testCode: code, devCode: code,
-    tip: '本站未接短信通道，验证码直接显示在这里',
-  };
-});
-on('POST', '/auth/logout', () => ({ ok: true }));
-on('POST', '/auth/forgot', () => fail(400, '静态版没有服务端密码，直接在「我的」里改昵称即可'));
-on('GET', '/auth/forgot/:phone', () => ({ exists: false }));
-/* 换绑手机号：真的校验验证码，真的写进账号 */
-on('POST', '/auth/bind', ({ body }) => {
-  const type = body?.type || 'phone';
-  if (type !== 'phone') fail(400, '静态版只支持手机号，微信 / QQ 绑定需要服务端');
-  const phone = String(body?.phone || '').trim();
-  const code = String(body?.code || '').trim();
-  if (!/^1[3-9]\d{9}$/.test(phone)) fail(400, '请输入 11 位手机号');
-  const db = load();
-  const otp = db.meta?.otp;
-  if (!otp || otp.phone !== phone) fail(400, '请先点「获取验证码」');
-  if (Number(otp.exp) < Date.now()) fail(400, '验证码已过期，请重新获取');
-  if (String(otp.code) !== code) fail(400, '验证码不对，请核对后重填');
+on('POST', '/auth/login', async ({ body }) => {
+  const account = String(body?.account || '').trim();
+  const password = String(body?.password || '');
+  if (!account || !password) fail(400, '请填写账号和密码');
+
   const u = currentUser();
-  u.phone = phone;
-  saveUser(u);
-  delete db.meta.otp;   // 用过就作废，防止同一个码重复换绑
-  save();
-  return { ok: true, user: publicUser(u), kicked: false };
+  if (!u.account) fail(400, '这台设备还没有账号，请先点「注册一个」');
+  /* 账号不对和密码不对回同一句话，不告诉试探者「账号是存在的」 */
+  if (u.account !== account || u.pwd !== await hashPwd(password)) {
+    fail(401, '账号或密码不对');
+  }
+  setLoggedOut(false);
+  seedIfEmpty();
+  return { user: publicUser(u), token: 'static' };
 });
-on('POST', '/auth/unbind', ({ body }) => {
-  if ((body?.type || '') !== 'phone') fail(400, '静态版只支持手机号解绑');
+
+on('GET', '/auth/status', () => {
   const u = currentUser();
-  u.phone = '';
-  saveUser(u);
-  return { ok: true, user: publicUser(u) };
+  return { registered: !!u.account, account: u.account || '' };
 });
+
+on('POST', '/auth/password', async ({ body }) => {
+  const u = currentUser();
+  if (!u.account) fail(400, '这台设备还没有账号');
+  if (u.pwd !== await hashPwd(String(body?.oldPassword || ''))) fail(400, '原密码不对');
+  const np = String(body?.newPassword || '');
+  if (np.length < 6) fail(400, '新密码至少 6 位');
+  u.pwd = await hashPwd(np);
+  saveUser(u);
+  return { ok: true };
+});
+
+on('POST', '/auth/logout', () => { setLoggedOut(true); return { ok: true }; });
+/* 忘记密码：没有服务端、没有手机号，唯一的出路是清掉本地数据重来。
+   不假装能「找回」—— 说清楚代价，让用户自己决定。 */
+on('POST', '/auth/forgot', () => fail(400, '账号只存在这台设备上，没有服务端无法找回。忘记密码可在登录页用「重置本机数据」重新注册。'));
+
 on('POST', '/auth/qr', () => fail(400, '静态版没有服务端，扫码登录不可用'));
 on('GET', '/auth/qr/:id', () => fail(400, '静态版没有服务端，扫码登录不可用'));
 on('GET', '/auth/qr/:id/peek', () => fail(400, '静态版没有服务端，扫码登录不可用'));
@@ -1422,11 +1520,84 @@ on('PATCH', '/me', ({ body }) => {
   for (const k of ['nickname', 'school', 'subject', 'title', 'avatar']) {
     if (k in (body || {})) u[k] = String(body[k] ?? '');
   }
-  if (body?.settings) u.settings = body.settings;
+  /* settings 按顶层键浅合并，不整块覆盖。
+     原因：首页拖拽布局是「防抖 600ms 后提交整份 settings」，
+     如果同一时间用户在个人信息页改了别的设置，后到的整块覆盖会把先到的改动抹掉。
+     合并之后两边各改各的都不会互相踩。 */
+  if (body?.settings && typeof body.settings === 'object') {
+    u.settings = { ...(u.settings || {}), ...body.settings };
+  }
   saveUser(u);
   return { user: publicUser(u) };
 });
-on('POST', '/me/password', () => fail(400, '静态版没有服务端密码，不需要修改'));
+/* 【原来是 fail(400, '静态版没有服务端密码，不需要修改')】—— 按钮点了永远弹这句，
+   等于死按钮。现在这一条改成「改本机 PIN」，语义仍然对：都是「换掉进门的凭证」。
+   没设过 PIN 时，老密码填什么都行；设过了就必须输对旧的。 */
+on('POST', '/me/password', async ({ body }) => {
+  const u = currentUser();
+  const next = String(body?.newPassword || '').trim();
+  if (!/^\d{4,6}$/.test(next)) fail(400, '本机 PIN 请设 4~6 位数字');
+  const p = pinInfo(u);
+  if (p) {
+    const old = String(body?.oldPassword || '').trim();
+    if (!old) fail(400, '原 PIN 不能为空');
+    const h = await pinHash(old, p.salt);
+    if (h !== p.hash) fail(400, '原 PIN 不对');
+  }
+  const salt = randomCode(12);
+  const hash = await pinHash(next, salt);
+  u.settings = { ...(u.settings || {}), [PIN_KEY]: { hash, salt, at: nowISO() } };
+  saveUser(u);
+  setPinUnlocked(true);   // 刚设完的自己不用再输一遍
+  return { ok: true, pin: true };
+});
+
+/* 本机 PIN 的查询 / 设置 / 校验 / 关闭。
+   GET 只回「有没有设」，绝不回哈希和盐 —— 回出去就等于把锁的钥匙也交了。 */
+on('GET', '/me/pin', () => {
+  const p = pinInfo(currentUser());
+  return { enabled: !!p, at: p?.at || '', unlocked: pinUnlocked() };
+});
+on('POST', '/me/pin', async ({ body }) => {
+  const u = currentUser();
+  const pin = String(body?.pin || '').trim();
+  if (!/^\d{4,6}$/.test(pin)) fail(400, '请设 4~6 位数字，别用生日以外太简单的（比如 1234）');
+  if (/^(\d)\1+$/.test(pin)) fail(400, '不要用全部相同的数字');
+  const p = pinInfo(u);
+  if (p) {
+    const h = await pinHash(String(body?.oldPin || '').trim(), p.salt);
+    if (h !== p.hash) fail(400, '原 PIN 不对');
+  }
+  const salt = randomCode(12);
+  u.settings = { ...(u.settings || {}), [PIN_KEY]: { hash: await pinHash(pin, salt), salt, at: nowISO() } };
+  saveUser(u);
+  setPinUnlocked(true);
+  return { ok: true, enabled: true };
+});
+on('POST', '/me/pin/verify', async ({ body }) => {
+  const p = pinInfo(currentUser());
+  if (!p) return { ok: true, enabled: false };
+  const h = await pinHash(String(body?.pin || '').trim(), p.salt);
+  if (h !== p.hash) {
+    /* 不做账号级锁定（本机锁锁自己没意义），但连续错太多给个提醒 */
+    fail(400, 'PIN 不对，再试一次');
+  }
+  setPinUnlocked(true);
+  return { ok: true, enabled: true };
+});
+on('POST', '/me/pin/disable', async ({ body }) => {
+  const u = currentUser();
+  const p = pinInfo(u);
+  if (!p) return { ok: true, enabled: false };
+  const h = await pinHash(String(body?.pin || '').trim(), p.salt);
+  if (h !== p.hash) fail(400, 'PIN 不对，关闭失败');
+  const s = { ...(u.settings || {}) };
+  delete s[PIN_KEY];
+  u.settings = s;
+  saveUser(u);
+  setPinUnlocked(false);
+  return { ok: true, enabled: false };
+});
 on('GET', '/me/sessions', () => ({ rows: [{ id: 1, device: '当前浏览器', ip: '本机', created_at: nowISO(), last_seen: nowISO(), current: true }] }));
 on('POST', '/me/sessions/revoke', () => ({ ok: true }));
 on('POST', '/me/avatar', async ({ body }) => {
@@ -1438,11 +1609,20 @@ on('POST', '/me/avatar', async ({ body }) => {
   const ok = ['image/jpeg', 'image/png'].includes(String(f.mime || '').toLowerCase());
   if (!ok) fail(400, '只支持 JPG / PNG 格式');
   /* 头像转成 dataURL 直接存：静态版没有 /files 静态目录，
-     一个小图（≤2MB）塞进 localStorage 是可以接受的，
-     而且换设备靠导出备份也能带走。 */
+     一个小图塞进 localStorage 是可以接受的，换设备靠导出备份带走。
+     但写入必须检查结果——满了要如实告诉用户，不能让界面显示「已更新」然后刷新就没了。 */
   const dataUrl = await blobToDataURL(f.data, f.mime);
+  const prev = u.avatar;
   u.avatar = dataUrl;
-  saveUser(u);
+  const db = load();
+  db.meta.user = u;
+  if (!save()) {
+    /* 回滚到上一张，避免「内存里是新图、磁盘上是老图」这种更糊涂的状态 */
+    u.avatar = prev;
+    db.meta.user = u;
+    save();
+    fail(507, '本机存储空间不足，头像没保存下来。可以先导出备份、清理旧课件再试，或者换一张小一点的图');
+  }
   return { url: dataUrl, user: publicUser(u) };
 });
 on('DELETE', '/me/avatar', () => {
@@ -1904,7 +2084,31 @@ on('POST', '/recycle/restore', ({ body }) => {
     if (i < 0) continue;
     const r = T('recycle')[i];
     const row = (db[r.entity] || []).find((x) => String(x.id) === String(r.entity_id));
-    if (row) row.deleted_at = null;
+    /* 【还原必须核对「是不是同一条」】
+       光按 entity_id 找行是不够的：如果那行已被物理删除（彻底删除 / 导入覆盖 /
+       云同步合并），id 可能被新记录复用，直接把 deleted_at 置空就成了
+       「还原出一条不相干的新数据」。所以比对删除时间戳，对不上就按 payload 插一条新的。 */
+    if (row) {
+      const same = String(row.deleted_at || '') === String(r.deleted_at || '');
+      if (same) row.deleted_at = null;
+      else {
+        const snap = safeJSON(r.payload, null);
+        if (snap && typeof snap === 'object') {
+          const nid = nextFreeId(db, r.entity);
+          db[r.entity] = db[r.entity] || [];
+          db[r.entity].push({ ...snap, id: nid, deleted_at: null, updated_at: nowISO() });
+        } else {
+          row.deleted_at = null;   /* 没快照只能就地复活，总比什么都不做强 */
+        }
+      }
+    } else {
+      const snap = safeJSON(r.payload, null);
+      if (snap && typeof snap === 'object') {
+        const nid = nextFreeId(db, r.entity);
+        db[r.entity] = db[r.entity] || [];
+        db[r.entity].push({ ...snap, id: nid, deleted_at: null, updated_at: nowISO() });
+      }
+    }
     if (r.entity === 'attendance_tables') {
       for (const k of T('attendance_rows') || []) if (String(k.table_id) === String(r.entity_id)) k.deleted_at = null;
     }
@@ -1945,7 +2149,7 @@ on('POST', '/recycle/undo', ({ body }) => {
   for (const it of items) {
     if (!it?.entity || !it?.entity_id) continue;
     try {
-      const row = JSON.parse(it.payload || '{}');
+      const row = safeJSON(it.payload, {});
       db[it.entity] = db[it.entity] || [];
       const ex = db[it.entity].find((x) => String(x.id) === String(it.entity_id));
       if (ex) ex.deleted_at = it.deleted_at || nowISO();
@@ -2009,7 +2213,15 @@ on('POST', '/attendance/:id/rows', ({ params, body }) => {
   db.attendance_rows = db.attendance_rows || [];
   const list = Array.isArray(body?.rows) ? body.rows : [body];
   const ids = [];
+  /* 【快照，不能边算边看】
+     T('attendance_rows') 是 load() 里的活数组，循环里 push 之后
+     再 reduce 求最大 id，每一行算出来都是「当前最大值 + 1」，
+     于是整批插入的行 id 全部撞在一起（例如 1,2,3… 后面全是 46）。
+     表现是：新建一张 46 人的表，界面上 46 行名字全变成第 1 个人的名字；
+     再保存一次，满表都是「张琴」。
+     所以最大 sort 和最大 id 都先取成数字快照，循环里只做自增。 */
   let sort = (T('attendance_rows').filter((r) => String(r.table_id) === String(t.id)).reduce((mx, r) => Math.max(mx, num(r.sort)), 0));
+  let maxId = T('attendance_rows').reduce((mx, r) => Math.max(mx, num(r.id)), 0);
   for (const row of list) {
     if (!row) continue;
     if (row.id) {
@@ -2023,7 +2235,8 @@ on('POST', '/attendance/:id/rows', ({ params, body }) => {
       }
     } else {
       sort += 1;
-      const id = T('attendance_rows').reduce((mx, r) => Math.max(mx, num(r.id)), 0) + 1;
+      maxId += 1;
+      const id = maxId;
       T('attendance_rows').push({
         id, table_id: t.id, teacher: row.teacher || '', subject: String(row.subject ?? ''),
         data: JSON.stringify(row.data || {}), sort,
@@ -2040,7 +2253,7 @@ on('POST', '/attendance/:id/import', ({ params, body }) => {
   if (!t) fail(404, '考勤表不存在');
   const text = String(body?.text || '');
   const grid = body?.grid || parseClipboardTable(text);
-  const columns = body?.columns || JSON.parse(t.columns || '[]');
+  const columns = Array.isArray(body?.columns) && body.columns.length ? body.columns : attCols(t);
   const db = load();
   db.attendance_rows = db.attendance_rows || [];
   let added = 0;
@@ -2049,6 +2262,8 @@ on('POST', '/attendance/:id/import', ({ params, body }) => {
   const isHeader = header.some((h) => /日期|姓名|老师|星期|签到|时间|状态|备注/.test(String(h)));
   const bodyRows = isHeader ? grid.slice(1) : grid;
   const mapName = isHeader ? header.findIndex((h) => /姓名|老师|教师/.test(String(h))) : 0;
+  /* 同上：id 要先取快照，否则整批插入的行 id 会撞在一起 */
+  let maxRowId = T('attendance_rows').reduce((mx, r) => Math.max(mx, num(r.id)), 0);
   for (const line of bodyRows) {
     if (!line.length || line.every((c) => !String(c).trim())) continue;
     const teacher = String(line[mapName] ?? line[0] ?? '').trim();
@@ -2063,7 +2278,8 @@ on('POST', '/attendance/:id/import', ({ params, body }) => {
       columns.forEach((c, i) => { if (i + 1 < line.length) data[c.key] = String(line[i + 1]).trim(); });
     }
     sort += 1;
-    const id = T('attendance_rows').reduce((mx, r) => Math.max(mx, num(r.id)), 0) + 1;
+    maxRowId += 1;
+    const id = maxRowId;
     T('attendance_rows').push({ id, table_id: t.id, teacher, subject: '', data: JSON.stringify(data), sort, created_at: nowISO(), updated_at: nowISO(), deleted_at: null });
     added += 1;
   }
@@ -2238,19 +2454,21 @@ function commitAttendanceSheet(body) {
     const byName = new Map(exist.map((r) => [r.teacher, r]));
     let updated = 0; let added = 0;
     let sort = exist.reduce((mx, r) => Math.max(mx, num(r.sort)), 0);
+    let maxRowId2 = T('attendance_rows').reduce((mx, r) => Math.max(mx, num(r.id)), 0);
     for (const row of rows) {
       const nm = String(row.teacher || '').trim();
       if (!nm) continue;
       const old = byName.get(nm);
       if (old) {
-        const merged = { ...(JSON.parse(old.data || '{}')), ...(row.data || {}) };
+        const merged = { ...safeJSON(old.data, {}), ...(row.data || {}) };
         old.data = JSON.stringify(merged);
         old.subject = String(row.subject || old.subject || '');
         old.updated_at = nowISO();
         updated += 1;
       } else {
         sort += 1;
-        const id = T('attendance_rows').reduce((mx, r) => Math.max(mx, num(r.id)), 0) + 1;
+        maxRowId2 += 1;
+        const id = maxRowId2;
         T('attendance_rows').push({ id, table_id: tableId, teacher: nm, subject: String(row.subject || ''), data: JSON.stringify(row.data || {}), sort, created_at: nowISO(), updated_at: nowISO(), deleted_at: null });
         added += 1;
       }
@@ -2273,16 +2491,21 @@ function commitAttendanceSheet(body) {
   const inRoster = new Set(T('teachers').filter((x) => !x.deleted_at && x.grade === grade).map((x) => x.name));
   let tSort = T('teachers').filter((x) => x.grade === grade).reduce((mx, x) => Math.max(mx, num(x.sort)), 0);
   const tSort0 = tSort;
+  /* 插入循环里的两个 id 也先取快照，理由同 /teachers：活数组边 push 边取最大会撞号 */
+  let maxRowId3 = T('attendance_rows').reduce((mx, r) => Math.max(mx, num(r.id)), 0);
+  let maxTid = T('teachers').reduce((mx, x) => Math.max(mx, num(x.id)), 0);
   for (const row of rows) {
     const nm = String(row.teacher || '').trim();
     if (!nm) continue;
     sortBase += 1;
-    const id = T('attendance_rows').reduce((mx, r) => Math.max(mx, num(r.id)), 0) + 1;
+    maxRowId3 += 1;
+    const id = maxRowId3;
     T('attendance_rows').push({ id, table_id: tableId, teacher: nm, subject: String(row.subject || ''), data: JSON.stringify(row.data || {}), sort: sortBase, created_at: nowISO(), updated_at: nowISO(), deleted_at: null });
     if (!inRoster.has(nm)) {
       inRoster.add(nm);
       tSort += 1;
-      const tid = T('teachers').reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
+      maxTid += 1;
+      const tid = maxTid;
       T('teachers').push({ id: tid, grade, name: nm, subject: String(row.subject || ''), sort: tSort, active: 1, created_at: nowISO(), updated_at: nowISO(), deleted_at: null });
     }
   }
@@ -2464,6 +2687,13 @@ on('POST', '/invig/school-paid', ({ body }) => {
 /* ---- 年级 & 教师名册 ---- */
 const DEFAULT_GRADES = ['高一', '高二'];
 on('GET', '/grades', () => {
+  /* 名册预置放在这里，而不是只放在 seedIfEmpty 里：
+     seedIfEmpty 只在「空库」时跑一次，老师这台设备上早就有课程表、
+     笔记、事项了，升级上来永远不会走进那个分支，名册就永远是空的。
+     seedRoster 自己是幂等的（看 meta.rosterSeeded），放这里等于
+     「打开考勤页面时顺手补一次」，老用户新用户都能拿到。
+     只写不读的副作用也没有：没有名册的人才会真的插数据。 */
+  seedRoster(load(), nowISO());
   const extra = (currentUser().settings?.grades || []).filter(Boolean);
   const set = [...new Set([...DEFAULT_GRADES, ...extra])];
   const counts = {};
@@ -2504,14 +2734,31 @@ on('POST', '/teachers', ({ body }) => {
   const db = load();
   db.teachers = db.teachers || [];
   const items = Array.isArray(body?.items) ? body.items : [{ name: body?.name, subject: body?.subject }];
-  let sort = T('teachers').filter((t) => t.grade === grade).reduce((mx, t) => Math.max(mx, num(t.sort)), 0);
+  /* 【为什么用快照算 sort，不用 T('teachers')】
+     load() 返回的是同一个缓存对象，T('teachers') 拿到的是「活的」数组，
+     所以循环里每 push 一条，reduce 就多看到一条，sort 一路水涨船高：
+     整批导入时序号会算成 1,1,2,3,5,8…（近似翻倍）。
+     单个添加看不出来（每次只有一条），一粘一整班名单就全乱：
+     名册按 sort 排，导进来的 46 个人会被打散成 李成华/林金波/田永江…
+     新建表带出来的顺序也就跟纸表对不上了。
+     所以先把已有的最大 sort 取成快照，循环里只对这个变量做 +1。 */
+  const startSort = T('teachers').filter((t) => t.grade === grade).reduce((mx, t) => Math.max(mx, num(t.sort)), 0);
+  let sort = startSort;
   const ids = []; let skipped = 0;
   for (const it of items) {
     const name = String(it?.name || '').trim();
     if (!name) continue;
-    const dup = T('teachers').find((t) => !t.deleted_at && t.grade === grade && t.name === name);
+    /* 【判重必须「同年级 + 同姓名 + 同学科」三条一起看】
+       早先只比姓名：老师手工导入名册或上传 Excel 时，
+       只要有个同名的（哪怕学科完全不同）就被当成「已存在」，
+       然后把这个人的学科改成新的——等于把原来那个人改没了。
+       典型：高二有「向宇/美术」，某张表里有个「向宇/语文」，
+       导入后美术的向宇变成语文，地理组的雷春也就这样被「吃掉」过。
+       现在同学科才算同一个人；同名不同科视为两个人，都留下。 */
+    const subj = String(it.subject || '').trim();
+    const dup = T('teachers').find((t) => !t.deleted_at && t.grade === grade
+      && t.name === name && String(t.subject || '').trim() === subj);
     if (dup) {
-      if (it.subject) { dup.subject = String(it.subject).trim(); dup.updated_at = nowISO(); }
       ids.push(dup.id);
       skipped += 1;
       continue;
@@ -3215,6 +3462,26 @@ on('DELETE', '/:table/:id', ({ params }) => {
 /* 返回 { ok:true, data } 或抛 { code, error }，与 api.req 的期望一致。 */
 export async function handle(method, path, query = {}, body = undefined) {
   const clean = path.split('?')[0];
+
+  /* ================= 【A 方案：课时走真云端】 =================
+     只有 /lessons 这一族接口转发到 Supabase，其余 140 多个接口
+     继续走下面的本地逻辑。这样做的理由：
+       · 一次全改风险太高，改坏一处整个工作台都用不了
+       · 先用一张表在真机上跑通，确认「登录→看到→改→另一设备看到」
+       · 跑通后逐张表推进，随时可以停下来回滚
+     开关：只有配置了 Supabase 且已登录时才走云端。
+     没配置 / 没登录时，课时仍然用本地数据 —— 保证随时可用，
+     不会因为网络或配置问题把已有功能拖死。 */
+  if (CLOUD_TABLES.has(clean.split('/')[1]) && await cloudReady()) {
+    try {
+      const data = await cloudRoute(method, clean, query, body);
+      return { ok: true, data };
+    } catch (e) {
+      /* 云端出错时说清楚是云端的事，别让用户以为是本地坏了 */
+      return { ok: false, error: '云端：' + (e.message || e), code: 502, cloud: true };
+    }
+  }
+
   for (const r of R) {
     if (r.method !== method) continue;
     const m = r.re.exec(clean);
@@ -3233,11 +3500,49 @@ export async function handle(method, path, query = {}, body = undefined) {
   return { ok: false, error: '接口不存在（静态版）：' + method + ' ' + clean, code: 404 };
 }
 
+/* 哪些表已经迁到云端。推进时往这里加表名即可 */
+const CLOUD_TABLES = new Set(['lessons']);
+
+async function cloudReady() {
+  try {
+    const m = await import('./cloud.js');
+    return !!(m.cfg() && m.session());
+  } catch { return false; }
+}
+
+async function cloudRoute(method, clean, query, body) {
+  const m = await import('./cloud.js');
+  const seg = clean.split('/').filter(Boolean);   // ['lessons'] 或 ['lessons','12']
+  const table = seg[0];
+  const id = seg[1];
+
+  if (table !== 'lessons') throw new Error('该表还没接云端：' + table);
+
+  if (method === 'GET' && !id) return m.listLessons(query);
+  if (method === 'POST' && !id) return m.createLesson(body || {});
+  if ((method === 'PATCH' || method === 'PUT') && id) return m.updateLesson(id, body || {});
+  if (method === 'DELETE' && id) return m.deleteLesson(id);
+  throw new Error(`云端暂不支持：${method} ${clean}`);
+}
+
 /* ============================ 小工具 ============================ */
 function safeJSON(s, dflt) {
   if (Array.isArray(s)) return s;
   if (typeof s === 'object') return s || dflt;
   try { return JSON.parse(s || 'null') ?? dflt; } catch { return dflt; }
+}
+
+/* 给「复活一条已删记录」找一个不冲突的 id。
+   直接用 max(id)+1 会跟 db.seqs 里的计数器脱节，后续新建又可能撞上，
+   所以这里同时把计数器推高。 */
+function nextFreeId(db, table) {
+  const arr = Array.isArray(db[table]) ? db[table] : [];
+  const key = 'id:' + table;
+  const max = arr.reduce((m, x) => Math.max(m, num(x.id)), 0);
+  const seq = Math.max(num(db.seqs?.[key]), max) + 1;
+  db.seqs = db.seqs || {};
+  db.seqs[key] = seq;
+  return seq;
 }
 
 function blobToDataURL(data, mime) {

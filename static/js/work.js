@@ -1,18 +1,22 @@
-import { api, el, esc, clsName, startPoll, toast, sheet, saving, confirmDialog, ymd, pad2, WD_SHORT, fmtDateTime, fmtTime, parseDT, exportUrl, download, doExport } from './core.js';
+import { api, el, esc, clsName, startPoll, toast, sheet, saving, confirmDialog, promptDialog, ymd, pad2, WD_SHORT, fmtDateTime, fmtTime, parseDT, exportUrl, download, doExport, STATIC, studentUrl, shortPath } from './core.js';
 import { printStatement } from './pdfprint.js';
-import { registerView, state, icon, go, pageHead, tabsBar, bindTabs, WORK_TABS, onViewLeave } from './ui.js';
+import { registerView, state, icon, go, pageHead, onViewLeave, subCurrentOf, NAV } from './ui.js';
 import { renderAttendance } from './attendance.js';
 import { detectTimetable } from './ttimage.js';
+import { loginBanner, hookBanner } from './auth.js';
 
 const M = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 /* 备注字段统一生成器。
    用户反馈「备注要重点显示、加个方框，不然不知道能写字」——问题出在各处写法不统一：
    有的用 <input>、有的用 <textarea>，有的没 placeholder，有的连 label 都省了。
    抽成一个函数后，样式和占位文案只需改这里一处，不会再漏。 */
-function remarkField({ id = 'remark', value = '', placeholder = '有什么要补充的？直接在这里写', rows = 0, hint = '' } = {}) {
+function remarkField({ id = 'remark', value = '', placeholder = '', rows = 0, hint = '' } = {}) {
+  /* 默认不写占位文案：预填/预提示的内容如果不符实际，用户还得先删掉，反而更慢。
+     需要说明时由调用方显式传 placeholder，没传就不输出这个属性（不留空壳）。 */
+  const ph = placeholder ? ` placeholder="${esc(placeholder)}"` : '';
   const tag = rows
-    ? `<textarea class="input" id="${id}" rows="${rows}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`
-    : `<input class="input" id="${id}" value="${esc(value)}" placeholder="${esc(placeholder)}">`;
+    ? `<textarea class="input" id="${id}" rows="${rows}"${ph}>${esc(value)}</textarea>`
+    : `<input class="input" id="${id}" value="${esc(value)}"${ph}>`;
   return `<div class="remark-field"><label class="field-label">${icon('edit', 13)} 备注${hint ? `<span class="rf-hint">${esc(hint)}</span>` : ''}</label>${tag}</div>`;
 }
 const monthLabel = (m) => { const [y, mm] = String(m || '').split('-'); return y ? `${y}年${Number(mm)}月` : '选择月份'; };
@@ -66,7 +70,7 @@ export function exportSheet(kind, ctx = {}) {
 export function importSheet(kind, reload) {
   const body = el(`<div class="sheet-body">
     <div class="small muted" style="margin-bottom:8px">从 Excel / WPS 选中区域 <b>Ctrl+C</b> 后粘贴到这里（第一行可为表头），或选择文本文件。</div>
-    <textarea class="input" id="imp" rows="9" placeholder="日期\t节次\t班级\t内容&#10;2026-10-20\t1\t高二(3)班\t《劝学》第二课时"></textarea>
+    <textarea class="input" id="imp" rows="9"></textarea>
     <div class="row" style="margin-top:10px"><input type="file" id="imp-file" accept=".csv,.txt" class="small"><span style="flex:1"></span>
     <button class="btn ghost" id="imp-cancel">取消</button><button class="btn primary" id="imp-ok">导入</button></div>
   </div>`);
@@ -86,19 +90,70 @@ export function importSheet(kind, reload) {
   };
 }
 
-/* ================= 工作首页 ================= */
-registerView(async function work(main, { tab }) {
-  main.innerHTML = pageHead('工作', '课时、课表、考勤、监考、出差、课件与笔记') + tabsBar(WORK_TABS, 'work', tab) + '<div id="work-body"></div>';
-  bindTabs(main);
+/* ================= 工作（二级导航分发） ================= */
+/* 路由：work/<tab>，tab 取自 ui.js 的 NAV.work.sub。
+   课件（materials）下面还有第三级 work/materials/<third>：
+     selfstudy 自习 · textbook 教材 · pick 抽人 · mystery 盲盒
+   这四项对应的是**学生看到的那个页面**（student.html）里的模块，
+   老师这边需要的是「发链接、配内容、看谁用了」，所以第三级不是把学生页
+   照搬过来，而是给它做后台。 */
+registerView(async function work(main, { tab, third }) {
+  const t = tab || 'lessons';
+  /* 页头标题跟着二级项走：以前所有二级页都顶着「工作」两个字，
+     点进「考勤」看到的还是「工作」，会让人怀疑自己点错了。 */
+  const meta = {
+    lessons: ['上课', '课时统计、代课对账，一节课一条记录'],
+    timetable: ['课表', '这周几节课、哪个班、哪间教室'],
+    prep: ['备课', '课前备什么、讲到哪了、下次接着讲什么'],
+    repairs: ['维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底'],
+    attendance: ['考勤', '教师坐班表与学生到课，拍照就能认'],
+    invigilation: ['监考', '监考场次、时间、补贴，一场不漏'],
+    trips: ['出差', '行程、报销、补贴，按天自动算'],
+    materials: ['课件', '发给学生的那个页面：自习、教材、抽人、盲盒都在这里配'],
+    notes: ['笔记', '随手记的教学笔记，可搜索、可归档'],
+  }[t] || ['工作', ''];
+
+  /* 页头先不放进 main：课件下面的三级页（自习/教材/抽人/盲盒）要换成自己的标题，
+     先画「课件」再改字符串会闪一下。所以正文容器先给出来，标题由正文渲染完再定。 */
+  main.innerHTML = '<div id="work-body"></div>';
   const body = main.querySelector('#work-body');
-  if (tab === 'lessons') return renderLessons(body);
-  if (tab === 'prep') return renderPreps(body);
-  if (tab === 'timetable') return renderTimetable(body);
-  if (tab === 'attendance') return renderAttendance(body);
-  if (tab === 'invigilation') return renderInvigilation(body);
-  if (tab === 'trips') return renderTrips(body);
-  if (tab === 'materials') return renderMaterials(body);
-  if (tab === 'notes') return renderNotes(body);
+  const headEl = el(`<div>${pageHead(meta[0], meta[1], '')}</div>`);
+  main.insertBefore(headEl, body);
+  /* 三级页把自己的标题写进 url 的第三段，页头用子项名字，副标题用子项说明 */
+  if (t === 'materials' && third) {
+    const sub = (NAV.find((n) => n.id === 'work')?.sub || []).find((x) => x.id === 'materials')?.sub || [];
+    const node = sub.find((x) => x.id === third);
+    if (node) {
+      headEl.innerHTML = pageHead(node.label, {
+        selfstudy: '学生端「自习」：开一场签到，学生点「我到了」，这里实时看人数',
+        textbook: '学生端「教材」：你勾了「学生可见」的资料，就是学生看到的全部',
+        pick: '学生端「抽人」：按号码或按名单，抽过的不重复',
+        mystery: '学生端「盲盒」：点一下随机弹一个任务，这一轮不重复',
+      }[third] || '');
+    }
+  }
+  if (t === 'lessons') return renderLessons(body);
+  if (t === 'prep') return renderPreps(body);
+  if (t === 'timetable') return renderTimetable(body);
+  if (t === 'attendance') return renderAttendance(body);
+  if (t === 'invigilation') return renderInvigilation(body);
+  if (t === 'trips') return renderTrips(body);
+  if (t === 'repairs') {
+    const m = await import('./repairs.js');
+    return m.renderRepairsBody(body);
+  }
+  if (t === 'materials') {
+    if (third === 'selfstudy') {
+      const m = await import('./selfstudy.js');
+      return m.renderSelfstudyBody(body, { studentTab: 'checkin' });
+    }
+    if (third === 'textbook') return renderStudentModule(body, 'textbook');
+    if (third === 'pick') return renderStudentModule(body, 'pick');
+    if (third === 'mystery') return renderStudentModule(body, 'mystery');
+    return renderMaterials(body);
+  }
+  if (t === 'notes') return renderNotes(body);
+  return renderLessons(body);
 });
 
 /* ================= 上课（课时统计 & 代课对账） ================= */
@@ -139,6 +194,7 @@ async function renderLessons(box) {
     const netTxt = net.direction === 'even' ? '已平' : `${net.direction === 'receivable' ? '应收' : '应付'} ${money(Math.abs(net.amount))}`;
 
     box.innerHTML = `
+    ${loginBanner()}
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
       <div class="row" style="gap:4px"><button class="icon-btn sm" data-mprev>${icon('left', 16)}</button>
         <button class="btn ghost sm month-btn" data-mpick style="min-width:112px;justify-content:center">${monthLabel(month)}</button>
@@ -246,6 +302,7 @@ async function renderLessons(box) {
     </table></div>`;
 
     // 月份切换
+    hookBanner(box);
     box.querySelector('[data-mprev]').onclick = () => { month = monthShift(month, -1); load(); };
     box.querySelector('[data-mnext]').onclick = () => { month = monthShift(month, 1); load(); };
     box.querySelector('[data-mpick]').onclick = () => pickMonth(month, (m) => { month = m; load(); });
@@ -469,8 +526,8 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
     <div class="form-grid">
       <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="date" value="${esc(row?.date || today)}"></div>
       <div class="field"><label class="field-label">节次</label><select class="input" id="period">${[1,2,3,4,5,6,7,8,9,10].map((n) => `<option ${row?.period_no === n ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
-      <div class="field"><label class="field-label">班级</label><input class="input" id="class" value="${esc(row?.class_name || '')}" placeholder="高二(3)班"></div>
-      <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '语文')}"></div>
+      <div class="field"><label class="field-label">班级</label><input class="input" id="class" value="${esc(row?.class_name || '')}"></div>
+      <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}"></div>
       <div class="field"><label class="field-label">开始时间</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
       <div class="field"><label class="field-label">结束时间</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
     </div>
@@ -485,14 +542,14 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
 
     <div id="le-sub" class="le-sub hidden">
       <div class="field"><label class="field-label" id="le-peer-l">对方姓名</label>
-        <input class="input" id="peer" list="le-tlist" value="${esc(row?.peer_name || '')}" placeholder="从名册选或直接输入">
+        <input class="input" id="peer" list="le-tlist" value="${esc(row?.peer_name || '')}">
         <datalist id="le-tlist">${[...new Set(teachers.map((t) => t?.name).filter(Boolean))].map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
       </div>
       <div class="field hidden" id="le-swap-w">
         <label class="field-label">换课说明</label>
         <div class="form-grid">
-          <input class="input" id="swap_from" value="${esc(row?.swap_from || '')}" placeholder="我原上的是，如 周三第5节">
-          <input class="input" id="swap_to" value="${esc(row?.swap_to || '')}" placeholder="换成，如 周四第4节">
+          <input class="input" id="swap_from" value="${esc(row?.swap_from || '')}">
+          <input class="input" id="swap_to" value="${esc(row?.swap_to || '')}">
         </div>
       </div>
       <div class="le-tip" id="le-tip"></div>
@@ -500,10 +557,10 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
 
     <div class="field"><label class="field-label">上课内容</label><textarea class="input" id="content" rows="2">${esc(row?.content || '')}</textarea></div>
     <div class="form-grid">
-      <div class="field"><label class="field-label">教学进度</label><input class="input" id="progress" value="${esc(row?.progress || '')}" placeholder="如：完成第二段翻译"></div>
+      <div class="field"><label class="field-label">教学进度</label><input class="input" id="progress" value="${esc(row?.progress || '')}"></div>
       <div class="field"><label class="field-label">下一节课内容</label><input class="input" id="next_content" value="${esc(row?.next_content || '')}"></div>
     </div>
-    <div class="field"><label class="field-label">违纪情况</label><input class="input" id="discipline" value="${esc(row?.discipline || '')}" placeholder="如：张三上课睡觉（口头提醒一次）"></div>
+    <div class="field"><label class="field-label">违纪情况</label><input class="input" id="discipline" value="${esc(row?.discipline || '')}"></div>
     ${remarkField({ value: row?.remark || '', placeholder: '如：投影仪坏了、下节课带试卷' })}
 
     <!-- 【第 6 条：上课时单价不能改】
@@ -605,12 +662,10 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
     };
   });
 
-  // 金额按 课时口径 × 单价 重算
-  $('#le-reset').onclick = () => {
-    const ph = Number($('#pay_hours').value) || 0;
-    $('#pay_amount').value = Math.round(ph * price * 100) / 100;
-    syncType();
-  };
+  /* 金额按 课时口径 × 单价 重算。
+     【这里曾经绑了两次】上面 resetBtn 那次读的是输入框里的当前单价（正确），
+     下面这段又用闭包里那个「打开面板时」的旧 price 覆盖了一次，后绑的生效，
+     所以改完单价点「按单价重算」，金额会跳回旧数。只留上面那一次。 */
 
   syncType();
   $('#cancel').onclick = s.close;
@@ -1004,7 +1059,7 @@ async function importTimetableDialog(reload) {
         也可以粘贴 JSON（换设备时用）。
       </div>
       <textarea id="tt-src" class="cell-input" rows="10" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.6"
-        placeholder="节次	时间	星期一	星期二	星期三&#10;1	8:00-8:40		11班&#10;3	10:00-10:40	5班	"></textarea>
+       ></textarea>
       <div id="tt-preview" class="small" style="margin-top:10px"></div>`;
     const src = pane.querySelector('#tt-src');
     const preview = pane.querySelector('#tt-preview');
@@ -1134,7 +1189,7 @@ async function importTimetableDialog(reload) {
           weekday: Number(c.weekday), period_no: Number(c.period_no),
           start_time: c.start_time || p.start_time || '', end_time: c.end_time || p.end_time || '',
           grade: c.grade || '', class_name: c.class_name,
-          subject: c.subject || '信息技术', room: c.room || '', color: c.color || '',
+          subject: c.subject || '', room: c.room || '', color: c.color || '',
         });
         n += 1;
       } catch (e) { /* 单条失败不阻断 */ }
@@ -1191,21 +1246,51 @@ function printTimetableHTML(courses, periods, maxP) {
 }
 function courseEditor(row, reload) {
   const isNew = !row?.id;
+  /* 【历史值联想】
+     全站不再预填「语文 / 高二」这类默认值 —— 预填的东西如果不符实际，
+     用户还得先删掉才能填，反而更慢。所以默认留空，直接手填。
+     但又不想让用户每次都从头打字：把已存课程里出现过的科目/年级/班级
+     收集成候选，挂在 datalist 上——点一下就能填，不打字也行。
+     这叫「手填为主，联想为辅」：没有强制默认值，只是给个快捷入口。
+
+     注意：这里必须保持同步函数。弹层要立刻出现，不能等接口；
+     历史值晚一步到达也没关系，反正用户点开下拉是在之后。 */
+
   const body = el(`<div class="sheet-body"><div class="form-grid">
     <div class="field"><label class="field-label">星期</label><select class="input" id="weekday">${[1,2,3,4,5,6,0].map((d) => `<option value="${d}" ${Number(row?.weekday) === d ? 'selected' : ''}>周${WD_SHORT[d]}</option>`).join('')}</select></div>
     <div class="field"><label class="field-label">节次</label><input class="input" type="number" id="period_no" value="${row?.period_no || 1}"></div>
     <div class="field"><label class="field-label">开始时间</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
     <div class="field"><label class="field-label">结束时间</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
-    <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(row?.grade || '高二')}"></div>
-    <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(row?.class_name || '')}"></div>
-    <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '语文')}"></div>
-    <div class="field"><label class="field-label">教室</label><input class="input" id="room" value="${esc(row?.room || '')}"></div>
+    <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(row?.grade || '')}" data-hist="grade"></div>
+    <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(row?.class_name || '')}" data-hist="class_name"></div>
+    <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}" data-hist="subject"></div>
+    <div class="field"><label class="field-label">教室</label><input class="input" id="room" value="${esc(row?.room || '')}" data-hist="room"></div>
     <div class="field"><label class="field-label">生效开始日</label><input class="input" type="date" id="sd" value="${esc(row?.start_date || '')}"></div>
     <div class="field"><label class="field-label">生效结束日</label><input class="input" type="date" id="ed" value="${esc(row?.end_date || '')}"></div>
   </div>
-  ${remarkField({ value: row?.remark || '', placeholder: '如：走班教室、需带教具' })}
+  ${remarkField({ value: row?.remark || '' })}
   <div class="confirm-actions">${isNew ? '' : '<button class="btn ghost" id="del" style="margin-right:auto;color:var(--red)">删除</button>'}
   <button class="btn ghost" id="cancel">取消</button><button class="btn primary" id="save">保存</button></div></div>`);
+
+  /* 历史值异步补上：失败就静默，手填照常可用 */
+  api.get('/courses').then((all) => {
+    for (const k of ['grade', 'class_name', 'subject', 'room']) {
+      const vals = [...new Set(all.map((c) => String(c[k] || '').trim()).filter(Boolean))].slice(0, 40);
+      if (!vals.length) continue;
+      const input = body.querySelector(`[data-hist="${k}"]`);
+      if (!input) continue;
+      const id = 'dl-' + k;
+      document.getElementById(id)?.remove();
+      // 用 createElement 而不是 el()：el() 走 template.firstElementChild，
+      // 只保证返回「第一个元素」，这里要的就是 datalist 本身，直接建更清楚。
+      const list = document.createElement('datalist');
+      list.id = id;
+      list.innerHTML = vals.map((v) => `<option value="${esc(v)}">`).join('');
+      body.appendChild(list);
+      input.setAttribute('list', id);
+      input.setAttribute('autocomplete', 'off');
+    }
+  }).catch(() => {});
   const s = sheet({ title: isNew ? '添加课程' : '修改课程', body });
   body.querySelector('#cancel').onclick = s.close;
   body.querySelector('#del')?.addEventListener('click', async () => {
@@ -1551,10 +1636,10 @@ function invEditor(row, reload, month, rules, people) {
     <div class="form-grid">
       <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="date" value="${esc(row?.date || ymd(new Date()))}"></div>
       <div class="field" id="w-peer"><label class="field-label">对方老师</label>
-        <input class="input" id="peer" list="peer-names" value="${esc(row?.peer_name || '')}" placeholder="姓名">
+        <input class="input" id="peer" list="peer-names" value="${esc(row?.peer_name || '')}">
         <datalist id="peer-names">${peerNames.map((n) => `<option value="${esc(n)}">`).join('')}</datalist></div>
-      <div class="field"><label class="field-label">考试名称</label><input class="input" id="exam" value="${esc(row?.exam_name || '')}" placeholder="如 期中数学"></div>
-      <div class="field"><label class="field-label">考场</label><input class="input" id="room" value="${esc(row?.room || '')}" placeholder="如 高三(2)"></div>
+      <div class="field"><label class="field-label">考试名称</label><input class="input" id="exam" value="${esc(row?.exam_name || '')}"></div>
+      <div class="field"><label class="field-label">考场</label><input class="input" id="room" value="${esc(row?.room || '')}"></div>
       <div class="field"><label class="field-label">开始</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
       <div class="field"><label class="field-label">结束</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
       <div class="field"><label class="field-label">时长（分钟）</label><input class="input" type="number" id="mins" value="${row?.duration_min ?? ''}"></div>
@@ -1909,7 +1994,7 @@ function itemEditor(tripId, defDate, it, done) {
       <div class="field"><label class="field-label">有没有发票</label>
         <select class="input" id="has"><option value="1" ${it?.has_invoice === 0 ? '' : 'selected'}>有票</option><option value="0" ${it?.has_invoice === 0 ? 'selected' : ''}>没票</option></select></div>
     </div>
-    <div class="field"><label class="field-label">说明</label><input class="input" id="note" value="${esc(it?.note || '')}" placeholder="如：高铁往返 / 酒店 2 晚"></div>
+    <div class="field"><label class="field-label">说明</label><input class="input" id="note" value="${esc(it?.note || '')}"></div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">${it ? '保存' : '添加'}</button></div>
   </div>`);
   const s = sheet({ title: it ? '编辑这一笔' : '加一笔支出', body });
@@ -1967,7 +2052,7 @@ function tripEditor(row, reload) {
       <div class="field"><label class="field-label">目的地</label><input class="input" id="to" value="${esc(row?.to_place || '')}"></div>
     </div>
     <div class="field"><label class="field-label">事由</label><input class="input" id="reason" value="${esc(row?.reason || '')}"></div>
-    <div class="field"><label class="field-label">随行人员</label><input class="input" id="comp" value="${esc(row?.companions || '')}" placeholder="没有就留空"></div>
+    <div class="field"><label class="field-label">随行人员</label><input class="input" id="comp" value="${esc(row?.companions || '')}"></div>
 
     <div class="sec-title" style="margin-top:18px">实报实销 <span class="tiny muted">（大额建议留票）</span></div>
     <div class="form-grid">
@@ -2023,39 +2108,6 @@ function tripEditor(row, reload) {
       s.close(); toast('已保存'); reload();
     } catch (e) { toast(e.message || '保存失败', 'err'); }
   };
-}
-
-/* 学生短链：把当前访问凭据（?sharecode= 之类）一并带上，
-   否则学生打开会遇到「链接不完整」的拦截页 */
-function studentUrl(code) {
-  if (!code) return '';
-  const qs = new URLSearchParams(location.search);
-  // 只透传平台要求的访问参数，其余（utm 等）不带
-  const keep = new URLSearchParams();
-  for (const k of ['sharecode', 'code', 'access']) {
-    const v = qs.get(k);
-    if (v) keep.set(k, v);
-  }
-  const q = keep.toString();
-  /* 【第 15 条：学生短链显示的是长链 / 打不开】
-     根子上是两点：
-     ① 直拼 `${location.origin}/s/xxx`，丢掉了部署子路径。
-        本站托管在 GitHub Pages 的 /my-workbench/ 下，
-        拼出来的 .../s/abc 是 404 —— 老师发到群里，学生一律打不开。
-     ② 界面上应该显示「/s/abc」这种一眼能看懂的短链，
-        完整地址只在「点开 / 复制」时才给。
-     所以这里按「当前页面所在目录」拼，子路径自动带上。 */
-  const base = location.pathname.replace(/[^/]*$/, '');
-  return `${location.origin}${base}s/${code}${q ? '?' + q : ''}`;
-}
-
-/* 屏幕上只显示路径部分。
-   用户报的是「学生短链仍显示长链」——之前直接把 studentUrl() 整个丢进 <code>，
-   连 https://ad90e9…app.workbuddy.host 这截也一起显示，看着完全不像短链。
-   真正的短链主体是 /s/feutnv 这 9 个字符，复制时再补全成完整地址。 */
-function shortPath(code) {
-  if (!code) return '';
-  return `/s/${code}`;
 }
 
 /* ---------- 课堂签到（教师端） ---------- */
@@ -2163,7 +2215,7 @@ function pickStudentDialog(rosters) {
   const body = el(`<div class="sheet-body">
     <div class="form-grid">
       <div class="field"><label class="field-label">班级</label>
-        <input class="input" id="pk-cls" list="pk-cls-list" placeholder="如：高二(3)班" value="${esc(rosters[0] ? clsName(rosters[0].grade, rosters[0].class_name) : '')}">
+        <input class="input" id="pk-cls" list="pk-cls-list" value="${esc(rosters[0] ? clsName(rosters[0].grade, rosters[0].class_name) : '')}">
         <datalist id="pk-cls-list">${rosters.map((r) => `<option>${esc(clsName(r.grade, r.class_name))}</option>`).join('')}</datalist></div>
       <div class="field"><label class="field-label">总人数</label>
         <input class="input" id="pk-total" type="number" min="1" max="200" value="${esc(String(rosters[0]?.count || 40))}" inputmode="numeric"></div>
@@ -2322,7 +2374,7 @@ function paintPunishCard(items, records) {
 function punishEditor(p, reload) {
   const body = el(`<div class="sheet-body">
     <div class="field"><label class="field-label">任务内容</label>
-      <input class="input" id="t" value="${esc(p?.text || '')}" placeholder="如：唱歌 30 秒 / 做 20 个深蹲"></div>
+      <input class="input" id="t" value="${esc(p?.text || '')}"></div>
     <div class="field"><label class="field-label">强度</label>
       <select class="input" id="lv">
         <option value="light" ${p?.level === 'light' || !p ? 'selected' : ''}>轻松（唱歌、讲笑话）</option>
@@ -2467,6 +2519,270 @@ function askStatus() {
       b.onclick = () => { s.close(); resolve(b.dataset.p); };
     });
   });
+}
+
+/* ================= 学生页面的三个模块（课件下面的第三级） =================
+   教材 / 抽人 / 盲盒，对应 student.html 顶部的三个页签：
+     material → 老师在「课件」里上传、勾了「学生可见」的资料
+     roll     → 抽人（按号码或按名单，不重复）
+     punish   → 惩罚盲盒（点一下随机弹一个任务）
+   第三级页面不做「学生页的复刻」，而是给这三件事做后台：
+   看学生到底能拿到什么、把要用的东西配好、看用了几次。
+   自习那个模块因为本身就是「开一场签到 + 看名单」，逻辑更重，
+   单独放在 selfstudy.js 里（见 renderSelfstudyBody）。 */
+const STUDENT_MOD = {
+  textbook: {
+    name: '教材', icon: 'book', tab: 'material',
+    desc: '学生打开短链后看到的「课件」页，内容来自你勾了「学生可见」的资料。',
+  },
+  pick: {
+    name: '抽人', icon: 'dice', tab: 'roll',
+    desc: '学生端那台设备上的抽人转盘：填班级和人数，点一下滚出号码或名字。',
+  },
+  mystery: {
+    name: '盲盒', icon: 'gift', tab: 'punish',
+    desc: '学生点「抽任务」随机弹一个。这一轮不重复，抽完自动洗牌。',
+  },
+};
+
+/* 名单字段在库里可能是两种形态：JSON 数组（导入班级时写入）、
+   或者「张一诺,李晨阳」这种逗号串（种子数据与手工录的一条就写成了这样）。
+   以前只有抽人弹层里 JSON.parse 一处，串形态直接抛 SyntaxError，
+   整页白屏。统一走这个函数，解析不了就按分隔符切开。 */
+function parseNames(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  const s = String(raw ?? '').trim();
+  if (!s) return [];
+  if (s.startsWith('[')) { try { return (JSON.parse(s) || []).filter(Boolean); } catch { /* 落到下面按分隔符切 */ } }
+  return s.split(/[\n,，、;；\s]+/).map((x) => x.trim()).filter(Boolean);
+}
+
+async function renderStudentModule(box, key) {
+  const meta = STUDENT_MOD[key];
+  const [links, mats, rosters, punishes, punRecs, rollSess] = await Promise.all([
+    api.get('/links').catch(() => []),
+    api.get('/materials').catch(() => []),
+    api.get('/rosters').catch(() => []),
+    api.get('/punishments').catch(() => []),
+    api.get('/punish/records', { date: ymd(new Date()) }).catch(() => []),
+    api.get('/roll/sessions').catch(() => []),
+  ]);
+  const link = links[0];
+  const pubMats = mats.filter((m) => Number(m.public) !== 0);
+
+  /* 顶部：这个模块在学生那边长什么样 */
+  box.innerHTML = `
+    <div class="card card-pad" style="margin-bottom:14px;background:var(--primary-weak);border-color:transparent">
+      <div class="row wrap" style="gap:10px">
+        <div style="flex:1;min-width:200px">
+          <div class="bold">${icon(meta.icon, 15)} 学生端「${esc(meta.name)}」</div>
+          <div class="small muted" style="margin-top:3px">${esc(meta.desc)}</div>
+        </div>
+        ${link
+      ? `<code class="mono link-short" title="${esc(studentUrl(link.code))}">${esc(shortPath(link.code))}</code>
+             <button class="btn ghost sm" id="sm-copy">${icon('copy', 14)} 复制</button>
+             <a class="btn ghost sm" href="${esc(studentUrl(link.code))}" target="_blank" rel="noopener">打开学生页</a>`
+      : '<button class="btn primary sm" id="sm-mklink">生成学生链接</button>'}
+      </div>
+      <div class="field-hint" style="margin-top:10px">
+        学生打开上面的地址 → 顶部点「${esc(meta.name)}」→ 就是这个模块。学生不用登录，也不需要装 App。
+      </div>
+    </div>
+    <div id="sm-body"></div>`;
+
+  box.querySelector('#sm-copy')?.addEventListener('click', async () => {
+    const url = studentUrl(link.code);
+    try { await navigator.clipboard.writeText(url); toast('已复制，发到班级群就行'); } catch { prompt('复制下面的链接', url); }
+  });
+  box.querySelector('#sm-mklink')?.addEventListener('click', async () => {
+    await api.post('/links', { title: '班级资料站' }).catch(() => { });
+    renderStudentModule(box, key);
+  });
+
+  const inner = box.querySelector('#sm-body');
+
+  if (key === 'textbook') {
+    /* —— 教材：其实就是在管「哪些资料对学生可见」 —— */
+    inner.innerHTML = `
+      <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div class="card card-pad"><div class="tiny muted">资料总数</div>
+          <div style="font-size:24px;font-weight:700">${mats.length}</div></div>
+        <div class="card card-pad"><div class="tiny muted">学生能看到的</div>
+          <div style="font-size:24px;font-weight:700;color:var(--green)">${pubMats.length}</div></div>
+        <div class="card card-pad"><div class="tiny muted">仅自己可见</div>
+          <div style="font-size:24px;font-weight:700;color:var(--amber)">${mats.length - pubMats.length}</div></div>
+      </div>
+      <div class="row wrap" style="gap:8px;margin:16px 0 10px">
+        <button class="btn primary sm" id="tb-up">${icon('upload', 15)} 上传资料</button>
+        <span style="flex:1"></span>
+        <span class="tiny muted">点标题右侧的开关可以随时收回</span>
+      </div>
+      <div class="card" style="overflow:hidden">
+        ${pubMats.length ? pubMats.map((m) => `<div class="list-item">
+          <div class="doc-ico">${icon('book', 17)}</div>
+          <div style="flex:1;min-width:0">
+            <div class="bold">${esc(m.title)}</div>
+            <div class="tiny muted">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · ') || '没有填写说明')}</div>
+          </div>
+          <span class="chip green">学生可见</span>
+          <button class="btn ghost sm" data-unpub="${m.id}">收回</button>
+        </div>`).join('') : '<div class="empty">还没有对学生可见的资料，点「上传资料」开始</div>'}
+      </div>`;
+
+    inner.querySelector('#tb-up')?.addEventListener('click', () => materialEditor(null, 0, () => renderStudentModule(box, key)));
+    inner.querySelectorAll('[data-unpub]').forEach((b) => {
+      b.onclick = async () => {
+        const m = mats.find((x) => String(x.id) === b.dataset.unpub);
+        if (!(await confirmDialog(`把《${m.title}》从学生页面收回？学生就看不到了，文件本身还在。`))) return;
+        await api.patch('/materials/' + m.id, { public: 0 });
+        toast('已收回'); renderStudentModule(box, key);
+      };
+    });
+  } else if (key === 'pick') {
+    /* —— 抽人 —— */
+    const totalNames = rosters.reduce((s, r) => s + (parseNames(r.names).length || Number(r.count) || 0), 0);
+    inner.innerHTML = `
+      <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div class="card card-pad"><div class="tiny muted">可抽班级</div>
+          <div style="font-size:24px;font-weight:700">${rosters.length}</div>
+          <div class="tiny muted">${rosters.slice(0, 2).map((r) => esc(r.class_name)).join('、') || '没有名单也能按号码抽'}</div></div>
+        <div class="card card-pad"><div class="tiny muted">名单人数</div>
+          <div style="font-size:24px;font-weight:700">${totalNames}</div>
+          <div class="tiny muted">没名单就只能按号码</div></div>
+        <div class="card card-pad"><div class="tiny muted">进行中的签到</div>
+          <div style="font-size:24px;font-weight:700">${rollSess.filter((s) => s.status === 'open').length}</div>
+          <div class="tiny muted">抽人不需要签到</div></div>
+      </div>
+      <div class="row wrap" style="gap:8px;margin:16px 0 10px">
+        <button class="btn primary sm" id="pk-try">${icon('dice', 15)} 在这里试抽一次</button>
+        <button class="btn ghost sm" id="pk-ros">${icon('users', 15)} 管理班级名单</button>
+      </div>
+      <div class="card card-pad">
+        <div class="card-title">${icon('users', 16)} 班级名单</div>
+        <div class="tiny muted" style="margin:6px 0 10px">名单只影响「按名单名字抽」这一个选项。没有名单，学生页照样能按 1~50 号抽。</div>
+        ${rosters.length ? `<div class="pb-list">${rosters.map((r) => {
+      const n = parseNames(r.names);
+      return `<div class="pb-row">
+            <span class="chip blue">${esc(clsName(r.grade, r.class_name))}</span>
+            <span class="pb-text">${n.length ? `${n.length} 个名字` : `未导入姓名（按号码抽 ${r.count || 40} 人）`}</span>
+            <span class="tiny muted">${n.slice(0, 6).join('、')}${n.length > 6 ? '…' : ''}</span>
+          </div>`;
+    }).join('')}</div>` : '<div class="empty" style="padding:16px">还没有班级名单</div>'}
+      </div>`;
+
+    inner.querySelector('#pk-try')?.addEventListener('click', () => pickStudentDialog(rosters));
+    inner.querySelector('#pk-ros')?.addEventListener('click', () => openRosterDialog(rosters, () => renderStudentModule(box, key)));
+  } else {
+    /* —— 盲盒 —— */
+    const today = punRecs.filter((r) => r.source === 'student');
+    inner.innerHTML = `
+      <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div class="card card-pad"><div class="tiny muted">盒子里的任务</div>
+          <div style="font-size:24px;font-weight:700">${punishes.length}</div>
+          <div class="tiny muted">${punishes.filter((p) => p.level === 'heavy').length} 个是「大冒险」</div></div>
+        <div class="card card-pad"><div class="tiny muted">今天被抽中</div>
+          <div style="font-size:24px;font-weight:700">${today.length}</div></div>
+        <div class="card card-pad"><div class="tiny muted">正在生效</div>
+          <div style="font-size:24px;font-weight:700;color:var(--green)">${punishes.filter((p) => Number(p.active) !== 0).length}</div></div>
+      </div>
+      <div class="row wrap" style="gap:8px;margin:16px 0 4px">
+        <button class="btn primary sm" id="mb-add">${icon('plus', 15)} 加任务</button>
+        ${punishes.length ? '<button class="btn ghost sm" id="mb-seed">补经典任务</button>' : ''}
+        <span style="flex:1"></span>
+        <span class="tiny muted">学生那边这一轮不重复，抽完自动洗牌</span>
+      </div>
+      <div class="card card-pad" id="mb-list"></div>`;
+
+    const listBox = inner.querySelector('#mb-list');
+    const paintList = () => {
+      listBox.innerHTML = punishes.length ? `<div class="pb-list">${punishes.map((p) => `<div class="pb-row">
+          <span class="chip ${LV_COLOR[p.level] || 'grey'}">${LV_TXT[p.level] || '任务'}</span>
+          <span class="pb-text">${esc(p.text)}</span>
+          <button class="icon-btn sm" data-pb-edit="${p.id}" title="修改">${icon('edit', 14)}</button>
+          <button class="icon-btn sm" data-pb-del="${p.id}" title="删除">${icon('close', 13)}</button>
+        </div>`).join('')}</div>` : '<div class="empty" style="padding:16px">还没有任务，点「加任务」开始</div>';
+      listBox.querySelectorAll('[data-pb-edit]').forEach((b) => {
+        b.onclick = () => punishEditor(punishes.find((p) => String(p.id) === b.dataset.pbEdit), () => renderStudentModule(box, key));
+      });
+      listBox.querySelectorAll('[data-pb-del]').forEach((b) => {
+        b.onclick = async () => {
+          if (!(await confirmDialog('删掉这个任务？学生就抽不到它了。'))) return;
+          await api.del('/punishments/' + b.dataset.pbDel); toast('已删除'); renderStudentModule(box, key);
+        };
+      });
+    };
+    paintList();
+    inner.querySelector('#mb-add')?.addEventListener('click', () => punishEditor(null, () => renderStudentModule(box, key)));
+    inner.querySelector('#mb-seed')?.addEventListener('click', async () => {
+      if (!(await confirmDialog('补一批经典任务（12 个，自动跳过已有的）？'))) return;
+      const have = new Set(punishes.map((p) => p.text.trim()));
+      const seeds = [
+        ['唱歌 30 秒：随便唱一首，全班跟拍', 'light'],
+        ['讲个笑话，要让人笑出来', 'light'],
+        ['做 20 个深蹲', 'heavy'],
+        ['做 15 个开合跳', 'average'],
+        ['领读今天的课文段落', 'average'],
+        ['当小老师：给全班讲一道题', 'average'],
+        ['用一句话总结这节课的重点', 'average'],
+        ['30 秒英文自我介绍', 'heavy'],
+        ['背诵一句名言并解释意思', 'light'],
+        ['给同桌讲一遍刚才的题目', 'average'],
+        ['下节课开头用 1 分钟回顾今天内容', 'heavy'],
+        ['整理讲台与板书', 'light'],
+      ].filter(([t]) => !have.has(t));
+      if (!seeds.length) return toast('这些任务都已经有了');
+      for (const [text, level] of seeds) await api.post('/punishments', { text, level, active: 1 }).catch(() => { });
+      toast(`已补 ${seeds.length} 个任务`);
+      renderStudentModule(box, key);
+    });
+
+    if (today.length) {
+      const rec = el(`<div class="card card-pad" style="margin-top:12px">
+        <div class="card-title">${icon('clock', 15)} 今天学生抽到的（${today.length} 条）</div>
+        <div class="pb-recent">${today.slice(0, 12).map((r) => `<div class="pb-rec">
+          <span class="chip ${r.stu_name ? 'blue' : 'grey'}">${esc(r.stu_name || '匿名')}</span>
+          <span class="pb-rtext">${esc(r.text)}</span>
+          <span class="tiny muted">${esc(fmtTime(r.created_at))}</span>
+        </div>`).join('')}</div>
+      </div>`);
+      inner.appendChild(rec);
+    }
+  }
+}
+
+/* 班级名单管理：本地版没有单独的名单页，就在抽人下面开一个弹层改。
+   以前用户反馈「名单建好了没法改名字」，根因是根本没有编辑入口。 */
+function openRosterDialog(rosters, reload) {
+  const body = el(`<div class="sheet-body">
+    <div class="small muted" style="margin-bottom:10px">名字一行一个，或用逗号、顿号、空格分开都行。名称留空等于删掉这个班。</div>
+    ${rosters.map((r) => {
+    const n = parseNames(r.names);
+    return `<div class="field" data-rid="${r.id}">
+        <label class="field-label">${esc(clsName(r.grade, r.class_name))}</label>
+        <textarea class="input" rows="3" data-names="${r.id}">${esc(n.join('\n'))}</textarea>
+      </div>`;
+  }).join('') || '<div class="empty">还没有班级名单。先在「课件 → 上传资料」里建班，或直接在学生页按号码抽。</div>'}
+    <div class="confirm-actions"><button class="btn ghost" id="rc">取消</button><button class="btn primary" id="ro">保存</button></div>
+  </div>`);
+  const s = sheet({ title: '班级名单', body });
+  body.querySelector('#rc').onclick = s.close;
+  body.querySelector('#ro').onclick = async () => {
+    const btn = body.querySelector('#ro'); btn.disabled = true; btn.textContent = '保存中…';
+    try {
+      for (const r of rosters) {
+        const ta = body.querySelector(`[data-names="${r.id}"]`);
+        if (!ta) continue;
+        const names = ta.value.split(/[\n,，、\s]+/).map((x) => x.trim()).filter(Boolean);
+        /* /rosters 的 PATCH 接口约定 names 是数组（不是字符串），
+           count 不给时会自动用数组长度；这里显式给，防止空名单把人数冲成 0。 */
+        await api.patch('/rosters/' + r.id, { names, count: names.length || Number(r.count) || 0 });
+      }
+      s.close(); toast('名单已保存'); reload?.();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = '保存';
+      toast(e.message || '保存失败', 'err');
+    }
+  };
 }
 
 /* ================= 课件 + 课堂签到 ================= */
@@ -2652,11 +2968,11 @@ async function materialEditor(m, catId, reload) {
   const isNew = !m;
   const cats = await api.get('/categories', { scope: 'material' });
   const body = el(`<div class="sheet-body">
-    <div class="field"><label class="field-label">标题</label><input class="input" id="t" value="${esc(m?.title || '')}" placeholder="如：《劝学》第一课时 PPT"></div>
+    <div class="field"><label class="field-label">标题</label><input class="input" id="t" value="${esc(m?.title || '')}"></div>
     <div class="form-grid">
       <div class="field"><label class="field-label">分类</label><select class="input" id="cat"><option value="">未分类</option>${cats.map((c) => `<option value="${c.id}" ${Number(m?.category_id || catId) === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
       <div class="field"><label class="field-label">班级</label><input class="input" id="cls" value="${esc(m?.class_name || '')}"></div>
-      <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(m?.grade || '高二')}"></div>
+      <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(m?.grade || '')}"></div>
       <div class="field"><label class="field-label">学生可见</label><select class="input" id="pub"><option value="1" ${m?.public !== 0 ? 'selected' : ''}>是（短链可看）</option><option value="0" ${m?.public === 0 ? 'selected' : ''}>否</option></select></div>
     </div>
     <div class="field"><label class="field-label">说明</label><textarea class="input" id="d" rows="2">${esc(m?.descr || '')}</textarea></div>
@@ -2867,18 +3183,18 @@ function prepEditor(row, reload) {
       <div class="field"><label class="field-label">备课日期</label>
         <input class="input" type="date" id="p-date" value="${esc(row?.date || today)}"></div>
       <div class="field"><label class="field-label">班级</label>
-        <input class="input" id="p-class" value="${esc(row?.class_name || '')}" placeholder="高二(3)班"></div>
+        <input class="input" id="p-class" value="${esc(row?.class_name || '')}"></div>
       <div class="field"><label class="field-label">学科</label>
-        <input class="input" id="p-subject" value="${esc(row?.subject || '语文')}"></div>
+        <input class="input" id="p-subject" value="${esc(row?.subject || '')}"></div>
       <div class="field"><label class="field-label">花了多久（分钟，选填）</label>
         <input class="input" id="p-min" type="number" min="0" step="5" value="${row?.minutes ?? ''}"></div>
     </div>
     <div class="field"><label class="field-label">备的是哪一课 <span class="req">*</span></label>
-      <input class="input" id="p-topic" value="${esc(row?.topic || '')}" placeholder="如：《劝学》第三段 + 课后练习"></div>
+      <input class="input" id="p-topic" value="${esc(row?.topic || '')}"></div>
     <div class="field"><label class="field-label">备到哪了</label>
-      <textarea class="input" id="p-progress" rows="3" placeholder="如：导入和字词梳理做完了，第三段翻译写到一半">${esc(row?.progress || '')}</textarea></div>
+      <textarea class="input" id="p-progress" rows="3">${esc(row?.progress || '')}</textarea></div>
     <div class="field"><label class="field-label">下次接着备什么 <span class="prep-hint">这句是重点，写了下回一看就明白</span></label>
-      <textarea class="input" id="p-next" rows="2" placeholder="如：把第三段剩下的翻译补完，再找两道对比阅读题">${esc(row?.next_step || '')}</textarea></div>
+      <textarea class="input" id="p-next" rows="2">${esc(row?.next_step || '')}</textarea></div>
     ${remarkField({ id: 'p-remark', value: row?.remark || '', placeholder: '如：需要打印学案、借投影笔' })}
     <div class="field"><label class="field-label">状态</label>
       <div class="le-seg" id="p-seg">
@@ -2990,7 +3306,7 @@ async function renderNotes(box) {
     ed.hidden = false;
     ed.innerHTML = `
       <div class="row" style="margin-bottom:10px">
-        <input class="input" id="n-title" value="${esc(n?.title || '')}" placeholder="笔记标题" style="font-weight:650;flex:1">
+        <input class="input" id="n-title" value="${esc(n?.title || '')}" style="font-weight:650;flex:1">
         <select class="input" id="n-cat" style="max-width:150px">${cats.map((c) => `<option value="${c.id}" ${Number(n?.category_id) === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
       </div>
       <div class="seg" style="margin-bottom:8px"><button class="on" data-mv="edit">编辑</button><button data-mv="preview">预览</button></div>

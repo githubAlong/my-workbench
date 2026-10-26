@@ -254,7 +254,73 @@ img { max-width: 100%; }
    「点全部已读红点不消失」的根本原因在这里，不在 JS。 */
 .nav-item .badge-dot { margin-left: auto; background: var(--red); color: #fff; font-size: 10.5px; min-width: 17px; height: 17px; border-radius: 9px; display: grid; place-items: center; padding: 0 4px; }
 .nav-item .badge-dot[hidden] { display: none; }
-.sidebar-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
+.nav-item .nav-caret { margin-left: auto; display: grid; place-items: center; color: var(--text-3); }
+.nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 二级 / 三级导航（侧栏） ----------
+   一级导航下面缩进一层是二级，二级「课件」再缩一层是三级。
+   缩进用左侧竖线表示层级，不用额外的箭头图标：竖线本身就说清了「这些属于上面那个」。 */
+.side-nav {
+  /* 【侧栏会被挤出屏幕】
+     加了二级、三级之后侧栏内容超过一屏，而 .sidebar 是 height:100vh 的纵向 flex。
+     .side-nav 不设 flex 收缩的话，底部的「主题外观 / 平铺整页 / 重置首页布局」
+     会被顶到可视区外，鼠标根本够不到。
+     这里让 .side-nav 吃掉剩余高度并自己滚，.sidebar-foot 保持贴底。 */
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  margin: 0 -4px; padding: 0 4px; scrollbar-width: thin;
+}
+.side-nav::-webkit-scrollbar { width: 4px; }
+.side-nav::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+.nav-sub { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 2px 22px; padding-left: 8px; border-left: 1.5px solid var(--line); }
+.nav-sub[hidden] { display: none; }
+.nav-subitem {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 9px;
+  color: var(--text-2); font-size: 13.5px; font-weight: 500; width: 100%; text-align: left; transition: .14s;
+}
+.nav-subitem svg { flex: 0 0 auto; opacity: .8; }
+.nav-subitem:hover { background: var(--bg-sunken); color: var(--text); }
+.nav-subitem.on { background: var(--primary-weak); color: var(--primary); font-weight: 650; }
+.nav-subitem.on svg { opacity: 1; }
+.nav-subitem .nav-caret { margin-left: auto; display: grid; place-items: center; color: var(--text-3); }
+.nav-sub3 { display: flex; flex-direction: column; gap: 1px; margin: 1px 0 3px 14px; padding-left: 8px; border-left: 1.5px dashed var(--line-2); }
+.nav-subitem.lv3 { font-size: 13px; padding: 6px 9px; }
+
+/* ---------- 二级导航（手机顶部横条） ----------
+   底部导航只有 6 格一级，二级必须另有入口，否则手机上点不到「维修」「考勤」。
+   桌面侧栏已经列出来了，这里只在 <=1100px 显示。 */
+.sub-nav-bar { display: none; }
+.sub-nav-wrap { display: none; }
+@media (max-width: 1100px) {
+  /* 【.app 在窄屏必须竖排】
+     桌面是「侧栏 + 正文」横排。≤1100px 侧栏已经变成抽屉（display:none /
+     position:fixed），横排布局就没意义了 —— 手机端顶部二级条作为 .app 的第一个
+     flex item 会被摆到 .main 左边（order:-1 只是换个位置，还在同一行），
+     .main 被压成 28px 宽，整页横向溢出 190px。
+     改成竖排后，二级条在上、正文在下，跟 iOS 的导航栏一致。 */
+  .app { flex-direction: column; }
+  .sub-nav-wrap { display: block; width: 100%; flex: 0 0 auto; }
+  .sub-nav-bar {
+    display: block; position: sticky; top: 0; z-index: 40;
+    background: var(--nav-bg); backdrop-filter: saturate(180%) blur(14px);
+    border-bottom: 1px solid var(--line); padding: 8px 12px 6px; width: 100%;
+    box-sizing: border-box; max-width: 100vw; overflow: hidden;
+  }
+  .snb-title {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650;
+    color: var(--text-2); margin-bottom: 6px; min-width: 0;
+  }
+  .snb-list {
+    display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch; padding-bottom: 2px; max-width: 100%;
+  }
+  .snb-list::-webkit-scrollbar { display: none; }
+  .snb-item {
+    flex: 0 0 auto; padding: 6px 13px; border-radius: 99px; font-size: 13px;
+    font-weight: 600; color: var(--text-2); background: var(--bg-sunken); white-space: nowrap;
+  }
+  .snb-item.on { background: var(--primary); color: #fff; box-shadow: 0 3px 10px rgba(0,122,255,.25); }
+}
+.sidebar-foot { flex: 0 0 auto; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
 /* 【平铺】以前死写 max-width:1320px，在 2560 的屏上正文只占 51%，
    左右各空出 733px 的白条，看着就是一个居中的窄条。
    现在随屏幕放宽：窄屏照旧，超宽屏最多放到 2000px 保持行宽可读。 */
@@ -267,10 +333,27 @@ img { max-width: 100%; }
   border-top: 1px solid var(--line); z-index: 60;
 }
 .bottom-nav .bn-inner { display: flex; height: var(--nav-h); }
-.bn-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-3); font-size: 10.5px; font-weight: 500; position: relative; }
+/* 【底部导航 8 项在 375px 上被压扁】
+   .bn-item 是 flex:1，8 项平分 375px 每项只剩 46px，
+   「回收站」三个字挤成两行、红点盖在图标上。
+   这里给每项一个最小宽度，总宽超出时让容器自己横向滚，
+   并把滚动条藏起来（移动端本来也不显示，只是别在桌面模拟器里露出一条灰杠）。 */
+.bn-item {
+  flex: 1 0 auto; min-width: 58px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 2px; color: var(--text-3); font-size: 10.5px;
+  font-weight: 500; position: relative; padding: 0 2px;
+}
+.bn-item span:not(.badge-dot) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 400px) {
+  /* 极窄屏：宁可滚也别压扁，滚动条隐藏，手指滑动即可 */
+  .bottom-nav .bn-inner { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .bottom-nav .bn-inner::-webkit-scrollbar { display: none; }
+}
 .bn-item.active { color: var(--primary); }
-.bn-item svg { width: 22px; height: 22px; }
-.bn-item .badge-dot { position: absolute; top: 6px; right: calc(50% - 18px); background: var(--red); color: #fff; font-size: 9.5px; min-width: 15px; height: 15px; border-radius: 8px; display: grid; place-items: center; padding: 0 3px; }
+.bn-item svg { width: 22px; height: 22px; flex: none; }
+/* 红点以前用 right: calc(50% - 18px) 硬算位置，窄屏下会压到图标。
+   改成跟着图标右肩走，图标固定 22px，偏移量就不会随文字宽度漂。 */
+.bn-item .badge-dot { position: absolute; top: 5px; left: calc(50% + 6px); right: auto; background: var(--red); color: #fff; font-size: 9.5px; min-width: 15px; height: 15px; border-radius: 8px; display: grid; place-items: center; padding: 0 3px; }
 .bn-item .badge-dot[hidden] { display: none; }
 
 /* ---------- 通用组件 ---------- */
@@ -796,7 +879,25 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
 @media (max-width: 1100px) {
   .home-grid { grid-template-columns: 1fr; }
   .doc-grid { grid-template-columns: 1fr; }
-  .cat-list { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  /* 【手机端课件 / 笔记页整页横向溢出 236~312px】
+     这里把竖排的分类列表改成横向滚动条，但 .cat-item 是 flex 子项且没设
+     flex-shrink，按钮在横向 flex 里会按内容撑到最大宽度（「＋ 新建分类」
+     加上操作图标 ≈ 99px × 6 个），容器 scrollWidth 一路把
+     .card 撑到 612/688px —— 整页跟着横向滚，右边露出一大片空白。
+     修法三件事：
+       1. min-width:0 —— 允许父级收缩，这是 flex 溢出的第一常识坑；
+       2. .cat-item 设 flex:0 0 auto，让它们保持自身宽度排成一排，
+          溢出交给 .cat-list 自己滚，而不是把祖先撑开；
+       3. overflow-x:auto 已有，补 -webkit-overflow-scrolling + 隐藏滚动条。 */
+  .cat-list {
+    flex-direction: row; overflow-x: auto; padding-bottom: 4px;
+    max-width: 100%; min-width: 0; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cat-list::-webkit-scrollbar { display: none; }
+  .cat-item { flex: 0 0 auto; white-space: nowrap; }
+  /* 撑出溢出的祖先链：卡片和列容器都必须能被压缩 */
+  .card, .col, .card-pad { min-width: 0; }
 }
 @media (max-width: 900px) {
   .sidebar { display: none; }
@@ -969,9 +1070,16 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
 .att-grade-add { width: 34px; height: 34px; border-radius: 12px; display: grid; place-items: center; color: var(--text-3); border: 1px dashed var(--line-2); flex: 0 0 auto; }
 .att-grade-add:hover { color: var(--primary); border-color: var(--primary); }
 
-.att-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-@media (max-width: 1000px) { .att-groups { grid-template-columns: 1fr; } }
-.att-group { min-width: 0; }
+/* 【.att-groups 只在这里定义一次】
+   早先后面的「本轮新增」块里又写了一遍 transition 相同的 .att-groups 三联，
+   基础规则重复倒无所谓，要命的是它把 @media 版本也抄了一遍，
+   同一份媒体查询在文件里出现两次。手机上一旦有一条基础规则赢过它，
+   三列就挤在 390px 里（每列 109px），整个弹层被撑到 449px、右边被切掉。
+   所以：基础规则 + 断点，只留这一处。 */
+.att-groups { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 1180px) { .att-groups { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 860px) { .att-groups { grid-template-columns: 1fr; } }
+.att-group, .att-group-wrap { min-width: 0; }
 
 /* 空白槽位：还没有表时的一键新建卡 */
 .att-slot {
@@ -1009,7 +1117,12 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
 .ac-actions { display: flex; gap: 6px; margin-top: 10px; }
 
 /* ============ 考勤编辑：表头信息条 ============ */
-.att-sheet .sheet { max-width: 1080px; }
+/* 【别写成 `.att-sheet .sheet`】sheet() 生成的 DOM 是
+   <div class="sheet-mask"><div class="sheet sheet-wide att-sheet">，
+   这两个类是同一个元素，后代选择器永远匹配不到，写了也白写。
+   早先这里就是 `.att-sheet .sheet { max-width: 1080px }`，实际没生效，
+   手机上还被它顶得超出屏幕 19px（弹层比视口宽，右边被切掉）。 */
+.sheet.att-sheet { max-width: 1080px; }
 .att-sheet .sheet-body { padding: 0 14px 14px; }
 .att-header {
   display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
@@ -1405,29 +1518,33 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
   .tbl-lesson tbody tr:last-child { border-bottom: 0; }
   .tbl-lesson tbody td { display: block; padding: 0 !important; border: 0 !important; }
 
-  /* 第 1 行：日期 + 节次 */
-  .tbl-lesson tbody td:nth-child(1) { grid-area: date; display: flex; align-items: baseline; gap: 7px;
+  /* 第 1 行：日期 + 节次（表格第 1 列是序号，所以下面全部后移一位） */
+  .tbl-lesson tbody td:nth-child(1) { display: none; }   /* 序号：卡片里用不到 */
+  .tbl-lesson tbody td:nth-child(2) { grid-area: date; display: flex; align-items: baseline; gap: 7px;
     font-weight: 650; font-size: 13.5px; padding-right: 30px !important; }
-  .tbl-lesson tbody td:nth-child(2) { grid-area: period; justify-self: start; text-align: left;
+  .tbl-lesson tbody td:nth-child(3) { grid-area: period; justify-self: start; text-align: left;
     font-size: 12.5px; color: var(--text-2); align-self: baseline; white-space: nowrap; }
-  .tbl-lesson tbody td:nth-child(2) .tiny { display: none; }   /* 具体时间到详情里看 */
+  .tbl-lesson tbody td:nth-child(3) .tiny { display: none; }   /* 具体时间到详情里看 */
   /* 第 2 行：班级 */
-  .tbl-lesson tbody td:nth-child(3) { grid-area: cls; font-size: 12.5px; color: var(--text-2); }
+  .tbl-lesson tbody td:nth-child(4) { grid-area: cls; font-size: 12.5px; color: var(--text-2); }
   /* 第 3 行：上课内容 + 下次要讲（灰字） */
-  .tbl-lesson tbody td:nth-child(4) { grid-area: ct; line-height: 1.55; }
+  .tbl-lesson tbody td:nth-child(5) { grid-area: ct; line-height: 1.55; }
   .tbl-lesson .lc-content { max-width: none; }
   /* 进度手机上不展示 */
-  .tbl-lesson tbody td:nth-child(5) { display: none; }
+  .tbl-lesson tbody td:nth-child(6) { display: none; }
   /* 第 4 行：代课标签 + 课时数字 */
-  .tbl-lesson tbody td:nth-child(6) { grid-area: meta; display: flex; align-items: center;
+  .tbl-lesson tbody td:nth-child(7) { grid-area: meta; display: flex; align-items: center;
     gap: 6px; flex-wrap: wrap; margin-top: 1px; }
-  .tbl-lesson tbody td:nth-child(6) .tiny.muted { display: inline; }
-  .tbl-lesson tbody td:nth-child(7) { grid-area: meta; justify-self: end; align-self: center;
+  .tbl-lesson tbody td:nth-child(7) .tiny.muted { display: inline; }
+  .tbl-lesson tbody td:nth-child(8) { grid-area: meta; justify-self: end; align-self: center;
     display: inline-flex; align-items: baseline; gap: 3px;
     font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-  .tbl-lesson tbody td:nth-child(7)::before { content: "课时"; font-size: 11.5px; opacity: .65; }
+  .tbl-lesson tbody td:nth-child(8)::before { content: "课时"; font-size: 11.5px; opacity: .65; }
   /* 编辑按钮浮到右上角 */
-  .tbl-lesson tbody td:nth-child(8) { position: absolute; right: 4px; top: 4px; }
+  .tbl-lesson tbody td:nth-child(9) { position: absolute; right: 4px; top: 4px;
+    display: flex; gap: 2px; background: transparent; }
+  /* 操作列里的「删除」按钮在卡片上会变成一块白色方块压在正文上，只留铅笔 */
+  .tbl-lesson tbody td:nth-child(9) [data-del-lesson] { display: none; }
 }
 
 /* 主卡里的「标记已到账」小按钮 */
@@ -1469,21 +1586,22 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
   }
   .tbl-invig tbody tr:last-child { border-bottom: 0; }
   .tbl-invig tbody td { display: block; padding: 0 !important; border: 0 !important; }
-  .tbl-invig tbody td:nth-child(1) { grid-area: date; font-weight: 650; font-size: 13.5px;
+  .tbl-invig tbody td:nth-child(1) { display: none; }   /* 序号，卡片里用不到 */
+  .tbl-invig tbody td:nth-child(2) { grid-area: date; font-weight: 650; font-size: 13.5px;
     display: flex; align-items: baseline; gap: 7px; padding-right: 30px !important; }
-  .tbl-invig tbody td:nth-child(2) { grid-area: kind; justify-self: start; }
-  .tbl-invig tbody td:nth-child(3) { grid-area: kind; justify-self: end; align-self: center;
+  .tbl-invig tbody td:nth-child(3) { grid-area: kind; justify-self: start; }
+  .tbl-invig tbody td:nth-child(4) { grid-area: kind; justify-self: end; align-self: center;
     font-size: 12.5px; color: var(--text-2); }
   .tbl-invig tbody td.iv-peer:empty { display: none; }
-  .tbl-invig tbody td:nth-child(4) { grid-area: exam; line-height: 1.5; }
+  .tbl-invig tbody td:nth-child(5) { grid-area: exam; line-height: 1.5; }
   .tbl-invig .lc-content { max-width: none; }
-  .tbl-invig tbody td:nth-child(5) { grid-area: meta; font-size: 12px; color: var(--text-2); }
-  .tbl-invig tbody td:nth-child(5) .tiny.muted { display: inline; margin-left: 4px; }
-  .tbl-invig tbody td:nth-child(6) { grid-area: amt; justify-self: end; font-size: 13px;
+  .tbl-invig tbody td:nth-child(6) { grid-area: meta; font-size: 12px; color: var(--text-2); }
+  .tbl-invig tbody td:nth-child(6) .tiny.muted { display: inline; margin-left: 4px; }
+  .tbl-invig tbody td:nth-child(7) { grid-area: amt; justify-self: end; font-size: 13px;
     font-weight: 650; color: var(--text-1); }
-  .tbl-invig tbody td:nth-child(7) { grid-area: meta; justify-self: end; align-self: center; }
-  .tbl-invig tbody td:nth-child(8) { position: absolute; right: 4px; top: 4px; }
-  .tbl-invig tbody td:nth-child(8) .icon-btn { display: none; }   /* 整卡可点，按钮多余 */
+  .tbl-invig tbody td:nth-child(8) { grid-area: meta; justify-self: end; align-self: center; }
+  .tbl-invig tbody td:nth-child(9) { position: absolute; right: 4px; top: 4px; }
+  .tbl-invig tbody td:nth-child(9) .icon-btn { display: none; }   /* 整卡可点，按钮多余 */
 }
 
 /* 上课内容里的「下次要讲」——备课时最常回看的字段，压成一行灰字 */
@@ -2796,3 +2914,306 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .pk-chip i { font-style: normal; color: var(--text-2); }
 .pk-chip button { border: 0; background: none; color: var(--text-3); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
 .pk-chip button:hover { color: var(--red); }
+
+/* ---------- 本机 PIN 锁 ---------- */
+/* 锁屏盖在最上层（比弹层 z-index 基数 200 还高），
+   遮罩用毛玻璃：底下的页面不销毁，只是看不清。
+   注意别给 .pin-lock 加 pointer-events:none，否则锁形同虚设。 */
+.pin-lock {
+  position: fixed; inset: 0; z-index: 9000; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  animation: pinIn .22s ease-out;
+}
+.pin-lock.out { animation: pinOut .2s ease-in forwards; }
+@keyframes pinIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pinOut { to { opacity: 0; } }
+.pin-card {
+  width: min(340px, calc(100vw - 40px)); padding: 28px 24px 22px; text-align: center;
+  background: var(--card); border: 1px solid var(--line); border-radius: 22px;
+  box-shadow: 0 24px 60px rgba(20, 16, 40, .18);
+}
+.pin-card.shake { animation: pinShake .4s; }
+@keyframes pinShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); } 40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); } 80% { transform: translateX(3px); }
+}
+.pin-icon {
+  width: 52px; height: 52px; margin: 0 auto 12px; border-radius: 16px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary);
+}
+.pin-title { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+.pin-sub { font-size: 13px; color: var(--text-3); margin-bottom: 16px; }
+.pin-input {
+  width: 100%; height: 50px; text-align: center; letter-spacing: 10px; font-size: 22px;
+  font-family: var(--mono); border-radius: 14px; border: 1px solid var(--line);
+  background: var(--bg-sunken); color: var(--text); outline: none;
+}
+.pin-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent); }
+.pin-err { min-height: 18px; font-size: 12.5px; color: var(--red); margin: 6px 0 2px; }
+.pin-ok { width: 100%; height: 44px; }
+.pin-tip { margin-top: 14px; line-height: 1.6; }
+
+/* PIN 状态条：开启是绿的（安全），未设置是琥珀（提醒但不惊悚） */
+.pin-state {
+  display: flex; align-items: center; gap: 7px; padding: 10px 12px; border-radius: 11px;
+  font-size: 13px; font-weight: 600;
+  background: var(--amber-weak, #FFFBEB); color: #92400E;
+  border: 1px solid color-mix(in srgb, #F59E0B 26%, transparent);
+}
+.pin-state.on {
+  background: var(--green-weak); color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 26%, transparent);
+}
+
+/* ---------- 三级导航页里的统计卡（教材/抽人/盲盒/自习） ----------
+   这些页面用的是 3 列内联网格。手机上 390px 三列每张只剩 110px，
+   「盒子里的任务」标题要折成两行，数字和说明挤在一起。
+   窄屏统一退到 2 列（3 张卡时最后一张占满整行），再窄就 1 列。 */
+@media (max-width: 720px) {
+  .mod-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .mod-stats > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@media (max-width: 360px) {
+  .mod-stats { grid-template-columns: 1fr !important; }
+}
+
+/* 顶部二级条是 sticky 的，toast 从 top:16px 弹出来会正好压住它。
+   窄屏把 toast 往下挪到二级条底下，用户点完「考勤」等页面跳转时
+   不会有一块黑条挡着导航。 */
+@media (max-width: 1100px) {
+  .toast-box { top: calc(96px + var(--safe-t)); }
+}
+
+/* 侧栏二级项在窄屏里不需要（改用顶部二级条），但抽屉打开时仍要能滚 */
+@media (max-width: 1100px) {
+  .side-nav { flex: 1 1 auto; }
+}
+
+/* ============ 考勤 2026-10 改版：两个 tab + Excel 优先 ============ */
+/* 年级 tab：更大、只放高一高二，切换就是换一整套表 */
+.att-head { margin-bottom: 12px; }
+.att-tabs { display: flex; gap: 8px; align-items: stretch; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.att-tabs::-webkit-scrollbar { display: none; }
+.att-tab {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 9px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--line);
+  transition: .16s; flex: 0 0 auto; min-width: 132px; text-align: left;
+}
+.att-tab .at-name { font-size: 15.5px; font-weight: 700; color: var(--text); }
+.att-tab .at-meta { font-size: 11px; color: var(--text-3); }
+.att-tab:hover { border-color: var(--primary); }
+.att-tab.on { background: var(--primary); border-color: var(--primary); box-shadow: var(--shadow-m); }
+.att-tab.on .at-name { color: #fff; }
+.att-tab.on .at-meta { color: rgba(255,255,255,.82); }
+.att-tab-add { width: 42px; border-radius: 14px; display: grid; place-items: center; color: var(--text-3); border: 1px dashed var(--line-2); flex: 0 0 auto; }
+.att-tab-add:hover { color: var(--primary); border-color: var(--primary); }
+
+.att-ops { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+
+/* 见上面 .att-groups 处的说明：这里不再重复定义列宽和断点。 */
+.att-group-wrap { min-width: 0; }
+.att-group .asg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.att-group .asg-t { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.att-group .asg-n { font-size: 11px; color: var(--text-3); }
+.btn.xs { padding: 3px 9px; font-size: 11.5px; height: auto; min-height: 24px; border-radius: 7px; }
+.att-slot-mini {
+  width: 100%; margin-top: 8px; padding: 7px; border-radius: 10px;
+  border: 1px dashed var(--line-2); color: var(--text-3); font-size: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+}
+.att-slot-mini:hover { color: var(--primary); border-color: var(--primary); background: var(--primary-weak); }
+
+/* 表头可点的日期 / 节次 chip */
+.ah-line { font-size: 11px; color: var(--text-3); letter-spacing: .06em; }
+.ap-chip {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 4px 11px; border-radius: 9px; background: var(--card);
+  border: 1px solid var(--line-2); font-size: 13px; color: var(--text); transition: .15s;
+}
+.ap-chip b { font-family: var(--mono); font-size: 14.5px; }
+.ap-chip .apc-wd { font-size: 11.5px; color: var(--text-2); font-weight: 600; }
+.ap-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); }
+.ap-chip:hover .apc-wd { color: var(--primary); }
+
+/* 多工作表切换 */
+.att-sheetpick { display: flex; flex-wrap: wrap; gap: 6px; }
+.att-sheetpick .btn.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+.att-sheetpick .btn { display: inline-flex; align-items: center; gap: 6px; }
+
+/* 识别失败时摊开原文 */
+.att-raw {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.7;
+  background: var(--bg-sunken); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; margin: 0; overflow-x: auto; white-space: pre; color: var(--text-2);
+}
+
+/* 名册按学科分块 */
+.ars-group { margin-bottom: 12px; }
+.arsg-head {
+  display: flex; align-items: baseline; gap: 8px; padding: 4px 2px 6px;
+  font-size: 12.5px; font-weight: 700; color: var(--text-2);
+  border-bottom: 1px solid var(--line); margin-bottom: 6px;
+}
+.ars-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+
+/* ============================================================
+   现场勾选（2026-10 第二轮）
+   场景变了：老师拿着手机在走廊里、教室里查班，
+   一手拿本子一手点手机，所以这里的重点全在「手指点得准、不用放大」。
+   ============================================================ */
+
+/* 勾选框放到 44px —— 这是 iOS / Material 都给的最小可点尺寸。
+   原来 30px 在手机上必须瞄着点，一行要试两三次。 */
+.tick { width: 44px; height: 44px; border-radius: 11px; font-size: 21px; }
+
+/* 行高跟着放大，但别太散：一行 52px，一屏能看到 5~6 个人 */
+.att-tbl tbody tr { height: 52px; }
+.att-tbl tbody td { padding: 4px 6px; }
+
+/* 姓名、学科在手机上不显示输入框的边框，看着像文字，点进去才变输入框。
+   否则满屏都是方框，找人对不上。 */
+.att-tbl .cell-in { border-color: transparent; background: transparent; }
+.att-tbl .cell-in:focus { border-color: var(--primary); background: var(--card); }
+
+/* 手机底部吸附条：看得见「已勾 / 总数」和一个大的「完成」 */
+.att-bottombar { display: none; }
+@media (max-width: 760px) {
+  .att-bottombar {
+    display: flex; align-items: center; gap: 10px;
+    position: sticky; bottom: 0; z-index: 20;
+    margin: 0 -16px -14px; padding: 9px 14px calc(9px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--card) 94%, transparent);
+    backdrop-filter: blur(10px); border-top: 1px solid var(--line);
+  }
+  .att-bottombar .abb-stat { display: flex; flex-direction: column; line-height: 1.25; }
+  .att-bottombar .abb-stat b { font-family: var(--mono); font-size: 19px; color: var(--primary); }
+  .att-bottombar .abb-stat span { font-size: 10.5px; color: var(--text-3); }
+  .att-bottombar .btn.done { flex: 1; height: 46px; font-size: 15.5px; border-radius: 13px; }
+  /* 手机上把工具栏收成一行横滑，不占竖向空间 */
+  .att-tools { gap: 6px; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
+  .att-tools .input.att-search { min-width: 130px; }
+}
+
+/* 查上课：每人一行，只判断「有没有按时上课」 */
+.att-tbl.att-class .tick { width: 48px; height: 48px; }
+.att-tbl.att-class tbody tr.pending { background: color-mix(in srgb, var(--amber) 7%, transparent); }
+.att-tbl.att-class tbody tr:has(.tick.on) { background: color-mix(in srgb, var(--primary) 6%, transparent); }
+
+/* 「剩下没勾的」一次性列出，不用自己从头找 */
+.att-todo { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--amber-weak); border: 1px solid color-mix(in srgb, var(--amber) 26%, transparent); font-size: 12.5px; }
+.att-todo b { color: var(--amber); }
+
+/* 现场拍照参照条：原表照片就在表格上方，滑到哪都看得见 */
+.att-refbar { display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin-bottom: 10px; border-radius: 11px; background: var(--bg-sunken); border: 1px solid var(--line); font-size: 12px; color: var(--text-2); }
+.att-refbar img { width: 40px; height: 40px; border-radius: 7px; object-fit: cover; border: 1px solid var(--line-2); }
+
+/* 建表方式选择：三张卡，说出各自适合什么时候用 */
+.att-way { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 760px) { .att-way { grid-template-columns: 1fr; } }
+.att-way button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 13px 14px; border-radius: 13px; border: 1px solid var(--line-2); background: var(--card); text-align: left; }
+.att-way button:hover { border-color: var(--primary); background: var(--primary-weak); }
+.att-way .aw-t { font-size: 13.5px; font-weight: 700; }
+.att-way .aw-s { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
+
+/* 点「还剩 N 人」里的名字，跳过去闪一下，眼睛能跟上 */
+.att-tbl tbody tr.flash { animation: attFlash .9s ease; }
+@keyframes attFlash {
+  0%, 100% { background: transparent; }
+  25%, 65% { background: color-mix(in srgb, var(--primary) 20%, transparent); }
+}
+
+/* ============================================================
+   手机上查班的表格布局
+   5 个 44px 勾选框光按钮就 220px，再加上姓名学科，390px 的屏根本排不下。
+   所以窄屏下：
+     · 序号、删列收起来（序号在待办列表里用不到，删行走「更多」）
+     · 勾选框收到 40px（仍在拇指可点范围内）
+     · 学科并到姓名下面一行小字，不再单独占一列
+   ============================================================ */
+@media (max-width: 760px) {
+  /* 表格左右各溢出一屏边距，让「姓名 | 勾选框」撑满屏幕宽度。
+     但表头 / 待办条不能跟着一起负边距——它们不在表格容器里，
+     一起负边距就会左右各多出 16px，滚动时右边被弹层切掉。 */
+  .att-table-wrap { margin-left: -14px; margin-right: -14px; }
+  .att-tbl { min-width: 0; width: 100%; }
+  .att-tbl .th-no, .att-tbl .td-no,
+  .att-tbl .th-del, .att-tbl .td-del { display: none; }
+  .att-tbl .th-name, .att-tbl .td-name { width: 34%; }
+  .att-tbl .th-subj, .att-tbl .td-subj { display: none; }
+  .att-tbl .th-check, .att-tbl .td-check { width: 13%; }
+  .att-tbl .th-remark, .att-tbl .td-remark { display: none; }
+  .att-tbl .tick { width: 40px; height: 40px; font-size: 19px; border-radius: 10px; }
+  .att-tbl .cell-in { font-size: 15px; padding: 6px 2px; }
+  .att-tools .btn, .att-tools .input { flex: 0 0 auto; }
+  .att-legend { display: none; }
+}
+
+/* 手机上别让表格自己滚（内滚动会让底部吸附条失效，也容易和页面滚动打架）。
+   改成整个弹层滚，底部条 sticky 在视口底——一样好点，而且不会「滚丢了」。 */
+@media (max-width: 760px) {
+  .att-table-wrap { max-height: none; overflow: visible; }
+  .att-edit { display: flex; flex-direction: column; }
+  /* 手机上是「从下往上顶起来的整屏」，宽高都别留缝，
+     否则弹层里再套一层滚动，手指会滑错层。 */
+  .sheet.att-sheet { max-width: 100%; max-height: 96vh; border-radius: 18px 18px 0 0; }
+  .sheet.att-sheet .sheet-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; }
+  /* 吸顶的表头块：背景要铺满整个宽度，否则滚上去会看见底下的字透出来 */
+  .att-sheet .att-header { position: sticky; top: 0; z-index: 12; background: var(--card); padding-top: 6px;
+    margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px; }
+}
+
+/* ============================================================================
+   登录 / 云同步（auth.js）
+   这一块是跟着「课时搬上云」一起加的。样式独立成 .cl- 前缀，
+   不碰原有任何类，避免牵连到别的页面。
+   ========================================================================== */
+
+/* 课时页顶部的登录提示条：可点、可忽略，不挡内容 */
+.cl-banner {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; margin: 0 0 12px; padding: 10px 12px;
+  border: 1px solid var(--line, #e6e8ec); border-radius: 12px;
+  background: linear-gradient(180deg, #f5f9ff, #eef4ff);
+  color: var(--text, #1f2328); font-size: 13px; font-weight: 600;
+  cursor: pointer; text-align: left; transition: filter .15s;
+}
+.cl-banner:hover { filter: brightness(.98); }
+.cl-banner:active { transform: scale(.995); }
+[data-theme="dark"] .cl-banner {
+  background: linear-gradient(180deg, #1b2533, #17202c); border-color: #2a3648;
+}
+
+/* 弹层顶部的说明块：图标 + 两行话 */
+.cl-hero { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 16px; }
+.cl-ico {
+  flex: 0 0 auto; width: 46px; height: 46px; border-radius: 13px;
+  display: grid; place-items: center;
+  background: #e8f0ff; color: #2559b8;
+}
+.cl-ico.ok { background: #e4f7ea; color: #157347; }
+[data-theme="dark"] .cl-ico { background: #1e2a3c; color: #7fb0ff; }
+[data-theme="dark"] .cl-ico.ok { background: #17301f; color: #62d492; }
+
+/* 账号状态的三行清单 */
+.cl-list {
+  border: 1px solid var(--line, #e6e8ec); border-radius: 12px; overflow: hidden;
+}
+.cl-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 11px 13px; font-size: 13px;
+}
+.cl-row + .cl-row { border-top: 1px solid var(--line, #e6e8ec); }
+.cl-row > span { color: var(--text-2, #656d76); }
+.cl-row > b { font-weight: 600; }
+[data-theme="dark"] .cl-list, [data-theme="dark"] .cl-row + .cl-row { border-color: #2a3648; }
+
+/* 底部提示：小字、浅色底，别抢主按钮的注意力 */
+.cl-tip {
+  margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+  background: var(--fill-2, #f6f8fa); color: var(--text-2, #656d76);
+  font-size: 12px; line-height: 1.72;
+}
+[data-theme="dark"] .cl-tip { background: #1b2129; color: #9aa7b5; }
