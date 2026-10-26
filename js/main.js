@@ -78,6 +78,31 @@ if (!location.hash) location.hash = '#/home';
 window.addEventListener('hashchange', () => render());
 await render();
 
+/* ============================================================================
+   实时同步（一端改动，另一端自己变）
+
+   放在首屏渲染之后启动，而不是之前：订阅要建 WebSocket、要拉 token，
+   让用户先看到界面比先连上更重要 —— 反正连接只需几百毫秒。
+
+   两件事要分开看：
+     · realtime.js  负责"连上、收到推送"（网络层）
+     · live.js      负责"收到推送后怎么安全地重绘"（界面层）
+   合在一起写会让重连逻辑和重绘逻辑互相牵制，debug 时很难分辨是哪边的问题。
+   ========================================================================== */
+try {
+  const rt = await import('./realtime.js');
+  const live = await import('./live.js');
+  live.startLiveRefresh();
+  live.bindLiveDot();
+  rt.syncWithAuth();
+  /* 登录框是浮层，登录成功不会重新加载页面，所以这里要主动补一次连接。
+     用事件解耦：auth.js 登录/退出后派发 wb:auth-changed，不必反向 import。 */
+  window.addEventListener('wb:auth-changed', () => { try { rt.syncWithAuth(); } catch { } });
+} catch (e) {
+  /* 实时同步失败不应该影响任何主流程：页面照常能用，只是不会自动变 */
+  console.warn('[live] 实时同步没启动起来', e);
+}
+
 /* 本机 PIN 锁：设了 PIN 且本次会话还没解锁过，就在渲染完的页面上盖一层。
    放在 render() 之后而不是之前，是为了让底下的页面先画好——
    解锁的瞬间直接看到内容，而不是先白一下再加载。 */

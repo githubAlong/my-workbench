@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v75';
+const CACHE = 'wb-v76';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -50,6 +50,10 @@ const ASSETS = [
   './js/cloud.js',
   './js/auth.js',
   './js/migrate.js',
+  /* 实时同步：这两个不进预缓存也不会坏（它们是用 import() 按需拉的），
+     但进了清单离线时才有「一端改了另一端自己变」的正经体验 */
+  './js/realtime.js',
+  './js/live.js',
   /* 数据层 */
   './js/localapi.js',
   './js/localdb.js',

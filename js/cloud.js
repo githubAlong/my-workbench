@@ -22,9 +22,47 @@
 const CFG_KEY = 'wb_supa_cfg';    // { url, anon }
 const TOK_KEY = 'wb_supa_tok';    // { access_token, refresh_token, expires_at, email, uid }
 
+/* ---------------------------------------------------------------------------
+   云端配置也应该「开箱即用」
+
+   【为什么要写死一份内置的】
+   早先的做法是：auth.js 里存一份 SUPA_URL，等某个页面第一次 import auth.js
+   时才把地址写进 localStorage。问题在于时序 —— main.js 里的实时同步是
+   直接 import cloud.js 的，那时 auth.js 可能还没被任何页面拉起来，
+   cfg() 返回 null，于是"订阅永远停在 idle，界面上一句提示都没有"。
+   这不是实时同步独有的坑：任何在首屏阶段就用到云端的模块都会踩。
+
+   现在把内置配置放在 cloud.js 自己身上（登录相关的代码都在这里），
+   auth.js 里的常量改为从这里读。这样无论谁先加载，cfg() 都有值。
+
+   【?supa= 仍然优先】
+   这是留给测试的口子：本地起一个假 Supabase，靠它把前端指过去。
+   正常访问（没有这个参数）永远用内置的生产地址 ——
+   localStorage 里残留的旧配置、别人给的错误地址，都会被纠正回来。
+--------------------------------------------------------------------------- */
+export const BUILTIN_URL = 'https://gfgxvpvexzcfbujkwsqw.supabase.co';
+export const BUILTIN_ANON = 'sb_publishable_-AYrJyaZEN6_zeVh45oZ3w_YMOGF-3P';
+
 export function cfg() {
-  try { return JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch { return null; }
+  /* 优先级：地址栏的 ?supa= （测试用） > localStorage > 内置的正式项目。
+     顺序不能反 —— ?supa= 是用来临时指到别的项目的，被 localStorage 盖掉就失去意义了。 */
+  let forced = '';
+  try { forced = new URLSearchParams(location.search).get('supa') || ''; } catch { }
+  if (forced) {
+    const f = forced.replace(/\/+$/, '');
+    try { localStorage.setItem(CFG_KEY, JSON.stringify({ url: f, anon: BUILTIN_ANON })); } catch { }
+    return { url: f, anon: BUILTIN_ANON };
+  }
+
+  let c = null;
+  try { c = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch { }
+  if (c && c.url) return c;
+
+  /* 从没配过：灌内置的正式项目，登录框立刻可用 */
+  try { localStorage.setItem(CFG_KEY, JSON.stringify({ url: BUILTIN_URL, anon: BUILTIN_ANON })); } catch { }
+  return { url: BUILTIN_URL, anon: BUILTIN_ANON };
 }
+
 export function saveCfg(url, anon) {
   localStorage.setItem(CFG_KEY, JSON.stringify({ url: url.replace(/\/+$/, ''), anon }));
 }
@@ -331,6 +369,23 @@ export async function listRows(table, query = {}) {
   return Array.isArray(rows) ? rows : [];
 }
 
+/* ============================================================================
+   回声抑制：自己写的行，服务端会原样推回来
+
+   实时同步一开，有个很微妙的麻烦：我在 A 设备勾了一个人，服务端把这条变更
+   推给我自己。前端收到推送 → 重绘 → 看起来像"我自己点了它还闪一下"。
+   更糟的是正在输入的内容会被重绘冲掉。
+
+   所以每次自己写库前，先向 realtime 模块登记"这条别推给我"。
+   这里用动态 import 而不是顶部静态 import：realtime 只在登录云端后才有意义，
+   没配云的时候连这个模块都不该被拉起来。失败就算了 —— 多刷一次不会坏数据。
+   ========================================================================== */
+function markLocal(table, id) {
+  import('./realtime.js')
+    .then((m) => { try { m.markLocalWrite(table, id); } catch { } })
+    .catch(() => { });
+}
+
 export async function createRow(table, body) {
   if (!TABLES[table]) throw new Error('这张表还没接云端：' + table);
   const rows = await rest(`${table}?select=*`, {
@@ -338,11 +393,14 @@ export async function createRow(table, body) {
     headers: { Prefer: 'return=representation' },
     body: JSON.stringify(rowOf(table, body)),
   });
-  return Array.isArray(rows) ? rows[0] : rows;
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  if (row && row.id != null) markLocal(table, row.id);
+  return row;
 }
 
 export async function updateRow(table, id, body) {
   if (!TABLES[table]) throw new Error('这张表还没接云端：' + table);
+  markLocal(table, id);
   const rows = await rest(`${table}?id=eq.${encodeURIComponent(id)}&select=*`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
@@ -355,6 +413,7 @@ export async function updateRow(table, id, body) {
 /* 软删除：与前端一致，打 deleted_at 而不是真删（回收站还能找回） */
 export async function deleteRow(table, id) {
   if (!TABLES[table]) throw new Error('这张表还没接云端：' + table);
+  markLocal(table, id);
   const rows = await rest(`${table}?id=eq.${encodeURIComponent(id)}&select=id`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
@@ -393,7 +452,10 @@ export async function createRows(table, list) {
     headers: { Prefer: 'return=representation' },
     body: JSON.stringify(list.map((b) => rowOf(table, b))),
   });
-  return Array.isArray(rows) ? rows : [];
+  const out = Array.isArray(rows) ? rows : [];
+  /* 批量插入服务端会连推 N 条，逐条登记 */
+  for (const r of out) if (r && r.id != null) markLocal(table, r.id);
+  return out;
 }
 
 /* 删一张考勤表 = 软删主表 + 软删它下面所有明细。

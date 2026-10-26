@@ -33,8 +33,10 @@ import { migrateLessons, previewMigration, migrateInvigilations, migrateAttendan
    真正管权限的是 RLS 和登录账号）。但 URL 填错就整站连不上，
    所以这里留一个显眼的注释，日后换项目别漏改。
    --------------------------------------------------------------------------- */
-const SUPA_URL = 'https://gfgxvpvexzcfbujkwsqw.supabase.co';
-const SUPA_ANON = 'sb_publishable_-AYrJyaZEN6_zeVh45oZ3w_YMOGF-3P';
+/* 内置的云端地址与 key 放在 cloud.js 里（见那边的注释：谁先加载都要能用）。
+   这里只是取过来继续用，不再各存一份 —— 两份地址最容易改了一处忘了另一处。 */
+const SUPA_URL = cloud.BUILTIN_URL;
+const SUPA_ANON = cloud.BUILTIN_ANON;
 
 /* 把内置配置写进 localStorage，cloud.js 只认 localStorage 里的，
    这样「换一个项目」只要改上面两行，不需要用户做任何事。
@@ -44,17 +46,8 @@ const SUPA_ANON = 'sb_publishable_-AYrJyaZEN6_zeVh45oZ3w_YMOGF-3P';
    正常访问（没有这个参数）永远用上面的生产地址，
    所以用户手里残留的旧配置、别人给的错误地址，都会被强制纠正回来。 */
 function ensureCfg() {
-  let forced = '';
-  try { forced = new URLSearchParams(location.search).get('supa') || ''; } catch { }
-  if (forced) {
-    const c0 = cloud.cfg();
-    if (!c0 || c0.url !== forced) cloud.saveCfg(forced, SUPA_ANON);
-    return cloud.cfg();
-  }
-  const c = cloud.cfg();
-  if (!c || c.url !== SUPA_URL || c.anon !== SUPA_ANON) {
-    cloud.saveCfg(SUPA_URL, SUPA_ANON);
-  }
+  /* 纠正与 ?supa= 的处理都挪到 cloud.cfg() 里了 ——
+     那里是唯一的入口，所有模块读到的配置一定是同一份。 */
   return cloud.cfg();
 }
 
@@ -264,6 +257,9 @@ export function loginSheet(opts = {}) {
     try {
       const s2 = await cloud.login(e, p);
       try { localStorage.setItem('wb_last_mail', e); } catch { }
+      /* 告诉实时同步模块：登录状态变了，该建连接了。
+         main.js 只在这个事件上挂了一次，不会有重复订阅。 */
+      try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
       say('登录成功', 'ok');
       /* 登录后立刻探一下课时表能不能读，把「表没建 / 权限没配」这类问题
          在登录这一刻就说清楚，而不是等用户点进课时页看到一个报错 */
@@ -357,6 +353,9 @@ function accountSheet() {
   b.querySelector('#cl-out').onclick = async () => {
     if (!(await confirmDialog('退出后课时数据在云端保留，重新登录还能看到。确定退出？'))) return;
     await cloud.logout();
+    /* 退出时把 WebSocket 也断掉。不断的话这条连接还挂着你之前的 token，
+       页面看着是"已退出"，后台却还在收推送 —— 这在公用电脑上很难解释。 */
+    try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
     toast('已退出登录', 'ok');
     sh.close();
   };

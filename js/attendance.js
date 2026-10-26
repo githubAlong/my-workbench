@@ -27,6 +27,7 @@ import { printAttendance } from './pdfprint.js';
 import { state, icon } from './ui.js';
 import { readXlsx, readDelimited } from './xlsx-lite.js';
 import { parseAttendanceSheet } from './att-parse.js';
+import { registerLiveHook } from './live.js';
 
 const WD = ['日', '一', '二', '三', '四', '五', '六'];
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -941,7 +942,13 @@ function openSeat(t, reload) {
       <button class="btn primary done" id="att-done">保存</button>
     </div>
   </div>`);
-  const s = sheet({ title: `${t.grade || ''} ${TYPE_LABEL[t.sheet_type || t.kind] || ''}`, body, wide: true, cls: 'att-sheet' });
+  let closed = false;
+  const s = sheet({
+    title: `${t.grade || ''} ${TYPE_LABEL[t.sheet_type || t.kind] || ''}`,
+    body, wide: true, cls: 'att-sheet',
+    /* 关掉弹层就撤掉实时通路，否则关掉的表还在后台跟着刷新、白耗请求 */
+    onClose: () => { closed = true; try { offLive(); } catch { } },
+  });
   const $ = (x) => body.querySelector(x);
 
   let filter = '';
@@ -1080,6 +1087,68 @@ function openSeat(t, reload) {
   paint();
   bindHeader(t, s, reload);
   paintRef();
+
+  /* ---------- 实时同步：这张表开着的时候，别人改了立刻反映到格子上 ----------
+     【为什么不能走通用重绘】
+     打开一张表时 hash 仍然是 #/work/attendance，通用重绘会整个 render()，
+     弹层被销毁、正在打勾的位置丢失 —— 而对面手机勾一下是每秒都可能发生的事。
+     所以这里单独占一条通路：只重拉这张表的明细，然后就地重画格子。
+
+     【正在打勾时不刷】
+     用户手指正悬在格子上，重绘会让目标跑掉。判断方式和通用重绘一致：
+     刚操作过 2.5 秒内（localEditAt）先不刷，等手停下来再补一次。 */
+  let localEditAt = 0;
+  let pendingRemote = false;
+  let liveTimer = null;
+
+  const applyRemote = async () => {
+    if (closed) return;
+    /* 自己刚点过格子：data 里刚写的值还没保存到云端，硬刷会把它们盖掉 */
+    if (Date.now() - localEditAt < 2500) {
+      pendingRemote = true;
+      clearTimeout(liveTimer);
+      liveTimer = setTimeout(applyRemote, 2600);
+      return;
+    }
+    pendingRemote = false;
+    try {
+      const d = await api.get('/attendance/' + t.id);
+      if (closed) return;
+      /* 正在某个输入框里打字（备注、姓名）：只更新勾选状态，不重画整表，
+         否则输入框会被替换掉，光标和未提交的字符一起没 */
+      const typing = document.activeElement && body.contains(document.activeElement)
+        && /^(input|textarea|select)$/i.test(document.activeElement.tagName);
+      if (!typing) {
+        rows = d.rows.slice();
+        cols = d.columns.slice();
+        checkCols.length = 0; cols.filter((c) => c.type === 'check').forEach((c) => checkCols.push(c));
+        paint();
+      }
+      toast('别的设备改了这张表，已经同步过来', 'ok', 2600);
+    } catch (e) {
+      /* 表可能刚被别的设备删掉 */
+      if (/不存在/.test(String(e.message))) {
+        toast('这张表已在另一台设备上删除', 'warn', 4000);
+        s.close(); reload();
+      }
+    }
+  };
+
+  const offLive = registerLiveHook((d) => {
+    if (closed) return false;
+    /* 只接管"当前这张表"的推送；别的表的推送仍然交给通用重绘 */
+    const aboutThis = String(d.id) === String(t.id)
+      || String(d.record?.table_id ?? '') === String(t.id)
+      || String(d.old?.table_id ?? '') === String(t.id);
+    if (!aboutThis) return false;
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(applyRemote, 300);
+    return true;
+  });
+
+  /* 本地一动就先记时间戳：给 applyRemote 一个"别打断我"的依据 */
+  body.addEventListener('pointerdown', () => { localEditAt = Date.now(); }, true);
+  body.addEventListener('input', () => { localEditAt = Date.now(); }, true);
   $('#att-q').oninput = (e) => { filter = e.target.value.trim(); paint(); };
   /* 手机上那个大「保存」，跟工具栏里的小保存走同一段逻辑 */
   const doSave = async () => {
