@@ -18,7 +18,7 @@
       现在 activate 里 clients.claim() 接管，并通知所有页面可以更新。
 
    资源清单用相对路径：线上可能挂在 /xxx/ 子路径下，写死 '/' 会缓存错东西。 */
-const CACHE = 'wb-v68';
+const CACHE = 'wb-v69';
 
 /* 只列构建产物里确实存在的文件。
    student.html 依赖 student.bundle.js，两个都带上。 */

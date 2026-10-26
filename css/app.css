@@ -2979,3 +2979,71 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 @media (max-width: 1100px) {
   .side-nav { flex: 1 1 auto; }
 }
+
+/* ============ 考勤 2026-10 改版：两个 tab + Excel 优先 ============ */
+/* 年级 tab：更大、只放高一高二，切换就是换一整套表 */
+.att-head { margin-bottom: 12px; }
+.att-tabs { display: flex; gap: 8px; align-items: stretch; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.att-tabs::-webkit-scrollbar { display: none; }
+.att-tab {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 9px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--line);
+  transition: .16s; flex: 0 0 auto; min-width: 132px; text-align: left;
+}
+.att-tab .at-name { font-size: 15.5px; font-weight: 700; color: var(--text); }
+.att-tab .at-meta { font-size: 11px; color: var(--text-3); }
+.att-tab:hover { border-color: var(--primary); }
+.att-tab.on { background: var(--primary); border-color: var(--primary); box-shadow: var(--shadow-m); }
+.att-tab.on .at-name { color: #fff; }
+.att-tab.on .at-meta { color: rgba(255,255,255,.82); }
+.att-tab-add { width: 42px; border-radius: 14px; display: grid; place-items: center; color: var(--text-3); border: 1px dashed var(--line-2); flex: 0 0 auto; }
+.att-tab-add:hover { color: var(--primary); border-color: var(--primary); }
+
+.att-ops { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+
+.att-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .att-groups { grid-template-columns: 1fr; } }
+.att-group-wrap { min-width: 0; }
+.att-group .asg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.att-group .asg-t { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.att-group .asg-n { font-size: 11px; color: var(--text-3); }
+.btn.xs { padding: 3px 9px; font-size: 11.5px; height: auto; min-height: 24px; border-radius: 7px; }
+.att-slot-mini {
+  width: 100%; margin-top: 8px; padding: 7px; border-radius: 10px;
+  border: 1px dashed var(--line-2); color: var(--text-3); font-size: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+}
+.att-slot-mini:hover { color: var(--primary); border-color: var(--primary); background: var(--primary-weak); }
+
+/* 表头可点的日期 / 节次 chip */
+.ah-line { font-size: 11px; color: var(--text-3); letter-spacing: .06em; }
+.ap-chip {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 4px 11px; border-radius: 9px; background: var(--card);
+  border: 1px solid var(--line-2); font-size: 13px; color: var(--text); transition: .15s;
+}
+.ap-chip b { font-family: var(--mono); font-size: 14.5px; }
+.ap-chip .apc-wd { font-size: 11.5px; color: var(--text-2); font-weight: 600; }
+.ap-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-weak); }
+.ap-chip:hover .apc-wd { color: var(--primary); }
+
+/* 多工作表切换 */
+.att-sheetpick { display: flex; flex-wrap: wrap; gap: 6px; }
+.att-sheetpick .btn.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+.att-sheetpick .btn { display: inline-flex; align-items: center; gap: 6px; }
+
+/* 识别失败时摊开原文 */
+.att-raw {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.7;
+  background: var(--bg-sunken); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; margin: 0; overflow-x: auto; white-space: pre; color: var(--text-2);
+}
+
+/* 名册按学科分块 */
+.ars-group { margin-bottom: 12px; }
+.arsg-head {
+  display: flex; align-items: baseline; gap: 8px; padding: 4px 2px 6px;
+  font-size: 12.5px; font-weight: 700; color: var(--text-2);
+  border-bottom: 1px solid var(--line); margin-bottom: 6px;
+}
+.ars-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }

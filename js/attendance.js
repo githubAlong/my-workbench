@@ -1,26 +1,93 @@
 /* ============ 考勤：教师坐班表 / 教师教研签到表 ============
- * 设计原则：
- *  1. 一切以「纸上那张表」为准 —— 表头是「年级 + 年 月 日 + 星期 + 第几节」，表身是「序号 姓名 学科 勾选列」。
- *  2. 年级是第一层分类，高一 / 高二各自有一张坐班表、一张教研表。
- *  3. 勾选只有三种状态：空（没填）/ ✓（做了）/ ×（明确划掉）。空白不等于没做。
+ *
+ * 【2026-10 大改】这一版是按老师的真实表格重写的，改动集中在四件事：
+ *
+ *  1. **两个 tab：高一 / 高二**，各自有各自的表、各自的名册。
+ *     老师原话「高一老师名册和高二所有老师名册分开，两个年级分开管理比较好」。
+ *     以前的课程表年级是「高一/高二/高三」混在一页里，考勤不需要高三，也不需要混看。
+ *
+ *  2. **上传 Excel 优先**。老师提供的表格是 Word/Excel 做的，本质就是
+ *     「序号 姓名 学科 上课 坐班 听课 教研 请假 备注」这样一张规整的表。
+ *     @see att-parse.js  纯前端解析，不依赖任何服务、不上传文件。
+ *
+ *  3. **节次单选 1~9**。纸表上「第 二 节」就是一个数字，
+ *     原来那个能填「1-2」的自由输入框是照抄了别的页面，跟纸表对不上。
+ *
+ *  4. **日期/时间随表可改**。每天查班、查教研，日期天天变，
+ *     纸表上那行「时间 ____年__月__日 星期__ 第__节」在界面里必须能直接改。
+ *
+ * 数据模型（没变，仍然是 localapi 里那两张表）：
+ *   attendance_tables  一张表 = 一条记录（grade / sheet_type / sheet_date / periods）
+ *   attendance_rows    一行 = 一位老师 + data{列key: '1'|'0'|''}
+ *   teachers           名册，按 grade 分开
  */
+
 import { api, el, esc, toast, sheet, saving, confirmDialog, doExport, saveBlob } from './core.js';
 import { printAttendance } from './pdfprint.js';
 import { state, icon } from './ui.js';
+import { readXlsx, readDelimited } from './xlsx-lite.js';
+import { parseAttendanceSheet } from './att-parse.js';
 
 const WD = ['日', '一', '二', '三', '四', '五', '六'];
 const pad2 = (n) => String(n).padStart(2, '0');
 const ymd = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const TYPE_LABEL = { seat: '教师坐班表', research: '教师教研签到表' };
+const TYPE_SHORT = { seat: '坐班表', research: '教研签到表' };
+
+/* 两个主 tab。学校的考勤只管高一高二；要加年级走「+」那个按钮。 */
+const MAIN_GRADES = ['高一', '高二'];
 
 /* 学科固定顺序，跟学校习惯一致；没列到的排在后面 */
 const SUBJECT_ORDER = ['语文', '数学', '英语', '物理', '化学', '生物', '政治', '历史', '地理', '体育', '音乐', '美术', '信息', '通用技术', '心理', '日语', '俄语', '道法'];
 const subjectRank = (s) => { const i = SUBJECT_ORDER.indexOf(s); return i < 0 ? 99 : i; };
 
+/* 坐班表的戳记列（跟纸表一致：上课 坐班 听课 教研 请假 备注） */
+function seatCols() {
+  return [
+    { key: 'k_上课', label: '上课', type: 'check', w: 62 },
+    { key: 'k_坐班', label: '坐班', type: 'check', w: 62 },
+    { key: 'k_听课', label: '听课', type: 'check', w: 62 },
+    { key: 'k_教研', label: '教研', type: 'check', w: 62 },
+    { key: 'k_请假', label: '请假', type: 'check', w: 62 },
+    { key: 'k_remark', label: '备注', type: 'text', w: 130 },
+  ];
+}
+/* 教研签到表：只有一列签到 + 备注 */
+function researchCols() {
+  return [
+    { key: 'k_签到', label: '签到', type: 'check', w: 72 },
+    { key: 'k_remark', label: '备注', type: 'text', w: 150 },
+  ];
+}
+const colsOf = (type) => (type === 'research' ? researchCols() : seatCols());
+
+/* 节次：1~9 单选。纸表上就是「第 二 节」这样一个数。 */
+function periodOptions(cur, { allowEmpty = true } = {}) {
+  const n = Number(cur) || 0;
+  return `${allowEmpty ? `<option value="" ${n ? '' : 'selected'}>—</option>` : ''}
+    ${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" ${n === p ? 'selected' : ''}>第 ${p} 节</option>`).join('')}`;
+}
+/* 节次 chip（点开才能改，不用进编辑弹层） */
+function periodChip(t) {
+  return `<button class="ap-chip" id="att-edit-period" title="点这里改节次">第 ${esc(t.periods || '—')} 节</button>`;
+}
+/* 日期 chip：同样点一下就能改 */
+function dateChip(t) {
+  const d = t.sheet_date ? new Date(t.sheet_date + 'T00:00:00') : null;
+  const ok = d && !Number.isNaN(d.getTime());
+  const txt = ok ? `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日` : (t.month || '—');
+  const wd = ok ? `星期${WD[d.getDay()]}` : (t.weekday ? `星期${t.weekday}` : '');
+  return `<button class="ap-chip" id="att-edit-date" title="点这里改日期">
+    <b>${esc(txt)}</b>${wd ? `<span class="apc-wd">${esc(wd)}</span>` : ''}</button>`;
+}
+
 /* ================= 入口 ================= */
 export async function renderAttendance(box) {
-  let gradesData = { grades: ['高一', '高二'], builtin: ['高一', '高二'], counts: {} };
+  let gradesData = { grades: MAIN_GRADES.slice(), builtin: MAIN_GRADES.slice(), counts: {} };
   let tables = [];
+  /* 【为什么记忆在 sessionStorage】
+     每天查两三个年级，来回切。切走再回来能停在原来那个 tab 上，
+     不用每次重新点一遍。但关掉浏览器就回到第一个（一般是从高一查起）。 */
   let activeGrade = sessionStorage.getItem('wb_att_grade') || '';
 
   const load = async () => {
@@ -28,94 +95,104 @@ export async function renderAttendance(box) {
       api.get('/grades').catch(() => gradesData),
       api.get('/attendance'),
     ]);
-    if (!activeGrade || !gradesData.grades.includes(activeGrade)) activeGrade = gradesData.grades[0];
+    /* 主 tab 一定是高一高二；额外的年级（万一以后有高三）排后面 */
+    const extra = (gradesData.grades || []).filter((g) => !MAIN_GRADES.includes(g));
+    gradesData.tabs = [...MAIN_GRADES, ...extra];
+    if (!activeGrade || !gradesData.tabs.includes(activeGrade)) activeGrade = gradesData.tabs[0];
     paint();
   };
 
   const paint = () => {
-    const gradeList = gradesData.grades;
+    const gradeList = gradesData.tabs;
     const gradeTables = (g) => tables.filter((t) => (t.grade || '高一') === g);
-    box.innerHTML = `
-      <div class="att-toolbar">
-        <button class="btn primary sm" id="att-new">${icon('plus', 15)} 新建表格</button>
-        <button class="btn ghost sm" id="att-upload">${icon('upload', 15)} 上传识别</button>
-        <button class="btn ghost sm" id="att-roster">${icon('users', 15)} 教师名册</button>
-        <span style="flex:1"></span>
-        <span class="tiny muted hide-sm">支持 .xlsx / .csv，自动识别年级、日期、节次和勾选列</span>
-      </div>
-      <div class="att-grades">
-        ${gradeList.map((g) => {
-          const ts = gradeTables(g);
-          const on = g === activeGrade;
-          return `<button class="att-grade-tab${on ? ' on' : ''}" data-grade="${esc(g)}">
-            <span class="agt-name">${esc(g)}</span>
-            <span class="agt-meta">${ts.length ? ts.length + ' 张表' : '暂无'}</span>
-          </button>`;
-        }).join('')}
-        <button class="att-grade-add" id="att-add-grade" title="添加年级">${icon('plus', 15)}</button>
-      </div>
-      <div id="att-cards">${cardsHTML(gradeTables(activeGrade), activeGrade)}</div>`;
+    const roster = gradesData.counts || {};
 
-    box.querySelector('#att-new').onclick = () => newSheetDialog(activeGrade, load);
+    box.innerHTML = `
+      <div class="att-head">
+        <div class="att-tabs" role="tablist">
+          ${gradeList.map((g) => {
+            const ts = gradeTables(g);
+            const on = g === activeGrade;
+            const nSeat = ts.filter((t) => t.sheet_type === 'seat').length;
+            const nRes = ts.filter((t) => t.sheet_type === 'research').length;
+            return `<button class="att-tab${on ? ' on' : ''}" data-grade="${esc(g)}" role="tab">
+              <span class="at-name">${esc(g)}</span>
+              <span class="at-meta">${roster[g] ? roster[g] + ' 位老师' : '名册未录入'} · ${nSeat + nRes} 张表</span>
+            </button>`;
+          }).join('')}
+          <button class="att-tab-add" id="att-add-grade" title="添加年级">${icon('plus', 15)}</button>
+        </div>
+      </div>
+
+      <div class="att-ops">
+        <button class="btn primary sm" id="att-upload">${icon('upload', 15)} 上传 Excel 表格</button>
+        <button class="btn ghost sm" id="att-new">${icon('plus', 15)} 手填新建</button>
+        <button class="btn ghost sm" id="att-roster">${icon('users', 15)} ${esc(activeGrade)}老师名册</button>
+        <span style="flex:1"></span>
+        <span class="tiny muted hide-sm">支持 .xlsx / .csv，自动认出日期、节次、勾选列和双栏排版</span>
+      </div>
+
+      <div class="att-groups" id="att-groups">${groupsHTML(gradeTables(activeGrade), activeGrade)}</div>`;
+
     box.querySelector('#att-upload').onclick = () => uploadDialog(activeGrade, load);
+    box.querySelector('#att-new').onclick = () => newSheetDialog(activeGrade, load);
     box.querySelector('#att-roster').onclick = () => rosterSheet(activeGrade, load);
     box.querySelector('#att-add-grade').onclick = () => addGradeDialog(load);
     box.querySelectorAll('[data-grade]').forEach((b) => {
       b.onclick = () => { activeGrade = b.dataset.grade; sessionStorage.setItem('wb_att_grade', activeGrade); paint(); };
     });
-    bindCards(box, load);
+    bindGroups(box, load, activeGrade);
   };
 
   await load();
 }
 
-/* 每个年级固定展示「坐班表」「教研签到表」两张入口卡 + 已有的表 */
-function cardsHTML(list, grade) {
-  const byType = { seat: list.filter((t) => t.sheet_type === 'seat'), research: list.filter((t) => t.sheet_type === 'research') };
+/* 两个板块：坐班表 / 教研签到表。每个板块一张新建卡 + 已有的表 */
+function groupsHTML(list, grade) {
   const slot = (type) => {
-    const ts = byType[type];
-    const label = TYPE_LABEL[type];
-    if (!ts.length) {
-      return `<button class="att-slot empty" data-newtype="${type}">
-        <div class="as-plus">${icon('plus', 20)}</div>
-        <div class="as-t">${label}</div>
-        <div class="as-s">还没有，点这里新建一张</div>
-      </button>`;
-    }
-    return `<div class="att-slot-group">
-      <div class="asg-head"><span class="asg-t">${label}</span><span class="asg-n">${ts.length} 张</span></div>
-      <div class="asg-list">${ts.map((t) => tableCard(t, type)).join('')}</div>
+    const ts = list.filter((t) => (t.sheet_type || t.kind) === type).sort((a, b) => String(b.sheet_date || '').localeCompare(String(a.sheet_date || '')));
+    return `<div class="att-group">
+      <div class="asg-head">
+        <span class="asg-t">${TYPE_LABEL[type]}</span>
+        <span class="asg-n">${ts.length ? ts.length + ' 张' : ''}</span>
+        <span style="flex:1"></span>
+        <button class="btn ghost xs" data-newtype="${type}">${icon('plus', 13)} 新建</button>
+      </div>
+      ${ts.length ? `<div class="asg-list">${ts.map((t) => tableCard(t)).join('')}</div>`
+        : `<button class="att-slot" data-newtype="${type}">
+             <div class="as-plus">${icon('plus', 20)}</div>
+             <div class="as-t">还没有${TYPE_SHORT[type]}</div>
+             <div class="as-s">上传 Excel，或者手填新建一张</div>
+           </button>`}
+      ${ts.length ? `<button class="att-slot-mini" data-newtype="${type}">${icon('plus', 13)} 再建一张${TYPE_SHORT[type]}</button>` : ''}
     </div>`;
   };
-  return `<div class="att-groups">
-    <div class="att-group">${slot('seat')}</div>
-    <div class="att-group">${slot('research')}</div>
-  </div>`;
+  return `<div class="att-group-wrap">${slot('seat')}</div><div class="att-group-wrap">${slot('research')}</div>`;
 }
 
-function tableCard(t, type) {
+function tableCard(t) {
   const s = t.summary || {};
   const d = t.sheet_date ? new Date(t.sheet_date + 'T00:00:00') : null;
   const dateText = d && !Number.isNaN(d.getTime())
-    ? `${d.getMonth() + 1}月${d.getDate()}日 星期${WD[d.getDay()]}`
-    : (t.month || '');
-  const periods = t.periods ? `第 ${t.periods} 节` : '';
-  const subjText = type === 'research' && t.subjects?.length ? `${t.subjects.length} 个学科` : '';
+    ? `${d.getMonth() + 1}月${d.getDate()}日 周${WD[d.getDay()]}`
+    : (t.month || '未填日期');
+  const isSeat = (t.sheet_type || t.kind) === 'seat';
+  const subjText = !isSeat && t.subjects?.length ? `${t.subjects.length} 个学科` : '';
   const badges = [];
   if (s.leave) badges.push(`<span class="att-badge amber">请假 ${s.leave}</span>`);
-  if (s.none) badges.push(`<span class="att-badge grey">未勾选 ${s.none}</span>`);
-  return `<div class="att-card" data-id="${t.id}">
+  if (s.none) badges.push(`<span class="att-badge grey">未勾 ${s.none}</span>`);
+  return `<div class="att-card" data-card="${t.id}">
     <div class="ac-top">
       <div class="ac-title" data-open="${t.id}">${esc(t.name)}</div>
       <button class="icon-btn sm" data-more="${t.id}" title="更多">${icon('more', 16)}</button>
     </div>
     <div class="ac-meta">
-      <span class="ac-chip">${esc(t.grade || '—')}</span>
       <span>${esc(dateText)}</span>
-      ${periods ? `<span class="ac-dot">·</span><span>${esc(periods)}</span>` : ''}
+      ${isSeat && t.periods ? `<span class="ac-dot">·</span><span>第 ${esc(t.periods)} 节</span>` : ''}
       ${subjText ? `<span class="ac-dot">·</span><span>${esc(subjText)}</span>` : ''}
+      <span class="ac-dot">·</span><span><b>${t.row_count}</b> 人</span>
+      ${badges.length ? badges.join('') : ''}
     </div>
-    <div class="ac-count"><b>${t.row_count}</b> 人${badges.length ? ' ' + badges.join('') : ''}</div>
     <div class="ac-actions">
       <button class="btn ghost sm" data-open="${t.id}">打开</button>
       <button class="btn ghost sm" data-stat="${t.id}">统计</button>
@@ -124,12 +201,23 @@ function tableCard(t, type) {
   </div>`;
 }
 
-function bindCards(root, load) {
-  root.querySelectorAll('.att-card').forEach((c) => {
-    c.onclick = () => openTable(Number(c.dataset.id), load);
+function bindGroups(root, load, grade) {
+  /* 【为什么把 grade 传进来，不再读 sessionStorage】
+     「新建」按钮挂在两个板块里，归属哪个年级必须看当前这个 tab。
+     以前读 sessionStorage，切 tab 时如果没写进去（或者进了别的页面再回来），
+     就会出现「看着是高二，新建出来却是高一」的表。 */
+  const cur = grade || sessionStorage.getItem('wb_att_grade') || '高一';
+  root.querySelectorAll('[data-card]').forEach((c) => {
+    c.onclick = (e) => {
+      if (e.target.closest('button')) return;
+      openTable(Number(c.dataset.card), load);
+    };
   });
   root.querySelectorAll('[data-newtype]').forEach((b) => {
-    b.onclick = () => newSheetDialog(sessionStorage.getItem('wb_att_grade') || '高一', load, b.dataset.newtype);
+    b.onclick = (e) => {
+      e.stopPropagation();
+      newSheetDialog(cur, load, b.dataset.newtype);
+    };
   });
   root.querySelectorAll('[data-open]').forEach((b) => {
     b.onclick = (e) => { e.stopPropagation(); openTable(Number(b.dataset.open), load); };
@@ -142,7 +230,7 @@ function bindCards(root, load) {
       const id = Number(b.dataset.more);
       const t = (await api.get('/attendance')).find((x) => x.id === id);
       if (!t) return;
-      if (await confirmDialog(`删除「${t.name}」？删除后可在地下方「回收站」找回。`)) {
+      if (await confirmDialog(`删除「${t.name}」？删除后可在左侧「回收站」找回。`)) {
         await api.del('/attendance_tables/' + id); toast('已移入回收站'); load();
       }
     };
@@ -153,7 +241,7 @@ function addGradeDialog(reload) {
   const body = el(`<div class="sheet-body">
     <div class="field"><label class="field-label">年级名称</label>
       <input class="input" id="gname">
-      <div class="field-hint">已内置「高一」「高二」，需要更多年级时在这里加。</div></div>
+      <div class="field-hint">内置「高一」「高二」，需要别的年级（比如高三）时在这里加。</div></div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">添加</button></div>
   </div>`);
   const s = sheet({ title: '添加年级', body });
@@ -166,7 +254,7 @@ function addGradeDialog(reload) {
   };
 }
 
-/* ================= 新建表（自动带出名册） ================= */
+/* ================= 新建表（手填，带出名册） ================= */
 function newSheetDialog(grade, reload, type = 'seat') {
   const today = ymd();
   const body = el(`<div class="sheet-body">
@@ -177,13 +265,16 @@ function newSheetDialog(grade, reload, type = 'seat') {
       </div></div>
     <div class="field-row">
       <div class="field"><label class="field-label">年级</label>
-        <select class="input" id="grade">${[grade, '高一', '高二'].filter((v, i, a) => a.indexOf(v) === i).map((g) => `<option ${g === grade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
+        <select class="input" id="grade">${[grade, ...MAIN_GRADES].filter((v, i, a) => a.indexOf(v) === i).map((g) => `<option ${g === grade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
       <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="date" value="${today}"></div>
     </div>
     <div class="field-row">
-      <div class="field" id="wrap-periods"><label class="field-label">节次</label><input class="input" id="periods" value="1-2"></div>
-      <div class="field" id="wrap-subject" hidden><label class="field-label">学科（可选）</label><input class="input" id="subject"></div>
+      <div class="field" id="wrap-periods"><label class="field-label">节次</label>
+        <select class="input" id="periods">${periodOptions(1, { allowEmpty: false })}</select></div>
+      <div class="field" id="wrap-subject" hidden><label class="field-label">学科（可选）</label>
+        <input class="input" id="subject" list="subj-new"></div>
     </div>
+    <datalist id="subj-new">${SUBJECT_ORDER.map((x) => `<option>${x}</option>`).join('')}</datalist>
     <div class="field"><label class="field-label">表格名称</label><input class="input" id="name"></div>
     <div class="att-roster-hint" id="rhint">正在读取名册…</div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">创建并打开</button></div>
@@ -196,7 +287,7 @@ function newSheetDialog(grade, reload, type = 'seat') {
     const g = $('#grade').value; const d = $('#date').value;
     const dt = d ? new Date(d + 'T00:00:00') : new Date();
     const isSeat = $('#stype .on').dataset.t === 'seat';
-    const per = isSeat && $('#periods').value ? ` · 第${$('#periods').value.replace(/-/g, '-')}节` : '';
+    const per = isSeat && $('#periods').value ? ` · 第${$('#periods').value}节` : '';
     $('#name').value = `${dt.getFullYear()}年${g}${isSeat ? '老师坐班表' : '老师教研签到表'}${per}`;
   };
   const loadRoster = async () => {
@@ -206,11 +297,10 @@ function newSheetDialog(grade, reload, type = 'seat') {
       roster = r.list || [];
       const subs = [...new Set(roster.map((t) => t.subject).filter(Boolean))];
       $('#rhint').innerHTML = roster.length
-        ? `将从名册带出 <b>${roster.length}</b> 位教师${subs.length ? `（${subs.length} 个学科）` : ''}，创建后逐个打勾即可。`
+        ? `将从「${esc(g)}」名册带出 <b>${roster.length}</b> 位教师${subs.length ? `（${subs.length} 个学科）` : ''}。`
         : `「${esc(g)}」还没有名册。<button class="link-btn" id="go-roster">现在录入 →</button>`;
-      if (!roster.length) {
-        $('#rhint').querySelector('#go-roster').onclick = () => { s.close(); rosterSheet(g, reload); };
-      }
+      const go = $('#rhint').querySelector('#go-roster');
+      if (go) go.onclick = () => { s.close(); rosterSheet(g, reload); };
     } catch { $('#rhint').textContent = '名册读取失败，将创建空表'; }
   };
   const syncType = () => {
@@ -226,7 +316,7 @@ function newSheetDialog(grade, reload, type = 'seat') {
     };
   });
   ['#grade', '#date', '#periods', '#subject'].forEach((sel) => {
-    $(sel).addEventListener('input', () => { autoName(); });
+    $(sel).addEventListener('input', autoName);
     $(sel).addEventListener('change', () => { autoName(); if (sel === '#grade') loadRoster(); });
   });
   syncType(); loadRoster();
@@ -235,55 +325,50 @@ function newSheetDialog(grade, reload, type = 'seat') {
     const isSeat = $('#stype .on').dataset.t === 'seat';
     const d = $('#date').value;
     const dt = d ? new Date(d + 'T00:00:00') : new Date();
+    const sheetType = isSeat ? 'seat' : 'research';
     const r = await api.post('/attendance', {
-      sheet_type: isSeat ? 'seat' : 'research',
+      sheet_type: sheetType,
       grade: $('#grade').value,
       sheet_date: d,
       weekday: WD[dt.getDay()],
-      periods: isSeat ? $('#periods').value : '',
+      periods: isSeat ? String($('#periods').value || '') : '',
       subject: isSeat ? '' : $('#subject').value,
       name: $('#name').value,
       month: d.slice(0, 7),
+      columns: colsOf(sheetType),
     });
-    // 把名册里的人灌进新表
     if (roster.length) {
       await api.post(`/attendance/${r.id}/rows`, {
         rows: roster.map((t) => ({ teacher: t.name, subject: t.subject, data: {} })),
       });
     }
     s.close(); toast(roster.length ? `已创建，带出 ${roster.length} 位教师` : '已创建'); reload();
-    openTable(r.id, reload);
+    setTimeout(() => openTable(r.id, reload), 240);
   });
 }
 
 /* ================= 打开一张表 ================= */
 async function openTable(id, reload) {
   const t = await api.get('/attendance/' + id);
-  return t.sheet_type === 'research' ? openResearch(t, reload) : openSeat(t, reload);
+  return (t.sheet_type || t.kind) === 'research' ? openResearch(t, reload) : openSeat(t, reload);
 }
 
-/* ---------- 通用：表头信息条 ---------- */
-function headerBar(t, onRefresh) {
-  const d = t.sheet_date ? new Date(t.sheet_date + 'T00:00:00') : null;
-  const yy = d && !Number.isNaN(d.getTime()) ? d.getFullYear() : (t.meta?.year || new Date().getFullYear());
-  const mm = d && !Number.isNaN(d.getTime()) ? d.getMonth() + 1 : '';
-  const dd = d && !Number.isNaN(d.getDate) && d ? d.getDate() : '';
-  const wk = d && !Number.isNaN(d.getTime()) ? WD[d.getDay()] : (t.weekday || '');
-  const isSeat = t.sheet_type === 'seat';
+/* ---------- 通用：表头信息条 ----------
+   这一条就是纸表最上面那行「时间 2026 年 10 月 19 日 星期 一 第 二 节」。
+   做成可点的 chip，是为了「每天查班」这个高频动作：
+   一天一张表，复制不了就点两下改日期，改完立刻能填。 */
+function headerBar(t) {
+  const isSeat = (t.sheet_type || t.kind) === 'seat';
   const nPhoto = Number(t.photo_count || 0);
   return `<div class="att-header">
     <div class="ah-grade">${esc(t.grade || '高一')}</div>
-    <div class="ah-date">
-      <span class="ah-num">${yy}</span><span class="ah-u">年</span>
-      <span class="ah-num">${mm}</span><span class="ah-u">月</span>
-      <span class="ah-num">${dd}</span><span class="ah-u">日</span>
-    </div>
-    <div class="ah-wd">星期${esc(wk || '—')}</div>
-    ${isSeat && t.periods ? `<div class="ah-period">第 ${esc(t.periods)} 节</div>` : ''}
+    <div class="ah-line">时间</div>
+    ${dateChip(t)}
+    ${isSeat ? periodChip(t) : ''}
     <span style="flex:1"></span>
     <button class="btn primary sm" id="att-quick">${icon('zap', 14)} 快速打勾</button>
-    <button class="btn ghost sm" id="att-photos">${icon('camera', 14)} 原图${nPhoto ? ` ${nPhoto}` : ''}</button>
-    <button class="btn ghost sm" id="att-edit-head">${icon('edit', 14)} 改日期/节次</button>
+    <button class="btn ghost sm" id="att-source">${icon('file', 14)} 原表</button>
+    <button class="btn ghost sm" id="att-photos">${icon('camera', 14)} 原件${nPhoto ? ` ${nPhoto}` : ''}</button>
   </div>`;
 }
 
@@ -298,20 +383,16 @@ async function saveThenPdf(t, rows) {
   }
   toast('正在生成 PDF…');
   try {
-    // 先把当前改动落库，否则刚打的勾不会进 PDF
     if (rows) {
       await api.post(`/attendance/${t.id}/rows`, {
         rows: rows.map((r) => ({ id: r.id, teacher: r.teacher, subject: r.subject, data: r.data })),
       });
     }
-    /* 静态版：没有服务端 Python 渲染 PDF，改为本地拼 A4 排版 + 调起打印。
-       在打印对话框里选「另存为 PDF」得到的就是原来那份文件。 */
     const detail = await api.get('/attendance/' + t.id);
     const cols = detail.columns || [];
     const checkCols = cols.filter((c) => c.type === 'check');
     const otherCols = cols.filter((c) => c.type !== 'check');
     const d = detail.sheet_date ? new Date(detail.sheet_date + 'T00:00:00') : null;
-    const wkName = ['日', '一', '二', '三', '四', '五', '六'];
     const dateText = d && !Number.isNaN(d.getTime())
       ? `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日` : '';
     const outRows = (detail.rows || []).map((r, i) => {
@@ -331,7 +412,7 @@ async function saveThenPdf(t, rows) {
       title: detail.name || `${detail.grade || ''}考勤表`,
       grade: detail.grade || '',
       date_text: dateText,
-      weekday: d && !Number.isNaN(d.getTime()) ? '星期' + wkName[d.getDay()] : (detail.weekday ? '星期' + detail.weekday : ''),
+      weekday: d && !Number.isNaN(d.getTime()) ? '星期' + WD[d.getDay()] : (detail.weekday ? '星期' + detail.weekday : ''),
       periods: detail.periods ? `第 ${detail.periods} 节` : '',
       columns: cols,
       rows: outRows,
@@ -354,11 +435,7 @@ async function saveThenPdf(t, rows) {
 function quickSheet(t, rowsRef, onDone) {
   const cols = (t.columns || []).filter((c) => c.type === 'check');
   if (!cols.length) return toast('这张表没有勾选列', 'warn');
-  let queue = rowsRef.map((r, i) => ({ ...r, _i: i })).filter((r) => {
-    // 默认只过「一项都没填」的人；全填完了就全部重过一遍
-    return cols.every((c) => !r.data?.[c.key]);
-  });
-  const allCount = rowsRef.length;
+  let queue = rowsRef.map((r, i) => ({ ...r, _i: i })).filter((r) => cols.every((c) => !r.data?.[c.key]));
   const blankCount = queue.length;
   if (!queue.length) queue = rowsRef.map((r, i) => ({ ...r, _i: i }));
   const skipped = blankCount === 0;
@@ -413,8 +490,6 @@ function quickSheet(t, rowsRef, onDone) {
         changed++;
         const allDone = cols.every((c) => rowsRef[r._i].data?.[c.key]);
         if (allDone && next !== '') {
-          // 全标完了，自动进下一个
-          const old = b.className;
           b.className = 'aq-tile ' + (next === '1' ? 'on' : 'off');
           setTimeout(() => { if (pos < queue.length - 1) { pos++; paint(); } else paint(); }, 180);
         } else paint();
@@ -507,6 +582,223 @@ function tickCell(value, ri, key) {
   return `<button class="tick ${cls}" data-r="${ri}" data-k="${key}" aria-label="切换">${mark}</button>`;
 }
 
+/* ---------- 改表头：日期 chip 点一下就弹这个 ----------
+   【为什么不塞进「编辑表格」里】
+   每天查班第一件事就是改日期。藏在二级菜单里等于每天多点两下。
+   这里只放日期/节次/星期/名称四项，改完点「保存」当场生效。 */
+function editHeadDialog(t, onSaved, focusField = '') {
+  const body = el(`<div class="sheet-body">
+    <div class="field-row">
+      <div class="field"><label class="field-label">年级</label><input class="input" id="g" value="${esc(t.grade || '')}"></div>
+      <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="d" value="${esc(t.sheet_date || '')}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label class="field-label">星期</label>
+        <select class="input" id="w">${WD.map((x) => `<option ${x === (t.weekday || '') ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+      <div class="field"><label class="field-label">节次</label>
+        <select class="input" id="p">${periodOptions(t.periods)}</select></div>
+    </div>
+    <div class="field"><label class="field-label">表格名称</label><input class="input" id="n" value="${esc(t.name)}"></div>
+    <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">保存</button></div>
+  </div>`);
+  const s = sheet({ title: '改日期 / 节次', body });
+  const $ = (x) => body.querySelector(x);
+  /* 改日期顺带把星期算出来 —— 纸表上星期是跟着日期走的，不该让人手填 */
+  $('#d').onchange = () => {
+    const v = $('#d').value; if (!v) return;
+    const dt = new Date(v + 'T00:00:00');
+    if (!Number.isNaN(dt.getTime())) $('#w').value = WD[dt.getDay()];
+  };
+  (focusField === 'period' ? $('#p') : focusField === 'date' ? $('#d') : $('#n')).focus();
+  $('#c').onclick = s.close;
+  saving($('#k'), async () => {
+    const d = $('#d').value;
+    await api.patch('/attendance/' + t.id, {
+      grade: $('#g').value, sheet_date: d, weekday: $('#w').value,
+      periods: $('#p').value, name: $('#n').value,
+      month: (d || '').slice(0, 7) || t.month,
+    });
+    s.close(); toast('已更新'); onSaved?.();
+  });
+}
+
+/* 把表头 chip 的事件绑上（两个视图共用） */
+function bindHeader(t, s, reload) {
+  const rerender = async () => {
+    s.close();
+    reload?.();
+    setTimeout(() => openTable(t.id, reload), 200);
+  };
+  const dchip = document.getElementById('att-edit-date');
+  if (dchip) dchip.onclick = () => editHeadDialog(t, rerender, 'date');
+  const pchip = document.getElementById('att-edit-period');
+  if (pchip) pchip.onclick = () => editHeadDialog(t, rerender, 'period');
+  const src = document.getElementById('att-source');
+  if (src) src.onclick = () => sourceSheet(t);
+  const ph = document.getElementById('att-photos');
+  if (ph) ph.onclick = () => photosSheet(t.id, (n) => {
+    t.photo_count = n;
+    ph.innerHTML = `${icon('camera', 14)} 原件${n ? ' ' + n : ''}`;
+  });
+}
+
+/* ---------- 原表：当初上传的那个 Excel / CSV ---------- */
+async function sourceSheet(t) {
+  const list = await api.get('/attachments', { owner_type: 'attendance', owner_id: t.id }).catch(() => []);
+  const files = (list || []).filter((a) => /\.(xlsx|xlsm|csv|tsv|txt)$/i.test(a.name || ''));
+  if (!files.length) {
+    toast('这张表不是从文件导入的，没有原表可以下载', 'warn');
+    return;
+  }
+  const body = el(`<div class="sheet-body">
+    <div class="small muted" style="margin-bottom:10px">下面是你上传的原表，库里存的是解析后的结构化数据，原文件留档方便核对。</div>
+    ${files.map((f) => `<div class="ap-item">
+      <div class="ap-meta"><div class="ap-name">${esc(f.name)}</div><div class="ap-size">${fmtSize(f.size)}</div></div>
+      <a class="btn ghost sm" href="${esc(f.url)}" download="${esc(f.name)}">下载</a>
+    </div>`).join('')}
+    <div class="att-tip-note" style="margin-top:10px">
+      Excel 里那一列列勾（√ / ×）在导入时已经转成了表里的 ✓ / × 状态。
+      以后想按原表格式再导一份，用表里的「导出 Excel」按钮。
+    </div>
+    <div class="confirm-actions"><button class="btn ghost" id="c">关闭</button></div>
+  </div>`);
+  const s = sheet({ title: '原表文件', body });
+  body.querySelector('#c').onclick = s.close;
+}
+
+/* ---------- 导出 Excel（.xlsx，能直接在 Excel / WPS 里打开） ----------
+   老师说「我就可以直接上传excel表格了」，反过来也要能导出：
+   学期末要把电子版交给年级组，不能只给一张截图。 */
+async function exportXlsx(t, reload) {
+  try {
+    const detail = await api.get('/attendance/' + t.id);
+    const cols = detail.columns || [];
+    const rows = detail.rows || [];
+    const d = detail.sheet_date ? new Date(detail.sheet_date + 'T00:00:00') : null;
+    const wd = d && !Number.isNaN(d.getTime()) ? '星期' + WD[d.getDay()] : (detail.weekday ? '星期' + detail.weekday : '');
+    const header = [
+      `时间 ${d ? `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日` : ''}　${wd}${detail.periods ? `　第 ${detail.periods} 节` : ''}`,
+      ...Array(cols.length + 2).fill(''),
+    ];
+    const head = ['序号', '姓名', '学科', ...cols.map((c) => c.label)];
+    const data = rows.map((r, i) => [
+      i + 1, r.teacher || '', r.subject || '',
+      ...cols.map((c) => (c.type === 'check'
+        ? (r.data?.[c.key] === '1' ? '√' : r.data?.[c.key] === '0' ? '×' : '')
+        : String(r.data?.[c.key] ?? ''))),
+    ]);
+    const blob = makeXlsx({ title: detail.name || '考勤表', grid: [header, [detail.name, ...Array(head.length - 1).fill('')], head, ...data] });
+    saveBlob(blob, `${detail.name || '考勤表'}.xlsx`);
+    toast('Excel 已生成');
+  } catch (e) {
+    toast(e.message || '导出失败', 'err');
+  }
+}
+
+/* 造一个最小的 xlsx：一个工作表、全是内联字符串，不需要 sharedStrings。
+   这样 30 行代码就能产出一个 Excel / WPS 都能打开的合法文件。 */
+function makeXlsx({ title, grid }) {
+  const escXml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const colName = (i) => {
+    let n = i + 1; let s = '';
+    while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+    return s;
+  };
+  /* 【数字还是文本】只有「序号」那一列（第 0 列、数据行）写成数字，
+     其余一律写成文本。为什么不全写文本：序号写成文本，Excel 里那一列
+     左上角会冒绿三角（"以文本形式存储的数字"），老师一看就以为导错了。
+     反过来把姓名写成数字是不可能的，所以按列判断就够了。 */
+  const dataStart = grid.findIndex((line) => String(line[0] || '').trim() === '序号') + 1 || 3;
+  const rowsXml = grid.map((line, r) => `<row r="${r + 1}">${line.map((v, c) => {
+    if (v === '' || v == null) return '';
+    const numeric = c === 0 && r >= dataStart && /^-?\d+(\.\d+)?$/.test(String(v));
+    return numeric
+      ? `<c r="${colName(c)}${r + 1}"><v>${escXml(v)}</v></c>`
+      : `<c r="${colName(c)}${r + 1}" t="inlineStr"><is><t xml:space="preserve">${escXml(v)}</t></is></c>`;
+  }).join('')}</row>`).join('');
+  const width = Math.max(...grid.map((l) => l.length));
+  const colsXml = `<cols><col min="1" max="1" width="6"/><col min="2" max="2" width="12"/><col min="3" max="3" width="8"/>${width > 3 ? `<col min="4" max="${width}" width="10"/>` : ''}</cols>`;
+  const files = {
+    '[Content_Types].xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+    '_rels/.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${escXml(String(title).slice(0, 28) || 'Sheet1')}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    'xl/worksheets/sheet1.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`,
+  };
+  return zipStore(files);
+}
+
+/* 不压缩的 zip（store 方式）。xlsx 允许不压缩，Excel / WPS 都能打开。
+   好处是不用自己实现 deflate —— 浏览器有 CompressionStream，
+   但用它要额外处理 CRC 和 backpressure，为了一个导出不值当。 */
+function zipStore(files) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const crcTable = (() => {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      t[i] = c >>> 0;
+    }
+    return t;
+  })();
+  const crc32 = (u8) => {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < u8.length; i++) c = crcTable[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  };
+  for (const [name, text] of Object.entries(files)) {
+    const nameU8 = enc.encode(name);
+    const dataU8 = enc.encode(text);
+    const crc = crc32(dataU8);
+    const local = new Uint8Array(30 + nameU8.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0x0800, true);        // UTF-8 文件名
+    lv.setUint16(8, 0, true);             // store
+    lv.setUint16(10, 0, true); lv.setUint16(12, 0, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, dataU8.length, true);
+    lv.setUint32(22, dataU8.length, true);
+    lv.setUint16(26, nameU8.length, true);
+    lv.setUint16(28, 0, true);
+    local.set(nameU8, 30);
+    parts.push(local, dataU8);
+
+    const cen = new Uint8Array(46 + nameU8.length);
+    const cv = new DataView(cen.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, 0, true); cv.setUint16(14, 0, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, dataU8.length, true);
+    cv.setUint32(24, dataU8.length, true);
+    cv.setUint16(28, nameU8.length, true);
+    cv.setUint16(30, 0, true); cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true); cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);
+    cen.set(nameU8, 46);
+    central.push(cen);
+    offset += local.length + dataU8.length;
+  }
+  const cenSize = central.reduce((a, b) => a + b.length, 0);
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, central.length, true);
+  ev.setUint16(10, central.length, true);
+  ev.setUint32(12, cenSize, true);
+  ev.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
 /* ================= 坐班表 ================= */
 function openSeat(t, reload) {
   let rows = t.rows.slice();
@@ -524,6 +816,7 @@ function openSeat(t, reload) {
       <span style="flex:1"></span>
       <button class="btn ghost sm" id="att-addrow">＋ 加一行</button>
       <button class="btn ghost sm" id="att-addcol">＋ 加一列</button>
+      <button class="btn ghost sm" id="att-xlsx">${icon('download', 14)} Excel</button>
       <button class="btn ghost sm" id="att-pdf">${icon('download', 14)} PDF</button>
       <button class="btn primary sm" id="att-save">保存</button>
     </div>
@@ -545,14 +838,12 @@ function openSeat(t, reload) {
       const k = filter.toLowerCase();
       return String(r.teacher).toLowerCase().includes(k) || String(r.subject).includes(k);
     });
-    // 按学科排序显示，但保留原序号
+    /* 【按学科排，但序号跟原表走】
+       老师核对时是拿纸表对着看的，纸表上 1 号是李成华。
+       如果这里按学科重排后把序号也重算，就对不上了。
+       所以显示顺序按学科（查某个学科方便），序号列显示原表序号。 */
     list.sort((a, b) => subjectRank(a.subject) - subjectRank(b.subject) || a._i - b._i);
-    const sum = (key) => rows.filter((r) => r.data?.[key] === '1').length;
-    const vacant = rows.filter((r) => checkCols.every((c) => !r.data?.[c.key])).length;
-    $('#att-sum').innerHTML = `
-      <span class="as-total"><b>${rows.length}</b> 人</span>
-      ${checkCols.map((c) => `<span class="as-item"><i>${esc(c.label)}</i><b>${sum(c.key)}</b></span>`).join('')}
-      ${vacant ? `<span class="as-warn">${vacant} 人一项都没勾</span>` : ''}`;
+    $('#att-sum').innerHTML = sumHTML();
     $('#att-table').innerHTML = `<table class="att-tbl">
       <thead><tr>
         <th class="th-no">序号</th><th class="th-name">姓名</th><th class="th-subj">学科</th>
@@ -561,7 +852,7 @@ function openSeat(t, reload) {
         <th class="th-del"></th>
       </tr></thead>
       <tbody>${list.map((r, k) => `<tr data-ri="${r._i}">
-        <td class="td-no">${k + 1}</td>
+        <td class="td-no">${r._i + 1}</td>
         <td class="td-name"><input class="cell-in" data-r="${r._i}" data-k="__teacher" value="${esc(r.teacher)}"></td>
         <td class="td-subj"><input class="cell-in subject-in" data-r="${r._i}" data-k="__subject" value="${esc(r.subject || '')}" list="subj-list"></td>
         ${checkCols.map((c) => `<td class="td-check">${tickCell(r.data?.[c.key], r._i, c.key)}</td>`).join('')}
@@ -570,8 +861,16 @@ function openSeat(t, reload) {
       </tr>`).join('')}</tbody>
     </table>
     <datalist id="subj-list">${SUBJECT_ORDER.map((x) => `<option>${x}</option>`).join('')}</datalist>`;
-
-    // 勾选
+    bindCells();
+  };
+  const sumHTML = () => {
+    const sum = (key) => rows.filter((r) => r.data?.[key] === '1').length;
+    const vacant = rows.filter((r) => checkCols.every((c) => !r.data?.[c.key])).length;
+    return `<span class="as-total"><b>${rows.length}</b> 人</span>
+      ${checkCols.map((c) => `<span class="as-item"><i>${esc(c.label)}</i><b>${sum(c.key)}</b></span>`).join('')}
+      ${vacant ? `<span class="as-warn">${vacant} 人一项都没勾</span>` : ''}`;
+  };
+  const bindCells = () => {
     body.querySelectorAll('.tick').forEach((b) => {
       b.onclick = () => {
         const ri = Number(b.dataset.r); const k = b.dataset.k;
@@ -579,13 +878,12 @@ function openSeat(t, reload) {
         const next = cur === '' ? '1' : cur === '1' ? '0' : '';
         rows[ri].data = rows[ri].data || {};
         if (next === '') delete rows[ri].data[k]; else rows[ri].data[k] = next;
-        // 局部更新，不重绘整表（避免输入框失焦）
+        /* 局部更新，不重绘整表 —— 重绘会让旁边正在输入的备注框失焦 */
         b.className = 'tick' + (next === '1' ? ' on' : next === '0' ? ' off' : '');
         b.textContent = next === '1' ? '✓' : next === '0' ? '×' : '';
-        updateSum();
+        const elSum = $('#att-sum'); if (elSum) elSum.innerHTML = sumHTML();
       };
     });
-    // 姓名 / 学科 / 备注
     body.querySelectorAll('.cell-in').forEach((inp) => {
       inp.oninput = () => {
         const ri = Number(inp.dataset.r); const k = inp.dataset.k;
@@ -598,20 +896,16 @@ function openSeat(t, reload) {
       b.onclick = () => { rows.splice(Number(b.dataset.del), 1); paint(); };
     });
   };
-  const updateSum = () => {
-    const sum = (key) => rows.filter((r) => r.data?.[key] === '1').length;
-    const vacant = rows.filter((r) => checkCols.every((c) => !r.data?.[c.key])).length;
-    const elSum = $('#att-sum');
-    if (!elSum) return;
-    elSum.innerHTML = `<span class="as-total"><b>${rows.length}</b> 人</span>
-      ${checkCols.map((c) => `<span class="as-item"><i>${esc(c.label)}</i><b>${sum(c.key)}</b></span>`).join('')}
-      ${vacant ? `<span class="as-warn">${vacant} 人一项都没勾</span>` : ''}`;
-  };
 
   paint();
+  bindHeader(t, s, reload);
   $('#att-q').oninput = (e) => { filter = e.target.value.trim(); paint(); };
   $('#att-addrow').onclick = () => { rows.push({ teacher: '', subject: '', data: {} }); paint(); };
-  $('#att-addcol').onclick = () => colEditor(cols, null, (n) => { cols = n; checkCols.length = 0; cols.filter((c) => c.type === 'check').forEach((c) => checkCols.push(c)); paint(); });
+  $('#att-addcol').onclick = () => colEditor(cols, null, (n) => {
+    cols = n;
+    checkCols.length = 0; cols.filter((c) => c.type === 'check').forEach((c) => checkCols.push(c));
+    paint();
+  });
   $('#att-reset').onclick = async () => {
     if (!(await confirmDialog('把这张表所有勾选清空？'))) return;
     rows.forEach((r) => { r.data = {}; }); paint();
@@ -624,12 +918,7 @@ function openSeat(t, reload) {
   };
   $('#att-quick').onclick = () => quickSheet(t, rows, () => { paint(); });
   $('#att-pdf').onclick = () => saveThenPdf(t, rows);
-  $('#att-edit-head').onclick = () => editHead(t, s, reload);
-  $('#att-photos').onclick = () => photosSheet(t.id, (n) => {
-    t.photo_count = n;
-    const b = $('#att-photos');
-    if (b) b.innerHTML = `${icon('camera', 14)} 原图${n ? ' ' + n : ''}`;
-  });
+  $('#att-xlsx').onclick = () => exportXlsx(t);
   saving($('#att-save'), async () => {
     await api.post(`/attendance/${t.id}/rows`, { rows: rows.map((r) => ({ id: r.id, teacher: r.teacher, subject: r.subject, data: r.data })) });
     await api.patch('/attendance/' + t.id, { columns: cols });
@@ -640,9 +929,10 @@ function openSeat(t, reload) {
 /* ================= 教研签到表（按学科分块） ================= */
 function openResearch(t, reload) {
   let rows = t.rows.slice();
-  let cols = t.columns.slice();
+  const cols = t.columns.slice();
   const checkCols = cols.filter((c) => c.type === 'check');
   const remarkCol = cols.find((c) => c.type !== 'check');
+  const key = checkCols[0]?.key || 'k_签到';
 
   const body = el(`<div class="att-edit">
     ${headerBar(t)}
@@ -652,6 +942,7 @@ function openResearch(t, reload) {
       <button class="btn ghost sm" id="att-expand">展开全部</button>
       <span style="flex:1"></span>
       <button class="btn ghost sm" id="att-addrow">＋ 加一位教师</button>
+      <button class="btn ghost sm" id="att-xlsx">${icon('download', 14)} Excel</button>
       <button class="btn ghost sm" id="att-pdf">${icon('download', 14)} PDF</button>
       <button class="btn primary sm" id="att-save">保存</button>
     </div>
@@ -666,11 +957,19 @@ function openResearch(t, reload) {
   const s = sheet({ title: `${t.grade || ''} ${TYPE_LABEL.research}`, body, wide: true, cls: 'att-sheet' });
   const $ = (x) => body.querySelector(x);
   let filter = '';
-  let collapsed = new Set();
+  const collapsed = new Set();
+
+  const sumHTML = () => {
+    const signed = rows.filter((r) => r.data?.[key] === '1').length;
+    const rate = rows.length ? Math.round(signed / rows.length * 100) : 0;
+    const nSub = new Set(rows.map((r) => r.subject || '未分学科')).size;
+    return `<span class="as-total"><b>${rows.length}</b> 人 · ${nSub} 个学科</span>
+      <span class="as-item"><i>已签到</i><b>${signed}</b></span>
+      <span class="as-item"><i>签到率</i><b>${rate}%</b></span>
+      ${rows.length - signed ? `<span class="as-warn">${rows.length - signed} 人未签到</span>` : ''}`;
+  };
 
   const paint = () => {
-    const key = checkCols[0]?.key || 'k_签到';
-    // 按学科分组
     const groups = new Map();
     rows.forEach((r, i) => {
       const sj = r.subject || '未分学科';
@@ -678,12 +977,7 @@ function openResearch(t, reload) {
       groups.get(sj).push({ ...r, _i: i });
     });
     const sorted = [...groups.entries()].sort((a, b) => subjectRank(a[0]) - subjectRank(b[0]));
-    const totalSigned = rows.filter((r) => r.data?.[key] === '1').length;
-    const rate = rows.length ? Math.round(totalSigned / rows.length * 100) : 0;
-    $('#att-sum').innerHTML = `<span class="as-total"><b>${rows.length}</b> 人 · ${sorted.length} 个学科</span>
-      <span class="as-item"><i>已签到</i><b>${totalSigned}</b></span>
-      <span class="as-item"><i>签到率</i><b>${rate}%</b></span>
-      ${rows.length - totalSigned ? `<span class="as-warn">${rows.length - totalSigned} 人未签到</span>` : ''}`;
+    $('#att-sum').innerHTML = sumHTML();
 
     $('#att-blocks').innerHTML = sorted.map(([sj, list]) => {
       const shown = list.filter((r) => !filter || String(r.teacher).includes(filter) || String(r.subject).includes(filter));
@@ -693,7 +987,7 @@ function openResearch(t, reload) {
       const pct = list.length ? Math.round(signed / list.length * 100) : 0;
       return `<div class="att-block" data-sj="${esc(sj)}">
         <div class="ab-head">
-          <button class="ab-toggle" data-toggle="${esc(sj)}">${icon(isCollapsed ? 'down' : 'down', 15, isCollapsed ? '' : 'rot')}</button>
+          <button class="ab-toggle" data-toggle="${esc(sj)}" aria-label="折叠">${icon('down', 15, isCollapsed ? '' : 'rot')}</button>
           <span class="ab-name">${esc(sj)}</span>
           <span class="ab-count">${list.length} 人</span>
           <span class="ab-bar"><i style="width:${pct}%"></i></span>
@@ -704,11 +998,11 @@ function openResearch(t, reload) {
         ${isCollapsed ? '' : `<table class="att-tbl att-tbl-compact">
           <thead><tr><th class="th-no">序号</th><th class="th-name">姓名</th><th class="th-check">${esc(checkCols[0]?.label || '签到')}</th>
           ${remarkCol ? `<th class="th-remark">${esc(remarkCol.label)}</th>` : ''}</tr></thead>
-          <tbody>${shown.map((r, k) => `<tr>
-            <td class="td-no">${k + 1}</td>
+          <tbody>${shown.map((r) => `<tr>
+            <td class="td-no">${r._i + 1}</td>
             <td class="td-name"><input class="cell-in" data-r="${r._i}" data-k="__teacher" value="${esc(r.teacher)}"></td>
             <td class="td-check">${tickCell(r.data?.[key], r._i, key)}</td>
-            ${remarkCol ? `<td class="td-remark"><input class="cell-in" data-r="${r._i}" data-k="${remarkCol.key}" value="${esc(r.data?.[remarkCol.key] ?? '')}" placeholder="—"></td>` : ''}
+            ${remarkCol ? `<td class="td-remark"><input class="cell-in" data-r="${r._i}" data-k="${remarkCol.key}" value="${esc(r.data?.[remarkCol.key] ?? '')}"></td>` : ''}
           </tr>`).join('')}</tbody></table>`}
       </div>`;
     }).join('') || '<div class="att-empty">没有匹配的教师</div>';
@@ -751,17 +1045,7 @@ function openResearch(t, reload) {
     });
   };
   const refreshBlockHeads = () => {
-    const key = checkCols[0]?.key || 'k_签到';
-    const totalSigned = rows.filter((r) => r.data?.[key] === '1').length;
-    const rate = rows.length ? Math.round(totalSigned / rows.length * 100) : 0;
-    const elSum = $('#att-sum');
-    if (elSum) {
-      const nSub = new Set(rows.map((r) => r.subject || '未分学科')).size;
-      elSum.innerHTML = `<span class="as-total"><b>${rows.length}</b> 人 · ${nSub} 个学科</span>
-        <span class="as-item"><i>已签到</i><b>${totalSigned}</b></span>
-        <span class="as-item"><i>签到率</i><b>${rate}%</b></span>
-        ${rows.length - totalSigned ? `<span class="as-warn">${rows.length - totalSigned} 人未签到</span>` : ''}`;
-    }
+    const elSum = $('#att-sum'); if (elSum) elSum.innerHTML = sumHTML();
     body.querySelectorAll('.att-block').forEach((blk) => {
       const sj = blk.dataset.sj;
       const list = rows.filter((r) => (r.subject || '未分学科') === sj);
@@ -773,57 +1057,22 @@ function openResearch(t, reload) {
   };
 
   paint();
+  bindHeader(t, s, reload);
   $('#att-q').oninput = (e) => { filter = e.target.value.trim(); paint(); };
   $('#att-expand').onclick = () => { collapsed.clear(); paint(); toast('已展开全部学科'); };
   $('#att-addrow').onclick = () => { rows.push({ teacher: '', subject: '', data: {} }); paint(); };
-  /* openResearch 自己的工具栏模板里没有 att-quick 按钮，
-     早先这里无条件 $('#att-quick').onclick = ... → null 赋值抛 TypeError，
-     后面的保存 / 加行 / PDF / 改表头 / 原图绑定全部中断，教研签到表存不了。 */
+  /* 【这里的按钮绑定必须判空】
+     教研表的工具栏跟坐班表不一样，早先无条件写 $('#att-quick').onclick
+     → null 赋值抛 TypeError，后面的保存 / 加行 / PDF 全部没绑上，表存不了。
+     现在 headerBar 两个视图用的是同一套 id，仍然判空兜一层。 */
   const quickBtnR = $('#att-quick');
   if (quickBtnR) quickBtnR.onclick = () => quickSheet(t, rows, () => { paint(); });
   $('#att-pdf').onclick = () => saveThenPdf(t, rows);
-  $('#att-edit-head').onclick = () => editHead(t, s, reload);
-  $('#att-photos').onclick = () => photosSheet(t.id, (n) => {
-    t.photo_count = n;
-    const b = $('#att-photos');
-    if (b) b.innerHTML = `${icon('camera', 14)} 原图${n ? ' ' + n : ''}`;
-  });
+  $('#att-xlsx').onclick = () => exportXlsx(t);
   saving($('#att-save'), async () => {
     await api.post(`/attendance/${t.id}/rows`, { rows: rows.map((r) => ({ id: r.id, teacher: r.teacher, subject: r.subject, data: r.data })) });
     toast('已保存'); s.close(); reload();
   });
-}
-
-/* ---------- 改表头（日期 / 节次） ---------- */
-function editHead(t, parentSheet, reload) {
-  const body = el(`<div class="sheet-body">
-    <div class="field-row">
-      <div class="field"><label class="field-label">年级</label><input class="input" id="g" value="${esc(t.grade || '')}"></div>
-      <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="d" value="${esc(t.sheet_date || '')}"></div>
-    </div>
-    <div class="field-row">
-      <div class="field"><label class="field-label">星期</label><input class="input" id="w" value="${esc(t.weekday || '')}" placeholder="一"></div>
-      <div class="field"><label class="field-label">节次</label><input class="input" id="p" value="${esc(t.periods || '')}" placeholder="1-2"></div>
-    </div>
-    <div class="field"><label class="field-label">表格名称</label><input class="input" id="n" value="${esc(t.name)}"></div>
-    <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">保存</button></div>
-  </div>`);
-  const s = sheet({ title: '修改表头信息', body });
-  const $ = (x) => body.querySelector(x);
-  $('#d').onchange = () => {
-    const v = $('#d').value; if (!v) return;
-    const dt = new Date(v + 'T00:00:00');
-    $('#w').value = WD[dt.getDay()];
-  };
-  $('#c').onclick = s.close;
-  $('#k').onclick = async () => {
-    await api.patch('/attendance/' + t.id, {
-      grade: $('#g').value, sheet_date: $('#d').value, weekday: $('#w').value,
-      periods: $('#p').value, name: $('#n').value,
-      month: ($('#d').value || '').slice(0, 7) || t.month,
-    });
-    s.close(); parentSheet.close(); toast('已更新'); reload();
-  };
 }
 
 /* ---------- 列编辑器（坐班表加列用） ---------- */
@@ -853,79 +1102,164 @@ function colEditor(cols, idx, done) {
   };
 }
 
-/* ================= 上传识别 ================= */
+/* ================= 上传识别 =================
+ *
+ * 【2026-10 重做：从「认图」改成「读文件」】
+ * 老版本主打「拍照就能导」，实际跑不通：图片里最关键的姓名是手写体，
+ * 没有 OCR 引擎根本认不出来，只能按名册顺序硬铺，一错位整张表全错。
+ * 老师上传的本来就是 Excel / Word 导出的电子表，直接读单元格才是对的路：
+ * 姓名、学科、勾叉都是文本，一个字都不会认错。
+ *
+ * 照片仍然有用 —— 作为「纸质原件」存进表里，核对时有据可查。
+ * 所以这一步两条路都留着，只是主次调换了：
+ *   ① 主路：.xlsx / .xlsm / .csv / .tsv → 前端解析（@see xlsx-lite.js）
+ *   ② 辅路：照片 → 建一张空表（名册铺好）+ 把原件存进去，对着照片打勾
+ */
 function uploadDialog(grade, reload) {
   const body = el(`<div class="sheet-body">
     <div class="att-drop" id="drop">
       <div class="ad-ico">${icon('upload', 26)}</div>
-      <div class="ad-t">点这里选文件，或把表格拖进来</div>
-      <div class="ad-s">支持 <b>截图 / 拍照</b>、.xlsx / .csv，单表 12MB 以内</div>
-      <input type="file" id="file" accept=".xlsx,.xlsm,.csv,.txt,.tsv,image/*" hidden>
+      <div class="ad-t">点这里选 Excel，或者把文件拖进来</div>
+      <div class="ad-s">支持 <b>.xlsx / .xlsm / .csv</b>，12MB 以内。文件不上传，就在你自己浏览器里读。</div>
+      <input type="file" id="file" accept=".xlsx,.xlsm,.csv,.tsv,.txt" hidden>
     </div>
     <div class="att-tips">
-      <div class="att-tip-h">能自动认出这些</div>
+      <div class="att-tip-h">会自动认出这些</div>
       <div class="att-tip-grid">
         <div>${icon('check', 14)} 哪一列是姓名、哪几列要打勾</div>
         <div>${icon('check', 14)} 每一格是 √ 还是 ×（空白保持未填）</div>
         <div>${icon('check', 14)} 表类型（坐班 / 教研）</div>
         <div>${icon('check', 14)} 年 月 日 星期、第几节</div>
-        <div>${icon('check', 14)} 姓名 + 学科（Excel 版）</div>
-        <div>${icon('check', 14)} 左右两栏排版自动合并</div>
+        <div>${icon('check', 14)} 姓名 + 学科</div>
+        <div>${icon('check', 14)} 一页双栏，左右自动接起来</div>
       </div>
       <div class="att-tip-note">
-        传图片时，勾选状态在你自己浏览器里算，图片不上传；<b>姓名需要你照着原图补一下</b>
-        —— 手写名字认不准，认错比认不出更麻烦。行数和顺序会跟原表保持一致。
+        表格结构按你发的那两张纸表做的：<b>序号 姓名 学科 上课 坐班 听课 教研 请假 备注</b>。
+        如果列名不一样（比如「签到」写成「出勤」），也能认出来；实在认不出会在下一步告诉你缺什么。
       </div>
     </div>
     <div class="att-manual">
-      <button class="link-btn" id="paste-mode">只想把纸表照片存起来、不想识别？建个空表 →</button>
+      <button class="link-btn" id="photo-mode">只有纸质表照片，没有 Excel？拍照建表 →</button>
     </div>
   </div>`);
-  const s = sheet({ title: '上传表格，自动识别', body });
+  const s = sheet({ title: '上传 Excel 表格', body });
   const $ = (x) => body.querySelector(x);
-  const pick = () => $('#file').click();
-  $('#drop').onclick = pick;
+  $('#drop').onclick = () => $('#file').click();
   $('#drop').ondragover = (e) => { e.preventDefault(); $('#drop').classList.add('over'); };
   $('#drop').ondragleave = () => $('#drop').classList.remove('over');
   $('#drop').ondrop = (e) => {
     e.preventDefault(); $('#drop').classList.remove('over');
-    const f = e.dataTransfer.files[0]; if (f) doDetect(f, s, grade, reload);
+    const f = e.dataTransfer.files[0]; if (f) doImportFile(f, s, grade, reload);
   };
-  $('#file').onchange = (e) => { const f = e.target.files[0]; if (f) doDetect(f, s, grade, reload); };
-  $('#paste-mode').onclick = () => { s.close(); photoOnlyDialog(grade, reload); };
+  $('#file').onchange = (e) => { const f = e.target.files[0]; if (f) doImportFile(f, s, grade, reload); };
+  $('#photo-mode').onclick = () => { s.close(); photoOnlyDialog(grade, reload); };
+}
+
+/* 读文件 → 二维数组。三条分支：xlsx（zip+xml）、csv/tsv、以及「传错了传成图片」 */
+async function readGrid(file) {
+  const name = String(file.name || '').toLowerCase();
+  if (/\.(xlsx|xlsm)$/.test(name)) {
+    const r = await readXlsx(file);
+    return { grid: r.rows, sheetName: r.sheetName, sheets: r.sheets };
+  }
+  if (/\.(csv|tsv|txt)$/.test(name)) {
+    const text = await file.text();
+    return { grid: readDelimited(text, /\.[tT][sS][vV]$/.test(name) ? '\t' : undefined), sheetName: '' };
+  }
+  if (/\.xls$/.test(name)) {
+    throw new Error('这是 Excel 97-2003 的老格式（.xls）。用 Excel / WPS 打开，「另存为」选 .xlsx 再传。');
+  }
+  if (/^image\//i.test(file.type || '') || /\.(png|jpe?g|webp|bmp|heic)$/i.test(name)) {
+    throw new Error('这是一张图片。图片里的手写姓名没法可靠识别，请先在 Excel 里把表做成电子表再上传；或者用下面的「拍照建表」，先用名册铺好名单再对着照片打勾。');
+  }
+  throw new Error('不认识这个文件类型，请传 .xlsx / .csv');
+}
+
+/* 【为什么失败要用弹层而不是 toast】
+   toast 三秒就没了，而且只有一行字。老师碰到「文件没读出来」的时候
+   需要的不是一句结论，而是「问题出在哪、我该怎么改」。
+   下面这个弹层把原因 + 自助检查项摊开，关掉才算完。 */
+function failDialog(title, reason, tips = [], rawText = '') {
+  const body = el(`<div class="sheet-body">
+    <div class="acm-roster" style="background:#FEF2F2;border-color:#FECACA">
+      <div style="font-weight:650;margin-bottom:2px">${esc(title)}</div>
+      <div class="small">${esc(reason)}</div>
+    </div>
+    ${rawText ? `<div class="small muted" style="margin:12px 0 6px">文件里读到的前几行：</div>
+      <pre class="att-raw">${esc(rawText)}</pre>` : ''}
+    ${tips.length ? `<div class="att-tip-note" style="margin-top:10px">${tips.map((t, i) => `${i + 1}. ${t}`).join('<br>')}</div>` : ''}
+    <div class="confirm-actions"><button class="btn primary" id="c">知道了</button></div>
+  </div>`);
+  const sd = sheet({ title, body, wide: true });
+  body.querySelector('#c').onclick = sd.close;
+}
+
+async function doImportFile(file, s, grade, reload) {
+  if (file.size > 12 * 1024 * 1024) return toast('文件太大了（上限 12MB）', 'warn');
+  toast('正在读取表格…');
+  let grid; let sheetName = ''; let sheets = [];
+  try {
+    const r = await readGrid(file);
+    grid = r.grid; sheetName = r.sheetName; sheets = r.sheets || [];
+  } catch (e) {
+    return failDialog('这个文件读不出来', e.message, [
+      '用 Excel 或 WPS 打开它，「另存为」选 <b>.xlsx</b> 再传一次。',
+      '如果是手机相册里的照片，请改用下面的「拍照建表」。',
+      '文件如果是加密的（要密码才能打开），先另存成不加密的版本。',
+    ]);
+  }
+  if (!grid || !grid.length) {
+    return failDialog('这个文件是空的', '没读到任何内容，可能是只有格式没有数据的空表。');
+  }
+
+  const parsed = parseAttendanceSheet(grid, { gradeHint: grade });
+  if (!parsed.ok) {
+    /* 【认不出的时候，别只丢一句「识别失败」】
+       老师的反应一定是「那到底哪儿不对」。这里把读到的前几行原样摊出来，
+       一眼就能看出是表头行位置不对，还是干脆传错了文件。 */
+    const preview = grid.slice(0, 8)
+      .map((r, i) => `第${i + 1}行：` + (r || []).filter((x) => String(x).trim()).slice(0, 10).join(' | '))
+      .filter((line) => line.replace(/^第\d+行：/, ''))
+      .join('\n');
+    return failDialog('没认出这张表', parsed.reason, [
+      '表头那一行要有「序号 / 姓名 / 学科」这几个字（列的顺序不一样没关系）。',
+      '姓名要是文字，不能是截图贴进去的图片。',
+      '传的是有数据的那张工作表，不是封面或说明页。',
+    ], preview || '（前 8 行都是空的）');
+  }
+  s.close();
+  /* 多个工作表时，让用户挑 —— 一个 xlsx 里常常同时放着高一和高二的表 */
+  const multi = sheets.filter((x) => x.rows.some((r) => r.some((c) => String(c).trim()))).length > 1;
+  confirmSheet(parsed, { grade, reload, filename: file.name, grid, sheetName, sheets: multi ? sheets : null });
 }
 
 /* 只有照片、没有 Excel：先建空表（带名册），再把照片存进去 */
 async function photoOnlyDialog(grade, reload) {
   const body = el(`<div class="sheet-body">
-    <div class="field"><label class="field-label">这是哪个年级的表</label>
-      <select class="input" id="po-grade">
-        <option ${grade === '高一' ? 'selected' : ''}>高一</option>
-        <option ${grade === '高二' ? 'selected' : ''}>高二</option>
-      </select></div>
-    <div class="field"><label class="field-label">表类型</label>
-      <div class="seg" id="po-type">
-        <button class="seg-btn on" data-t="seat">教师坐班表</button>
-        <button class="seg-btn" data-t="research">教师教研签到表</button>
-      </div></div>
-    <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="po-date" value="${ymd()}"></div>
+    <div class="field-row">
+      <div class="field"><label class="field-label">年级</label>
+        <select class="input" id="po-grade">${MAIN_GRADES.map((g) => `<option ${g === grade ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
+      <div class="field"><label class="field-label">表类型</label>
+        <select class="input" id="po-type">
+          <option value="seat">教师坐班表</option>
+          <option value="research">教师教研签到表</option>
+        </select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="po-date" value="${ymd()}"></div>
+      <div class="field"><label class="field-label">节次</label>
+        <select class="input" id="po-period">${periodOptions(1, { allowEmpty: false })}</select></div>
+    </div>
     <div class="field"><label class="field-label">照片</label>
       <label class="ap-add" id="po-add"><input type="file" accept="image/*" multiple hidden id="po-file"><span id="po-txt">＋ 选择照片 / 拍照</span></label>
       <div class="ap-list" id="po-list" style="margin-top:8px"></div></div>
-    <div class="field-hint">会按名册把教师名单先铺好，你点开表对着照片逐行打勾就行。</div>
+    <div class="field-hint">会按「${esc(grade)}」名册把老师名单先铺好，你点开表对着照片逐行打勾就行。</div>
     <div class="confirm-actions"><button class="btn ghost" id="po-cancel">取消</button>
       <button class="btn primary" id="po-ok">建表并存照片</button></div>
   </div>`);
   const s = sheet({ title: '拍照建表', body });
   const $ = (x) => body.querySelector(x);
-  let type = 'seat';
   const picked = [];
-  body.querySelectorAll('#po-type .seg-btn').forEach((b) => {
-    b.onclick = () => {
-      type = b.dataset.t;
-      body.querySelectorAll('#po-type .seg-btn').forEach((x) => x.classList.toggle('on', x === b));
-    };
-  });
   const paint = () => {
     $('#po-list').innerHTML = picked.map((p, i) => `
       <div class="ap-item"><div class="ap-thumb"><img src="${p.preview}" alt=""></div>
@@ -943,16 +1277,23 @@ async function photoOnlyDialog(grade, reload) {
   $('#po-cancel').onclick = s.close;
   saving($('#po-ok'), async () => {
     const g = $('#po-grade').value;
+    const type = $('#po-type').value;
     const date = $('#po-date').value;
-    const wd = date ? WD[new Date(date + 'T00:00:00').getDay()] : '';
     if (!date) return toast('选个日期', 'warn');
+    const wd = WD[new Date(date + 'T00:00:00').getDay()];
+    let roster = [];
+    try { roster = (await api.get('/teachers', { grade: g })).list || []; } catch { roster = []; }
+    const per = type === 'seat' ? String($('#po-period').value || '') : '';
     const res = await api.post('/attendance', {
-      name: `${date.slice(0, 4)}年${g}${type === 'seat' ? '老师坐班表' : '教师教研签到表'}`,
-      grade: g, sheet_type: type, sheet_date: date, weekday: wd, periods: type === 'seat' ? '1-2' : '',
-      columns: null,
+      name: `${date.slice(0, 4)}年${g}${TYPE_SHORT[type]}${per ? ' · 第' + per + '节' : ''}`,
+      grade: g, sheet_type: type, sheet_date: date, weekday: wd, periods: per,
+      month: date.slice(0, 7), columns: colsOf(type),
     });
-    const newId = res.id || res.table_id;
+    const newId = res.id;
     if (!newId) throw new Error('建表失败，请重试');
+    if (roster.length) {
+      await api.post(`/attendance/${newId}/rows`, { rows: roster.map((t) => ({ teacher: t.name, subject: t.subject, data: {} })) });
+    }
     for (const p of picked) {
       const fd = new FormData();
       fd.append('file', p.file);
@@ -961,481 +1302,232 @@ async function photoOnlyDialog(grade, reload) {
       await api.post('/upload', fd).catch((err) => toast(`${p.file.name} 没存上：${err.message}`, 'err'));
     }
     picked.forEach((p) => URL.revokeObjectURL(p.preview));
-    s.close(); toast('建好了'); reload();
+    s.close(); toast(roster.length ? `建好了，带出 ${roster.length} 位老师` : '建好了'); reload();
     setTimeout(() => openTable(newId, reload), 260);
   });
 }
 
-async function doDetect(file, s, grade, reload) {
-  if (file.size > 12 * 1024 * 1024) return toast('文件太大了（上限 12MB）', 'warn');
+/* ================= 识别结果确认页 ================= */
+function confirmSheet(parsed, ctx) {
+  const { grade, reload, filename } = ctx;
+  let r = parsed;
 
-  /* 【图片走本地识别，跟课表一个体验】
-     拍张照直接能导，不用先转 Excel。
-     全程在浏览器里算，图片不上传 —— 考勤表上有全校老师的名字，
-     能不传就不传。 */
-  if (/^image\//i.test(file.type || '') || /\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name || '')) {
-    toast('正在识别图片…');
-    let r;
-    try {
-      r = await detectFromImage(file, grade);
-    } catch (e) {
-      return toast('识别失败：' + e.message, 'err');
-    }
-    if (!r.ok) return toast(r.reason || '没识别出来', 'err');
-    s.close();
-    confirmSheet(r, reload);
-    return;
-  }
+  /* 支持切换工作表：一个文件里高一高二各一张表是常态 */
+  const rebuild = (grid, sheetName) => {
+    const np = parseAttendanceSheet(grid, { gradeHint: grade });
+    if (!np.ok) { toast(np.reason, 'err', 6000); return; }
+    r = np;
+    ctx.grid = grid; ctx.sheetName = sheetName;
+    sheetRef.close();
+    confirmSheet(r, ctx);
+  };
 
-  toast('正在识别…');
-  const fd = new FormData();
-  fd.append('file', file);
-  fd.append('grade', grade || '');
-  let r;
-  try { r = await api.post('/attendance/detect', fd); }
-  catch (e) { return toast(e.message, 'err'); }
-  if (!r.ok) {
-    toast(r.reason || '没识别出来', 'err');
-    return;
-  }
-  s.close();
-  confirmSheet(r, reload);
-}
-
-/* 图片 → 与 CSV 识别同构的结果 */
-async function detectFromImage(file, grade) {
-  const url = URL.createObjectURL(file);
-  const img = new Image();
-  await new Promise((res, rej) => {
-    img.onload = res;
-    img.onerror = () => rej(new Error('图片打不开，换一张试试'));
-    img.src = url;
-  });
-
-  /* 名册是为了「铺名字」用的：认不出手写名字，就按名册顺序先填上，
-     老师核对时只改顺序不一致的几行，比从零敲 46 个名字快。
-     名册拿不到也不影响识别，只是名字变成占位符。 */
-  let roster = [];
-  try {
-    const g = grade || '';
-    const all = await api.get('/teachers');
-    const list = Array.isArray(all) ? all : (all?.data || []);
-    roster = list
-      .filter((t) => !t.deleted_at && (!g || !t.grade || t.grade === g))
-      .sort((a, b) => (Number(a.sort) || 0) - (Number(b.sort) || 0))
-      .map((t) => ({ name: t.name, subject: t.subject || '' }));
-    /* 该年级没单独标 grade 的，退回全量名册 */
-    if (!roster.length) {
-      roster = list.filter((t) => !t.deleted_at)
-        .sort((a, b) => (Number(a.sort) || 0) - (Number(b.sort) || 0))
-        .map((t) => ({ name: t.name, subject: t.subject || '' }));
-    }
-  } catch { roster = []; }
-
-  const { detectAttendance } = await import('./attimage.js');
-  const r = detectAttendance(img, { grade, roster });
-  r.filename = file.name;
-  /* 确认页要显示原图，供对照 */
-  r._imgURL = url;
-  return r;
-}
-
-/* 识别结果确认页 */
-function confirmSheet(r, reload) {
-  const d = r.detected || {};
+  const d = { grade: r.grade || grade, date: r.date || '', period: r.period || 1, type: r.type };
   const checkCols = (r.columns || []).filter((c) => c.type === 'check');
-  /* 图片识别看不出日期（表头文字认不了），默认给今天；CSV 那边从表头解析出年月日就用它 */
-  const defDate = d.year
-    ? `${d.year}-${String(d.month || '1').padStart(2, '0')}-${String(d.day || '1').padStart(2, '0')}`
-    : ymd();
-  const isImg = r.source === 'image';
   const body = el(`<div class="att-confirm">
     <div class="acm-file">
-      <span class="acm-f">${icon('file', 15)} ${esc(r.filename)}</span>
-      ${r.stats?.dual_column ? '<span class="chip">检测到双栏排版，已合并</span>' : ''}
-      ${isImg ? '<span class="chip">图片识别</span>' : ''}
+      <span class="acm-f">${icon('file', 15)} ${esc(filename)}${ctx.sheetName ? ` · ${esc(ctx.sheetName)}` : ''}</span>
+      ${r.columns.some((c) => /左栏/.test(c.label)) ? '<span class="chip">双栏排版，已合并</span>' : ''}
+      <span class="chip">${esc(TYPE_LABEL[r.type])}</span>
     </div>
-    ${isImg ? `<div class="acm-roster" style="background:#FFFBEB;border-color:#FDE68A">
-      <div><b>名字是按名册顺序铺的，请扫一眼核对。</b>手写名字认不出来，我没硬猜 ——
-        认错名字比让你改顺序麻烦得多。</div>
-      <div class="tiny muted" style="margin-top:4px">
-        勾选状态（√ / × / 空）已经照原图认好了，行数和顺序跟原表一致。名字如果整体错位，
-        直接在表里上下改一下就行。识别详情：切出 ${r.stats.rows} 行 × ${r.stats.cols} 列，
-        姓名在第 ${r.stats.nameCol + 1} 列，${r.stats.checkCols.length} 个勾选列。
-      </div>
-    </div>` : ''}
+    ${ctx.sheets ? `<div class="field"><label class="field-label">这个文件里有 ${ctx.sheets.length} 张工作表</label>
+      <div class="att-sheetpick" id="c-sheetpick">${ctx.sheets.map((x, i) => `<button class="btn ghost sm${x.name === ctx.sheetName ? ' on' : ''}" data-si="${i}">${esc(x.name)}<span class="tiny muted">${x.rows.length} 行</span></button>`).join('')}</div>
+      <div class="field-hint">切到别的表会重新识别。高一高二通常各一张。</div></div>` : ''}
     <div class="acm-grid">
       <div class="field"><label class="field-label">年级</label>
-        <select class="input" id="c-grade">${['高一', '高二', d.grade].filter((v, i, a) => v && a.indexOf(v) === i).map((g) => `<option ${g === d.grade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
+        <select class="input" id="c-grade">${MAIN_GRADES.map((g) => `<option ${g === d.grade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
       <div class="field"><label class="field-label">表类型</label>
         <select class="input" id="c-type">
-          <option value="seat" ${d.sheet_type !== 'research' ? 'selected' : ''}>教师坐班表</option>
-          <option value="research" ${d.sheet_type === 'research' ? 'selected' : ''}>教师教研签到表</option>
+          <option value="seat" ${d.type !== 'research' ? 'selected' : ''}>教师坐班表</option>
+          <option value="research" ${d.type === 'research' ? 'selected' : ''}>教师教研签到表</option>
         </select></div>
-      <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="c-date" value="${defDate}"></div>
-      <div class="field"><label class="field-label">节次</label><input class="input" id="c-periods" value="${esc(d.periods || '')}"></div>
+      <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="c-date" value="${d.date || ymd()}"></div>
+      <div class="field"><label class="field-label">节次</label><select class="input" id="c-periods">${periodOptions(d.period)}</select></div>
     </div>
-    <div class="field"><label class="field-label">表格名称</label><input class="input" id="c-name" value="${esc(r.filename.replace(/\.(xlsx|xlsm|csv|txt|tsv)$/i, ''))}"></div>
+    <div class="field"><label class="field-label">表格名称</label><input class="input" id="c-name" value="${esc(filename.replace(/\.(xlsx|xlsm|csv|tsv|txt)$/i, ''))}"></div>
     <div class="acm-sum">
-      <span><b>${r.stats?.teachers || 0}</b> 位教师</span>
-      <span><b>${r.stats?.subjects || 0}</b> 个学科</span>
+      <span><b>${r.people.length}</b> 位教师</span>
+      <span><b>${new Set(r.people.map((p) => p.subject).filter(Boolean)).size}</b> 个学科</span>
       <span><b>${checkCols.length}</b> 个勾选列：${checkCols.map((c) => esc(c.label)).join(' / ')}</span>
+      <span>已勾 <b>${r.people.reduce((a, p) => a + Object.values(p.marks).filter(Boolean).length, 0)}</b> 格</span>
     </div>
-    ${r.roster?.known ? `<div class="acm-roster">
-      <div>名册比对：表里 ${r.roster.matched}/${r.roster.known} 人与名册一致</div>
-      ${r.roster.missing?.length ? `<div class="acm-miss">名册里有、这张表没有：${r.roster.missing.slice(0, 12).map(esc).join('、')}${r.roster.missing.length > 12 ? ' 等 ' + r.roster.missing.length + ' 人' : ''}</div>` : ''}
-      ${r.roster.extra?.length ? `<div class="acm-extra">表里有、名册没登记：${r.roster.extra.slice(0, 12).map(esc).join('、')}${r.roster.extra.length > 12 ? ' 等 ' + r.roster.extra.length + ' 人' : ''}　<button class="link-btn" id="add-roster">一键加进名册</button></div>` : ''}
-    </div>` : ''}
-    <div class="acm-photo">
-      <div class="acm-photo-h">${icon('camera', 14)} 纸质原件（可选）</div>
-      <div class="acm-photo-s">如果有这张表的照片或扫描件，一起存进来，以后核对不用翻手机相册。</div>
-      <label class="ap-add acm-photo-add" id="c-photo-add">
-        <input type="file" accept="image/*" multiple hidden id="c-photo-file">
-        <span id="c-photo-txt">＋ 选择照片</span>
-      </label>
-      <div class="ap-list" id="c-photo-list"></div>
-    </div>
-    <div class="acm-preview" id="acm-preview">
-      <button class="acm-pv-h acm-pv-toggle" id="acm-pv-btn">
-        ${icon('down', 14)} ${isImg ? '逐行核对（原图 + 识别结果）' : '识别结果预览'}（共 ${r.rows.length} 行）<span class="acm-pv-more">点开看看认得对不对</span>
+    ${r.warnings?.length ? `<div class="acm-roster" style="background:#FFFBEB;border-color:#FDE68A">
+      ${r.warnings.map((w) => `<div>${esc(w)}</div>`).join('')}</div>` : ''}
+    <div class="acm-preview">
+      <button class="acm-pv-h acm-pv-toggle open" id="acm-pv-btn">
+        ${icon('down', 14)} 逐行核对（共 ${r.people.length} 行）<span class="acm-pv-more">再点收起</span>
       </button>
-      <div class="acm-pv-wrap" id="acm-pv-wrap" hidden></div>
+      <div class="acm-pv-wrap" id="acm-pv-wrap">
+        <div class="pv-scroll" style="max-height:46vh">
+          <table class="pv-tbl">
+            <thead><tr><th class="pv-no">#</th><th>姓名（可改）</th><th>学科</th>
+              ${checkCols.map((c) => `<th class="pv-ch">${esc(c.label.replace(/^[左右]栏·/, ''))}</th>`).join('')}</tr></thead>
+            <tbody>${r.people.map((p, i) => `<tr data-pi="${i}">
+              <td class="pv-no">${i + 1}</td>
+              <td><input class="input pv-in" data-name="${i}" value="${esc(p.name)}"></td>
+              <td><input class="input pv-in" data-subj="${i}" value="${esc(p.subject || '')}"></td>
+              ${checkCols.map((c) => `<td><button class="pv-mark${p.marks[c.key] ? ' on' : ''}" data-cell="${i}|${c.key}">${p.marks[c.key] ? '✓' : '·'}</button></td>`).join('')}
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </div>
     </div>
     <div class="confirm-actions" style="position:sticky;bottom:0;background:var(--card);padding-top:8px">
       <button class="btn ghost" id="c-cancel">取消</button>
       <button class="btn primary" id="c-ok">导入为新表</button>
     </div>
   </div>`);
-  /* 【blob 泄漏】detectFromImage 为原图建了一个 objectURL，confirmSheet 里
-     用它裁出每一格小图。这个 URL 以前一直没人 revoke —— 关掉弹层、导入完成、
-     或者干脆取消，它都还挂着那张原图（手机拍的表 3~5MB）。
-     连着识别十几张，内存就堆到几十上百 MB，页面开始卡。
-     这里挂在 sheet 的 onClose 上，不管从哪条路关（X / 取消 / Esc / 导入完成）
-     都只走这一处，释放一次，同时把引用置空免得之后又裁图。 */
-  const releaseSrc = () => {
-    if (r._imgURL) { try { URL.revokeObjectURL(r._imgURL); } catch { } r._imgURL = ''; }
-  };
-  const s = sheet({ title: '确认识别结果', body, wide: true, cls: 'att-confirm-sheet', onClose: releaseSrc });
+  const sheetRef = sheet({ title: '确认导入内容', body, wide: true, cls: 'att-confirm-sheet' });
   const $ = (x) => body.querySelector(x);
-  $('#c-cancel').onclick = s.close;
+  $('#c-cancel').onclick = () => sheetRef.close();
 
-  /* 顺带存纸质原件：先在本地预览，导入拿到表 id 后再真正上传 */
-  const pickedPhotos = [];
-  const paintPicked = () => {
-    $('#c-photo-list').innerHTML = pickedPhotos.map((p, i) => `
-      <div class="ap-item">
-        <div class="ap-thumb"><img src="${p.preview}" alt=""></div>
-        <div class="ap-meta"><div class="ap-name">${esc(p.file.name)}</div><div class="ap-size">${fmtSize(p.file.size)}</div></div>
-        <button class="icon-btn sm" data-photo-del="${i}" title="移除">${icon('close', 13)}</button>
-      </div>`).join('');
-    $('#c-photo-txt').textContent = pickedPhotos.length ? `已选 ${pickedPhotos.length} 张，可继续添加` : '＋ 选择照片';
-    body.querySelectorAll('[data-photo-del]').forEach((b) => {
-      b.onclick = () => {
-        const [rm] = pickedPhotos.splice(Number(b.dataset.photoDel), 1);
-        if (rm) URL.revokeObjectURL(rm.preview);
-        paintPicked();
-      };
-    });
-  };
-  $('#c-photo-file').onchange = (e) => {
-    for (const f of e.target.files) {
-      if (!/^image\//i.test(f.type)) { toast(`${f.name} 不是图片`, 'warn'); continue; }
-      pickedPhotos.push({ file: f, preview: URL.createObjectURL(f) });
-    }
-    e.target.value = '';
-    paintPicked();
-  };
-
+  /* 点格子切换 ✓ / 空 —— 认错了当场改，不用导进去再翻 */
+  body.querySelectorAll('[data-cell]').forEach((b) => {
+    b.onclick = () => {
+      const [i, key] = b.dataset.cell.split('|');
+      const p = r.people[Number(i)];
+      p.marks[key] = !p.marks[key];
+      b.className = 'pv-mark' + (p.marks[key] ? ' on' : '');
+      b.textContent = p.marks[key] ? '✓' : '·';
+    };
+  });
+  body.querySelectorAll('[data-name]').forEach((inp) => {
+    inp.oninput = () => { r.people[Number(inp.dataset.name)].name = inp.value; };
+  });
+  body.querySelectorAll('[data-subj]').forEach((inp) => {
+    inp.oninput = () => { r.people[Number(inp.dataset.subj)].subject = inp.value; };
+  });
+  body.querySelectorAll('#c-sheetpick [data-si]').forEach((b) => {
+    b.onclick = () => {
+      const x = ctx.sheets[Number(b.dataset.si)];
+      rebuild(x.rows, x.name);
+    };
+  });
   $('#c-date').onchange = () => {
     const v = $('#c-date').value; if (!v) return;
+    /* 名称里的年份跟着日期走，免得「2026年」配着 2027 年的日期 */
+    const nm = $('#c-name');
     const dt = new Date(v + 'T00:00:00');
-    if ($('#c-periods').value === '' && d.periods) $('#c-periods').value = d.periods;
-  };
-  /* ===== 逐行核对表 =====
-     【为什么要有这张表】图片识别最大的风险是「错了但没人发现」：
-     姓名是按名册顺序铺的，可能整体错位；勾可能认错。
-     光给个结果表，用户没法定夺。这里把原图每一行的格子裁出来贴在旁边，
-     人眼一对比就知道认没认对，点一下就能改。
-     【为什么懒加载】一张 46 人 × 5 列的表 = 230 个格子，
-     每格一张 dataURL 会吃掉几十 MB 内存，手机上直接卡死。
-     所以只裁**勾选列**，并且只渲染前 LIMIT 行，剩下的滚动再补。 */
-  const LIMIT = 20;
-  const cells = r._preview?.cells || [];
-  const view = new Map();          // `${rowIdx}|${key}` → 格子状态，改这里，最后写回 r.rows
-  r.rows.forEach((row, i) => {
-    checkCols.forEach((c) => {
-      const m = row.marks?.[c.key] ?? (row.data?.[c.key] === '1' ? '√' : row.data?.[c.key] === '0' ? '×' : '');
-      view.set(`${i}|${c.key}`, m);
-    });
-  });
-  const CYCLE = { '√': '×', '×': '', '': '√', '?': '√' };
-  let paintedRows = 0;
-  let imgEl = null;
-
-  /* 裁格：复用 detectFromImage 已经加载好的 img，绝不新建 Image ——
-     新建会重新拉一次图，手机上慢且可能出现跨域污染 canvas */
-  const crop = (box) => {
-    try {
-      if (!r._imgURL) return '';   // 弹层关掉后原图已释放，不再裁
-      if (!imgEl) {
-        imgEl = new Image();
-        imgEl.src = r._imgURL;
-      }
-      if (!imgEl.complete || !imgEl.naturalWidth) return '';
-      const zoom = 2;
-      /* box 是 detectGrid 在「压到 ≤1600 宽」画布上的坐标，
-         原图可能更大，必须乘以 scale 换算回去，否则裁到的是左上角某块。 */
-      const k = r._preview?.scale || 1;
-      const bw = box.w * k; const bh = box.h * k;
-      const cv = document.createElement('canvas');
-      cv.width = Math.max(1, Math.round(bw * zoom));
-      cv.height = Math.max(1, Math.round(bh * zoom));
-      const ctx = cv.getContext('2d');
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, cv.width, cv.height);
-      ctx.drawImage(imgEl, box.x * k, box.y * k, bw, bh, 0, 0, cv.width, cv.height);
-      return cv.toDataURL('image/png');
-    } catch { return ''; }
-  };
-
-  const statCount = () => {
-    let unsure = 0, ticks = 0;
-    view.forEach((v) => { if (v === '?') unsure++; if (v === '√') ticks++; });
-    return { unsure, ticks };
-  };
-
-  const paintBar = () => {
-    const bar = $('#acm-pv-wrap').querySelector('#pv-bar');
-    if (!bar) return null;
-    const { unsure, ticks } = statCount();
-    bar.innerHTML = `
-      <div class="pv-bar-txt">
-        共 ${r.rows.length} 行 · 已勾 <b>${ticks}</b> 格
-        ${unsure ? ` · <b style="color:#B45309">${unsure} 格认不准</b>（标黄，点一下改成 √ 或 ×）` : ''}
-      </div>
-      <div class="pv-bar-ops">
-        <button class="btn ghost sm" id="pv-all-tick">整表全√</button>
-      </div>`;
-    bar.querySelector('#pv-all-tick').onclick = () => {
-      view.forEach((v, k) => { view.set(k, '√'); });
-      repaintAll();
-    };
-    return bar;
-  };
-
-  const repaintAll = () => {
-    const wrap = $('#acm-pv-wrap');
-    wrap.querySelectorAll('[data-cell]').forEach((b) => {
-      const [i, key] = b.dataset.cell.split('|');
-      const v = view.get(`${i}|${key}`) || '';
-      b.dataset.mark = v;
-      b.className = 'pv-mark' + (v === '√' ? ' on' : v === '×' ? ' off' : v === '?' ? ' unsure' : '');
-      b.textContent = v === '√' ? '✓' : v === '×' ? '×' : v === '?' ? '?' : '·';
-    });
-    paintBar();
-  };
-
-  /* 渲染一批行。原图小图只在首次渲染该行时裁，之后复用 DOM */
-  const paintRows = (from, to) => {
-    const tbody = $('#acm-pv-wrap').querySelector('tbody');
-    if (!tbody) return;
-    const frag = document.createDocumentFragment();
-    for (let i = from; i < Math.min(to, r.rows.length); i++) {
-      const row = r.rows[i];
-      const tr = document.createElement('tr');
-      const dup = r.rows.filter((x) => x.teacher === row.teacher).length > 1 && row.teacher;
-      const placeholder = /^（第\d+行）$/.test(row.teacher);
-      tr.innerHTML = `
-        <td class="pv-no">${i + 1}</td>
-        <td class="pv-thumb">${checkCols.map((c) => {
-          /* 用 r.rows 的下标 i 去匹配，别用 _srcRow：
-             _srcRow 是「原图第几行」（含表头、空行），预览 cells 用的是「第几条教师行」，
-             两套口径一混，行有缺漏时原图就串到别人身上了。 */
-          const cell = cells.find((x) => x.row === i && x.key === c.key);
-          const d = cell ? crop(cell.box) : '';
-          return d ? `<img src="${d}" alt="" data-zoom="${d}">` : '';
-        }).join('')}</td>
-        <td><input class="input pv-in" data-name="${i}" value="${esc(row.teacher)}"
-             style="${placeholder || dup ? 'background:#FEF3C7' : ''}"></td>
-        <td><input class="input pv-in" data-subj="${i}" value="${esc(row.subject || '')}"></td>
-        ${checkCols.map((c) => {
-          const v = view.get(`${i}|${c.key}`) || '';
-          return `<td><button class="pv-mark${v === '√' ? ' on' : v === '×' ? ' off' : v === '?' ? ' unsure' : ''}"
-            data-cell="${i}|${c.key}" data-mark="${v}">${v === '√' ? '✓' : v === '×' ? '×' : v === '?' ? '?' : '·'}</button></td>`;
-        }).join('')}`;
-      frag.appendChild(tr);
+    if (!Number.isNaN(dt.getTime()) && /^\d{4}年/.test(nm.value)) {
+      nm.value = nm.value.replace(/^\d{4}年/, dt.getFullYear() + '年');
     }
-    tbody.appendChild(frag);
-    /* 事件用委托，但新插入的这批要单独绑（委托也能覆盖，这里省一次全表遍历） */
-    tbody.querySelectorAll('[data-cell]').forEach((b) => {
-      if (b._bound) return;
-      b._bound = true;
-      b.onclick = () => {
-        const [i, key] = b.dataset.cell.split('|');
-        const cur = view.get(`${i}|${key}`) || '';
-        const next = CYCLE[cur] ?? '√';
-        view.set(`${i}|${key}`, next);
-        repaintAll();
-      };
-    });
-    tbody.querySelectorAll('[data-name]').forEach((inp) => {
-      if (inp._bound) return;
-      inp._bound = true;
-      inp.oninput = () => { r.rows[Number(inp.dataset.name)].teacher = inp.value; };
-    });
-    tbody.querySelectorAll('[data-subj]').forEach((inp) => {
-      if (inp._bound) return;
-      inp._bound = true;
-      inp.oninput = () => { r.rows[Number(inp.dataset.subj)].subject = inp.value; };
-    });
-    /* 缩略图太小看不清勾叉的细节，点一下放大到原尺寸的 4 倍再看 */
-    tbody.querySelectorAll('[data-zoom]').forEach((im) => {
-      if (im._bound) return;
-      im._bound = true;
-      im.onclick = () => {
-        const mask = document.createElement('div');
-        mask.className = 'pv-zoom-mask';
-        mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;cursor:zoom-out';
-        const big = document.createElement('img');
-        big.src = im.dataset.zoom;
-        big.style.cssText = 'max-width:88vw;max-height:82vh;image-rendering:pixelated;background:#fff;border-radius:8px;padding:8px';
-        mask.appendChild(big);
-        mask.onclick = () => mask.remove();
-        document.body.appendChild(mask);
-      };
-    });
-    paintedRows = Math.min(to, r.rows.length);
   };
-
-  const buildTable = () => {
-    const wrap = $('#acm-pv-wrap');
-    wrap.innerHTML = `
-      <div class="pv-bar" id="pv-bar"></div>
-      <div class="pv-scroll">
-        <table class="pv-tbl">
-          <thead><tr>
-            <th class="pv-no">#</th>
-            <th class="pv-thumb">原图</th>
-            <th>姓名（可改）</th>
-            <th>学科</th>
-            ${checkCols.map((c) => `<th class="pv-ch">${esc(c.label)}</th>`).join('')}
-          </tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      ${r.rows.length > LIMIT ? `<div class="tiny muted" style="padding:6px 2px">先显示前 ${LIMIT} 行，往下滚动自动加载</div>` : ''}`;
-    paintRows(0, LIMIT);
-    paintBar();
-    /* 滚动到底自动补下一批 */
-    wrap.querySelector('.pv-scroll').onscroll = (e) => {
-      const el0 = e.currentTarget;
-      if (paintedRows >= r.rows.length) return;
-      if (el0.scrollTop + el0.clientHeight > el0.scrollHeight - 120) {
-        paintRows(paintedRows, paintedRows + LIMIT);
-      }
-    };
-  };
-
-  /* 预览折叠 */
   $('#acm-pv-btn').onclick = () => {
     const w = $('#acm-pv-wrap');
-    const open = w.hidden;
-    w.hidden = !open;
-    if (open && !w.querySelector('table')) buildTable();
-    $('#acm-pv-btn').classList.toggle('open', open);
-    const more = body.querySelector('.acm-pv-more');
-    if (more) more.textContent = open ? '再点收起' : '点开看看认得对不对';
+    w.hidden = !w.hidden;
+    $('#acm-pv-btn').classList.toggle('open', !w.hidden);
   };
-  /* 图片识别：默认就展开核对表，因为核对是必须做的动作，不该藏在折叠里 */
-  if (isImg) {
-    $('#acm-pv-wrap').hidden = false;
-    buildTable();
-    $('#acm-pv-btn').classList.add('open');
-    const more = body.querySelector('.acm-pv-more');
-    if (more) more.textContent = '再点收起';
-  }
 
-  /* 把编辑结果写回 r.rows：勾选状态 + 姓名 + 学科 */
-  const flushEdits = () => {
-    r.rows.forEach((row, i) => {
-      row.data = row.data || {};
-      checkCols.forEach((c) => {
-        const v = view.get(`${i}|${c.key}`) || '';
-        if (v === '√') row.data[c.key] = '1';
-        else if (v === '×') row.data[c.key] = '0';
-        else delete row.data[c.key];
-      });
-    });
-  };
-  const addRoster = $('#add-roster');
-  if (addRoster) {
-    addRoster.onclick = async () => {
-      const g = $('#c-grade').value;
-      const items = r.rows.filter((x) => r.roster.extra.includes(x.teacher)).map((x) => ({ name: x.teacher, subject: x.subject }));
-      await api.post('/teachers', { grade: g, items });
-      toast(`已把 ${items.length} 人加进「${g}」名册`);
-      addRoster.disabled = true; addRoster.textContent = '已加入名册';
-    };
-  }
   saving($('#c-ok'), async () => {
-    /* 【导入前的最后一道闸】
-       有认不准的格子就先拦一下 —— 这一张表发到群里是要让老师签字的，
-       带着错数据发出去比晚发十分钟严重得多。
-       拦的时候给出路：要么去改，要么明确「当没勾」强行导入。 */
-    const { unsure } = statCount();
-    if (isImg && unsure > 0) {
-      const go = await confirmDialog(
-        `还有 ${unsure} 格没认准（表里标黄的「?」）。点「确认」会把它们当成「没勾」导入，点「取消」回去改。`,
-        { title: '有格子没认准', okText: '当没勾，继续导入', danger: false },
-      );
-      if (!go) {
-        if ($('#acm-pv-wrap').hidden) $('#acm-pv-btn').onclick();
-        return;
+    const g = $('#c-grade').value;
+    const type = $('#c-type').value;
+    const date = $('#c-date').value;
+    const period = type === 'seat' ? $('#c-periods').value : '';
+    const wd = date ? WD[new Date(date + 'T00:00:00').getDay()] : '';
+    let name = $('#c-name').value.trim();
+    if (!name) name = `${date.slice(0, 4)}年${g}${TYPE_SHORT[type]}${period ? ' · 第' + period + '节' : ''}`;
+
+    /* 列定义要跟「表类型」对齐：
+       用户把类型从教研改成坐班，列却还是「签到」，界面会很怪。
+       解析出来的列名跟标准列名一致时保留原 key（数据对得上），
+       不一致就退回标准列 —— 因为勾选状态本来就要按新列重排。 */
+    const standard = colsOf(type);
+    let useCols = (type === r.type) ? r.columns.map((c) => ({
+      key: c.key, label: c.label, type: c.type, w: c.type === 'check' ? 62 : 130,
+    })) : standard;
+    /* 【双栏表要按纸表原样合过去】
+       一张 A4 纸横着排 46 人，所以左栏 1~23、右栏 24~46 是并排的两组。
+       如果导入后把人拉成一长条、保留 8 个勾选列（左栏上课/左栏坐班/…/右栏教研），
+       界面上就是 8 列里有一半永远是空的，老师还得记「哪几列是左栏的」。
+       这里把右栏的勾搬到左栏同名 key 上，然后把右栏那几列去掉 ——
+       表就回到了纸表的样子：一人一行，4 个勾，46 行。
+       代价是丢掉了「这个人是左栏还是右栏」的信息，但那个信息对填表毫无用处。 */
+    let mergeMap = null;
+    if (type === r.type && useCols.some((c) => /^右栏·/.test(c.label))) {
+      /* 按「列的类型」配对，不能按 index 配对：
+         左栏 = [上课,坐班,听课,教研,请假,备注]，右栏 = [上课,坐班,听课,教研,备注(缺请假)]
+         两边的「备注」差一个位置，按 index 对会把备注和请假搅在一起。 */
+      const left = useCols.filter((c) => !/^右栏·/.test(c.label));
+      const right = useCols.filter((c) => /^右栏·/.test(c.label));
+      const paired = left.map((lc) => {
+        const twin = right.find((rc) => rc.type === lc.type
+          && rc.label.replace(/^右栏·/, '') === lc.label.replace(/^左栏·/, ''));
+        return twin;
+      });
+      if (paired.filter(Boolean).length === right.length) {
+        useCols = left.map((lc) => {
+          /* 落库的列定义要干净：左右栏的对应关系只在这次导入时用（mergeMap），
+             不往库里的列定义上挂。 */
+          return { key: lc.key, label: lc.label.replace(/^左栏·/, ''), type: lc.type, w: lc.w };
+        });
+        /* 合并关系单独留着，写 rows 时按 key 查，不走下标 */
+        mergeMap = new Map(useCols.map((c, i) => [c.key, paired[i]?.key || null]));
       }
-      view.forEach((v, k) => { if (v === '?') view.set(k, ''); });
     }
-    flushEdits();
+
+    const rows = r.people.map((p) => {
+      const data = {};
+      if (type === r.type) {
+        useCols.forEach((c) => {
+          if (c.type !== 'check') return;
+          const partner = mergeMap?.get(c.key);
+          const hit = p.marks[c.key] || (partner && p.marks[partner]);
+          if (hit) data[c.key] = '1';
+        });
+        // 请假 / 备注列单独带过去
+        if (p.leave) data[`k_请假`] = '1';
+        if (p.remark) data[`k_remark`] = p.remark;
+      } else {
+        /* 类型改了：把「签到」映射到目标表的第一个勾选列，其余丢掉 */
+        const firstOld = checkCols[0]?.key;
+        const firstNew = standard.find((c) => c.type === 'check')?.key;
+        if (firstOld && firstNew && p.marks[firstOld]) data[firstNew] = '1';
+        if (p.remark) data['k_remark'] = p.remark;
+      }
+      return { teacher: p.name, subject: p.subject, data };
+    }).filter((x) => String(x.teacher || '').trim());
+
+    if (!rows.length) throw new Error('没有读到任何教师姓名，请检查表格');
+
     const res = await api.post('/attendance/commit', {
-      name: $('#c-name').value,
-      grade: $('#c-grade').value,
-      sheet_type: $('#c-type').value,
-      sheet_date: $('#c-date').value,
-      periods: $('#c-periods').value,
-      weekday: (() => { const v = $('#c-date').value; if (!v) return ''; return WD[new Date(v + 'T00:00:00').getDay()]; })(),
-      columns: r.columns,
-      rows: r.rows,
-      source: 'upload',
-      filename: r.filename,
+      name, grade: g, sheet_type: type, sheet_date: date, periods: period,
+      weekday: wd, columns: useCols, rows,
+      source: 'upload', filename,
     });
-    // 表建好之后，把选好的纸质原件挂上去
-    if (pickedPhotos.length) {
-      for (const p of pickedPhotos) {
-        try {
-          const fd = new FormData();
-          fd.append('file', p.file);
-          fd.append('owner_type', 'attendance');
-          fd.append('owner_id', String(res.table_id));
-          await api.post('/upload', fd);
-        } catch (err) { toast(`照片「${p.file.name}」没存上：${err.message}`, 'err'); }
-      }
-      pickedPhotos.forEach((p) => URL.revokeObjectURL(p.preview));
-    }
-    s.close();
-    toast(pickedPhotos.length ? `已导入 ${res.added} 行，并存了 ${pickedPhotos.length} 张原件` : `已导入 ${res.added} 行`);
+
+    /* 原表留档：以后想核对「Excel 里到底怎么勾的」能翻出来。
+       静态版把文件存 localStorage，单文件上限 1.5MB，超了就跳过并说清楚。 */
+    try {
+      const fd = new FormData();
+      const blob = new Blob([JSON.stringify({ filename, sheet: ctx.sheetName || '', grid: ctx.grid })], { type: 'application/json' });
+      fd.append('file', new File([blob], filename + '.raw.json', { type: 'application/json' }));
+      fd.append('owner_type', 'attendance');
+      fd.append('owner_id', String(res.table_id));
+      await api.post('/upload', fd);
+    } catch { /* 原表只是留档，存不上不影响导入 */ }
+
+    sheetRef.close();
+    toast(`已导入 ${res.added} 位教师${res.roster_added ? `，名册新增 ${res.roster_added} 人` : ''}`);
     reload();
     setTimeout(() => openTable(res.table_id, reload), 260);
   });
 }
 
-/* ================= 教师名册 ================= */
+/* ================= 教师名册（按年级分开管） =================
+ *
+ * 老师的原话：「高一老师名册和高二所有老师名册分开，两个年级分开管理比较好」。
+ * 所以这里不是一个长列表，而是一进来就在当前年级上，
+ * 顶部的切换条跟主页面的 tab 一致，切过去看到的就是那个年级的人。
+ */
 function rosterSheet(grade, reload) {
   const body = el(`<div class="att-roster-sheet">
     <div class="ars-tabs" id="ars-tabs"></div>
     <div class="ars-add">
-      <input class="input" id="ars-name">
-      <input class="input" id="ars-subj" list="subj-list2">
+      <input class="input" id="ars-name" placeholder="姓名">
+      <input class="input" id="ars-subj" list="subj-list2" placeholder="学科">
       <button class="btn primary sm" id="ars-add-btn">＋ 添加</button>
-      <button class="btn ghost sm" id="ars-bulk">批量粘贴</button>
+      <button class="btn ghost sm" id="ars-paste">粘贴</button>
+      <button class="btn ghost sm" id="ars-xlsx">导入 Excel</button>
     </div>
     <datalist id="subj-list2">${SUBJECT_ORDER.map((x) => `<option>${x}</option>`).join('')}</datalist>
     <div class="ars-stats" id="ars-stats"></div>
@@ -1444,28 +1536,44 @@ function rosterSheet(grade, reload) {
   </div>`);
   const s = sheet({ title: '教师名册', body, wide: true, cls: 'att-roster-dialog' });
   const $ = (x) => body.querySelector(x);
-  let cur = grade || '高一';
-  let all = { grades: ['高一', '高二'] };
+  let cur = grade || MAIN_GRADES[0];
 
   const load = async () => {
     const [g, list] = await Promise.all([api.get('/grades'), api.get('/teachers', { grade: cur, active: 'all' })]);
-    all = g;
+    const tabs = [...new Set([...MAIN_GRADES, ...(g.grades || [])])];
     const people = list.list || [];
-    $('#ars-tabs').innerHTML = g.grades.map((x) => `<button class="seg-btn${x === cur ? ' on' : ''}" data-g="${esc(x)}">${esc(x)} <span class="tiny muted">${g.counts[x] || 0}</span></button>`).join('');
+    $('#ars-tabs').innerHTML = tabs.map((x) => `<button class="seg-btn${x === cur ? ' on' : ''}" data-g="${esc(x)}">${esc(x)} <span class="tiny muted">${g.counts?.[x] || 0}</span></button>`).join('');
     $('#ars-tabs').querySelectorAll('[data-g]').forEach((b) => {
       b.onclick = () => { cur = b.dataset.g; load(); };
     });
+    const active = people.filter((p) => p.active);
     const subs = {};
-    people.filter((p) => p.active).forEach((p) => { const k = p.subject || '未填学科'; subs[k] = (subs[k] || 0) + 1; });
-    $('#ars-stats').innerHTML = `<span><b>${people.filter((p) => p.active).length}</b> 位在册</span>
+    active.forEach((p) => { const k = p.subject || '未填学科'; subs[k] = (subs[k] || 0) + 1; });
+    $('#ars-stats').innerHTML = `<span><b>${active.length}</b> 位在册</span>
       <span>${Object.keys(subs).length} 个学科</span>
-      ${people.filter((p) => !p.active).length ? `<span class="muted">${people.filter((p) => !p.active).length} 位已调出</span>` : ''}`;
-    $('#ars-list').innerHTML = people.length ? people.map((p) => `<div class="ars-row${p.active ? '' : ' off'}">
-      <input class="cell-in" data-id="${p.id}" data-k="name" value="${esc(p.name)}">
-      <input class="cell-in subject-in" data-id="${p.id}" data-k="subject" value="${esc(p.subject || '')}" list="subj-list2">
-      <button class="btn ghost sm" data-toggle="${p.id}" data-active="${p.active}">${p.active ? '调出' : '恢复'}</button>
-      <button class="icon-btn sm" data-rm="${p.id}">${icon('close', 13)}</button>
-    </div>`).join('') : `<div class="att-empty">「${esc(cur)}」还没有教师，用上面的输入框添加</div>`;
+      ${people.length - active.length ? `<span class="muted">${people.length - active.length} 位已调出</span>` : ''}`;
+
+    /* 按学科分组显示：查一个学科的人一眼就能看到，跟纸表的分块一致 */
+    if (!people.length) {
+      $('#ars-list').innerHTML = `<div class="att-empty">「${esc(cur)}」还没有教师。可以直接导入 Excel 名册，或在上面一个个加。</div>`;
+    } else {
+      const groups = new Map();
+      people.forEach((p) => {
+        const k = p.subject || '未填学科';
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(p);
+      });
+      const sorted = [...groups.entries()].sort((a, b) => subjectRank(a[0]) - subjectRank(b[0]));
+      $('#ars-list').innerHTML = sorted.map(([sj, list]) => `<div class="ars-group">
+        <div class="arsg-head">${esc(sj)}<span class="tiny muted">${list.length} 人</span></div>
+        ${list.map((p) => `<div class="ars-row${p.active ? '' : ' off'}">
+          <input class="cell-in" data-id="${p.id}" data-k="name" value="${esc(p.name)}">
+          <input class="cell-in subject-in" data-id="${p.id}" data-k="subject" value="${esc(p.subject || '')}" list="subj-list2">
+          <button class="btn ghost sm" data-toggle="${p.id}" data-active="${p.active}">${p.active ? '调出' : '恢复'}</button>
+          <button class="icon-btn sm" data-rm="${p.id}">${icon('close', 13)}</button>
+        </div>`).join('')}
+      </div>`).join('');
+    }
 
     body.querySelectorAll('[data-toggle]').forEach((b) => {
       b.onclick = async () => { await api.patch('/teachers/' + b.dataset.toggle, { active: b.dataset.active ? 0 : 1 }); load(); };
@@ -1475,11 +1583,9 @@ function rosterSheet(grade, reload) {
         if (await confirmDialog('从名册删除这位教师？已有表格里的记录不受影响。')) { await api.del('/teachers/' + b.dataset.rm); load(); }
       };
     });
-    // 就地改名 / 改学科（失焦保存）
     body.querySelectorAll('.ars-row .cell-in').forEach((inp) => {
       inp.onchange = async () => {
-        const k = inp.dataset.k;
-        await api.patch('/teachers/' + inp.dataset.id, { [k]: inp.value.trim() });
+        await api.patch('/teachers/' + inp.dataset.id, { [inp.dataset.k]: inp.value.trim() });
         toast('已更新');
       };
     });
@@ -1494,11 +1600,13 @@ function rosterSheet(grade, reload) {
   };
   $('#ars-add-btn').onclick = addOne;
   $('#ars-name').onkeydown = (e) => { if (e.key === 'Enter') addOne(); };
-  $('#ars-bulk').onclick = () => bulkDialog(cur, load);
+  $('#ars-paste').onclick = () => bulkDialog(cur, load);
+  $('#ars-xlsx').onclick = () => rosterImportDialog(cur, load);
   $('#ars-close').onclick = () => { s.close(); reload?.(); };
   load();
 }
 
+/* 批量粘贴：从 Excel 里复制姓名+学科两列直接贴进来 */
 function bulkDialog(grade, reload) {
   const body = el(`<div class="sheet-body">
     <div class="small muted" style="margin-bottom:8px">每行一位教师，可以写「姓名」或「姓名 学科」或「姓名,学科」。从 Excel 里复制一整列直接粘进来也行。</div>
@@ -1520,7 +1628,47 @@ function bulkDialog(grade, reload) {
   };
 }
 
-/* ================= 统计（按新结构重算） ================= */
+/* 名册 Excel 导入：直接读一张「姓名 / 学科」的表 */
+function rosterImportDialog(grade, reload) {
+  const body = el(`<div class="sheet-body">
+    <div class="att-drop" id="rdrop">
+      <div class="ad-ico">${icon('upload', 24)}</div>
+      <div class="ad-t">选一个 Excel 名册</div>
+      <div class="ad-s">里面有一列「姓名」就够了，有「学科」更好</div>
+      <input type="file" id="rfile" accept=".xlsx,.xlsm,.csv,.tsv,.txt" hidden>
+    </div>
+    <div class="att-tip-note">读到的人会加到「${esc(grade)}」名册里，重名的自动跳过。</div>
+    <div class="confirm-actions"><button class="btn ghost" id="c">取消</button></div>
+  </div>`);
+  const s = sheet({ title: `导入「${grade}」名册`, body });
+  const $ = (x) => body.querySelector(x);
+  $('#rdrop').onclick = () => $('#rfile').click();
+  $('#c').onclick = s.close;
+  $('#rfile').onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    let grid;
+    try { grid = (await readGrid(f)).grid; }
+    catch (err) { return toast(err.message, 'err', 7000); }
+    /* 找表头行：包含「姓名」的那一行；没有就当第一行就是数据 */
+    const hIdx = grid.findIndex((row) => (row || []).some((c) => /姓名|名字|教师|老师/.test(String(c))));
+    const head = hIdx >= 0 ? grid[hIdx] : null;
+    const nCol = head ? head.findIndex((c) => /姓名|名字|教师|老师/.test(String(c))) : 0;
+    const sCol = head ? head.findIndex((c) => /学科|科目/.test(String(c))) : 1;
+    const items = [];
+    for (let i = (head ? hIdx + 1 : 0); i < grid.length; i++) {
+      const name = String(grid[i]?.[nCol] ?? '').trim();
+      if (!name || !/^[\u4e00-\u9fa5a-zA-Z·]{2,10}$/.test(name)) continue;
+      items.push({ name, subject: sCol >= 0 ? String(grid[i]?.[sCol] ?? '').trim() : '' });
+    }
+    if (!items.length) return toast('没读到姓名，检查一下这一列是不是文字', 'err', 6000);
+    const res = await api.post('/teachers', { grade, items });
+    s.close();
+    toast(`导入 ${items.length} 人${res.skipped ? `，${res.skipped} 人已存在` : ''}`);
+    reload();
+  };
+}
+
+/* ================= 统计 ================= */
 async function showStats(id) {
   const t = await api.get('/attendance/' + id);
   const cols = t.columns.filter((c) => c.type === 'check');
@@ -1543,10 +1691,9 @@ async function showStats(id) {
     <div class="table-wrap"><table class="tbl" style="min-width:0">
       <thead><tr><th>学科</th><th>人数</th><th>已完成</th><th>未完成</th><th>完成率</th><th>未完成名单</th></tr></thead>
       <tbody>${rowsHtml}</tbody></table></div>
-    <div class="confirm-actions"><button class="btn ghost" id="expd">导出这张表</button></div></div>`);
+    <div class="confirm-actions"><button class="btn ghost" id="expd">导出 CSV</button></div></div>`);
   const s = sheet({ title: '学科统计', body, wide: true });
   body.querySelector('#expd').onclick = () => {
-    // 静态版：本地取数后造 CSV 下载（没有 /api/export 文件流）
     doExport('attendance', { month: String(t.id), format: 'csv' });
   };
 }
@@ -1561,34 +1708,25 @@ async function showStats(id) {
    原因不是跨域图片，而是 **foreignObject 里的内容被浏览器视为不可信来源**，
    一旦 drawImage 到 canvas，这张画布就被标记成 tainted，
    之后 getImageData / toDataURL / toBlob 全部抛 SecurityError。
-   实测三种导出一个都取不出来，不是偶发。
 
    现在的做法：**不用 DOM，直接拿 canvas 画表格**。
    位置全部按列宽/行高手算，文字用 fillText，勾叉用路径。
-   好处是画布始终同源、一定能导出；顺带不再依赖「等 60ms 让布局稳定」这种玄学。
-   导出失败也有明确回退：提示改用「打印 → 另存为 PDF」，那条路本来就有。 */
+   好处是画布始终同源、一定能导出。 */
 async function shotTable(id) {
   const t = await api.get('/attendance/' + id);
   const cols = (t.columns || []).filter((c) => c.type === 'check');
-  const isSeat = t.sheet_type === 'seat';
+  const isSeat = (t.sheet_type || t.kind) === 'seat';
   const d = t.sheet_date ? new Date(t.sheet_date + 'T00:00:00') : null;
   const dateLine = d && !Number.isNaN(d.getTime())
     ? `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日　星期${WD[d.getDay()]}${t.periods ? '　第 ' + t.periods + ' 节' : ''}`
     : '';
 
   try {
-    const blob = await renderSheetPng({
-      title: t.name,
-      dateLine,
-      rows: t.rows || [],
-      cols,
-      isSeat,
-    });
+    const blob = await renderSheetPng({ title: t.name, dateLine, rows: t.rows || [], cols, isSeat });
     const stamp = String(t.sheet_date || ymd()).replace(/-/g, '');
     saveBlob(blob, `${t.name}-${stamp}.png`);
     toast('图片已生成，可直接发群里');
   } catch (e) {
-    /* 真出不来就老实说，并给一条一定能走的路 */
     console.warn('导出 PNG 失败', e);
     toast('图片导出没成功，可以改用「打印 → 另存为 PDF」', 'err', 6000);
   }
@@ -1604,7 +1742,7 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat }) {
   const W = Math.max(tableW, isSeat ? 860 : 560) + PAD * 2;
   const HEAD_H = 34;
   const ROW_H = 34;
-  const TOP = 96;                                   // 标题 + 日期占的高度
+  const TOP = 96;
   const FOOT = 52;
   const H = TOP + HEAD_H + rows.length * ROW_H + FOOT;
 
@@ -1618,7 +1756,6 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat }) {
   ctx.fillRect(0, 0, W, H);
 
   const FONT = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
-  /* 标题 */
   ctx.fillStyle = '#1c1c1e';
   ctx.font = `700 19px ${FONT}`;
   ctx.textAlign = 'center';
@@ -1630,13 +1767,11 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat }) {
     ctx.fillText(dateLine, W / 2, PAD + 36);
   }
 
-  /* 表头文字 */
-  const heads = ['序号', '姓名', '学科', ...cols.map((c) => c.label)];
+  const heads = ['序号', '姓名', '学科', ...cols.map((c) => c.label.replace(/^[左右]栏·/, ''))];
   const widths = [...colW, ...cols.map(() => chkW)];
   const left = (W - widths.reduce((a, b) => a + b, 0)) / 2;
   const top = PAD + TOP - PAD;
 
-  /* 表头底色 */
   const totalW = widths.reduce((a, b) => a + b, 0);
   ctx.fillStyle = '#f2f2f7';
   ctx.fillRect(left, top, totalW, HEAD_H);
@@ -1652,11 +1787,10 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat }) {
     x += widths[i];
   });
 
-  /* 数据行 */
   ctx.font = `13px ${FONT}`;
   rows.forEach((r, ri) => {
     const y = top + HEAD_H + ri * ROW_H;
-    if (ri % 2 === 1) {          // 隔行浅底，长表更好读
+    if (ri % 2 === 1) {
       ctx.fillStyle = '#fafafd';
       ctx.fillRect(left, y, totalW, ROW_H);
     }
@@ -1700,7 +1834,6 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat }) {
     });
   });
 
-  /* 页脚 */
   ctx.fillStyle = '#8e8e93';
   ctx.font = `11px ${FONT}`;
   ctx.fillText(
@@ -1708,7 +1841,6 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat }) {
     W / 2, top + HEAD_H + rows.length * ROW_H + 24,
   );
 
-  /* 导成 PNG。到这一步画布从头到尾都是自己画的，不可能 tainted */
   return new Promise((res, rej) => {
     cv.toBlob((b) => (b ? res(b) : rej(new Error('canvas 导出为空'))), 'image/png');
   });
