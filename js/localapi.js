@@ -3462,6 +3462,26 @@ on('DELETE', '/:table/:id', ({ params }) => {
 /* 返回 { ok:true, data } 或抛 { code, error }，与 api.req 的期望一致。 */
 export async function handle(method, path, query = {}, body = undefined) {
   const clean = path.split('?')[0];
+
+  /* ================= 【A 方案：课时走真云端】 =================
+     只有 /lessons 这一族接口转发到 Supabase，其余 140 多个接口
+     继续走下面的本地逻辑。这样做的理由：
+       · 一次全改风险太高，改坏一处整个工作台都用不了
+       · 先用一张表在真机上跑通，确认「登录→看到→改→另一设备看到」
+       · 跑通后逐张表推进，随时可以停下来回滚
+     开关：只有配置了 Supabase 且已登录时才走云端。
+     没配置 / 没登录时，课时仍然用本地数据 —— 保证随时可用，
+     不会因为网络或配置问题把已有功能拖死。 */
+  if (CLOUD_TABLES.has(clean.split('/')[1]) && await cloudReady()) {
+    try {
+      const data = await cloudRoute(method, clean, query, body);
+      return { ok: true, data };
+    } catch (e) {
+      /* 云端出错时说清楚是云端的事，别让用户以为是本地坏了 */
+      return { ok: false, error: '云端：' + (e.message || e), code: 502, cloud: true };
+    }
+  }
+
   for (const r of R) {
     if (r.method !== method) continue;
     const m = r.re.exec(clean);
@@ -3478,6 +3498,31 @@ export async function handle(method, path, query = {}, body = undefined) {
     }
   }
   return { ok: false, error: '接口不存在（静态版）：' + method + ' ' + clean, code: 404 };
+}
+
+/* 哪些表已经迁到云端。推进时往这里加表名即可 */
+const CLOUD_TABLES = new Set(['lessons']);
+
+async function cloudReady() {
+  try {
+    const m = await import('./cloud.js');
+    return !!(m.cfg() && m.session());
+  } catch { return false; }
+}
+
+async function cloudRoute(method, clean, query, body) {
+  const m = await import('./cloud.js');
+  const seg = clean.split('/').filter(Boolean);   // ['lessons'] 或 ['lessons','12']
+  const table = seg[0];
+  const id = seg[1];
+
+  if (table !== 'lessons') throw new Error('该表还没接云端：' + table);
+
+  if (method === 'GET' && !id) return m.listLessons(query);
+  if (method === 'POST' && !id) return m.createLesson(body || {});
+  if ((method === 'PATCH' || method === 'PUT') && id) return m.updateLesson(id, body || {});
+  if (method === 'DELETE' && id) return m.deleteLesson(id);
+  throw new Error(`云端暂不支持：${method} ${clean}`);
 }
 
 /* ============================ 小工具 ============================ */

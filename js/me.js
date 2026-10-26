@@ -3,7 +3,8 @@ import {
 } from './core.js';
 import { registerView, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, paintUnread, refreshUnread } from './ui.js';
 import { AUTH_CFG } from './ui.js';
-import { bindSheet, makeShareLink } from './cloudsync.js';
+import { makeShareLink } from './cloudsync.js';
+import { loginSheet, cloudOn } from './auth.js';
 
 registerView(async function me(main, { query }) {
   const { path } = parseHash();
@@ -119,28 +120,14 @@ async function renderMe(main) {
     if (a === 'security') return securitySheet();
     if (a === 'backup') return backupSheet();
     if (a === 'cloud') {
-      bindSheet();
-      /* 【绑定/解绑后要让状态标签跟着变】
-         这个「我的」页面是一次性渲染的，syncBadge() 在渲染那一刻读一次
-         localStorage 就定死了。用户在弹层里绑定成功后，弹层一关，
-         列表里那行「云同步」还挂着「未开启」——用户以为没绑上，
-         反复重试，甚至怀疑自己操作错了。
-         这里在弹层关闭时补一次轻量重绘：只换那个 chip，不整页重渲染，
-         用户不丢滚动位置、不闪。 */
-      const paint = () => {
-        const el = main.querySelector('[data-act="cloud"] .chip');
-        if (el) el.outerHTML = syncBadge();
-        else {
-          // 原来没有 chip（未绑定时是有 chip 的，这里兜底处理异常情况）
-          const btn = main.querySelector('[data-act="cloud"]');
-          if (btn) btn.insertAdjacentHTML('beforeend', syncBadge());
-        }
-      };
-      // 弹层关闭（绑定成功/解绑都会 close）后重绘
-      const obs = new MutationObserver(() => {
-        if (!document.body.querySelector('.sheet-mask')) { paint(); obs.disconnect(); }
+      /* 【A 方案：这里不再是手动上传/下载，而是登录】
+         以前点进来是「生成/输入同步密钥 → 上传 / 下载」，
+         换设备要重输 32 位密钥，改完还得记得点上传。
+         现在改成邮箱密码登录，课时直接读写云上。
+         旧的 bindSheet 没删（还有别的入口在用），但主路径换成登录。 */
+      loginSheet({
+        onDone: () => { render(); },
       });
-      obs.observe(document.body, { childList: true, subtree: true });
       return;
     }
     if (a === 'share') return shareSheet();
@@ -553,7 +540,35 @@ function accountPwdSheet(parent) {
 
 
 /* ================= 备份 ================= */
-/* 云同步入口的状态小标签：绑定了显示状态，没绑定提示去开 */
+/* 云同步入口的状态小标签。
+   【A 方案改了这里的语义】以前状态只有一个来源：旧的手动同步配置
+   （wb_cloud_cfg）。现在多了一个「已登录 Supabase」的通道，
+   而且登录才是我们想引导用户去用的那一种，所以优先显示登录状态。
+   旧通道没下线，仍然保留，只是排在后面 —— 免得已经绑了旧密钥的
+   用户看到「未开启」，以为自己的配置丢了。 */
+function syncBadge() {
+  if (cloudOn()) {
+    return '<span class="chip" style="background:#DCFCE7;color:#166534">已登录</span>';
+  }
+  try {
+    const c = JSON.parse(localStorage.getItem('wb_cloud_cfg') || 'null');
+    if (!c) return '<span class="chip" style="background:#FEF3C7;color:#92400E">未登录</span>';
+    const m = JSON.parse(localStorage.getItem('wb_cloud_meta') || '{}');
+    if (m.conflict) return '<span class="chip" style="background:#FEE2E2;color:#991B1B">有冲突</span>';
+    /* 【绑了但一次都没传成功，要说出来】
+       以前只要 localStorage 里有配置就一律显示「已开启」。
+       可「绑上了」和「数据真的在云上」是两件事 ——
+       绑定时上传失败会被静默吞掉（见 bindSheet 的注释），
+       界面却照样报成功、标签照样变绿，用户以为万事大吉，
+       换设备时才发现云端是空的。
+       这里把「已经传过」和「还没传成」分开显示。 */
+    if (!m.lastPush) {
+      return '<span class="chip" style="background:#FEF3C7;color:#92400E">已绑定·未上传</span>';
+    }
+    return '<span class="chip" style="background:#DCFCE7;color:#166534">已开启</span>';
+  } catch { return ''; }
+}
+
 /* 搬到另一台设备：把库压成一条链接，微信发给自己、手机点开即导入。
    不起服务器、不注册账号，比备份文件少一步「传到手机」的操作。 */
 async function shareSheet() {
@@ -590,27 +605,6 @@ async function shareSheet() {
   } catch (e) {
     box.innerHTML = `<div class="small" style="color:var(--red,#dc2626);padding:8px 0">生成失败：${esc(e.message)}</div>`;
   }
-  return s;
-}
-
-function syncBadge() {
-  try {
-    const c = JSON.parse(localStorage.getItem('wb_cloud_cfg') || 'null');
-    if (!c) return '<span class="chip" style="background:#FEF3C7;color:#92400E">未开启</span>';
-    const m = JSON.parse(localStorage.getItem('wb_cloud_meta') || '{}');
-    if (m.conflict) return '<span class="chip" style="background:#FEE2E2;color:#991B1B">有冲突</span>';
-    /* 【绑了但一次都没传成功，要说出来】
-       以前只要 localStorage 里有配置就一律显示「已开启」。
-       可「绑上了」和「数据真的在云上」是两件事 ——
-       绑定时上传失败会被静默吞掉（见 bindSheet 的注释），
-       界面却照样报成功、标签照样变绿，用户以为万事大吉，
-       换设备时才发现云端是空的。
-       这里把「已经传过」和「还没传成」分开显示。 */
-    if (!m.lastPush) {
-      return '<span class="chip" style="background:#FEF3C7;color:#92400E">已绑定·未上传</span>';
-    }
-    return '<span class="chip" style="background:#DCFCE7;color:#166534">已开启</span>';
-  } catch { return ''; }
 }
 
 function backupSheet() {

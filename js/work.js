@@ -3,6 +3,7 @@ import { printStatement } from './pdfprint.js';
 import { registerView, state, icon, go, pageHead, onViewLeave, subCurrentOf, NAV } from './ui.js';
 import { renderAttendance } from './attendance.js';
 import { detectTimetable } from './ttimage.js';
+import { loginBanner, hookBanner } from './auth.js';
 
 const M = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 /* 备注字段统一生成器。
@@ -193,6 +194,7 @@ async function renderLessons(box) {
     const netTxt = net.direction === 'even' ? '已平' : `${net.direction === 'receivable' ? '应收' : '应付'} ${money(Math.abs(net.amount))}`;
 
     box.innerHTML = `
+    ${loginBanner()}
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
       <div class="row" style="gap:4px"><button class="icon-btn sm" data-mprev>${icon('left', 16)}</button>
         <button class="btn ghost sm month-btn" data-mpick style="min-width:112px;justify-content:center">${monthLabel(month)}</button>
@@ -300,6 +302,7 @@ async function renderLessons(box) {
     </table></div>`;
 
     // 月份切换
+    hookBanner(box);
     box.querySelector('[data-mprev]').onclick = () => { month = monthShift(month, -1); load(); };
     box.querySelector('[data-mnext]').onclick = () => { month = monthShift(month, 1); load(); };
     box.querySelector('[data-mpick]').onclick = () => pickMonth(month, (m) => { month = m; load(); });

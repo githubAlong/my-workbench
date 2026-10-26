@@ -3164,3 +3164,56 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   .att-sheet .att-header { position: sticky; top: 0; z-index: 12; background: var(--card); padding-top: 6px;
     margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px; }
 }
+
+/* ============================================================================
+   登录 / 云同步（auth.js）
+   这一块是跟着「课时搬上云」一起加的。样式独立成 .cl- 前缀，
+   不碰原有任何类，避免牵连到别的页面。
+   ========================================================================== */
+
+/* 课时页顶部的登录提示条：可点、可忽略，不挡内容 */
+.cl-banner {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; margin: 0 0 12px; padding: 10px 12px;
+  border: 1px solid var(--line, #e6e8ec); border-radius: 12px;
+  background: linear-gradient(180deg, #f5f9ff, #eef4ff);
+  color: var(--text, #1f2328); font-size: 13px; font-weight: 600;
+  cursor: pointer; text-align: left; transition: filter .15s;
+}
+.cl-banner:hover { filter: brightness(.98); }
+.cl-banner:active { transform: scale(.995); }
+[data-theme="dark"] .cl-banner {
+  background: linear-gradient(180deg, #1b2533, #17202c); border-color: #2a3648;
+}
+
+/* 弹层顶部的说明块：图标 + 两行话 */
+.cl-hero { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 16px; }
+.cl-ico {
+  flex: 0 0 auto; width: 46px; height: 46px; border-radius: 13px;
+  display: grid; place-items: center;
+  background: #e8f0ff; color: #2559b8;
+}
+.cl-ico.ok { background: #e4f7ea; color: #157347; }
+[data-theme="dark"] .cl-ico { background: #1e2a3c; color: #7fb0ff; }
+[data-theme="dark"] .cl-ico.ok { background: #17301f; color: #62d492; }
+
+/* 账号状态的三行清单 */
+.cl-list {
+  border: 1px solid var(--line, #e6e8ec); border-radius: 12px; overflow: hidden;
+}
+.cl-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 11px 13px; font-size: 13px;
+}
+.cl-row + .cl-row { border-top: 1px solid var(--line, #e6e8ec); }
+.cl-row > span { color: var(--text-2, #656d76); }
+.cl-row > b { font-weight: 600; }
+[data-theme="dark"] .cl-list, [data-theme="dark"] .cl-row + .cl-row { border-color: #2a3648; }
+
+/* 底部提示：小字、浅色底，别抢主按钮的注意力 */
+.cl-tip {
+  margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+  background: var(--fill-2, #f6f8fa); color: var(--text-2, #656d76);
+  font-size: 12px; line-height: 1.72;
+}
+[data-theme="dark"] .cl-tip { background: #1b2129; color: #9aa7b5; }
