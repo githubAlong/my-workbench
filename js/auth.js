@@ -216,9 +216,9 @@ export function loginSheet(opts = {}) {
     <div class="tiny muted" id="cl-msg" style="margin-top:12px;min-height:19px;text-align:center"></div>
 
     <div class="cl-tip">
-      <b>没有账号？</b> 这一步只做一次。
-      打开 Supabase 后台 → Authentication → Users → Add user，
-      填你的邮箱和一个密码（记得勾上自动确认）。以后就用它登录。
+      <b>没有账号？</b> 不用再去后台建了 ——
+      打开工作台的登录页，点「还没有账号？注册一个」，自己设账号和密码就行。
+      注册完回到这里用同一个邮箱密码登录，云端就接上了。
     </div>
 
     ${cloud.cfg() ? `<button class="btn ghost block" id="cl-adv" style="margin-top:8px;justify-content:center;font-size:13px">换一个 Supabase 项目</button>` : ''}

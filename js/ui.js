@@ -565,15 +565,16 @@ export async function loadAuthConfig() {
    所以这里不再有验证码页签、扫码页签、第三方登录按钮 —— 全部删掉，
    只留「账号 / 密码」两个输入框，加一个「登录」和一行「还没有账号？注册」。
 
-   【2026-10 起注册入口关闭】
-   工作台已经接上 Supabase，账号由教师在 Supabase 后台自己建，只建一个。
-   页面上再留「注册一个」，等于让任何打开网址的人都能在这台设备上建个账号，
-   建完就进了工作台 —— 虽然读不到云端数据（RLS 挡着），但会让人以为是"谁都能用"，
-   也会让教师自己在正式账号之外多出一个本地空账号，反而更容易搞混。
+   【2026-10 注册入口重新打开】
+   曾经关掉过，理由是「账号由教师在 Supabase 后台自己建」。
+   但真实后果是：没有后台权限的人一个号都没有，登录页成了死胡同 ——
+   用户的原话是「暂时我也没有账号，因为现在不可以注册」。
 
-   现在只保留登录。真要开回来，把 ALLOW_SIGNUP 改成 true 就行，
-   不用去翻散落在各处的判断。 */
-const ALLOW_SIGNUP = false;
+   所以现在打开。安全边界交给云端 RLS（user_id = auth.uid()），不靠藏按钮：
+   藏按钮从来不叫禁用，控制台发一个请求就绕过了；而 RLS 是数据库层面拦的，
+   一个空账号进得去工作台本机功能，但读不到任何别人的数据。
+   这才把"能不能用"和"能看到谁的数据"分开，也是更靠谱的那一半。 */
+const ALLOW_SIGNUP = true;
 
 function authTabsHTML() {
   const mode = authMode === 'register' ? '注册新账号' : '登录';
@@ -696,28 +697,60 @@ function sheetRaw(title, bodyEl) {
 }
 
 /* 【账号 + 密码：一个表单同时管登录和注册】
-   注册与登录的差别只有两处：要不要输第二遍密码、调哪个接口。
+   注册与登录的差别只有两处：要不要输第二遍密码、提交走哪条路。
    所以做成同一个表单，authMode 决定文案和提交路径 ——
-   这样用户永远只面对两个输入框，不会在页面之间来回跳。 */
+   这样用户永远只面对两个输入框，不会在页面之间来回跳。
+
+   【账号可以填邮箱】
+   很多人记得住自己的邮箱，记不住"第几个账号名"。Supabase 那边也只认邮箱，
+   所以这里统一放开：短名和邮箱都能过，短名在送云端时补一个 @workbench.local 后缀
+   （见 cloud.js 的 toCloudEmail）。 */
+const ACCT_MAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const ACCT_NAME_RE = /^[A-Za-z0-9_]{3,20}$/;
+function acctOk(v) {
+  const a = String(v || '').trim();
+  return ACCT_MAIL_RE.test(a) ? a.length <= 64 : ACCT_NAME_RE.test(a);
+}
+
 function authPassword() {
   const isReg = authMode === 'register';
   const body = document.getElementById('auth-body');
   body.innerHTML = `
     <div class="auth-input"><input id="acct" type="text" autocomplete="username"
-      placeholder="账号（3~20 位字母、数字或下划线）" maxlength="20"></div>
+      placeholder="账号或邮箱（如 zhangsan / you@qq.com）" maxlength="64"></div>
     <div class="auth-input"><input id="pwd" type="password" autocomplete="${isReg ? 'new-password' : 'current-password'}"
       placeholder="密码（至少 6 位）" maxlength="32"></div>
     ${isReg ? '<div class="auth-input"><input id="pwd2" type="password" autocomplete="new-password" placeholder="再输一遍密码" maxlength="32"></div>' : ''}
     <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册并登录' : '登录'}</button>
-    <div class="small muted" style="margin-top:10px;line-height:1.6">
-      ${isReg ? '账号密码由你自己设，不需要手机号、不需要短信验证码。' : '登录后数据跟着账号走，手机、电脑打开是同一份。'}
+    <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6"></div>
+    <div class="small muted" style="margin-top:6px;line-height:1.6">
+      ${isReg
+      ? '账号密码由你自己设，不需要手机号、不需要短信验证码。'
+      : '登录后数据跟着账号走，手机、电脑打开是同一份。'}
     </div>`;
+
+  const hint = document.getElementById('auth-hint');
+  const say = (t) => { if (hint) hint.textContent = t || ''; };
+
+  /* 注册模式下先把云端状态探一次，好让用户提交之前就知道"注册完能不能连上云"，
+     而不是注册完、进了工作台，才发现数据页一片空白 */
+  if (isReg) {
+    (async () => {
+      try {
+        const cloud = await import('./cloud.js');
+        const st = await cloud.canSignUp();
+        if (st.ok) say('注册后会自动连上云端，手机和电脑看到的是同一份数据。');
+        else if (st.reason === 'off') say('网站后台暂时没开云端注册。你可以先注册本机账号照常用，云端那部分等后台打开后自动接上。');
+        else say('这会儿网络不太顺，先注册本机账号也能正常用。');
+      } catch { /* 探测失败不影响注册 */ }
+    })();
+  }
 
   const submit = async () => {
     if (!checkAgree()) return;
     const acct = document.getElementById('acct').value.trim();
     const pwd = document.getElementById('pwd').value;
-    if (!/^[A-Za-z0-9_]{3,20}$/.test(acct)) return toast('账号要 3~20 位字母、数字或下划线', 'warn');
+    if (!acctOk(acct)) return toast('账号要 3~20 位字母、数字或下划线，或者直接填邮箱', 'warn');
     if (!pwd || pwd.length < 6) return toast('密码至少 6 位', 'warn');
     if (isReg) {
       const pwd2 = document.getElementById('pwd2').value;
@@ -725,21 +758,78 @@ function authPassword() {
     }
     const btn = document.getElementById('do-login');
     btn.disabled = true; btn.textContent = isReg ? '注册中…' : '登录中…';
+
     try {
-      const r = isReg
-        ? await api.post('/auth/register', { account: acct, password: pwd })
-        : await api.post('/auth/login', { account: acct, password: pwd });
-      state.user = r.user;
-      await loadMe();
-      const back = takeQrReturn();
-      location.hash = back ? `#/qr?id=${back}` : '#/home';
-      render();
-      toast(isReg ? '账号已创建，开始使用吧' : '欢迎回来');
+      if (!isReg) {
+        const r = await api.post('/auth/login', { account: acct, password: pwd });
+        await done(r.user, false);
+        return;
+      }
+
+      /* ---------------- 注册 ----------------
+         顺序是「先本机、再云端」，而不是反过来。
+         原因：本机注册一定能成（数据就在 localStorage 里），
+         云端注册要撞后台开关，可能被拒。
+         先本机成功 → 用户已经能进工作台了，云端失败只是"少了一半功能"而不是"注册失败"。
+         反过来的话，云端一拒，用户连本机账号都没有，又回到"没有账号"的死局。 */
+      let local;
+      try {
+        local = await api.post('/auth/register', { account: acct, password: pwd });
+      } catch (e) {
+        /* "这台设备已经有账号了"不算失败 —— 说明以前注册过，
+           正好接着往下走云端那一步，而不是把人挡在外面 */
+        if (e.code !== 409) throw e;
+        local = null;
+      }
+
+      let cloudMsg = '';
+      try {
+        const cloud = await import('./cloud.js');
+        const mail = cloud.toCloudEmail(acct);
+        const up = await cloud.signUp(mail, pwd);
+        if (up.needConfirm) {
+          cloudMsg = '云端账号已创建，但还需要去邮箱点一下确认邮件，之后才会开始同步。';
+        } else {
+          const uid = cloud.cloudUid();
+          const rc = await api.post('/auth/register-cloud',
+            { account: acct, password: pwd, email: mail, uid }, { silent: true });
+          if (rc?.user) local = rc;
+          try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
+        }
+      } catch (e) {
+        if (e.code === 'signup_disabled') {
+          cloudMsg = '账号已建好。云端注册开关还关着，去 Supabase 后台打开 Allow new users to sign up 之后，重新注册一次就能连上云。';
+        } else if (e.code === 'exists') {
+          cloudMsg = '本机账号已建好；这个邮箱在云端已经有了，去「我的 → 云同步」用原密码登录即可接上。';
+        } else {
+          cloudMsg = '账号已建好。云端这次没连上（' + (e.message || e) + '），不影响本机使用。';
+        }
+      }
+
+      if (!local) {
+        /* 409 且账号密码也与本机一致 —— 相当于重登，不需要云端再做一遍 */
+        local = await api.post('/auth/login', { account: acct, password: pwd });
+      }
+      await done(local.user, true, cloudMsg);
     } catch (e) {
       btn.disabled = false; btn.textContent = isReg ? '注册并登录' : '登录';
       toast(e.message || '登录失败', 'err');
     }
   };
+
+  /* 登录/注册成功后的共同收尾：写 state、跳页面、给提示 */
+  async function done(user, isReg, cloudMsg) {
+    state.user = user;
+    try { await loadMe(); } catch { }
+    const back = takeQrReturn();
+    location.hash = back ? `#/qr?id=${back}` : '#/home';
+    render();
+    toast(isReg ? '账号已创建，开始使用吧' : '欢迎回来', 'ok');
+    /* 云端那半边的结果必须单独说一次：
+       "注册成功"和"能不能看到云端数据"是两件事，混在一句话里只会让人困惑 */
+    if (cloudMsg) setTimeout(() => toast(cloudMsg, 'warn', 9000), 900);
+  }
+
   document.getElementById('do-login').onclick = submit;
   /* 回车直接提交，不用去点按钮 */
   body.querySelectorAll('input').forEach((el) => {

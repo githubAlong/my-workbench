@@ -96,6 +96,137 @@ export function looksLikePhone(v) {
   return /^\+?\d{7,15}$/.test(s);
 }
 
+/* ----------------------------------------------------------------------------
+   账号 → 云端邮箱
+
+   【为什么需要这一步】
+   工作台的登录框允许「账号」是邮箱，也允许是 zhangsan 这种短名。
+   但 Supabase 的 email 字段只认邮箱格式 —— 短名直接丢过去必然 400。
+
+   所以短名在这里补一个固定后缀，变成 zhangsan@workbench.local 再送去云端。
+   用 .local 是刻意的：这个顶级域在公网 DNS 里不存在，
+   就算哪天误发了验证邮件也投不出去，不会真去打扰谁。
+
+   邮箱则原样使用（小写化），这样老师用 516796162@qq.com 注册，
+   云端账号和他在别处记的邮箱是同一个，不会多出一个"影子账号"。
+--------------------------------------------------------------------------- */
+export const LOCAL_MAIL_DOMAIN = 'workbench.local';
+export function toCloudEmail(account) {
+  const a = String(account || '').trim().toLowerCase();
+  if (!a) return '';
+  return a.includes('@') ? a : a + '@' + LOCAL_MAIL_DOMAIN;
+}
+/* 反方向：云端邮箱 → 页面显示的账号。短名的后缀要剥掉，否则界面上会多出一串看不懂的字。 */
+export function fromCloudEmail(email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return '';
+  return e.endsWith('@' + LOCAL_MAIL_DOMAIN) ? e.slice(0, -(LOCAL_MAIL_DOMAIN.length + 1)) : e;
+}
+
+/* 【云端注册到底开没开 —— 必须问得出来，而且不能猜】
+   用户的 Supabase 后台有个「Allow new users to sign up」开关，
+   关着的时候 /auth/v1/signup 会回 422 signup_disabled。
+   代码改不了那个开关（要后台权限），只能先探再决定走哪条路：
+
+     开着  → 注册时云端 + 本机一起建，从此多端同步
+     关着  → 只建本机账号，界面上如实说明差哪一步
+
+   探测手法：发一次「必然失败」的注册（空邮箱 + 短密码）。
+   开关关着 → 服务端在参数校验之前就直接拒（422 signup_disabled）；
+   开关开着 → 走参数校验，回 400 weak_password 之类。
+   两种结果的错误码不同，所以能区分，而且不会真建出账号。
+
+   结果缓存 10 分钟：这个开关不会秒变，没必要每开一次登录页打一次网络。 */
+const SIGNUP_PROBE_KEY = 'wb_supa_signup_state';
+const SIGNUP_PROBE_TTL = 10 * 60 * 1000;
+
+export async function canSignUp(force = false) {
+  const c = cfg();
+  if (!c) return { ok: false, reason: '云端还没配置' };
+
+  if (!force) {
+    try {
+      const cache = JSON.parse(localStorage.getItem(SIGNUP_PROBE_KEY) || 'null');
+      if (cache && Date.now() - cache.at < SIGNUP_PROBE_TTL) return cache.v;
+    } catch { }
+  }
+
+  const save = (v) => {
+    try { localStorage.setItem(SIGNUP_PROBE_KEY, JSON.stringify({ at: Date.now(), v })); } catch { }
+    return v;
+  };
+
+  try {
+    const r = await fetch(c.url + '/auth/v1/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: c.anon },
+      body: JSON.stringify({ email: '', password: '' }),
+    });
+    const j = await r.json().catch(() => ({}));
+    const code = String(j.error_code || j.code || '');
+    if (/signup_disabled/i.test(code) || /Signups not allowed/i.test(j.msg || j.message || '')) {
+      return save({ ok: false, reason: 'off' });
+    }
+    /* 没回 signup_disabled 就说明门是开的（回的是参数错误、弱密码、429 之类） */
+    return save({ ok: true, reason: 'on' });
+  } catch (e) {
+    /* 网络不通不该被解读成"注册关了" —— 说"不知道"，让调用方按本机路径走 */
+    return { ok: false, reason: 'unknown', error: String(e.message || e) };
+  }
+}
+
+export function clearSignUpCache() {
+  try { localStorage.removeItem(SIGNUP_PROBE_KEY); } catch { }
+}
+
+/* 云端注册。成功后 token 直接落盘 —— 注册即登录，不用再让用户输一遍。 */
+export async function signUp(email, password) {
+  const c = cfg();
+  if (!c) throw new Error('还没配置 Supabase 地址');
+  const r = await fetch(c.url + '/auth/v1/signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: c.anon },
+    body: JSON.stringify({ email, password }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = j.error_description || j.msg || j.message || ('HTTP ' + r.status);
+    const code = String(j.error_code || j.code || '');
+    if (/signup_disabled/i.test(code) || /Signups not allowed/i.test(msg)) {
+      clearSignUpCache();
+      const e = new Error('云端注册开关是关着的');
+      e.code = 'signup_disabled';
+      throw e;
+    }
+    if (/already registered|already exists|user_already_exists/i.test(msg + code)) {
+      const e = new Error('这个邮箱已经在云端注册过了，直接登录就行');
+      e.code = 'exists';
+      throw e;
+    }
+    if (/Password should be|weak_password/i.test(msg + code)) {
+      throw new Error('密码太简单了，换一个稍长一点的');
+    }
+    throw new Error(msg);
+  }
+  /* 关掉「Confirm email」时服务端直接回 token；开着时只回 user、没有 token。
+     后一种情况下注册是成功了，但还得去邮箱点确认 —— 如实告诉用户。 */
+  if (j.access_token) {
+    adoptTokens(j);
+    return { session: session(), needConfirm: false };
+  }
+  return { session: null, needConfirm: true, user: j.user || j };
+}
+
+/* 当前云端登录的是谁（uid）。没登录返回空串，不抛错。 */
+export function cloudUid() {
+  const t = tok();
+  return t && t.uid ? t.uid : '';
+}
+export function cloudEmail() {
+  const t = tok();
+  return t && t.email ? t.email : '';
+}
+
 export async function login(email, password) {
   const c = cfg();
   if (!c) throw new Error('还没配置 Supabase 地址');
