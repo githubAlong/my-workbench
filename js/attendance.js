@@ -31,8 +31,17 @@ import { parseAttendanceSheet } from './att-parse.js';
 const WD = ['日', '一', '二', '三', '四', '五', '六'];
 const pad2 = (n) => String(n).padStart(2, '0');
 const ymd = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-const TYPE_LABEL = { seat: '教师坐班表', research: '教师教研签到表' };
-const TYPE_SHORT = { seat: '坐班表', research: '教研签到表' };
+/* 三种表，对应老师手上三种纸：
+   seat     教师坐班表     —— 上课/坐班/听课/教研/请假 五个勾
+   research 教师教研签到表 —— 一个「签到」勾，按学科分块
+   class    教师上课检查表 —— 一个「按时上课」勾，查老师有没有到堂
+   第三种是老师新提的：「我会查老师有没有按时上课，只同步每个老师上课的名单就行」。 */
+const TYPE_LABEL = { seat: '教师坐班表', research: '教师教研签到表', class: '教师上课检查表' };
+const TYPE_SHORT = { seat: '坐班表', research: '教研签到表', class: '上课检查表' };
+/* 表类型排序：坐班、教研是每天必查；上课检查按个人习惯，放第三 */
+const TYPE_ORDER = ['seat', 'research', 'class'];
+/* 有节次概念的表类型（教研签到是按场次，没有第几节） */
+const hasPeriod = (t) => t !== 'research';
 
 /* 两个主 tab。学校的考勤只管高一高二；要加年级走「+」那个按钮。 */
 const MAIN_GRADES = ['高一', '高二'];
@@ -59,7 +68,14 @@ function researchCols() {
     { key: 'k_remark', label: '备注', type: 'text', w: 150 },
   ];
 }
-const colsOf = (type) => (type === 'research' ? researchCols() : seatCols());
+/* 查上课：一列「按时上课」，加备注 */
+function classCols() {
+  return [
+    { key: 'k_准时', label: '按时上课', type: 'check', w: 96 },
+    { key: 'k_remark', label: '备注', type: 'text', w: 150 },
+  ];
+}
+const colsOf = (type) => (type === 'research' ? researchCols() : type === 'class' ? classCols() : seatCols());
 
 /* 节次：1~9 单选。纸表上就是「第 二 节」这样一个数。 */
 function periodOptions(cur, { allowEmpty = true } = {}) {
@@ -129,7 +145,7 @@ export async function renderAttendance(box) {
         <button class="btn ghost sm" id="att-new">${icon('plus', 15)} 手填新建</button>
         <button class="btn ghost sm" id="att-roster">${icon('users', 15)} ${esc(activeGrade)}老师名册</button>
         <span style="flex:1"></span>
-        <span class="tiny muted hide-sm">支持 .xlsx / .csv，自动认出日期、节次、勾选列和双栏排版</span>
+        <span class="tiny muted hide-sm">三种都可以：① 铺名单现场勾 ② 传 Excel 自动填 ③ 传纸表照片对着勾</span>
       </div>
 
       <div class="att-groups" id="att-groups">${groupsHTML(gradeTables(activeGrade), activeGrade)}</div>`;
@@ -147,10 +163,13 @@ export async function renderAttendance(box) {
   await load();
 }
 
-/* 两个板块：坐班表 / 教研签到表。每个板块一张新建卡 + 已有的表 */
+/* 三栏：坐班表 / 教研签到表 / 上课检查表。
+   每栏顶部一个「新建」，下面按日期倒序列出已有的表。
+   「每天都要查的」放左边，视线自然从第一个开始。 */
 function groupsHTML(list, grade) {
   const slot = (type) => {
-    const ts = list.filter((t) => (t.sheet_type || t.kind) === type).sort((a, b) => String(b.sheet_date || '').localeCompare(String(a.sheet_date || '')));
+    const ts = list.filter((t) => (t.sheet_type || t.kind) === type)
+      .sort((a, b) => String(b.sheet_date || '').localeCompare(String(a.sheet_date || '')));
     return `<div class="att-group">
       <div class="asg-head">
         <span class="asg-t">${TYPE_LABEL[type]}</span>
@@ -158,16 +177,19 @@ function groupsHTML(list, grade) {
         <span style="flex:1"></span>
         <button class="btn ghost xs" data-newtype="${type}">${icon('plus', 13)} 新建</button>
       </div>
-      ${ts.length ? `<div class="asg-list">${ts.map((t) => tableCard(t)).join('')}</div>`
+      ${ts.length
+        ? `<div class="asg-list">${ts.map((t) => tableCard(t)).join('')}</div>`
         : `<button class="att-slot" data-newtype="${type}">
              <div class="as-plus">${icon('plus', 20)}</div>
              <div class="as-t">还没有${TYPE_SHORT[type]}</div>
-             <div class="as-s">上传 Excel，或者手填新建一张</div>
+             <div class="as-s">${type === 'class'
+               ? '铺好名单，到教室门口逐个勾「按时上课」'
+               : '铺好名册名单，对着照片逐行勾'}</div>
            </button>`}
       ${ts.length ? `<button class="att-slot-mini" data-newtype="${type}">${icon('plus', 13)} 再建一张${TYPE_SHORT[type]}</button>` : ''}
     </div>`;
   };
-  return `<div class="att-group-wrap">${slot('seat')}</div><div class="att-group-wrap">${slot('research')}</div>`;
+  return TYPE_ORDER.map((t) => `<div class="att-group-wrap">${slot(t)}</div>`).join('');
 }
 
 function tableCard(t) {
@@ -255,60 +277,94 @@ function addGradeDialog(reload) {
 }
 
 /* ================= 新建表（手填，带出名册） ================= */
+/* ================= 新建：铺名单 → 现场勾 =================
+ *
+ * 老师说得很清楚：「名册铺名单 + 上传照片当参照照打勾，这样我可以拿着手机去查班」。
+ * 所以这个弹窗的核心不是「选参数」，而是「确认要带出哪些人」。
+ *
+ * 三件容易出错的提供默认值兜住：
+ *  - 日期默认今天（每天查班，没人会去选今天）
+ *  - 节次默认当前节次（按学校作息推，不知道就选第 1 节）
+ *  - 学科可只带某一科（查教研常常只看一个组）
+ */
 function newSheetDialog(grade, reload, type = 'seat') {
   const today = ymd();
+  const nowP = guessPeriod();
   const body = el(`<div class="sheet-body">
-    <div class="field"><label class="field-label">表格类型</label>
-      <div class="seg" id="stype">
-        <button class="seg-btn${type === 'seat' ? ' on' : ''}" data-t="seat">教师坐班表</button>
-        <button class="seg-btn${type === 'research' ? ' on' : ''}" data-t="research">教师教研签到表</button>
-      </div></div>
+    <div class="field"><label class="field-label">这是一张什么表</label>
+      <div class="seg" id="stype" style="width:100%">
+        ${TYPE_ORDER.map((t) => `<button class="seg-btn${t === type ? ' on' : ''}" data-t="${t}"
+          style="flex:1;justify-content:center">${TYPE_LABEL[t]}</button>`).join('')}
+      </div>
+      <div class="field-hint" id="type-hint"></div></div>
     <div class="field-row">
       <div class="field"><label class="field-label">年级</label>
-        <select class="input" id="grade">${[grade, ...MAIN_GRADES].filter((v, i, a) => a.indexOf(v) === i).map((g) => `<option ${g === grade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
-      <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="date" value="${today}"></div>
+        <select class="input" id="grade">${[grade, ...MAIN_GRADES].filter((v, i, a) => a.indexOf(v) === i)
+          .map((g) => `<option ${g === grade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
+      <div class="field"><label class="field-label">日期</label>
+        <input class="input" type="date" id="date" value="${today}"></div>
     </div>
     <div class="field-row">
       <div class="field" id="wrap-periods"><label class="field-label">节次</label>
-        <select class="input" id="periods">${periodOptions(1, { allowEmpty: false })}</select></div>
-      <div class="field" id="wrap-subject" hidden><label class="field-label">学科（可选）</label>
-        <input class="input" id="subject" list="subj-new"></div>
+        <select class="input" id="periods">${periodOptions(nowP, { allowEmpty: false })}</select></div>
+      <div class="field" id="wrap-subject"><label class="field-label">学科（留空＝全年级）</label>
+        <input class="input" id="subject" list="subj-new" placeholder="留空就是全年级所有人"></div>
     </div>
     <datalist id="subj-new">${SUBJECT_ORDER.map((x) => `<option>${x}</option>`).join('')}</datalist>
     <div class="field"><label class="field-label">表格名称</label><input class="input" id="name"></div>
     <div class="att-roster-hint" id="rhint">正在读取名册…</div>
-    <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">创建并打开</button></div>
+    <div class="field" style="margin-top:10px"><label class="field-label">现场参照照片（可选）</label>
+      <label class="ap-add" id="ns-add"><input type="file" accept="image/*" multiple hidden id="ns-file">
+        <span id="ns-txt">＋ 把纸表拍下来，勾的时候可以照着看</span></label>
+      <div class="ap-list" id="ns-list" style="margin-top:8px"></div></div>
+    <div class="confirm-actions"><button class="btn ghost" id="c">取消</button>
+      <button class="btn primary" id="k">铺好名单，开始勾</button></div>
   </div>`);
-  const s = sheet({ title: '新建考勤表', body });
+  const s = sheet({ title: '新建考勤表', body, wide: true });
   const $ = (x) => body.querySelector(x);
   let roster = [];
+  const photos = [];
+
+  const curType = () => $('#stype .on').dataset.t;
 
   const autoName = () => {
     const g = $('#grade').value; const d = $('#date').value;
     const dt = d ? new Date(d + 'T00:00:00') : new Date();
-    const isSeat = $('#stype .on').dataset.t === 'seat';
-    const per = isSeat && $('#periods').value ? ` · 第${$('#periods').value}节` : '';
-    $('#name').value = `${dt.getFullYear()}年${g}${isSeat ? '老师坐班表' : '老师教研签到表'}${per}`;
+    const t = curType();
+    const per = t !== 'research' && $('#periods').value ? ` · 第${$('#periods').value}节` : '';
+    const subj = t === 'research' && $('#subject').value.trim() ? `（${$('#subject').value.trim()}）` : '';
+    $('#name').value = `${dt.getFullYear()}年${g}${TYPE_LABEL[t]}${subj}${per}`;
   };
+
   const loadRoster = async () => {
     const g = $('#grade').value;
     try {
       const r = await api.get('/teachers', { grade: g });
       roster = r.list || [];
-      const subs = [...new Set(roster.map((t) => t.subject).filter(Boolean))];
+      const subs = [...new Set(roster.map((t) => t.subject).filter(Boolean))].sort((a, b) => subjectRank(a) - subjectRank(b));
       $('#rhint').innerHTML = roster.length
-        ? `将从「${esc(g)}」名册带出 <b>${roster.length}</b> 位教师${subs.length ? `（${subs.length} 个学科）` : ''}。`
-        : `「${esc(g)}」还没有名册。<button class="link-btn" id="go-roster">现在录入 →</button>`;
+        ? `<b>${roster.length}</b> 位教师会铺进表里${subs.length ? `，${subs.length} 个学科：${subs.map(esc).join('、')}` : ''}。
+           <span class="muted">名单不对就去右上角「老师名册」改。</span>`
+        : `「${esc(g)}」还没有名册，建出来会是空表。<button class="link-btn" id="go-roster">现在录名册 →</button>`;
       const go = $('#rhint').querySelector('#go-roster');
       if (go) go.onclick = () => { s.close(); rosterSheet(g, reload); };
     } catch { $('#rhint').textContent = '名册读取失败，将创建空表'; }
-  };
-  const syncType = () => {
-    const isSeat = $('#stype .on').dataset.t === 'seat';
-    $('#wrap-periods').hidden = !isSeat;
-    $('#wrap-subject').hidden = isSeat;
     autoName();
   };
+
+  const syncType = () => {
+    const t = curType();
+    $('#wrap-periods').hidden = t === 'research';
+    $('#wrap-subject').hidden = t !== 'research';
+    const hint = {
+      seat: '一人一行，勾「上课 / 坐班 / 听课 / 教研 / 请假」。',
+      research: '按学科分块，每组一个「签到」勾。',
+      class: '一人一行，只勾「按时上课」——查老师有没有到堂。',
+    };
+    $('#type-hint').textContent = hint[t];
+    autoName();
+  };
+
   body.querySelectorAll('#stype .seg-btn').forEach((b) => {
     b.onclick = () => {
       body.querySelectorAll('#stype .seg-btn').forEach((x) => x.classList.toggle('on', x === b));
@@ -319,38 +375,87 @@ function newSheetDialog(grade, reload, type = 'seat') {
     $(sel).addEventListener('input', autoName);
     $(sel).addEventListener('change', () => { autoName(); if (sel === '#grade') loadRoster(); });
   });
+
+  const paintPhotos = () => {
+    $('#ns-list').innerHTML = photos.map((p, i) => `
+      <div class="ap-item"><div class="ap-thumb"><img src="${p.preview}" alt=""></div>
+        <div class="ap-meta"><div class="ap-name">${esc(p.file.name)}</div>
+        <div class="ap-size">${fmtSize(p.file.size)}</div></div>
+        <button class="icon-btn sm" data-pd="${i}">${icon('close', 13)}</button></div>`).join('');
+    $('#ns-txt').textContent = photos.length ? `已选 ${photos.length} 张` : '＋ 把纸表拍下来，勾的时候可以照着看';
+    body.querySelectorAll('[data-pd]').forEach((b) => {
+      b.onclick = () => { const [rm] = photos.splice(Number(b.dataset.pd), 1); if (rm) URL.revokeObjectURL(rm.preview); paintPhotos(); };
+    });
+  };
+  $('#ns-file').onchange = (e) => {
+    for (const f of e.target.files) if (/^image\//i.test(f.type)) photos.push({ file: f, preview: URL.createObjectURL(f) });
+    e.target.value = ''; paintPhotos();
+  };
+
   syncType(); loadRoster();
   $('#c').onclick = s.close;
   saving($('#k'), async () => {
-    const isSeat = $('#stype .on').dataset.t === 'seat';
+    const t = curType();
     const d = $('#date').value;
-    const dt = d ? new Date(d + 'T00:00:00') : new Date();
-    const sheetType = isSeat ? 'seat' : 'research';
+    if (!d) return toast('选个日期', 'warn');
+    const dt = new Date(d + 'T00:00:00');
+    const g = $('#grade').value;
+    const subj = t === 'research' ? $('#subject').value.trim() : '';
+    /* 查教研可以只带某一科：老师常常只看自己那个组 */
+    const people = subj ? roster.filter((x) => x.subject === subj) : roster;
     const r = await api.post('/attendance', {
-      sheet_type: sheetType,
-      grade: $('#grade').value,
+      sheet_type: t,
+      grade: g,
       sheet_date: d,
       weekday: WD[dt.getDay()],
-      periods: isSeat ? String($('#periods').value || '') : '',
-      subject: isSeat ? '' : $('#subject').value,
+      periods: t === 'research' ? '' : String($('#periods').value || ''),
+      subject: subj,
       name: $('#name').value,
       month: d.slice(0, 7),
-      columns: colsOf(sheetType),
+      columns: colsOf(t),
     });
-    if (roster.length) {
+    if (!r.id) throw new Error('建表失败，请重试');
+    if (people.length) {
       await api.post(`/attendance/${r.id}/rows`, {
-        rows: roster.map((t) => ({ teacher: t.name, subject: t.subject, data: {} })),
+        rows: people.map((x) => ({ teacher: x.name, subject: x.subject, data: {} })),
       });
     }
-    s.close(); toast(roster.length ? `已创建，带出 ${roster.length} 位教师` : '已创建'); reload();
-    setTimeout(() => openTable(r.id, reload), 240);
+    for (const ph of photos) {
+      const fd = new FormData();
+      fd.append('file', ph.file);
+      fd.append('owner_type', 'attendance');
+      fd.append('owner_id', String(r.id));
+      await api.post('/upload', fd).catch((err) => toast(`${ph.file.name} 没存上：${err.message}`, 'err'));
+    }
+    photos.forEach((ph) => URL.revokeObjectURL(ph.preview));
+    s.close();
+    toast(people.length ? `铺好 ${people.length} 位老师，开始勾吧` : '已建成空表');
+    reload();
+    setTimeout(() => openTable(r.id, reload), 220);
   });
+}
+
+/* 按作息猜「现在大概第几节」。猜错无所谓，下拉就在旁边，改一下就行；
+   猜对的时候能省一次点击——老师站在走廊里点手机，能省一次是一次。 */
+function guessPeriod() {
+  const h = new Date().getHours() + new Date().getMinutes() / 60;
+  if (h < 8.6) return 1;
+  if (h < 9.4) return 2;
+  if (h < 10.4) return 3;
+  if (h < 11.3) return 4;
+  if (h < 12.3) return 5;
+  if (h < 15.1) return 6;
+  if (h < 16.0) return 7;
+  if (h < 17.0) return 8;
+  return 9;
 }
 
 /* ================= 打开一张表 ================= */
 async function openTable(id, reload) {
   const t = await api.get('/attendance/' + id);
-  return (t.sheet_type || t.kind) === 'research' ? openResearch(t, reload) : openSeat(t, reload);
+  const kind = t.sheet_type || t.kind;
+  if (kind === 'research') return openResearch(t, reload);
+  return openSeat(t, reload);
 }
 
 /* ---------- 通用：表头信息条 ----------
@@ -806,9 +911,12 @@ function openSeat(t, reload) {
   const checkCols = cols.filter((c) => c.type === 'check');
   const remarkCol = cols.find((c) => c.type !== 'check');
 
+  const isClass = (t.sheet_type || t.kind) === 'class';
   const body = el(`<div class="att-edit">
     ${headerBar(t)}
     <div class="att-sum" id="att-sum"></div>
+    <div id="att-refbar"></div>
+    <div id="att-todo"></div>
     <div class="att-tools">
       <input class="input att-search" id="att-q" placeholder="搜姓名 / 学科…">
       <button class="btn ghost sm" id="att-reset">清空勾选</button>
@@ -817,6 +925,7 @@ function openSeat(t, reload) {
       <button class="btn ghost sm" id="att-addrow">＋ 加一行</button>
       <button class="btn ghost sm" id="att-addcol">＋ 加一列</button>
       <button class="btn ghost sm" id="att-xlsx">${icon('download', 14)} Excel</button>
+      <button class="btn ghost sm" id="att-shot">${icon('camera', 14)} 截图发群</button>
       <button class="btn ghost sm" id="att-pdf">${icon('download', 14)} PDF</button>
       <button class="btn primary sm" id="att-save">保存</button>
     </div>
@@ -827,8 +936,12 @@ function openSeat(t, reload) {
       <span><i class="tick"></i> 空白（未填写）</span>
       <span class="muted">点方块循环切换：空 → ✓ → × → 空</span>
     </div>
+    <div class="att-bottombar">
+      <div class="abb-stat" id="att-bstat"></div>
+      <button class="btn primary done" id="att-done">保存</button>
+    </div>
   </div>`);
-  const s = sheet({ title: `${t.grade || ''} ${TYPE_LABEL.seat}`, body, wide: true, cls: 'att-sheet' });
+  const s = sheet({ title: `${t.grade || ''} ${TYPE_LABEL[t.sheet_type || t.kind] || ''}`, body, wide: true, cls: 'att-sheet' });
   const $ = (x) => body.querySelector(x);
 
   let filter = '';
@@ -844,14 +957,16 @@ function openSeat(t, reload) {
        所以显示顺序按学科（查某个学科方便），序号列显示原表序号。 */
     list.sort((a, b) => subjectRank(a.subject) - subjectRank(b.subject) || a._i - b._i);
     $('#att-sum').innerHTML = sumHTML();
-    $('#att-table').innerHTML = `<table class="att-tbl">
+    if ($('#att-bstat')) $('#att-bstat').innerHTML = bstatHTML();
+    paintTodo();
+    $('#att-table').innerHTML = `<table class="att-tbl${isClass ? ' att-class' : ''}">
       <thead><tr>
         <th class="th-no">序号</th><th class="th-name">姓名</th><th class="th-subj">学科</th>
         ${checkCols.map((c) => `<th class="th-check">${esc(c.label)}</th>`).join('')}
         ${remarkCol ? `<th class="th-remark">${esc(remarkCol.label)}</th>` : ''}
         <th class="th-del"></th>
       </tr></thead>
-      <tbody>${list.map((r, k) => `<tr data-ri="${r._i}">
+      <tbody>${list.map((r, k) => `<tr data-ri="${r._i}"${isClass && r.data?.[checkCols[0]?.key] !== '1' ? ' class="pending"' : ''}>
         <td class="td-no">${r._i + 1}</td>
         <td class="td-name"><input class="cell-in" data-r="${r._i}" data-k="__teacher" value="${esc(r.teacher)}"></td>
         <td class="td-subj"><input class="cell-in subject-in" data-r="${r._i}" data-k="__subject" value="${esc(r.subject || '')}" list="subj-list"></td>
@@ -870,6 +985,66 @@ function openSeat(t, reload) {
       ${checkCols.map((c) => `<span class="as-item"><i>${esc(c.label)}</i><b>${sum(c.key)}</b></span>`).join('')}
       ${vacant ? `<span class="as-warn">${vacant} 人一项都没勾</span>` : ''}`;
   };
+  /* 手机底部那一条：只有「已勾几个 / 共几个」，一眼知道还差多少 */
+  const bstatHTML = () => {
+    const key = checkCols[0]?.key;
+    const done = rows.filter((r) => r.data?.[key] === '1').length;
+    return `<b>${done}<span style="font-size:13px;color:var(--text-3)">/${rows.length}</span></b>
+      <span>${isClass ? '已到堂' : '已勾'} · 剩 ${rows.length - done} 人</span>`;
+  };
+
+  /* 【查上课的核心：把「还没勾的人」顶到上面】
+     老师站在教室门口，顺着走廊走过去，一次只管一个人。
+     所以①没勾的行底色偏黄、②顶部直接列出名字（点一下就滚动到那行）、
+     ③勾完这行自动变绿淡出视野。不用自己从头找谁还没查。 */
+  const paintTodo = () => {
+    const key = checkCols[0]?.key;
+    if (!key) return;
+    const left = rows.map((r, i) => ({ r, i })).filter((x) => x.r.data?.[key] !== '1');
+    const el2 = $('#att-todo');
+    if (!el2) return;
+    if (!rows.length) { el2.innerHTML = ''; return; }
+    if (!left.length) {
+      el2.innerHTML = `<div class="att-todo" style="background:var(--primary-weak);border-color:color-mix(in srgb,var(--primary) 24%,transparent)">
+        <b style="color:var(--primary)">全部查完了</b> —— 点「截图发群」就能发出去。</div>`;
+      return;
+    }
+    /* 太多人的时候只列前 12 个，否则一屏全是名字，反而挡着表 */
+    const show = left.slice(0, 12);
+    el2.innerHTML = `<div class="att-todo">
+      <b>还剩 ${left.length} 人没勾</b>
+      <span class="muted">（点名字直接跳过去）</span>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+        ${show.map((x) => `<button class="btn ghost xs" data-jump="${x.i}">${esc(x.r.teacher)}</button>`).join('')}
+        ${left.length > 12 ? `<span class="tiny muted" style="align-self:center">…还有 ${left.length - 12} 人</span>` : ''}
+      </div></div>`;
+    el2.querySelectorAll('[data-jump]').forEach((b) => {
+      b.onclick = () => {
+        const tr = body.querySelector(`.att-tbl tbody tr[data-ri="${b.dataset.jump}"]`);
+        if (!tr) return;
+        tr.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        tr.classList.add('flash');
+        setTimeout(() => tr.classList.remove('flash'), 900);
+      };
+    });
+  };
+
+  /* 原表照片当参照：勾的时候抬头就能看到纸表上原本怎么画的 */
+  const paintRef = async () => {
+    const box2 = $('#att-refbar');
+    if (!box2) return;
+    let list = [];
+    try { list = await api.get(`/attendance/${t.id}/photos`); } catch { list = []; }
+    if (!list || !list.length) { box2.innerHTML = ''; return; }
+    box2.innerHTML = `<div class="att-refbar">
+      <img src="${esc(list[0].url || '')}" alt="" onerror="this.style.display='none'">
+      <span>现场参照：纸表照片 ${list.length} 张</span>
+      <span style="flex:1"></span>
+      <button class="btn ghost xs" id="ref1">看大图</button></div>`;
+    const open1 = () => photosSheet(t.id, () => { });
+    box2.querySelector('#ref1').onclick = open1;
+    box2.querySelector('img').onclick = open1;
+  };
   const bindCells = () => {
     body.querySelectorAll('.tick').forEach((b) => {
       b.onclick = () => {
@@ -882,6 +1057,11 @@ function openSeat(t, reload) {
         b.className = 'tick' + (next === '1' ? ' on' : next === '0' ? ' off' : '');
         b.textContent = next === '1' ? '✓' : next === '0' ? '×' : '';
         const elSum = $('#att-sum'); if (elSum) elSum.innerHTML = sumHTML();
+        if ($('#att-bstat')) $('#att-bstat').innerHTML = bstatHTML();
+        paintTodo();
+        /* 查上课时按行上色：勾了变绿、没勾保持黄，扫一眼就知道走到哪了 */
+        const tr = b.closest ? b.closest('tr') : null;
+        if (tr) tr.classList.toggle('pending', next !== '1');
       };
     });
     body.querySelectorAll('.cell-in').forEach((inp) => {
@@ -899,7 +1079,16 @@ function openSeat(t, reload) {
 
   paint();
   bindHeader(t, s, reload);
+  paintRef();
   $('#att-q').oninput = (e) => { filter = e.target.value.trim(); paint(); };
+  /* 手机上那个大「保存」，跟工具栏里的小保存走同一段逻辑 */
+  const doSave = async () => {
+    await api.post(`/attendance/${t.id}/rows`, { rows: rows.map((r) => ({ id: r.id, teacher: r.teacher, subject: r.subject, data: r.data })) });
+    await api.patch('/attendance/' + t.id, { columns: cols });
+    toast('已保存'); s.close(); reload();
+  };
+  saving($('#att-done'), doSave);
+  $('#att-shot').onclick = () => shotTable(t.id);
   $('#att-addrow').onclick = () => { rows.push({ teacher: '', subject: '', data: {} }); paint(); };
   $('#att-addcol').onclick = () => colEditor(cols, null, (n) => {
     cols = n;
@@ -943,6 +1132,7 @@ function openResearch(t, reload) {
       <span style="flex:1"></span>
       <button class="btn ghost sm" id="att-addrow">＋ 加一位教师</button>
       <button class="btn ghost sm" id="att-xlsx">${icon('download', 14)} Excel</button>
+      <button class="btn ghost sm" id="att-shot">${icon('camera', 14)} 截图发群</button>
       <button class="btn ghost sm" id="att-pdf">${icon('download', 14)} PDF</button>
       <button class="btn primary sm" id="att-save">保存</button>
     </div>
@@ -952,6 +1142,10 @@ function openResearch(t, reload) {
       <span><i class="tick off">×</i> 未签到</span>
       <span><i class="tick"></i> 未填写</span>
       <span class="muted">点块头「全部签到」可一键勾选整个学科组</span>
+    </div>
+    <div class="att-bottombar">
+      <div class="abb-stat" id="att-bstat"></div>
+      <button class="btn primary done" id="att-done">保存</button>
     </div>
   </div>`);
   const s = sheet({ title: `${t.grade || ''} ${TYPE_LABEL.research}`, body, wide: true, cls: 'att-sheet' });
@@ -1044,8 +1238,15 @@ function openResearch(t, reload) {
       };
     });
   };
+  /* 手机上那条底栏：教研表按「已签到 / 总人数」算 */
+  const bstatHTML = () => {
+    const done = rows.filter((r) => r.data?.[key] === '1').length;
+    return `<b>${done}<span style="font-size:13px;color:var(--text-3)">/${rows.length}</span></b>
+      <span>已签到 · 剩 ${rows.length - done} 人</span>`;
+  };
   const refreshBlockHeads = () => {
     const elSum = $('#att-sum'); if (elSum) elSum.innerHTML = sumHTML();
+    const elB = $('#att-bstat'); if (elB) elB.innerHTML = bstatHTML();
     body.querySelectorAll('.att-block').forEach((blk) => {
       const sj = blk.dataset.sj;
       const list = rows.filter((r) => (r.subject || '未分学科') === sj);
@@ -1069,10 +1270,15 @@ function openResearch(t, reload) {
   if (quickBtnR) quickBtnR.onclick = () => quickSheet(t, rows, () => { paint(); });
   $('#att-pdf').onclick = () => saveThenPdf(t, rows);
   $('#att-xlsx').onclick = () => exportXlsx(t);
-  saving($('#att-save'), async () => {
+  const doSaveR = async () => {
     await api.post(`/attendance/${t.id}/rows`, { rows: rows.map((r) => ({ id: r.id, teacher: r.teacher, subject: r.subject, data: r.data })) });
     toast('已保存'); s.close(); reload();
-  });
+  };
+  saving($('#att-save'), doSaveR);
+  /* 手机底栏那个大保存、截图发群 */
+  saving($('#att-done'), doSaveR);
+  $('#att-shot').onclick = () => shotTable(t.id);
+  const elB = $('#att-bstat'); if (elB) elB.innerHTML = bstatHTML();
 }
 
 /* ---------- 列编辑器（坐班表加列用） ---------- */
@@ -1128,7 +1334,7 @@ function uploadDialog(grade, reload) {
       <div class="att-tip-grid">
         <div>${icon('check', 14)} 哪一列是姓名、哪几列要打勾</div>
         <div>${icon('check', 14)} 每一格是 √ 还是 ×（空白保持未填）</div>
-        <div>${icon('check', 14)} 表类型（坐班 / 教研）</div>
+        <div>${icon('check', 14)} 表类型（坐班 / 教研 / 上课检查）</div>
         <div>${icon('check', 14)} 年 月 日 星期、第几节</div>
         <div>${icon('check', 14)} 姓名 + 学科</div>
         <div>${icon('check', 14)} 一页双栏，左右自动接起来</div>
@@ -1139,7 +1345,7 @@ function uploadDialog(grade, reload) {
       </div>
     </div>
     <div class="att-manual">
-      <button class="link-btn" id="photo-mode">只有纸质表照片，没有 Excel？拍照建表 →</button>
+      <button class="link-btn" id="photo-mode">只有纸质表照片、没有 Excel？铺名单自己勾 →</button>
     </div>
   </div>`);
   const s = sheet({ title: '上传 Excel 表格', body });

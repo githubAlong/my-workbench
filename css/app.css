@@ -1070,9 +1070,16 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
 .att-grade-add { width: 34px; height: 34px; border-radius: 12px; display: grid; place-items: center; color: var(--text-3); border: 1px dashed var(--line-2); flex: 0 0 auto; }
 .att-grade-add:hover { color: var(--primary); border-color: var(--primary); }
 
-.att-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-@media (max-width: 1000px) { .att-groups { grid-template-columns: 1fr; } }
-.att-group { min-width: 0; }
+/* 【.att-groups 只在这里定义一次】
+   早先后面的「本轮新增」块里又写了一遍 transition 相同的 .att-groups 三联，
+   基础规则重复倒无所谓，要命的是它把 @media 版本也抄了一遍，
+   同一份媒体查询在文件里出现两次。手机上一旦有一条基础规则赢过它，
+   三列就挤在 390px 里（每列 109px），整个弹层被撑到 449px、右边被切掉。
+   所以：基础规则 + 断点，只留这一处。 */
+.att-groups { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 1180px) { .att-groups { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 860px) { .att-groups { grid-template-columns: 1fr; } }
+.att-group, .att-group-wrap { min-width: 0; }
 
 /* 空白槽位：还没有表时的一键新建卡 */
 .att-slot {
@@ -1110,7 +1117,12 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
 .ac-actions { display: flex; gap: 6px; margin-top: 10px; }
 
 /* ============ 考勤编辑：表头信息条 ============ */
-.att-sheet .sheet { max-width: 1080px; }
+/* 【别写成 `.att-sheet .sheet`】sheet() 生成的 DOM 是
+   <div class="sheet-mask"><div class="sheet sheet-wide att-sheet">，
+   这两个类是同一个元素，后代选择器永远匹配不到，写了也白写。
+   早先这里就是 `.att-sheet .sheet { max-width: 1080px }`，实际没生效，
+   手机上还被它顶得超出屏幕 19px（弹层比视口宽，右边被切掉）。 */
+.sheet.att-sheet { max-width: 1080px; }
 .att-sheet .sheet-body { padding: 0 14px 14px; }
 .att-header {
   display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
@@ -3001,8 +3013,7 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 
 .att-ops { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 
-.att-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-@media (max-width: 1000px) { .att-groups { grid-template-columns: 1fr; } }
+/* 见上面 .att-groups 处的说明：这里不再重复定义列宽和断点。 */
 .att-group-wrap { min-width: 0; }
 .att-group .asg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
 .att-group .asg-t { font-size: 13.5px; font-weight: 700; color: var(--text); }
@@ -3047,3 +3058,109 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   border-bottom: 1px solid var(--line); margin-bottom: 6px;
 }
 .ars-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+
+/* ============================================================
+   现场勾选（2026-10 第二轮）
+   场景变了：老师拿着手机在走廊里、教室里查班，
+   一手拿本子一手点手机，所以这里的重点全在「手指点得准、不用放大」。
+   ============================================================ */
+
+/* 勾选框放到 44px —— 这是 iOS / Material 都给的最小可点尺寸。
+   原来 30px 在手机上必须瞄着点，一行要试两三次。 */
+.tick { width: 44px; height: 44px; border-radius: 11px; font-size: 21px; }
+
+/* 行高跟着放大，但别太散：一行 52px，一屏能看到 5~6 个人 */
+.att-tbl tbody tr { height: 52px; }
+.att-tbl tbody td { padding: 4px 6px; }
+
+/* 姓名、学科在手机上不显示输入框的边框，看着像文字，点进去才变输入框。
+   否则满屏都是方框，找人对不上。 */
+.att-tbl .cell-in { border-color: transparent; background: transparent; }
+.att-tbl .cell-in:focus { border-color: var(--primary); background: var(--card); }
+
+/* 手机底部吸附条：看得见「已勾 / 总数」和一个大的「完成」 */
+.att-bottombar { display: none; }
+@media (max-width: 760px) {
+  .att-bottombar {
+    display: flex; align-items: center; gap: 10px;
+    position: sticky; bottom: 0; z-index: 20;
+    margin: 0 -16px -14px; padding: 9px 14px calc(9px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--card) 94%, transparent);
+    backdrop-filter: blur(10px); border-top: 1px solid var(--line);
+  }
+  .att-bottombar .abb-stat { display: flex; flex-direction: column; line-height: 1.25; }
+  .att-bottombar .abb-stat b { font-family: var(--mono); font-size: 19px; color: var(--primary); }
+  .att-bottombar .abb-stat span { font-size: 10.5px; color: var(--text-3); }
+  .att-bottombar .btn.done { flex: 1; height: 46px; font-size: 15.5px; border-radius: 13px; }
+  /* 手机上把工具栏收成一行横滑，不占竖向空间 */
+  .att-tools { gap: 6px; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
+  .att-tools .input.att-search { min-width: 130px; }
+}
+
+/* 查上课：每人一行，只判断「有没有按时上课」 */
+.att-tbl.att-class .tick { width: 48px; height: 48px; }
+.att-tbl.att-class tbody tr.pending { background: color-mix(in srgb, var(--amber) 7%, transparent); }
+.att-tbl.att-class tbody tr:has(.tick.on) { background: color-mix(in srgb, var(--primary) 6%, transparent); }
+
+/* 「剩下没勾的」一次性列出，不用自己从头找 */
+.att-todo { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--amber-weak); border: 1px solid color-mix(in srgb, var(--amber) 26%, transparent); font-size: 12.5px; }
+.att-todo b { color: var(--amber); }
+
+/* 现场拍照参照条：原表照片就在表格上方，滑到哪都看得见 */
+.att-refbar { display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin-bottom: 10px; border-radius: 11px; background: var(--bg-sunken); border: 1px solid var(--line); font-size: 12px; color: var(--text-2); }
+.att-refbar img { width: 40px; height: 40px; border-radius: 7px; object-fit: cover; border: 1px solid var(--line-2); }
+
+/* 建表方式选择：三张卡，说出各自适合什么时候用 */
+.att-way { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 760px) { .att-way { grid-template-columns: 1fr; } }
+.att-way button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 13px 14px; border-radius: 13px; border: 1px solid var(--line-2); background: var(--card); text-align: left; }
+.att-way button:hover { border-color: var(--primary); background: var(--primary-weak); }
+.att-way .aw-t { font-size: 13.5px; font-weight: 700; }
+.att-way .aw-s { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
+
+/* 点「还剩 N 人」里的名字，跳过去闪一下，眼睛能跟上 */
+.att-tbl tbody tr.flash { animation: attFlash .9s ease; }
+@keyframes attFlash {
+  0%, 100% { background: transparent; }
+  25%, 65% { background: color-mix(in srgb, var(--primary) 20%, transparent); }
+}
+
+/* ============================================================
+   手机上查班的表格布局
+   5 个 44px 勾选框光按钮就 220px，再加上姓名学科，390px 的屏根本排不下。
+   所以窄屏下：
+     · 序号、删列收起来（序号在待办列表里用不到，删行走「更多」）
+     · 勾选框收到 40px（仍在拇指可点范围内）
+     · 学科并到姓名下面一行小字，不再单独占一列
+   ============================================================ */
+@media (max-width: 760px) {
+  /* 表格左右各溢出一屏边距，让「姓名 | 勾选框」撑满屏幕宽度。
+     但表头 / 待办条不能跟着一起负边距——它们不在表格容器里，
+     一起负边距就会左右各多出 16px，滚动时右边被弹层切掉。 */
+  .att-table-wrap { margin-left: -14px; margin-right: -14px; }
+  .att-tbl { min-width: 0; width: 100%; }
+  .att-tbl .th-no, .att-tbl .td-no,
+  .att-tbl .th-del, .att-tbl .td-del { display: none; }
+  .att-tbl .th-name, .att-tbl .td-name { width: 34%; }
+  .att-tbl .th-subj, .att-tbl .td-subj { display: none; }
+  .att-tbl .th-check, .att-tbl .td-check { width: 13%; }
+  .att-tbl .th-remark, .att-tbl .td-remark { display: none; }
+  .att-tbl .tick { width: 40px; height: 40px; font-size: 19px; border-radius: 10px; }
+  .att-tbl .cell-in { font-size: 15px; padding: 6px 2px; }
+  .att-tools .btn, .att-tools .input { flex: 0 0 auto; }
+  .att-legend { display: none; }
+}
+
+/* 手机上别让表格自己滚（内滚动会让底部吸附条失效，也容易和页面滚动打架）。
+   改成整个弹层滚，底部条 sticky 在视口底——一样好点，而且不会「滚丢了」。 */
+@media (max-width: 760px) {
+  .att-table-wrap { max-height: none; overflow: visible; }
+  .att-edit { display: flex; flex-direction: column; }
+  /* 手机上是「从下往上顶起来的整屏」，宽高都别留缝，
+     否则弹层里再套一层滚动，手指会滑错层。 */
+  .sheet.att-sheet { max-width: 100%; max-height: 96vh; border-radius: 18px 18px 0 0; }
+  .sheet.att-sheet .sheet-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; }
+  /* 吸顶的表头块：背景要铺满整个宽度，否则滚上去会看见底下的字透出来 */
+  .att-sheet .att-header { position: sticky; top: 0; z-index: 12; background: var(--card); padding-top: 6px;
+    margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px; }
+}
