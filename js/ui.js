@@ -663,7 +663,20 @@ function sheetRaw(title, bodyEl) {
   };
   document.addEventListener('keydown', onKey);
   mask.querySelector('.sheet-close').onclick = close;
-  mask.addEventListener('click', (e) => { if (e.target === mask) close(); });
+  /* 【点遮罩关闭 —— 必须「按下和松开都在遮罩上」才算】
+     原来的写法只判断 click 的 e.target === mask，有两个致命副作用：
+       1) 在输入框里拖选文字，鼠标/手指滑出弹层再松开，浏览器把这次点击归到
+          mask 上（按下和松开不在同一元素时，click 派发到共同祖先），弹层直接关掉。
+          用户视角就是「我点科目想全选/想改字，页面自己关了，白填了」。
+       2) 手机上手指稍微滑出弹层就被关，比电脑更容易误触。
+     现在记录 pointerdown 的落点，只有落点也在遮罩空白处才关，
+     从输入框里拖出去的松手一律不关。 */
+  let downOnMask = false;
+  mask.addEventListener('pointerdown', (e) => { downOnMask = e.target === mask; });
+  mask.addEventListener('click', (e) => {
+    if (e.target === mask && downOnMask) close();
+    downOnMask = false;
+  });
   return { mask, close, set onClose(fn) { h.onClose = fn; } };
 }
 

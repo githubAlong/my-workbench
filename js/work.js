@@ -9,10 +9,13 @@ const M = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
    用户反馈「备注要重点显示、加个方框，不然不知道能写字」——问题出在各处写法不统一：
    有的用 <input>、有的用 <textarea>，有的没 placeholder，有的连 label 都省了。
    抽成一个函数后，样式和占位文案只需改这里一处，不会再漏。 */
-function remarkField({ id = 'remark', value = '', placeholder = '有什么要补充的？直接在这里写', rows = 0, hint = '' } = {}) {
+function remarkField({ id = 'remark', value = '', placeholder = '', rows = 0, hint = '' } = {}) {
+  /* 默认不写占位文案：预填/预提示的内容如果不符实际，用户还得先删掉，反而更慢。
+     需要说明时由调用方显式传 placeholder，没传就不输出这个属性（不留空壳）。 */
+  const ph = placeholder ? ` placeholder="${esc(placeholder)}"` : '';
   const tag = rows
-    ? `<textarea class="input" id="${id}" rows="${rows}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`
-    : `<input class="input" id="${id}" value="${esc(value)}" placeholder="${esc(placeholder)}">`;
+    ? `<textarea class="input" id="${id}" rows="${rows}"${ph}>${esc(value)}</textarea>`
+    : `<input class="input" id="${id}" value="${esc(value)}"${ph}>`;
   return `<div class="remark-field"><label class="field-label">${icon('edit', 13)} 备注${hint ? `<span class="rf-hint">${esc(hint)}</span>` : ''}</label>${tag}</div>`;
 }
 const monthLabel = (m) => { const [y, mm] = String(m || '').split('-'); return y ? `${y}年${Number(mm)}月` : '选择月份'; };
@@ -66,7 +69,7 @@ export function exportSheet(kind, ctx = {}) {
 export function importSheet(kind, reload) {
   const body = el(`<div class="sheet-body">
     <div class="small muted" style="margin-bottom:8px">从 Excel / WPS 选中区域 <b>Ctrl+C</b> 后粘贴到这里（第一行可为表头），或选择文本文件。</div>
-    <textarea class="input" id="imp" rows="9" placeholder="日期\t节次\t班级\t内容&#10;2026-10-20\t1\t高二(3)班\t《劝学》第二课时"></textarea>
+    <textarea class="input" id="imp" rows="9"></textarea>
     <div class="row" style="margin-top:10px"><input type="file" id="imp-file" accept=".csv,.txt" class="small"><span style="flex:1"></span>
     <button class="btn ghost" id="imp-cancel">取消</button><button class="btn primary" id="imp-ok">导入</button></div>
   </div>`);
@@ -520,8 +523,8 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
     <div class="form-grid">
       <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="date" value="${esc(row?.date || today)}"></div>
       <div class="field"><label class="field-label">节次</label><select class="input" id="period">${[1,2,3,4,5,6,7,8,9,10].map((n) => `<option ${row?.period_no === n ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
-      <div class="field"><label class="field-label">班级</label><input class="input" id="class" value="${esc(row?.class_name || '')}" placeholder="高二(3)班"></div>
-      <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '语文')}"></div>
+      <div class="field"><label class="field-label">班级</label><input class="input" id="class" value="${esc(row?.class_name || '')}"></div>
+      <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}"></div>
       <div class="field"><label class="field-label">开始时间</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
       <div class="field"><label class="field-label">结束时间</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
     </div>
@@ -536,14 +539,14 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
 
     <div id="le-sub" class="le-sub hidden">
       <div class="field"><label class="field-label" id="le-peer-l">对方姓名</label>
-        <input class="input" id="peer" list="le-tlist" value="${esc(row?.peer_name || '')}" placeholder="从名册选或直接输入">
+        <input class="input" id="peer" list="le-tlist" value="${esc(row?.peer_name || '')}">
         <datalist id="le-tlist">${[...new Set(teachers.map((t) => t?.name).filter(Boolean))].map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
       </div>
       <div class="field hidden" id="le-swap-w">
         <label class="field-label">换课说明</label>
         <div class="form-grid">
-          <input class="input" id="swap_from" value="${esc(row?.swap_from || '')}" placeholder="我原上的是，如 周三第5节">
-          <input class="input" id="swap_to" value="${esc(row?.swap_to || '')}" placeholder="换成，如 周四第4节">
+          <input class="input" id="swap_from" value="${esc(row?.swap_from || '')}">
+          <input class="input" id="swap_to" value="${esc(row?.swap_to || '')}">
         </div>
       </div>
       <div class="le-tip" id="le-tip"></div>
@@ -551,10 +554,10 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
 
     <div class="field"><label class="field-label">上课内容</label><textarea class="input" id="content" rows="2">${esc(row?.content || '')}</textarea></div>
     <div class="form-grid">
-      <div class="field"><label class="field-label">教学进度</label><input class="input" id="progress" value="${esc(row?.progress || '')}" placeholder="如：完成第二段翻译"></div>
+      <div class="field"><label class="field-label">教学进度</label><input class="input" id="progress" value="${esc(row?.progress || '')}"></div>
       <div class="field"><label class="field-label">下一节课内容</label><input class="input" id="next_content" value="${esc(row?.next_content || '')}"></div>
     </div>
-    <div class="field"><label class="field-label">违纪情况</label><input class="input" id="discipline" value="${esc(row?.discipline || '')}" placeholder="如：张三上课睡觉（口头提醒一次）"></div>
+    <div class="field"><label class="field-label">违纪情况</label><input class="input" id="discipline" value="${esc(row?.discipline || '')}"></div>
     ${remarkField({ value: row?.remark || '', placeholder: '如：投影仪坏了、下节课带试卷' })}
 
     <!-- 【第 6 条：上课时单价不能改】
@@ -1053,7 +1056,7 @@ async function importTimetableDialog(reload) {
         也可以粘贴 JSON（换设备时用）。
       </div>
       <textarea id="tt-src" class="cell-input" rows="10" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.6"
-        placeholder="节次	时间	星期一	星期二	星期三&#10;1	8:00-8:40		11班&#10;3	10:00-10:40	5班	"></textarea>
+       ></textarea>
       <div id="tt-preview" class="small" style="margin-top:10px"></div>`;
     const src = pane.querySelector('#tt-src');
     const preview = pane.querySelector('#tt-preview');
@@ -1183,7 +1186,7 @@ async function importTimetableDialog(reload) {
           weekday: Number(c.weekday), period_no: Number(c.period_no),
           start_time: c.start_time || p.start_time || '', end_time: c.end_time || p.end_time || '',
           grade: c.grade || '', class_name: c.class_name,
-          subject: c.subject || '信息技术', room: c.room || '', color: c.color || '',
+          subject: c.subject || '', room: c.room || '', color: c.color || '',
         });
         n += 1;
       } catch (e) { /* 单条失败不阻断 */ }
@@ -1240,21 +1243,51 @@ function printTimetableHTML(courses, periods, maxP) {
 }
 function courseEditor(row, reload) {
   const isNew = !row?.id;
+  /* 【历史值联想】
+     全站不再预填「语文 / 高二」这类默认值 —— 预填的东西如果不符实际，
+     用户还得先删掉才能填，反而更慢。所以默认留空，直接手填。
+     但又不想让用户每次都从头打字：把已存课程里出现过的科目/年级/班级
+     收集成候选，挂在 datalist 上——点一下就能填，不打字也行。
+     这叫「手填为主，联想为辅」：没有强制默认值，只是给个快捷入口。
+
+     注意：这里必须保持同步函数。弹层要立刻出现，不能等接口；
+     历史值晚一步到达也没关系，反正用户点开下拉是在之后。 */
+
   const body = el(`<div class="sheet-body"><div class="form-grid">
     <div class="field"><label class="field-label">星期</label><select class="input" id="weekday">${[1,2,3,4,5,6,0].map((d) => `<option value="${d}" ${Number(row?.weekday) === d ? 'selected' : ''}>周${WD_SHORT[d]}</option>`).join('')}</select></div>
     <div class="field"><label class="field-label">节次</label><input class="input" type="number" id="period_no" value="${row?.period_no || 1}"></div>
     <div class="field"><label class="field-label">开始时间</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
     <div class="field"><label class="field-label">结束时间</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
-    <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(row?.grade || '高二')}"></div>
-    <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(row?.class_name || '')}"></div>
-    <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '语文')}"></div>
-    <div class="field"><label class="field-label">教室</label><input class="input" id="room" value="${esc(row?.room || '')}"></div>
+    <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(row?.grade || '')}" data-hist="grade"></div>
+    <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(row?.class_name || '')}" data-hist="class_name"></div>
+    <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}" data-hist="subject"></div>
+    <div class="field"><label class="field-label">教室</label><input class="input" id="room" value="${esc(row?.room || '')}" data-hist="room"></div>
     <div class="field"><label class="field-label">生效开始日</label><input class="input" type="date" id="sd" value="${esc(row?.start_date || '')}"></div>
     <div class="field"><label class="field-label">生效结束日</label><input class="input" type="date" id="ed" value="${esc(row?.end_date || '')}"></div>
   </div>
-  ${remarkField({ value: row?.remark || '', placeholder: '如：走班教室、需带教具' })}
+  ${remarkField({ value: row?.remark || '' })}
   <div class="confirm-actions">${isNew ? '' : '<button class="btn ghost" id="del" style="margin-right:auto;color:var(--red)">删除</button>'}
   <button class="btn ghost" id="cancel">取消</button><button class="btn primary" id="save">保存</button></div></div>`);
+
+  /* 历史值异步补上：失败就静默，手填照常可用 */
+  api.get('/courses').then((all) => {
+    for (const k of ['grade', 'class_name', 'subject', 'room']) {
+      const vals = [...new Set(all.map((c) => String(c[k] || '').trim()).filter(Boolean))].slice(0, 40);
+      if (!vals.length) continue;
+      const input = body.querySelector(`[data-hist="${k}"]`);
+      if (!input) continue;
+      const id = 'dl-' + k;
+      document.getElementById(id)?.remove();
+      // 用 createElement 而不是 el()：el() 走 template.firstElementChild，
+      // 只保证返回「第一个元素」，这里要的就是 datalist 本身，直接建更清楚。
+      const list = document.createElement('datalist');
+      list.id = id;
+      list.innerHTML = vals.map((v) => `<option value="${esc(v)}">`).join('');
+      body.appendChild(list);
+      input.setAttribute('list', id);
+      input.setAttribute('autocomplete', 'off');
+    }
+  }).catch(() => {});
   const s = sheet({ title: isNew ? '添加课程' : '修改课程', body });
   body.querySelector('#cancel').onclick = s.close;
   body.querySelector('#del')?.addEventListener('click', async () => {
@@ -1600,10 +1633,10 @@ function invEditor(row, reload, month, rules, people) {
     <div class="form-grid">
       <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="date" value="${esc(row?.date || ymd(new Date()))}"></div>
       <div class="field" id="w-peer"><label class="field-label">对方老师</label>
-        <input class="input" id="peer" list="peer-names" value="${esc(row?.peer_name || '')}" placeholder="姓名">
+        <input class="input" id="peer" list="peer-names" value="${esc(row?.peer_name || '')}">
         <datalist id="peer-names">${peerNames.map((n) => `<option value="${esc(n)}">`).join('')}</datalist></div>
-      <div class="field"><label class="field-label">考试名称</label><input class="input" id="exam" value="${esc(row?.exam_name || '')}" placeholder="如 期中数学"></div>
-      <div class="field"><label class="field-label">考场</label><input class="input" id="room" value="${esc(row?.room || '')}" placeholder="如 高三(2)"></div>
+      <div class="field"><label class="field-label">考试名称</label><input class="input" id="exam" value="${esc(row?.exam_name || '')}"></div>
+      <div class="field"><label class="field-label">考场</label><input class="input" id="room" value="${esc(row?.room || '')}"></div>
       <div class="field"><label class="field-label">开始</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
       <div class="field"><label class="field-label">结束</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
       <div class="field"><label class="field-label">时长（分钟）</label><input class="input" type="number" id="mins" value="${row?.duration_min ?? ''}"></div>
@@ -1958,7 +1991,7 @@ function itemEditor(tripId, defDate, it, done) {
       <div class="field"><label class="field-label">有没有发票</label>
         <select class="input" id="has"><option value="1" ${it?.has_invoice === 0 ? '' : 'selected'}>有票</option><option value="0" ${it?.has_invoice === 0 ? 'selected' : ''}>没票</option></select></div>
     </div>
-    <div class="field"><label class="field-label">说明</label><input class="input" id="note" value="${esc(it?.note || '')}" placeholder="如：高铁往返 / 酒店 2 晚"></div>
+    <div class="field"><label class="field-label">说明</label><input class="input" id="note" value="${esc(it?.note || '')}"></div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">${it ? '保存' : '添加'}</button></div>
   </div>`);
   const s = sheet({ title: it ? '编辑这一笔' : '加一笔支出', body });
@@ -2016,7 +2049,7 @@ function tripEditor(row, reload) {
       <div class="field"><label class="field-label">目的地</label><input class="input" id="to" value="${esc(row?.to_place || '')}"></div>
     </div>
     <div class="field"><label class="field-label">事由</label><input class="input" id="reason" value="${esc(row?.reason || '')}"></div>
-    <div class="field"><label class="field-label">随行人员</label><input class="input" id="comp" value="${esc(row?.companions || '')}" placeholder="没有就留空"></div>
+    <div class="field"><label class="field-label">随行人员</label><input class="input" id="comp" value="${esc(row?.companions || '')}"></div>
 
     <div class="sec-title" style="margin-top:18px">实报实销 <span class="tiny muted">（大额建议留票）</span></div>
     <div class="form-grid">
@@ -2179,7 +2212,7 @@ function pickStudentDialog(rosters) {
   const body = el(`<div class="sheet-body">
     <div class="form-grid">
       <div class="field"><label class="field-label">班级</label>
-        <input class="input" id="pk-cls" list="pk-cls-list" placeholder="如：高二(3)班" value="${esc(rosters[0] ? clsName(rosters[0].grade, rosters[0].class_name) : '')}">
+        <input class="input" id="pk-cls" list="pk-cls-list" value="${esc(rosters[0] ? clsName(rosters[0].grade, rosters[0].class_name) : '')}">
         <datalist id="pk-cls-list">${rosters.map((r) => `<option>${esc(clsName(r.grade, r.class_name))}</option>`).join('')}</datalist></div>
       <div class="field"><label class="field-label">总人数</label>
         <input class="input" id="pk-total" type="number" min="1" max="200" value="${esc(String(rosters[0]?.count || 40))}" inputmode="numeric"></div>
@@ -2338,7 +2371,7 @@ function paintPunishCard(items, records) {
 function punishEditor(p, reload) {
   const body = el(`<div class="sheet-body">
     <div class="field"><label class="field-label">任务内容</label>
-      <input class="input" id="t" value="${esc(p?.text || '')}" placeholder="如：唱歌 30 秒 / 做 20 个深蹲"></div>
+      <input class="input" id="t" value="${esc(p?.text || '')}"></div>
     <div class="field"><label class="field-label">强度</label>
       <select class="input" id="lv">
         <option value="light" ${p?.level === 'light' || !p ? 'selected' : ''}>轻松（唱歌、讲笑话）</option>
@@ -2723,7 +2756,7 @@ function openRosterDialog(rosters, reload) {
     const n = parseNames(r.names);
     return `<div class="field" data-rid="${r.id}">
         <label class="field-label">${esc(clsName(r.grade, r.class_name))}</label>
-        <textarea class="input" rows="3" data-names="${r.id}" placeholder="张三&#10;李四">${esc(n.join('\n'))}</textarea>
+        <textarea class="input" rows="3" data-names="${r.id}">${esc(n.join('\n'))}</textarea>
       </div>`;
   }).join('') || '<div class="empty">还没有班级名单。先在「课件 → 上传资料」里建班，或直接在学生页按号码抽。</div>'}
     <div class="confirm-actions"><button class="btn ghost" id="rc">取消</button><button class="btn primary" id="ro">保存</button></div>
@@ -2932,11 +2965,11 @@ async function materialEditor(m, catId, reload) {
   const isNew = !m;
   const cats = await api.get('/categories', { scope: 'material' });
   const body = el(`<div class="sheet-body">
-    <div class="field"><label class="field-label">标题</label><input class="input" id="t" value="${esc(m?.title || '')}" placeholder="如：《劝学》第一课时 PPT"></div>
+    <div class="field"><label class="field-label">标题</label><input class="input" id="t" value="${esc(m?.title || '')}"></div>
     <div class="form-grid">
       <div class="field"><label class="field-label">分类</label><select class="input" id="cat"><option value="">未分类</option>${cats.map((c) => `<option value="${c.id}" ${Number(m?.category_id || catId) === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
       <div class="field"><label class="field-label">班级</label><input class="input" id="cls" value="${esc(m?.class_name || '')}"></div>
-      <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(m?.grade || '高二')}"></div>
+      <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(m?.grade || '')}"></div>
       <div class="field"><label class="field-label">学生可见</label><select class="input" id="pub"><option value="1" ${m?.public !== 0 ? 'selected' : ''}>是（短链可看）</option><option value="0" ${m?.public === 0 ? 'selected' : ''}>否</option></select></div>
     </div>
     <div class="field"><label class="field-label">说明</label><textarea class="input" id="d" rows="2">${esc(m?.descr || '')}</textarea></div>
@@ -3147,18 +3180,18 @@ function prepEditor(row, reload) {
       <div class="field"><label class="field-label">备课日期</label>
         <input class="input" type="date" id="p-date" value="${esc(row?.date || today)}"></div>
       <div class="field"><label class="field-label">班级</label>
-        <input class="input" id="p-class" value="${esc(row?.class_name || '')}" placeholder="高二(3)班"></div>
+        <input class="input" id="p-class" value="${esc(row?.class_name || '')}"></div>
       <div class="field"><label class="field-label">学科</label>
-        <input class="input" id="p-subject" value="${esc(row?.subject || '语文')}"></div>
+        <input class="input" id="p-subject" value="${esc(row?.subject || '')}"></div>
       <div class="field"><label class="field-label">花了多久（分钟，选填）</label>
         <input class="input" id="p-min" type="number" min="0" step="5" value="${row?.minutes ?? ''}"></div>
     </div>
     <div class="field"><label class="field-label">备的是哪一课 <span class="req">*</span></label>
-      <input class="input" id="p-topic" value="${esc(row?.topic || '')}" placeholder="如：《劝学》第三段 + 课后练习"></div>
+      <input class="input" id="p-topic" value="${esc(row?.topic || '')}"></div>
     <div class="field"><label class="field-label">备到哪了</label>
-      <textarea class="input" id="p-progress" rows="3" placeholder="如：导入和字词梳理做完了，第三段翻译写到一半">${esc(row?.progress || '')}</textarea></div>
+      <textarea class="input" id="p-progress" rows="3">${esc(row?.progress || '')}</textarea></div>
     <div class="field"><label class="field-label">下次接着备什么 <span class="prep-hint">这句是重点，写了下回一看就明白</span></label>
-      <textarea class="input" id="p-next" rows="2" placeholder="如：把第三段剩下的翻译补完，再找两道对比阅读题">${esc(row?.next_step || '')}</textarea></div>
+      <textarea class="input" id="p-next" rows="2">${esc(row?.next_step || '')}</textarea></div>
     ${remarkField({ id: 'p-remark', value: row?.remark || '', placeholder: '如：需要打印学案、借投影笔' })}
     <div class="field"><label class="field-label">状态</label>
       <div class="le-seg" id="p-seg">
@@ -3270,7 +3303,7 @@ async function renderNotes(box) {
     ed.hidden = false;
     ed.innerHTML = `
       <div class="row" style="margin-bottom:10px">
-        <input class="input" id="n-title" value="${esc(n?.title || '')}" placeholder="笔记标题" style="font-weight:650;flex:1">
+        <input class="input" id="n-title" value="${esc(n?.title || '')}" style="font-weight:650;flex:1">
         <select class="input" id="n-cat" style="max-width:150px">${cats.map((c) => `<option value="${c.id}" ${Number(n?.category_id) === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
       </div>
       <div class="seg" style="margin-bottom:8px"><button class="on" data-mv="edit">编辑</button><button data-mv="preview">预览</button></div>

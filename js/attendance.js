@@ -152,7 +152,7 @@ function bindCards(root, load) {
 function addGradeDialog(reload) {
   const body = el(`<div class="sheet-body">
     <div class="field"><label class="field-label">年级名称</label>
-      <input class="input" id="gname" placeholder="例如 高三、初中部、行政">
+      <input class="input" id="gname">
       <div class="field-hint">已内置「高一」「高二」，需要更多年级时在这里加。</div></div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">添加</button></div>
   </div>`);
@@ -181,8 +181,8 @@ function newSheetDialog(grade, reload, type = 'seat') {
       <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="date" value="${today}"></div>
     </div>
     <div class="field-row">
-      <div class="field" id="wrap-periods"><label class="field-label">节次</label><input class="input" id="periods" value="1-2" placeholder="如 1-2"></div>
-      <div class="field" id="wrap-subject" hidden><label class="field-label">学科（可选）</label><input class="input" id="subject" placeholder="留空则包含全部学科"></div>
+      <div class="field" id="wrap-periods"><label class="field-label">节次</label><input class="input" id="periods" value="1-2"></div>
+      <div class="field" id="wrap-subject" hidden><label class="field-label">学科（可选）</label><input class="input" id="subject"></div>
     </div>
     <div class="field"><label class="field-label">表格名称</label><input class="input" id="name"></div>
     <div class="att-roster-hint" id="rhint">正在读取名册…</div>
@@ -1073,7 +1073,7 @@ function confirmSheet(r, reload) {
           <option value="research" ${d.sheet_type === 'research' ? 'selected' : ''}>教师教研签到表</option>
         </select></div>
       <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="c-date" value="${defDate}"></div>
-      <div class="field"><label class="field-label">节次</label><input class="input" id="c-periods" value="${esc(d.periods || '')}" placeholder="如 1-2"></div>
+      <div class="field"><label class="field-label">节次</label><input class="input" id="c-periods" value="${esc(d.periods || '')}"></div>
     </div>
     <div class="field"><label class="field-label">表格名称</label><input class="input" id="c-name" value="${esc(r.filename.replace(/\.(xlsx|xlsm|csv|txt|tsv)$/i, ''))}"></div>
     <div class="acm-sum">
@@ -1432,8 +1432,8 @@ function rosterSheet(grade, reload) {
   const body = el(`<div class="att-roster-sheet">
     <div class="ars-tabs" id="ars-tabs"></div>
     <div class="ars-add">
-      <input class="input" id="ars-name" placeholder="姓名">
-      <input class="input" id="ars-subj" placeholder="学科" list="subj-list2">
+      <input class="input" id="ars-name">
+      <input class="input" id="ars-subj" list="subj-list2">
       <button class="btn primary sm" id="ars-add-btn">＋ 添加</button>
       <button class="btn ghost sm" id="ars-bulk">批量粘贴</button>
     </div>
@@ -1502,7 +1502,7 @@ function rosterSheet(grade, reload) {
 function bulkDialog(grade, reload) {
   const body = el(`<div class="sheet-body">
     <div class="small muted" style="margin-bottom:8px">每行一位教师，可以写「姓名」或「姓名 学科」或「姓名,学科」。从 Excel 里复制一整列直接粘进来也行。</div>
-    <textarea class="input" id="bulk" rows="10" placeholder="李成华 语文&#10;章承国 数学&#10;黄鹏 英语"></textarea>
+    <textarea class="input" id="bulk" rows="10"></textarea>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">导入到 ${esc(grade)}</button></div>
   </div>`);
   const s = sheet({ title: '批量粘贴教师名单', body });
