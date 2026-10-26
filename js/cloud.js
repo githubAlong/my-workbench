@@ -50,9 +50,20 @@ export function session() {
 
 /* ---------------- Auth ---------------- */
 
+/* 用户很容易把手机号填进「邮箱」框（截图里就是这么发生的）。
+   Supabase 的 email 字段只认邮箱格式，填手机号一定是 invalid_credentials，
+   但报错说的是「密码不对」，会让人一直怀疑密码。这里提前拦住，把话说清楚。 */
+export function looksLikePhone(v) {
+  const s = String(v || '').replace(/[\s\-()]/g, '');
+  return /^\+?\d{7,15}$/.test(s);
+}
+
 export async function login(email, password) {
   const c = cfg();
   if (!c) throw new Error('还没配置 Supabase 地址');
+  if (looksLikePhone(email)) {
+    throw new Error('这里要填邮箱（比如 xxx@qq.com），不能填手机号');
+  }
   const r = await fetch(c.url + '/auth/v1/token?grant_type=password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: c.anon },
@@ -72,6 +83,28 @@ export async function login(email, password) {
     expires_at: Date.now() + (j.expires_in || 3600) * 1000,
     email: j.user?.email || email,
     uid: j.user?.id || '',
+  });
+  return session();
+}
+
+/* 最近一次登录取到的 refresh_token。
+   换设备链接要用它去换一次性凭证，所以单独开一个只读出口，
+   不把整个 token 对象暴露给界面层。 */
+export function refreshToken() {
+  const t = tok();
+  return t && t.refresh_token ? t.refresh_token : '';
+}
+
+/* 把服务端返回的 token 包直接存下来（登录、续期、一次性链接都用它） */
+export function adoptTokens(j) {
+  if (!j || !j.access_token) return null;
+  const old = tok() || {};
+  setTok({
+    access_token: j.access_token,
+    refresh_token: j.refresh_token || old.refresh_token,
+    expires_at: Date.now() + (j.expires_in || 3600) * 1000,
+    email: j.user?.email || old.email,
+    uid: j.user?.id || old.uid,
   });
   return session();
 }

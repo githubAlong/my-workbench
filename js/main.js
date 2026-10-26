@@ -54,6 +54,17 @@ try {
   toast(e.message, 'err', 6000);
 }
 
+/* 【换设备登录 #k=…】和搬家链接同一道理，必须在 render 之前跑完：
+   先把 token 换到手，后面课时页一渲染就是已登录状态，
+   不会出现「先闪一下未登录提示条、再跳成已登录」的抖动。
+   放在 tryImportFromHash 之后，因为两者都靠改地址栏工作，串行更稳。 */
+try {
+  const { autoLoginFromUrl } = await import('./auth.js');
+  if (await autoLoginFromUrl()) imported = true;
+} catch (e) {
+  toast(e.message, 'err', 6000);
+}
+
 /* 静态版没有服务端，进来先灌一份示例数据（只灌一次），
    否则新用户看到一个空工作台会以为坏了。
    已经用链接导入过就不再灌，否则示例数据混进来。 */

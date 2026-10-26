@@ -63,6 +63,10 @@ const I = {
   book: '<path d="M4 5.5A2 2 0 0 1 6 3.5h6v17H6a2 2 0 0 0-2 2z"/><path d="M20 5.5a2 2 0 0 0-2-2h-6v17h6a2 2 0 0 1 2 2z"/>',
   expand: '<path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  /* 云端相关：登录、换设备、云端存储 —— 加在同一张表里，避免再出现「图标名写错变成时钟」 */
+  cloud: '<path d="M7 18a4.5 4.5 0 0 1 .7-8.9 6 6 0 0 1 11.6 1.4A3.8 3.8 0 0 1 17.7 18z"/>',
+  phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 5.5h3"/><circle cx="12" cy="18" r="1" fill="currentColor" stroke="none"/>',
+  link: '<path d="M10 13.5a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.4 1.4"/><path d="M14 10.5a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.4-1.4"/>',
   grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
   gift: '<rect x="4" y="10" width="16" height="10.5" rx="2"/><path d="M3 10h18v3.5H3z"/><path d="M12 10v10.5"/><path d="M12 10c-1.2 0-4-1-4-3a2 2 0 0 1 4 0c0 2-2.8 3-4 3z"/><path d="M12 10c1.2 0 4-1 4-3a2 2 0 0 0-4 0c0 2 2.8 3 4 3z"/>',
   dice: '<rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="15" r="1.3" fill="currentColor" stroke="none"/>',

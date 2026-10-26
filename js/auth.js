@@ -37,8 +37,20 @@ const SUPA_URL = 'https://gfgxvpvexzcfbujkwsqw.supabase.co';
 const SUPA_ANON = 'sb_publishable_-AYrJyaZEN6_zeVh45oZ3w_YMOGF-3P';
 
 /* 把内置配置写进 localStorage，cloud.js 只认 localStorage 里的，
-   这样「换一个项目」只要改上面两行，不需要用户做任何事 */
+   这样「换一个项目」只要改上面两行，不需要用户做任何事。
+
+   【故意不覆盖的情况】地址里带了 ?supa=<地址>。
+   这是留给测试用的口子：本地起一个假 Supabase，靠它把前端指过去。
+   正常访问（没有这个参数）永远用上面的生产地址，
+   所以用户手里残留的旧配置、别人给的错误地址，都会被强制纠正回来。 */
 function ensureCfg() {
+  let forced = '';
+  try { forced = new URLSearchParams(location.search).get('supa') || ''; } catch { }
+  if (forced) {
+    const c0 = cloud.cfg();
+    if (!c0 || c0.url !== forced) cloud.saveCfg(forced, SUPA_ANON);
+    return cloud.cfg();
+  }
   const c = cloud.cfg();
   if (!c || c.url !== SUPA_URL || c.anon !== SUPA_ANON) {
     cloud.saveCfg(SUPA_URL, SUPA_ANON);
@@ -50,6 +62,121 @@ function ensureCfg() {
 export function cloudOn() {
   ensureCfg();
   return !!cloud.session();
+}
+
+/* ============================================================================
+   换设备靠「带钥匙的网址」自动登录
+
+   【为什么不能真的做到「任何设备都免密」】
+   浏览器把登录状态存在自己的 localStorage 里，这块空间不跨设备、不跨浏览器
+   —— 电脑上的 Chrome 和手机上的 Safari 是两个互不相通的世界。
+   这是浏览器的安全模型决定的，不是代码没写对。任何纯前端应用都做不到
+   「换个设备自动就登录了」，除非在超链接里带上凭证。
+
+   【所以这里的做法】
+   在已登录的设备上生成一个一次性链接（#k=<令牌>）。
+   复制到手机打开 → 自动登录 → 15 分钟内有效、只能换一次。
+   手机此时拿到的 refresh_token 由 Supabase 默认永久有效，
+   于是这台手机以后就也不用再输了。
+
+   为什么不直接把 refresh_token 放进链接：
+   它长期有效，一旦被转发（发错群、截屏、聊天记录被别人翻到），
+   对方可以长期读你的数据。一次性、短效、换完即废，风险可控得多。
+   ========================================================================== */
+
+/* 生成换设备链接：用 refresh_token 换一个一次性 token hash */
+export async function makeDeviceLink() {
+  const c = cloud.cfg();
+  const sess = cloud.session();
+  if (!c || !sess) throw new Error('请先登录');
+
+  const rt = cloud.refreshToken();
+  if (!rt) throw new Error('本机登录状态不完整，请退出后重新登录一次');
+
+  const r = await fetch(c.url + '/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: c.anon },
+    body: JSON.stringify({ refresh_token: rt }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) {
+    throw new Error(j.error_description || j.msg || '生成失败，请重新登录后再试');
+  }
+  /* 这一步会让本机的 refresh_token 也轮换掉，同步存回去，否则本机掉线 */
+  if (j.refresh_token) cloud.adoptTokens(j);
+
+  const th = await fetch(c.url + '/auth/v1/user/token_hash', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: c.anon, Authorization: 'Bearer ' + j.access_token },
+    body: '{}',
+  });
+  const tj = await th.json().catch(() => ({}));
+  if (!th.ok || !tj.token_hash) {
+    throw new Error(tj.msg || tj.message || '生成一次性凭证失败');
+  }
+
+  /* 拼链接要连「查询串」一起带上。
+     线上是 /my-workbench/ 这种目录地址，但本地/预览常见 /index.html，
+     只取 origin+pathname 会把 ?supa=… 这类参数丢掉，
+     在测试环境和多参数部署下指向就错了。 */
+  const base = location.origin + location.pathname + location.search;
+  return `${base}#k=${encodeURIComponent(tj.token_hash)}&t=${encodeURIComponent(j.access_token)}`;
+}
+
+/* 打开带 #k= 的链接时自动登录。成功返回 true */
+export async function autoLoginFromUrl() {
+  const m = /[#&]k=([^&]+)/.exec(location.hash || '');
+  if (!m) return false;
+
+  ensureCfg();
+  const hash = decodeURIComponent(m[1]);
+
+  /* 不论成败，先把 #k= 从地址栏抹掉：
+     否则用户刷新页面会再试一次（而它已经失效了），报错更莫名其妙。
+     同时也避免这个链接被存在浏览器历史里、被截图分享。 */
+  try {
+    history.replaceState(null, '', location.pathname + location.search + '#home');
+  } catch { }
+
+  const c = cloud.cfg();
+  try {
+    const r = await fetch(c.url + '/auth/v1/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: c.anon },
+      body: JSON.stringify({ token_hash: hash, type: 'magiclink' }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.access_token) {
+      toast('这个登录链接已失效（一次性，15 分钟内有效）。请在本机正常登录一次。', 'warn', 9000);
+      return false;
+    }
+    cloud.adoptTokens(j);
+
+    /* 【关键一步，漏了就白登】本机账号也要"登录"一次。
+       工作台自己的登录（账号 + 密码）和云端登录是两套：
+       云端的 token 只管能不能读写 Supabase；
+       页面要不要显示"登录页"看的是 state.user。
+       以前只做了前半段，结果手机上打开链接后 token 拿到了，
+       界面却还停在登录页 —— 用户会觉得"根本没登进去"，然后再手输一次。
+       这里直接用服务端给的邮箱号建/登本机账号，两边一次对齐。 */
+    try {
+      const { api } = await import('./core.js');
+      const local = await api.post('/auth/login-cloud', { email: j.user?.email || '', uid: j.user?.id || '' }, { silent: true });
+      if (local?.user) {
+        const ui = await import('./ui.js');
+        ui.setUser(local.user);
+      }
+    } catch (e) {
+      /* 本机账号对齐失败不影响云端登录本身，只是首屏还要再登一次本机账号 */
+      console.warn('本机账号对齐失败', e);
+    }
+
+    toast('已在这台设备上登录', 'ok');
+    return true;
+  } catch (e) {
+    toast('自动登录失败：' + (e.message || e), 'err', 8000);
+    return false;
+  }
 }
 
 /* ============================================================================
@@ -76,10 +203,18 @@ export function loginSheet(opts = {}) {
 
     <div class="field"><label class="field-label">邮箱</label>
       <input class="input" id="cl-mail" type="email" inputmode="email" autocomplete="username"
-        placeholder="你在 Supabase 里建的那个邮箱"></div>
+        placeholder="邮箱，比如 name@qq.com">
+      <div class="tiny muted" id="cl-hint" style="margin-top:5px;display:none">
+        这是<b>邮箱</b>不是手机号 —— Supabase 只认邮箱格式，填手机号会提示「密码不对」。
+      </div>
+    </div>
 
     <div class="field"><label class="field-label">密码</label>
       <input class="input" id="cl-pwd" type="password" autocomplete="current-password" placeholder="密码"></div>
+
+    <div class="tiny" style="margin-top:2px;color:var(--muted);line-height:1.6">
+      这台设备登录一次，以后打开就不用再输了。
+    </div>
 
     <button class="btn primary block" id="cl-go" style="justify-content:center;margin-top:14px">
       登录
@@ -104,6 +239,14 @@ export function loginSheet(opts = {}) {
 
   /* 记住上次用的邮箱，省得每次重打 */
   try { mail.value = localStorage.getItem('wb_last_mail') || ''; } catch { }
+
+  /* 手机号一眼看穿：边输边提示，不用等到点了登录才挨一句「密码不对」 */
+  const hint = b.querySelector('#cl-hint');
+  const checkMail = () => {
+    hint.style.display = cloud.looksLikePhone(mail.value) ? 'block' : 'none';
+  };
+  mail.oninput = checkMail;
+  checkMail();
 
   const say = (t, kind = 'muted') => {
     msg.textContent = t;
@@ -174,15 +317,20 @@ function accountSheet() {
       <div class="cl-row"><span>课时数据</span><b id="cl-n" class="muted">检查中…</b></div>
       <div class="cl-row"><span>存哪</span><b>Supabase（云端数据库）</b></div>
       <div class="cl-row"><span>谁能看</span><b>只有你这个账号</b></div>
+      <div class="cl-row"><span>这台设备的登录</span><b>会一直记住</b></div>
     </div>
 
     <div class="tiny muted" style="margin-top:10px;line-height:1.65">
       课时现在直接存在云上，改完即保存，不需要再点上传。
-      其余模块（考勤、监考、值日等）这一步还没搬，仍存在本机，
-      可以继续用「数据导出与备份」留个底。
+      这台设备关掉浏览器、关机、明天再打开，都不用重新输密码。
+      其余模块（考勤、监考、值日等）这一步还没搬，仍存在本机。
     </div>
 
-    <button class="btn ghost block" id="cl-mig" style="margin-top:12px;justify-content:center">
+    <button class="btn ghost block" id="cl-dev" style="margin-top:14px;justify-content:center">
+      在手机 / 另一台电脑上登录
+    </button>
+
+    <button class="btn ghost block" id="cl-mig" style="margin-top:8px;justify-content:center">
       把本机以前的课时搬到云端
     </button>
 
@@ -203,6 +351,7 @@ function accountSheet() {
     toast('云端读不到：' + (e.message || e), 'err', 9000);
   });
 
+  b.querySelector('#cl-dev').onclick = () => { sh.close(); setTimeout(deviceSheet, 200); };
   b.querySelector('#cl-mig').onclick = () => { sh.close(); setTimeout(migrateSheet, 200); };
 
   b.querySelector('#cl-out').onclick = async () => {
@@ -211,6 +360,83 @@ function accountSheet() {
     toast('已退出登录', 'ok');
     sh.close();
   };
+}
+
+/* ============================================================================
+   在另一台设备上登录（一次性链接）
+   ========================================================================== */
+
+async function deviceSheet() {
+  const b = el(`<div class="sheet-body">
+    <div class="cl-hero">
+      <div class="cl-ico">${icon('phone', 24)}</div>
+      <div>
+        <div class="bold">在另一台设备上登录</div>
+        <div class="tiny muted" style="margin-top:3px">生成一个一次性链接，在手机上打开就自动登录</div>
+      </div>
+    </div>
+    <div id="dv-body"><div class="small muted" style="padding:10px 0">生成中…</div></div>
+  </div>`);
+  const sh = sheet({ title: '换设备登录', body: b });
+  const body = b.querySelector('#dv-body');
+
+  let url;
+  try {
+    url = await makeDeviceLink();
+  } catch (e) {
+    body.innerHTML = `<div class="small" style="color:var(--red)">${esc(e.message || e)}</div>`;
+    return;
+  }
+
+  body.innerHTML = `
+    <div class="cl-tip">
+      <b>怎么用：</b>把这个链接发到微信「文件传输助手」，在手机上点开 →
+      自动登录，以后这台手机也不用再输密码。
+    </div>
+
+    <input class="input" id="dv-url" readonly value="${esc(url)}"
+      style="margin-top:10px;font-size:12px;font-family:ui-monospace,monospace">
+
+    <div class="row" style="gap:8px;margin-top:10px">
+      <button class="btn primary" id="dv-copy" style="flex:1;justify-content:center">复制链接</button>
+      <button class="btn ghost" id="dv-share" style="flex:1;justify-content:center">系统分享</button>
+    </div>
+
+    <div class="tiny muted" style="margin-top:12px;line-height:1.7">
+      <b>这条链接等于你的钥匙</b>，谁拿到都能登进你的账号：<br>
+      · 只能用一次，且 <b>15 分钟内</b>有效<br>
+      · 用掉或过期就自动作废<br>
+      · 别发到群里、别截图发人<br>
+      · 万一发错了，去「退出登录」再重新登录一次，旧链接立刻失效
+    </div>
+  `;
+
+  const inp = body.querySelector('#dv-url');
+  body.querySelector('#dv-copy').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('已复制，去手机粘贴打开', 'ok');
+    } catch {
+      inp.select();
+      toast('已选中，长按复制', 'ok');
+    }
+  };
+
+  const shBtn = body.querySelector('#dv-share');
+  if (!navigator.share) {
+    shBtn.style.opacity = '.5';
+  }
+  shBtn.onclick = async () => {
+    try {
+      await navigator.share({ title: '教师工作台', text: '点开就自动登录', url });
+    } catch { }
+  };
+
+  /* 关掉面板时清掉输入框里的链接，减少被旁人看到的机会。
+     注意 sheet 的 onClose 是构造时捕获的，事后赋值不生效，
+     所以这里直接包一层 close。 */
+  const rawClose = sh.close;
+  sh.close = () => { try { inp.value = ''; } catch { } rawClose(); };
 }
 
 /* ============================================================================

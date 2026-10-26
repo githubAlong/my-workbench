@@ -1469,6 +1469,36 @@ on('POST', '/auth/register', async ({ body }) => {
   return { user: publicUser(u), token: 'static', created: true };
 });
 
+/* 【换设备链接自动登录之后，把本机账号也对齐】
+   场景：手机上第一次点开 #k=… 一次性链接，云端 token 已经换到手了，
+   但这台手机的 localStorage 里没有工作台账号，界面还卡在登录页。
+
+   这里按云端邮箱建一个本机账号（已存在就直接放行）。
+   它只解决「界面能不能进去」，真正的数据访问权限仍然由 Supabase 的
+   RLS + 云端 token 控制 —— 所以就算有人伪造这个请求，
+   拿到的也只是个空的本地主题设置，读不到任何云端数据。 */
+on('POST', '/auth/login-cloud', async ({ body }) => {
+  const email = String(body?.email || '').trim().toLowerCase();
+  const uid = String(body?.uid || '');
+  if (!email) fail(400, '缺少邮箱');
+
+  const u = currentUser();
+  const acct = (email.split('@')[0] || 'me').replace(/[^A-Za-z0-9_]/g, '').slice(0, 20) || 'me';
+
+  /* 已经用过别的账号：不再改账号名，避免把本机历史数据挂到新人头上 */
+  if (!u.account) {
+    u.account = acct.length >= 3 ? acct : 'me' + acct;
+    u.pwd = '';                      /* 云端账号不走本机密码，登录由云端 token 保证 */
+    u.nickname = u.nickname || acct;
+  }
+  u.cloudUid = uid;
+  u.cloudEmail = email;
+  saveUser(u);
+  setLoggedOut(false);
+  seedIfEmpty();
+  return { user: publicUser(u), token: 'cloud', cloud: true };
+});
+
 on('POST', '/auth/login', async ({ body }) => {
   const account = String(body?.account || '').trim();
   const password = String(body?.password || '');
