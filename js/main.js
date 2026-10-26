@@ -115,45 +115,12 @@ try {
    现在 sw.js 里 clients.claim() 接管后会给所有页面发 WB_SW_UPDATED，
    这里收到就弹一条提示，点一下直接刷新到新版。 */
 if ('serviceWorker' in navigator) {
-  /* 【先清掉「空壳 SW」】
-     早几版的 sw.js 把预缓存清单写成了源码路径（./js/main.js 等），
-     打包产物里根本没有 js/ 目录，cache.addAll 整批 404 失败又被 catch 吞掉。
-     结果是缓存建出来了、里面一条都没有 —— 但 SW 本身照样装上了，
-     并且它的 fetch 处理是「网络失败就查缓存」，查不到就抛错。
-     这样的 SW 没有任何好处，却让页面多一层拦截，还会让「新版本装不上」
-     这件事更难排查（因为 controller 一直非空，看起来像正常）。
-
-     这里做两件事：
-       ① 如果当前 SW 的缓存里连 app.js 都没有（说明是空壳），注销它并清缓存，
-          让下一次访问走纯网络；
-       ② 顺便把不是当前版本的旧缓存全部删掉，避免占空间、避免命中旧文件。
-     判断放在注册之前，这样即使后面注册失败，页面至少是干净的。 */
-  const SW_VER = 'wb-v66';
-  (async () => {
-    try {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      for (const r of regs) {
-        const c = await caches.open(SW_VER).catch(() => null);
-        const hasApp = c ? await c.match('./app.js').then((x) => !!x) : false;
-        if (!hasApp && r.active) {
-          // 空壳或旧版本：留给新 SW 覆盖，但先确保旧缓存不会继续被命中
-          console.info('[wb] 检测到旧版 Service Worker，正在更新');
-        }
-      }
-      if (regs.length) {
-        const ks = await caches.keys();
-        await Promise.all(ks.filter((k) => k !== SW_VER).map((k) => caches.delete(k)));
-      }
-    } catch { /* 隐私模式等场景下缓存 API 不可用，忽略 */ }
-  })();
-
   navigator.serviceWorker.register('./sw.js').catch(() => {});
   /* 注册后主动问一次：有没有装好但还没接管的新版本？
      以前只能等 activate 里的 postMessage，如果那次消息没送达
      （页面刚好在切换、或 SW 装完时页面已关闭），用户就永远不知道有新版本。
      这里在页面可见时补一刀，顺带覆盖「后台积压了好几个版本」的情况。 */
   navigator.serviceWorker.ready.then(async (reg) => {
-    reg.addEventListener('updatefound', () => { });
     if (reg.waiting) reg.waiting.postMessage({ type: 'WB_PING' });
     /* 每 10 分钟静默检查一次更新。SPA 用户可能几天不关这个标签页，
        不做定时检查就永远停在打开那一刻的版本上。 */
@@ -174,34 +141,48 @@ if ('serviceWorker' in navigator) {
       if (last) { last.style.cursor = 'pointer'; last.onclick = () => location.reload(); }
     }, 1200);
   });
+}
 
-  /* 【自愈：发现跑在「旧壳 SW」下面，自动刷一次】
-     用户反馈「换台电脑打开还是旧页面」，截图里那条「有新版本了」的提示
-     一直挂着没点。提示靠人点是靠不住的 —— 有人根本不看，有人以为点了没用。
-     这里在页面加载后检查一次：
-       · 有 controller（说明 SW 在拦请求）
-       · 但 controller 不是当前版本的 sw.js（或缓存里没有 app.js）
-     满足就自动 reload 一次，并用 sessionStorage 记一笔，防止刷成死循环。
-     只用一次、只刷一次，代价很小，换来的是「不用教用户清缓存」。 */
+/* === 【2026-10 离线失效事故复盘 —— 这里曾经把缓存删干净】 ===
+   现象：联网时页面正常，一旦断网（或 GitHub Pages 抽风），打开就是
+        「页面没能加载出来」，反复刷新也不恢复；但 devtools 里缓存条目
+        明明有 27 条、SW 状态也是 activated。
+   原因：上面原本有一段「清理空壳 SW」的老代码，是从上一代项目
+        「班级资料站」原样搬来的，它有三处必须写成上一代项目才成立：
+          ① 缓存版本写死成 'wb-v66'（当前 sw.js 用的是 'wb-v70'）；
+          ② 用「缓存里有没有 ./app.js」判断 SW 是否健康
+             —— app.js 是旧项目 674KB 的打包产物，本项目没有这个文件，
+             所以这个判断永远得出「不健康」；
+          ③ 只要发现有注册过的 SW，就把「所有名字不等于 wb-v66 的缓存
+             全部删掉」。sw.js 刚建好的 wb-v70 正好不是 wb-v66 → 被删。
+        于是每次打开页面：SW 装好、预缓存写满 27 条 →
+        main.js 一执行 → 27 条全被删 → 断网时 caches.match 落空 → 兜底页。
+        这也能解释「同一台电脑换个浏览器就好了」：那个浏览器里
+        SW 还没注册上，走的是纯网络，反而正常。
+   修法：这一整段删除逻辑直接去掉。
+        · 缓存版本号只有 sw.js 一个地方说了算，页面不再重复声明；
+        · 旧版本缓存由 sw.js 的 activate 清理（它只留 CACHE 那一个名字）；
+        · 不再靠 app.js 这种具体文件判断健康，只认 serviceWorker.controller。
+   教训：跨项目搬代码时，凡是出现具体版本号、具体文件名的地方，
+        要么一起改，要么整段删 —— 半懂不懂地留着比没有更危险。 */
+
+/* 【自愈：SW 脚本地址不对时，自动刷一次】
+   只处理一种真的会发生的坏情况：controller 指向的不是本目录的 sw.js
+   （换过部署路径、或历史遗留注册）。用 sessionStorage 记一笔，只刷一次，
+   避免刷成死循环。
+   注意：这里绝不再碰 caches，删缓存的事只归 sw.js 的 activate 管。 */
+if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
   const key = 'wb_sw_healed';
-  if (navigator.serviceWorker.controller) {
-    let healed = 0;
-    try { healed = Number(sessionStorage.getItem(key)) || 0; } catch { }
-    if (healed < 1) {
+  let healed = 0;
+  try { healed = Number(sessionStorage.getItem(key)) || 0; } catch { }
+  if (healed < 1) {
+    const cur = navigator.serviceWorker.controller.scriptURL;
+    if (!cur || !cur.endsWith('/sw.js')) {
       (async () => {
         try {
-          const c = await caches.open(SW_VER);
-          const fresh = await c.match('./app.js');
-          const cur = navigator.serviceWorker.controller.scriptURL;
-          const stale = !fresh || !cur.endsWith('/sw.js');
-          if (!stale) return;
-          try { sessionStorage.setItem(key, String(healed + 1)); } catch { }
-          /* unregister 之后再 reload：留着注册的话，下一次进来还是旧的。
-             新页面加载时会重新 register，装上新版。 */
-          const regs = await navigator.serviceWorker.getRegistrations();
-          await Promise.all(regs.map((r) => r.update().catch(() => { })));
-          location.reload();
+          sessionStorage.setItem(key, '1');
         } catch { }
+        location.reload();
       })();
     }
   }
