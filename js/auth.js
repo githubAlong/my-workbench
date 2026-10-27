@@ -22,7 +22,7 @@
 import { toast, el, esc, sheet, confirmDialog } from './core.js';
 import { icon } from './ui.js';
 import * as cloud from './cloud.js';
-import { migrateLessons, previewMigration, migrateInvigilations, migrateAttendance } from './migrate.js';
+import { migrateLessons, previewMigration, migrateInvigilations, migrateAttendance, migrateAttachments } from './migrate.js';
 
 /* ---------------------------------------------------------------------------
    ★★★ 部署前要填这两个值 ★★★
@@ -550,6 +550,7 @@ async function migrateSheet() {
       let l = { total: 0, added: 0, skipped: 0, failed: 0, errors: [] };
       let iv = { total: 0, added: 0, skipped: 0, failed: 0, errors: [] };
       let at = { total: 0, added: 0, skipped: 0, failed: 0, errors: [], tables: 0, rows: 0 };
+      let att = { total: 0, added: 0, skipped: 0, failed: 0, errors: [] };
 
       if (lessons?.realRows) {
         try {
@@ -566,9 +567,15 @@ async function migrateSheet() {
           at = await migrateAttendance(({ done, total, text }) => showProg(text, total ? Math.round((done / total) * 100) : 0));
         } catch (e) { fails.push('考勤：' + (e.message || e)); }
       }
+      /* 附件（原表 + 照片）必须排在考勤之后 ——
+         它要靠「考勤表本地 id → 云端 id」的对应关系才知道该挂到哪张表。
+         前面考勤没搬成时，这里会全部跳过（不会挂错），是安全的行为。 */
+      try {
+        att = await migrateAttachments(({ done, total, text }) => showProg(text, total ? Math.round((done / total) * 100) : 0));
+      } catch (e) { fails.push('附件：' + (e.message || e)); }
 
-      const errors = [...l.errors, ...iv.errors, ...at.errors];
-      const totalFailed = l.failed + iv.failed + at.failed + fails.length;
+      const errors = [...l.errors, ...iv.errors, ...at.errors, ...att.errors];
+      const totalFailed = l.failed + iv.failed + at.failed + att.failed + fails.length;
       const bad = (errors.length || fails.length)
         ? `<div class="cl-tip" style="margin-top:10px;color:var(--red)">
              ${fails.map(esc).join('<br>')}
@@ -582,7 +589,8 @@ async function migrateSheet() {
           <div class="cl-row"><span>课时 新上传</span><b style="color:#166534">${l.added} 条</b></div>
           <div class="cl-row"><span>监考 新上传</span><b style="color:#166534">${iv.added} 场</b></div>
           <div class="cl-row"><span>考勤 新上传</span><b style="color:#166534">${at.tables || 0} 张 / ${at.rows || 0} 人</b></div>
-          <div class="cl-row"><span>跳过（已存在/空）</span><b>${l.skipped + iv.skipped + at.skipped} 条</b></div>
+          <div class="cl-row"><span>原表 + 照片</span><b style="color:#166534">${att.added} 个</b></div>
+          <div class="cl-row"><span>跳过（已存在/空）</span><b>${l.skipped + iv.skipped + at.skipped + att.skipped} 条</b></div>
           <div class="cl-row"><span>失败</span><b style="color:${totalFailed ? 'var(--red)' : 'inherit'}">${totalFailed} 条</b></div>
         </div>
         ${bad}
@@ -595,7 +603,7 @@ async function migrateSheet() {
         sh.close();
         window.dispatchEvent(new HashChangeEvent('hashchange'));
       };
-      const sum = l.added + iv.added + (at.tables || 0);
+      const sum = l.added + iv.added + (at.tables || 0) + (att.added || 0);
       toast(`迁移完成：新增 ${sum} 项`, totalFailed ? 'warn' : 'ok', 6000);
     } catch (e) {
       go.disabled = false;

@@ -408,3 +408,99 @@ export async function migrateAttendance(onProgress = () => {}) {
     errors, tables: addedT, rows: addedR,
   };
 }
+
+/**
+ * 迁移附件（考勤原表 Excel + 现场照片）。
+ *
+ * 【为什么必须单独一段，且要在 migrateAttendance 之后跑】
+ * 附件挂在考勤表上，字段是 owner_id。本地 owner_id 是本地流水号，
+ * 云端 attendance_tables 的 id 是另一套自增 —— 直接把本地 id 写进去，
+ * 照片就会挂到"别人的表"下面。所以这里必须先把「本地表 id → 云端表 id」
+ * 对应起来，认不出对应关系的附件宁可跳过，也不能挂到 0 或者别的表上。
+ *
+ * 【怎么对应】
+ * 复用 migrateAttendance 用的同一个指纹 attFingerprint（年级|日期|类型|表名）。
+ * 两边用同一个函数，才不会出现"迁移脚本认为是一张表、这里认为是两张"。
+ *
+ * 【为什么限制只会搬 attendance】
+ * 课件（material）、出差（trip）、头像（avatar）对应的主表还没上云，
+ * 它们继续留在本机，搬上去反而会在云端留一堆没人认领的孤儿数据。
+ *
+ * 【幂等】
+ * 同一张表下同名同大小的附件只搬一次。照片可能是"a.jpg / a.jpg"同名，
+ * 所以用「文件名 + 字节数」当指纹，比只用文件名稳。
+ */
+export async function migrateAttachments(onProgress = () => {}) {
+  if (!cloud.cfg() || !cloud.session()) throw new Error('请先登录云端账号');
+  onProgress({ done: 0, total: 1, text: '读取本机附件…' });
+
+  const all = (await readLocalTable('attachments')).filter((a) => !a.deleted_at && a.owner_type === 'attendance');
+  if (!all.length) return { total: 0, added: 0, skipped: 0, failed: 0, errors: [] };
+
+  /* 先把云端已有的考勤表读回来建指纹索引。
+     读不到就直接抛错 —— 这时候硬搬只会把附件挂错地方。 */
+  const remoteTables = await cloud.listRows('attendance_tables', {});
+  const byFp = new Map(remoteTables.map((t) => [attFingerprint(t), t]));
+
+  /* 本地表也要读，才能知道某个本地 owner_id 对应哪张表 */
+  const localTables = (await readLocalTable('attendance_tables')).filter((t) => !t.deleted_at);
+  const cloudIdOf = new Map();   // 本地表 id → 云端表 id（认不出来的不放进 map）
+  let orphan = 0;
+  for (const lt of localTables) {
+    const hit = byFp.get(attFingerprint(cleanAttTable(lt)));
+    if (hit) cloudIdOf.set(String(lt.id), hit.id);
+    else orphan += 1;
+  }
+
+  let added = 0; let skipped = 0; let failed = 0;
+  const errors = [];
+  const doneOwner = new Map();   // 云端表 id → Set(指纹)，避免每张表都重新读一遍云端
+
+  for (let i = 0; i < all.length; i += 1) {
+    const a = all[i];
+    const label = a.name || `附件 ${a.id}`;
+    const cloudOwner = cloudIdOf.get(String(a.owner_id));
+
+    if (!cloudOwner) {
+      /* 表本身没搬上去（或者指纹对不上）。跳过并记一笔，
+         但不当作失败 —— 用户看到一大堆红字会更慌。 */
+      skipped += 1;
+      continue;
+    }
+
+    try {
+      if (!doneOwner.has(cloudOwner)) {
+        const exist = await cloud.listAttachmentMeta('attendance', cloudOwner).catch(() => []);
+        doneOwner.set(cloudOwner, new Set(exist.map((x) => `${x.name || ''}|${Number(x.size) || 0}`)));
+      }
+      const seen = doneOwner.get(cloudOwner);
+      const fp = `${a.name || ''}|${Number(a.size) || 0}`;
+      if (seen.has(fp)) { skipped += 1; continue; }
+
+      /* 正文可能没有（老数据只存了元数据），照样把元数据搬上去，
+         让界面上至少能看到"有这么个附件"。 */
+      await cloud.createAttachment({
+        owner_type: 'attendance',
+        owner_id: cloudOwner,
+        name: a.name || '',
+        mime: a.mime || '',
+        size: Number(a.size) || 0,
+        path: a.path || '',
+        url: a.url || '',
+      });
+      seen.add(fp);
+      added += 1;
+      onProgress({
+        done: i + 1, total: all.length,
+        text: `附件已搬 ${added} 个（${i + 1}/${all.length}）`,
+      });
+    } catch (e) {
+      failed += 1;
+      errors.push(`「${label}」：${e.message || e}`);
+    }
+  }
+
+  /* orphan 只是统计：有几张本地表在云端找不到对应，它们的附件一律跳过。
+     写进 errors 会让用户误以为出错，所以单独放在返回值里。 */
+  return { total: all.length, added, skipped, failed, errors, orphanTables: orphan };
+}

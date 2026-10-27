@@ -634,8 +634,8 @@ async function photosSheet(tableId, onCount) {
   const paint = (items) => {
     $('#ap-list').innerHTML = items.length ? items.map((p) => `
       <div class="ap-item" data-pid="${p.id}">
-        <a class="ap-thumb" href="${esc(p.url)}" target="_blank" rel="noopener">
-          <img src="${esc(p.url)}" alt="${esc(p.name)}" loading="lazy">
+        <a class="ap-thumb" data-open="${p.id}" style="cursor:zoom-in">
+          <img alt="${esc(p.name)}" loading="lazy">
         </a>
         <div class="ap-meta">
           <div class="ap-name">${esc(p.name || '照片')}</div>
@@ -643,10 +643,29 @@ async function photosSheet(tableId, onCount) {
         </div>
         <button class="icon-btn sm" data-del="${p.id}" title="删除">${icon('close', 13)}</button>
       </div>`).join('') : '<div class="ap-empty">还没有照片。拍一张纸表存进来，以后核对有据可查。</div>';
+    /* 缩略图要按 id 单独取正文（列表不带正文），所以先渲染骨架再补图。
+       单张失败只留一个灰块，不让整面墙跟着挂。 */
+    items.forEach((p) => {
+      const img = body.querySelector(`.ap-item[data-pid="${p.id}"] img`);
+      if (!img) return;
+      fileUrl(p.id).then((u) => { img.src = u; }).catch(() => {
+        img.replaceWith(el('<div class="ap-broken tiny muted" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center">打不开</div>'));
+      });
+    });
+    /* 点缩略图看大图：用 blob: 地址开新窗口，
+       data: 地址在手机浏览器里经常被拦，blob: 可以正常显示。 */
+    body.querySelectorAll('[data-open]').forEach((a) => {
+      a.onclick = async () => {
+        try {
+          const u = await fileUrl(a.dataset.open);
+          window.open(u, '_blank', 'noopener');
+        } catch (e) { toast(e.message || '打不开这张照片', 'err'); }
+      };
+    });
     body.querySelectorAll('[data-del]').forEach((b) => {
       b.onclick = async () => {
         if (!(await confirmDialog('删除这张照片？'))) return;
-        await api.del('/attachments/' + b.dataset.del);
+        await api.del('/attachments/' + encodeURIComponent(b.dataset.del));
         toast('已删除');
         const now = await api.get(`/attendance/${tableId}/photos`).catch(() => []);
         paint(now); onCount?.(now.length);
@@ -673,6 +692,50 @@ async function photosSheet(tableId, onCount) {
     } catch (err) { toast(err.message, 'err'); }
   };
   $('#ap-close').onclick = s.close;
+}
+
+/* ---------- 附件取正文：data URL → Blob URL ----------
+   【为什么不能直接把 url 塞进 <img src> / <a href>】
+   ① 上云之后，列表接口故意不带正文（一张表 10 张照片就是 15MB），
+      f.url 是空串，直接塞就是裂图 / 下载到 0 字节的文件。
+   ② 就算 url 是完整的 data:image/...，把它塞进 <a href> 在手机上
+      会"打开"成一堆乱码而不是下载，文件名也丢了。
+   所以统一走这里：先按 id 取正文，再转成 blob: 地址。
+   blob: 地址 img 能显示、a 能下载，且不会因为太长被浏览器截断。
+
+   【为什么用完不 revoke】
+   缩略图、大图预览、下载按钮都可能同时用到同一个地址，
+   提前 revoke 会让正在显示的那张图变空白。数量很少（一张表几张照片），
+   内存可以接受；页面刷新/退出时浏览器会自己回收。 */
+const blobCache = new Map();          // 附件 id → Promise<blobUrl>
+function fileUrl(id) {
+  /* id 可能是云端带来的 "c12"，也可能是本地流水号 12。
+     原样拼进路径就行 —— localapi 里认前缀，不需要前端判断归谁。 */
+  const key = String(id);
+  if (blobCache.has(key)) return blobCache.get(key);
+  const p = (async () => {
+    const r = await api.get(`/attachments/${encodeURIComponent(key)}/file`);
+    const url = r?.url || '';
+    if (!url) throw new Error('这个附件的正文没存上（可能超出了当时的容量上限），只剩文件名');
+    const blob = await (await fetch(url)).blob();
+    return URL.createObjectURL(blob);
+  })();
+  /* 失败的不缓存：下次点还能重试。不这么做的话一次网络抖动，
+     这个附件在本次打开期间就永远打不开了。 */
+  p.catch(() => blobCache.delete(key));
+  blobCache.set(key, p);
+  return p;
+}
+
+/* 下载一个附件：按 id 取正文 → 用原名存盘 */
+async function downloadAttach(a) {
+  try {
+    const url = await fileUrl(a.id);
+    const blob = await (await fetch(url)).blob();
+    saveBlob(blob, a.name || '附件');
+  } catch (e) {
+    toast(e.message || '下载失败', 'err');
+  }
 }
 
 function fmtSize(n) {
@@ -768,14 +831,14 @@ async function sourceSheet(t) {
     <div class="small muted" style="margin-bottom:10px">下面是你上传的原表，库里存的是解析后的结构化数据，原文件留档方便核对。</div>
     ${files.length ? files.map((f) => `<div class="ap-item">
       <div class="ap-meta"><div class="ap-name">${esc(f.name)}</div><div class="ap-size">${fmtSize(f.size)}</div></div>
-      <a class="btn ghost sm" href="${esc(f.url)}" download="${esc(f.name)}">下载</a>
+      <button class="btn ghost sm" data-dl="${f.id}">下载</button>
     </div>`).join('') : ''}
     ${snaps.length ? `<div class="att-tip-note" style="margin-bottom:8px">
       这张表是旧版本导入的，只留下了「解析后的数据」快照，不是原始 Excel。下载后是 JSON，能用记事本打开核对内容。
     </div>
     ${snaps.map((f) => `<div class="ap-item">
       <div class="ap-meta"><div class="ap-name">${esc(f.name.replace(/\.raw\.json$/i, ''))}<span class="chip grey" style="margin-left:6px">解析快照</span></div><div class="ap-size">${fmtSize(f.size)}</div></div>
-      <a class="btn ghost sm" href="${esc(f.url)}" download="${esc(f.name)}">下载</a>
+      <button class="btn ghost sm" data-dl="${f.id}">下载</button>
     </div>`).join('')}` : ''}
     <div class="att-tip-note" style="margin-top:10px">
       Excel 里那一列列勾（√ / ×）在导入时已经转成了表里的 ✓ / × 状态。
@@ -785,6 +848,24 @@ async function sourceSheet(t) {
   </div>`);
   const s = sheet({ title: '原表文件', body });
   body.querySelector('#c').onclick = s.close;
+  /* 【下载要现取正文】
+     列表接口不带正文（上云后一张表挂几张照片就不是小数目），
+     所以按钮只能先按 id 取，转成 blob: 再存盘。
+     以前写成 <a href="${f.url}" download>，url 是空串时点下去毫无反应，
+     用户只会以为"下载功能坏了"。 */
+  const byId2 = new Map(files.concat(snaps).map((f) => [String(f.id), f]));
+  body.querySelectorAll('[data-dl]').forEach((b) => {
+    b.onclick = async () => {
+      const f = byId2.get(String(b.dataset.dl));
+      if (!f) return;
+      b.disabled = true;
+      const old = b.textContent;
+      b.textContent = '准备中…';
+      await downloadAttach(f);
+      b.disabled = false;
+      b.textContent = old;
+    };
+  });
 }
 
 /* ---------- 导出 Excel（.xlsx，能直接在 Excel / WPS 里打开） ----------
@@ -1059,13 +1140,20 @@ function openSeat(t, reload) {
     try { list = await api.get(`/attendance/${t.id}/photos`); } catch { list = []; }
     if (!list || !list.length) { box2.innerHTML = ''; return; }
     box2.innerHTML = `<div class="att-refbar">
-      <img src="${esc(list[0].url || '')}" alt="" onerror="this.style.display='none'">
+      <span class="att-ref-ph" style="width:44px;height:44px;border-radius:8px;background:var(--line,#e5e7eb);flex:none"></span>
       <span>现场参照：纸表照片 ${list.length} 张</span>
       <span style="flex:1"></span>
       <button class="btn ghost xs" id="ref1">看大图</button></div>`;
     const open1 = () => photosSheet(t.id, () => { });
     box2.querySelector('#ref1').onclick = open1;
-    box2.querySelector('img').onclick = open1;
+    /* 缩略图也是按 id 现取。取不到就把占位块去掉，
+       宁可少一张小图，也不要留个裂图占着地方。 */
+    const slot = box2.querySelector('.att-ref-ph');
+    fileUrl(list[0].id).then((u) => {
+      const img = el(`<img src="${u}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex:none;cursor:zoom-in">`);
+      img.onclick = open1;
+      slot.replaceWith(img);
+    }).catch(() => { slot.style.display = 'none'; });
   };
   const bindCells = () => {
     body.querySelectorAll('.tick').forEach((b) => {
@@ -1836,7 +1924,12 @@ function confirmSheet(parsed, ctx) {
       fd.append('owner_type', 'attendance');
       fd.append('owner_id', String(res.table_id));
       await api.post('/upload', fd);
-    } catch { /* 原表只是留档，存不上不影响导入 */ }
+    } catch (e) {
+      /* 原表只是留档，存不上不影响这张表本身的导入 —— 所以不弹红字、不中断流程。
+         但也不能完全没声音：老师以为原表存好了，期末想核对时点「原表」是空的。
+         给一条轻提示，说清"不影响什么"。 */
+      toast(`原表没能存上（${e.message || '网络没通'}），不影响这张表的使用，需要原表请再上传一次`, 'warn', 6000);
+    }
 
     sheetRef.close();
     toast(`已导入 ${res.added} 位教师${res.roster_added ? `，名册新增 ${res.roster_added} 人` : ''}`);

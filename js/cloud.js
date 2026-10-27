@@ -341,10 +341,20 @@ async function rest(path, opts = {}) {
     const msg = data?.message || data?.hint || ('HTTP ' + r.status);
     /* 表不存在时给一句能直接照做的提示 */
     if (/Could not find the table/i.test(msg)) {
-      throw new Error('云端还没建 lessons 表：去 Supabase 的 SQL Editor 跑一遍 step1_lessons.sql');
+      /* 按表名给对应的 SQL 文件名 —— 以前这里写死 lessons，
+         结果建 attachments 时也让人去跑 step1，白跑一趟。 */
+      const sql = path.split('?')[0].startsWith('attachments') ? 'step4_attachments.sql'
+        : path.split('?')[0].startsWith('attendance') ? 'step2_attendance_invigilation.sql'
+          : path.split('?')[0].startsWith('invigilations') ? 'step2_attendance_invigilation.sql'
+            : 'step1_lessons.sql';
+      throw new Error(`云端还没建 ${path.split('?')[0]} 表：去 Supabase 的 SQL Editor 跑一遍 ${sql}`);
     }
     if (/row-level security/i.test(msg)) {
       throw new Error('被 RLS 拦下了：确认你已经登录，且用的是本人的账号');
+    }
+    /* 附件是唯一会把 MB 级内容塞进请求体的地方，413 要说人话 */
+    if (r.status === 413 || /Payload Too Large|request entity too large/i.test(msg)) {
+      throw new Error('这个文件太大，服务器没收下。压缩后再传一次（图片可以先在相册里裁一下）');
     }
     throw new Error(msg);
   }
@@ -404,6 +414,18 @@ const TABLES = {
     num: ['sort', 'table_id'],
     json: ['data'],
     jsonDefault: { data: {} },
+  },
+  /* 附件（考勤原表、现场照片；课件的附件和报销发票也在这张表，但还没上云）
+     【select 这一项很关键】默认是 select=*，会把 url 一起拉回来。
+     url 里存的是整个文件的 base64，一张表挂 10 张照片就是 15MB ——
+     列表接口只该拿文件名和大小，正文等真正要下载时按 id 单独取。
+     所以这里把 url 排除掉。其余四张表不填 select，行为不变（还是 *）。 */
+  attachments: {
+    order: 'order=id.asc',
+    filter: ['owner_type', 'owner_id'],
+    num: ['owner_id', 'size'],
+    ts: ['created_at', 'updated_at', 'deleted_at'],
+    select: 'id,owner_type,owner_id,name,mime,size,path,created_at,updated_at',
   },
 };
 
@@ -493,7 +515,9 @@ function queryOf(table, query) {
 export async function listRows(table, query = {}) {
   const spec = TABLES[table];
   if (!spec) throw new Error('这张表还没接云端：' + table);
-  const parts = ['select=*', 'deleted_at=is.null'];
+  /* spec.select 用来裁剪列（附件的 url 太大，列表不能带）。
+     不填就是 '*'，四张旧表的行为完全不变。 */
+  const parts = ['select=' + (spec.select || '*'), 'deleted_at=is.null'];
   if (spec.order) parts.push(spec.order);
   const extra = queryOf(table, query);
   const rows = await rest(`${table}?${parts.join('&')}${extra ? '&' + extra : ''}`);
@@ -553,6 +577,48 @@ export async function deleteRow(table, id) {
   if (!Array.isArray(rows) || !rows.length) throw new Error('记录不存在，或不属于你这个账号');
   return { ok: true };
 }
+
+/* ---------------- 附件：原表 / 现场照片 / 课件 / 发票 ----------------
+   【为什么单独写函数，而不直接用 createRow】
+   三个原因，每个都踩过一次：
+     1. 列表必须裁剪列（不含 url），否则一次几十 MB —— 靠 TABLES 里的 select
+     2. 正文要能按 id 单取，走 rest() 才能继承 401 刷新和 RLS 报错翻译
+     3. 上传要拿回 id —— createRow 已经带了 Prefer: return=representation，
+        但这件事太容易在某次"清理代码"时被删掉，删掉之后**上传看起来成功、
+        但拿不到 id，手机端永远找不到这个文件**。所以在这里单独包一层并写清楚。
+   ------------------------------------------------------------------------ */
+
+/* 列表：只有元数据，没有正文。给「原表」「原件」「卡片角标」用。 */
+export const listAttachmentMeta = (ownerType, ownerId) =>
+  listRows('attachments', { owner_type: ownerType, owner_id: ownerId });
+
+/* 按 id 取一个文件的正文（data URL）。
+   走 rest() 而不是裸 fetch：401 自动刷新 token、RLS 报错翻译成人话、
+   「登录已过期」这类提示，全都落在这里，不然每个调用点都要自己写一遍。 */
+export async function getAttachmentUrl(id) {
+  const rows = await rest(`attachments?id=eq.${encodeURIComponent(id)}&select=id,url`);
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  if (!row) throw new Error('这个附件不存在，或者已经被删了');
+  return row.url || '';
+}
+
+/* 写入：dataUrl 是完整的 data:...;base64,xxx，直接进 url 列。
+   返回的 row 里**一定有 id**（服务端 return=representation），
+   上层拿这个 id 才能反过来在手机上查到它。 */
+export async function createAttachment(meta) {
+  return createRow('attachments', {
+    owner_type: meta.owner_type || 'misc',
+    owner_id: Number(meta.owner_id) || 0,
+    name: meta.name || '',
+    mime: meta.mime || '',
+    size: Number(meta.size) || 0,
+    path: meta.path || '',
+    url: meta.url || '',
+  });
+}
+
+/* 删附件走软删，和别处一致（回收站还能找回） */
+export const deleteAttachment = (id) => deleteRow('attachments', id);
 
 /* ---------------- 课时（保留原接口名，别的地方还在调） ---------------- */
 

@@ -1762,7 +1762,7 @@ on('POST', '/me/avatar', async ({ body }) => {
   const files = body?.files || [];
   const f = files[0];
   if (!f) fail(400, '没有收到图片');
-  if (f.data.length > 2 * 1024 * 1024) fail(400, `图片不能超过 2MB（当前 ${(f.data.length / 1024 / 1024).toFixed(1)}MB）`);
+  if (byteLen(f.data) > 2 * 1024 * 1024) fail(400, `图片不能超过 2MB（当前 ${(byteLen(f.data) / 1024 / 1024).toFixed(1)}MB）`);
   const ok = ['image/jpeg', 'image/png'].includes(String(f.mime || '').toLowerCase());
   if (!ok) fail(400, '只支持 JPG / PNG 格式');
   /* 头像转成 dataURL 直接存：静态版没有 /files 静态目录，
@@ -2464,28 +2464,74 @@ on('GET', '/attendance/:id/stats', async ({ params }) => {
   }
   return attStats(params.id);
 });
+/* 单文件上限：1.5MB。放在最前面，因为它被 /attendance/:id/photos 和 /upload 两处用，
+   而 const 不像函数声明那样会提升 —— 顺序一错就是 ReferenceError。 */
+const ATT_MAX = 1.5 * 1024 * 1024;
+
+/* 【文件有多大：不能直接读 .length】
+   FormData 传过来的 f.data 是 ArrayBuffer（见 core.js 的 formDataToObject：
+   `data: await v.arrayBuffer()`）。ArrayBuffer 没有 length 属性，
+   读出来是 undefined —— 而 `undefined > 1.5MB` 永远是 false，
+   于是**大小上限一次都没生效过**。原来那条 12MB/1.5MB 判断形同虚设，
+   只是没人传过大文件所以没暴露。现在云端要按大小卡 413，必须算准。
+   三种形态都兜住：ArrayBuffer / TypedArray / Blob，字符串按 UTF-8 估。 */
+function byteLen(data) {
+  if (data == null) return 0;
+  if (typeof data === 'string') return new TextEncoder().encode(data).length;
+  if (typeof data.byteLength === 'number') return data.byteLength;   // ArrayBuffer / TypedArray / Blob
+  if (typeof data.size === 'number') return data.size;                // Blob
+  if (typeof data.length === 'number') return data.length;            // 数组兜底
+  return 0;
+}
+
+/* 报错文案要说清三件事：哪个文件、多大、怎么办。只说「文件太大」等于没说。
+   【为什么本地和云端用同一个数】
+   localStorage 总共才 5MB，所以本地必须卡在 1.5MB；
+   云端其实能存更大，但要是本地 1.5、云端 12，就会出现
+   「家里电脑传不上、学校电脑传得上」—— 这种"看设备下菜"的毛病最难解释。 */
+function checkAttachSize(name, bytes) {
+  if (bytes <= ATT_MAX) return;
+  fail(400, `「${name}」有 ${(bytes / 1024 / 1024).toFixed(1)}MB，超过 1.5MB 上限。`
+    + '压缩一下再传：Excel 可以「另存为」去掉多余工作表；图片可以先在相册里裁小。');
+}
+
+/* 两个照片接口都是 attachments 的视图。云端模式下由 cloudRoute 接住
+   （见那边 /attendance/:id/photos 分支），这里只在「未登录 / 离线」时跑。
+   所以这里的实现只管本地那一份，不再需要判断云端表存不存在。 */
 on('GET', '/attendance/:id/photos', async ({ params }) => {
-  /* 附件本身还在本地 attachments 表（没上云），但"这张表存不存在"要按云端判断 ——
-     不然云端模式下本地没有 attendance_tables，会误报"表不存在"，
-     用户点「原件」就看到红字，以为照片丢了。 */
-  const exists = (await cloudReady()) ? !!(await cloudAttendanceDetail(params.id)) : !!byId('attendance_tables', params.id);
-  if (!exists) fail(404, '表不存在');
+  if (!byId('attendance_tables', params.id)) {
+    /* 云端模式下本地确实没有这张表 —— 那不是"表不存在"，
+       而是"这次请求走了本地兜底"。返回空列表，让界面显示"还没传照片"，
+       比甩一个红字"表不存在"要好：照片可能确实在云上，只是这次没连上。 */
+    const onCloud = await cloudReady();
+    if (onCloud) return [];
+    fail(404, '表不存在');
+  }
   return (load().attachments || [])
     .filter((a) => !a.deleted_at && a.owner_type === 'attendance' && String(a.owner_id) === String(params.id))
-    .map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, created_at: a.created_at, url: a.url || '' }));
+    /* 和 /attachments 一样：考勤走两段式，列表不带正文 */
+    .map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, created_at: a.created_at, url: '' }));
 });
 on('POST', '/attendance/:id/photos', async ({ params, body }) => {
-  const exists = (await cloudReady()) ? !!(await cloudAttendanceDetail(params.id)) : !!byId('attendance_tables', params.id);
-  if (!exists) fail(404, '表不存在');
   const files = body?.files || [];
   if (!files.length) fail(400, '没有收到图片');
-  const saved = [];
+  /* 校验先全跑一遍再写，理由同 /upload */
   for (const f of files) {
     if (!/^image\//i.test(f.mime || '')) fail(400, '只能是图片（jpg / png / heic）');
-    if (f.data.length > 12 * 1024 * 1024) fail(400, '图片太大了（上限 12MB）');
+    checkAttachSize(f.filename, byteLen(f.data));
+  }
+  const exists = byId('attendance_tables', params.id);
+  if (!exists && await cloudReady()) {
+    /* 表在云上，照片也该进云 —— 交给云端分支（cloudRoute 里那条 POST）。
+       这里 return null 让 handle 继续往下走会再次进到这个本地函数，形成死循环，
+       所以直接抛一个能看懂的错。正常情况下不会走到这：cloudRoute 已经拦下了。 */
+    fail(502, '这张表在云端，照片也要存云端，但这次没连上。检查一下网络再传。');
+  }
+  const saved = [];
+  for (const f of files) {
     const url = await blobToDataURL(f.data, f.mime);
-    const id = saveAttachment('attendance', params.id, f.filename, f.mime, f.data.length, url);
-    saved.push({ id, url, name: f.filename, mime: f.mime, size: f.data.length });
+    const id = saveAttachment('attendance', params.id, f.filename, f.mime, byteLen(f.data), url);
+    saved.push({ id, url, name: f.filename, mime: f.mime, size: byteLen(f.data) });
   }
   return saved;
 });
@@ -3194,6 +3240,7 @@ on('POST', '/homework/:id/records', ({ params, body }) => {
 });
 
 /* ---- 附件 & 上传 ---- */
+
 function saveAttachment(ownerType, ownerId, name, mime, size, dataUrl) {
   const db = load();
   db.attachments = db.attachments || [];
@@ -3211,16 +3258,46 @@ on('POST', '/upload', async ({ body }) => {
   if (!files.length) fail(400, '没有收到文件');
   const ownerType = body?.fields?.owner_type || 'misc';
   const ownerId = Number(body?.fields?.owner_id || 0);
+
+  /* 先把所有文件都量一遍再动手写。
+     原来是一个个循环里校验、边校验边写：第 3 个超限时，前 2 个已经落库了，
+     用户看到的是"报错了"，但库里其实多了两个 —— 重试就变成四个。
+     先全量校验，再全量写。 */
+  for (const f of files) checkAttachSize(f.filename, byteLen(f.data));
+
+  /* 云端优先：attachments 已经是云表，登录了就存云端，手机才看得到。
+     这里**只处理 attendance**：课件的附件、报销发票对应的主表还没上云，
+     它们继续落本地（在下面本地分支里）。 */
+  if (ownerType === 'attendance' && CLOUD_TABLES.has('attachments') && await cloudReady()) {
+    const m = await import('./cloud.js');
+    const out = [];
+    for (const f of files) {
+      const dataUrl = await blobToDataURL(f.data, f.mime);
+      let row;
+      try {
+        row = await m.createAttachment({
+          owner_type: ownerType, owner_id: ownerId,
+          name: f.filename, mime: f.mime, size: byteLen(f.data), url: dataUrl,
+        });
+      } catch (e) {
+        /* 云端失败就明确报错，不静默改存本地。
+           静默落本地的后果是：用户以为传上去了，换台手机看不到；
+           而且这些本地数据不会再被迁移扫到，等于悄悄丢了。
+           文案要说清"是没传上去"，而不是让人以为文件没了。 */
+        fail(502, `「${f.filename}」没传上云端：${e.message || e}。网络恢复后再传一次就行，本机数据没受影响。`);
+      }
+      /* 把 id 带回去 —— 上层靠它才能后续按 id 取正文。
+         加 c 前缀，见上面 CLOUD_ID 那段说明。 */
+      out.push({ id: asCloudId(row.id), url: '', name: f.filename, mime: f.mime, size: byteLen(f.data) });
+    }
+    return out;
+  }
+
   const out = [];
   for (const f of files) {
-    /* localStorage 只有 5MB，大文件塞不进去。这里限制 1.5MB，
-       超过就明确告诉用户，而不是静默把数据丢掉。 */
-    if (f.data.length > 1.5 * 1024 * 1024) {
-      fail(400, `静态版把文件存在浏览器里，单个文件不能超过 1.5MB（「${f.filename}」${(f.data.length / 1024 / 1024).toFixed(1)}MB）`);
-    }
     const dataUrl = await blobToDataURL(f.data, f.mime);
-    const id = saveAttachment(ownerType, ownerId, f.filename, f.mime, f.data.length, dataUrl);
-    out.push({ id, url: dataUrl, name: f.filename, mime: f.mime, size: f.data.length });
+    const id = saveAttachment(ownerType, ownerId, f.filename, f.mime, byteLen(f.data), dataUrl);
+    out.push({ id, url: dataUrl, name: f.filename, mime: f.mime, size: byteLen(f.data) });
   }
   return out;
 });
@@ -3228,7 +3305,26 @@ on('GET', '/attachments', ({ query }) => {
   let list = (load().attachments || []).filter((a) => !a.deleted_at);
   if (query.owner_type) list = list.filter((a) => a.owner_type === query.owner_type);
   if (query.owner_id) list = list.filter((a) => String(a.owner_id) === String(Number(query.owner_id)));
-  return list.sort((a, b) => a.id - b.id).map((a) => ({ ...a, url: a.url || '' }));
+
+  /* 【按 owner_type 分叉，是临时状态，别当成设计】
+     attendance 走新的两段式：列表不带正文，要下载时再按 id 取（见下面的 /file）。
+       理由：一张表挂 10 张 1.5MB 的照片，带正文就是一次 15MB。
+     material / trip 继续带正文：它们对应的主表（课件、出差）还没上云，
+       请求一定落在这里，改成两段式前端就得跟着改两处 —— 等那两张表上云时
+       一起改，那时才是一次完整的改动。
+     ⚠️ 以后谁要把 material / trip 上云，必须把这里也改成不带 url，
+        否则前端会同时拿到「有 url」和「没 url」两种形状，很难查。 */
+  const withUrl = query.owner_type !== 'attendance';
+  return list.sort((a, b) => a.id - b.id)
+    .map((a) => (withUrl ? { ...a, url: a.url || '' } : { ...a, url: '' }));
+});
+
+/* 按 id 取一个文件的正文（data URL）。两段式的第二段。
+   只返回 url，不返回别的 —— 文件名、大小列表里已经有了。 */
+on('GET', '/attachments/:id/file', ({ params }) => {
+  const a = (load().attachments || []).find((x) => String(x.id) === String(params.id) && !x.deleted_at);
+  if (!a) fail(404, '这个附件不存在，或者已经被删了');
+  return { id: a.id, url: a.url || '' };
 });
 on('DELETE', '/attachments/:id', ({ params }) => {
   const a = (load().attachments || []).find((x) => String(x.id) === String(params.id));
@@ -3726,11 +3822,20 @@ const CLOUD_TABLES = new Set([
   'attendance',        // 路由前缀：/attendance、/attendance/:id、/attendance/:id/rows
   'attendance_tables', // 前端删表走 /attendance_tables/:id
   'attendance_rows',
+  'attachments',       // 路由前缀：/upload、/attachments、/attachments/:id/file
+                       // 以及 /attendance/:id/photos（也走这张表）
 ]);
 
+/* 云端是否可用。判断本身是同步的（读 localStorage），但 import 是异步的 ——
+   如果网络抖动导致模块加载卡住，每个请求都会先停在这里。
+   加一个 3 秒上限：超时就当"云端不可用"，掉回本地实现。
+   宁可这一次走本地，也不要整个页面转圈。 */
 async function cloudReady() {
   try {
-    const m = await import('./cloud.js');
+    const m = await Promise.race([
+      import('./cloud.js'),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000)),
+    ]);
     return !!(m.cfg() && m.session());
   } catch { return false; }
 }
@@ -3739,6 +3844,53 @@ async function cloudReady() {
    给统计、截图、导出这些"只读整表"的功能用 —— 它们原本读本地库，
    上云之后本地库是空的，直接调会报「考勤表不存在」。
    取不到就返回 null，调用方自己决定是报错还是给空结果。 */
+/* ============ 附件 id 的「云前缀」约定 ============
+   【为什么非要一个前缀】
+   附件同时有本地流水号和云端自增 id，两套 id 都从 1 开始数。
+   种子数据里本来就有 1/2/3（三个课件的附件），云端照片很容易也是 2 —— 撞上之后：
+     · 删除：前端只知道一个 "2"，按 id 找本地能找到（是课件那条），
+       于是走了本地删除，云端那张照片纹丝不动，界面却提示"已删除"。
+     · 取正文：同上，会拿到另一个文件的内容。
+   这类 bug 只在"本机恰好有一条同 id 的别的东西"时出现，
+   开发机上大概率永远复现不了，到用户手里才炸。
+
+   【做法】
+   云端 id 一进前端就加前缀 "c"（cloud）：列表、上传返回值、迁移都用这个形式。
+   这样 `c2` 和 `2` 永远分得开，判断归谁只要看有没有前缀，不用再猜。
+   发送给 PostgREST 之前把前缀去掉 —— 云端的 id 列是 bigint，带 c 会报类型错误。 */
+const CLOUD_ID = 'c';
+const isCloudId = (v) => typeof v === 'string' && v.startsWith(CLOUD_ID);
+const cloudNum = (v) => String(v).replace(/^c/i, '');
+const asCloudId = (v) => CLOUD_ID + String(v).replace(/^c/i, '');
+
+/* 这个附件 id 是本机的还是云端的？
+   【为什么需要判断】删除接口只有 id，不带 owner_type。
+   课件、发票的附件在本机；考勤的原表/照片已经在云上。
+   判错方向的后果是实打实的：云端 id 拿到本地删（删不掉，界面却提示"已删除"），
+   或者本地 id 发去云端删（可能删掉别人的一条）。
+
+   【判据：本地有没有这条 + 它的 owner_type】
+   只看「本地有没有」是不够的 —— 导入表格时，前端会先把这条附件的元数据
+   写进本机库（那一刻云端还没建完），于是本地也有一条 owner_type=attendance、
+   id 恰好等于云端 id 的记录。这时必须按 owner_type 判：考勤一律归云端。
+
+   本机没有这条 → 肯定是云端（本地流水号不会凭空出现）。
+   本机有这条 → 看 owner_type：attendance 走云端，其余（material/trip/avatar）走本地。 */
+async function attachmentIsCloud(id) {
+  if (!id) return false;
+  /* 带前缀 = 一定是云端。这是主判据，不再需要猜。 */
+  if (isCloudId(id)) return true;
+  /* 老数据兜底：迁移前存下的考勤附件没有前缀，靠 owner_type 认。
+     这段是给"还没迁移完"的过渡期用的，迁移完成后自然走不到。 */
+  let local = null;
+  try {
+    const db = load();
+    local = (db.attachments || []).find((a) => String(a.id) === String(id) && !a.deleted_at) || null;
+  } catch { return false; }
+  if (!local) return true;
+  return local.owner_type === 'attendance';
+}
+
 async function cloudAttendanceDetail(id) {
   try {
     return await cloudRoute('GET', '/attendance/' + encodeURIComponent(id), {}, undefined) || null;
@@ -3768,6 +3920,54 @@ async function cloudRoute(method, clean, query, body) {
   const head = seg[0];
   const second = seg[1];
   const third = seg[2];
+
+  /* ================= 附件 =================
+     【为什么必须放在最前面】
+     下面考勤那段是按 head 匹配的，`/attendance/9/photos` 的 second 是 '9'，
+     会被「详情」分支抢先接走，然后**静默返回整张考勤表** —— 前端拿到一个
+     对象当照片列表用，表现是「原件」面板空白但不报错。这类顺序错位的坑
+     代码里已经踩过一次（见上面 rows 分支的注释），所以这里放最前。
+
+     【两段式】
+     列表只给元数据（文件名/大小/时间），不含 base64 正文；
+     真要下载/看图时再走 /attachments/:id/file 单取这一条。
+     一张表挂 10 张 1.5MB 的照片，旧写法一次列表就是 15MB。 */
+  if (head === 'attachments') {
+    /* 【只有 attendance 归云端，其他一律 return null 交给本地】
+       这一条是必须的：attachments 这张表里同时躺着三类东西 ——
+       考勤的原表/照片（已上云）、课件的附件、出差的报销发票（都还在本机）。
+       要是这里不区分、一律转发云端，那么「课件 → 附件列表」会去云上按
+       owner_type=material 查，查出来永远是空 —— 用户看到的是
+       「我明明传过课件，一刷新就没了」，而本地那份其实一直好好躺着。
+
+       【为什么看 query 而不是看 id】
+       删除（DELETE /attachments/:id）只有 id，没有 owner_type。
+       这时不能直接转发云端：id 是本地流水号时，云上可能压根没这条，
+       或者（更糟）撞上别人的附件被删掉。所以先查本地这份，
+       本地有就说明是本地的，走本地；本地没有才认为是云端的。
+       两边 id 理论上会撞，但同一台设备上"先查本地"这个顺序是安全的：
+       本机存过就一定是本机那条。 */
+    const wantCloud = method === 'GET' && !second
+      ? query.owner_type === 'attendance'
+      : (method === 'POST' ? false : await attachmentIsCloud(second));
+    if (!wantCloud) return null;
+
+    /* 取正文：/attachments/:id/file —— 路径里的 id 带 c 前缀，发给云端前去掉 */
+    if (method === 'GET' && second && third === 'file') {
+      const url = await m.getAttachmentUrl(cloudNum(decodeURIComponent(second)));
+      return { id: decodeURIComponent(second), url };
+    }
+    /* 列表：只元数据。url 统一补空串，保证「有 url 字段但为空」
+       和本地版的形状一致 —— 前端到处是 esc(f.url)，拿到 undefined 会渲染成 'undefined' */
+    if (method === 'GET' && !second) {
+      const rows = await m.listAttachmentMeta('attendance', query.owner_id);
+      return rows.map((r) => ({ ...r, id: asCloudId(r.id), url: '' }));
+    }
+    if (method === 'DELETE' && second) {
+      return m.deleteAttachment(cloudNum(decodeURIComponent(second)));
+    }
+    throw new Error(`云端暂不支持：${method} ${clean}`);
+  }
 
   /* ================= 考勤 ================= */
   if (head === 'attendance' || head === 'attendance_tables') {
@@ -3845,13 +4045,48 @@ async function cloudRoute(method, clean, query, body) {
       return attStats(d.id, d);
     }
 
+    /* ---- 原件照片：/attendance/:id/photos ----
+       【必须放在「详情」分支之前】详情只判断 second，会把 /attendance/9/photos
+       当成 /attendance/9 返回整张表。放这里之前先看清顺序。 */
+    if (head === 'attendance' && second && third === 'photos') {
+      const tid = decodeURIComponent(second);
+      if (method === 'GET') {
+        const list = await m.listAttachmentMeta('attendance', tid);
+        /* url 补空串：前端仍按老形状读，只是正文要另外取。
+           id 加 c 前缀：和本地附件（1/2/3…）彻底分开，删除/取正文才不会认错人。 */
+        return list.map((a) => ({
+          id: asCloudId(a.id), name: a.name, mime: a.mime, size: a.size,
+          created_at: a.created_at, url: '',
+        }));
+      }
+      if (method === 'POST') {
+        const files = body?.files || [];
+        if (!files.length) fail(400, '没有收到图片');
+        const saved = [];
+        for (const f of files) {
+          if (!/^image\//i.test(f.mime || '')) fail(400, '只能是图片（jpg / png / heic）');
+          checkAttachSize(f.filename, byteLen(f.data));
+          const dataUrl = await blobToDataURL(f.data, f.mime);
+          const row = await m.createAttachment({
+            owner_type: 'attendance', owner_id: Number(tid),
+            name: f.filename, mime: f.mime, size: byteLen(f.data), url: dataUrl,
+          });
+          saved.push({ id: asCloudId(row.id), url: '', name: f.filename, mime: f.mime, size: byteLen(f.data) });
+        }
+        return saved;
+      }
+    }
+
     /* ---- 详情：/attendance/:id ---- */
     if (method === 'GET' && second) {
       const id = decodeURIComponent(second);
       const t = await m.getRow('attendance_tables', id);
       if (!t) throw new Error('考勤表不存在（可能已在另一台设备上删除）');
       const rows = await m.listRows('attendance_rows', { table_id: id });
-      return attDetailShape(t, rows.map(attRowShape));
+      /* 照片张数：卡片上那个「原件 N」以前写死 0，用户明明存了照片却显示 0，
+         只好点进去才发现有。这里顺手数一下（只取元数据，很轻）。 */
+      const photos = await m.listAttachmentMeta('attendance', id).catch(() => []);
+      return attDetailShape(t, rows.map(attRowShape), photos.length);
     }
 
     /* ---- 列表：/attendance ---- */
@@ -3940,10 +4175,7 @@ async function cloudRoute(method, clean, query, body) {
       return commitAttendanceCloud(m, body);
     }
 
-    /* ---- 原件照片：附件表还没上云，交回本地实现 ---- */
-    if (third === 'photos') {
-      return null;   // handle() 会接着走本地循环
-    }
+    /* ---- 原件照片：走上面 /attendance/:id/photos 分支，这里不再 return null ---- */
 
     throw new Error(`云端暂不支持：${method} ${clean}`);
   }
@@ -4004,16 +4236,16 @@ function attListShape(tables, rows) {
     || Number(b.id) - Number(a.id));
 }
 
-function attDetailShape(t, rows) {
+function attDetailShape(t, rows, photoCount) {
   return {
     ...t,
     sheet_type: t.sheet_type || t.kind,
     columns: attCols(t),
     meta: safeJSON(t.meta, {}),
-    /* 附件（原件照片 / 原表留档）还在本地 attachments 表，没上云。
-       云端模式下这里恒为 0，按钮照样能点 —— 打开后看到的是空列表而不是报错。
-       等 attachments 上云后改成真实计数。 */
-    photo_count: 0,
+    /* 原件照片张数。以前写死 0，卡片上的「原件 N」永远是 0，
+       明明存了照片也不显示，只能点进去才发现。现在由调用方数好传进来。
+       传不进来（老调用点）就退回 0，不会崩。 */
+    photo_count: Number(photoCount) || 0,
     rows: rows.slice().sort((a, b) => (num(a.sort) - num(b.sort)) || Number(a.id) - Number(b.id)),
   };
 }
