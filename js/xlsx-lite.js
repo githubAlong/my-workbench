@@ -110,13 +110,20 @@ function refToPos(ref) {
 export async function readXlsx(input, opts = {}) {
   const buf = input instanceof Blob ? await input.arrayBuffer() : input;
   const zip = await unzip(buf);
-
   // 共享字符串表
   const sstXml = await zip.read('xl/sharedStrings.xml');
   let shared = [];
   if (sstXml) {
     shared = [...sstXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => siText(m[1]));
   }
+  /* 【哪些数字其实是日期】
+     Excel 内部把日期存成"从 1900-01-01 起的天数"，单元格里就是一个数字。
+     不读 styles.xml 的话，2026-10-19 会原样变成 46314 ——
+     老师上传的表里日期赫然写着 46314，日期识别全废、表还被记成今天。
+     这里读 styles.xml 的 cellXfs → numFmtId，把 14~22 和 45~47
+     （内置日期/时间格式）以及自定义 numFmt 里含 y/m/d 的那些标出来。
+     读不到 styles.xml 就退回"值落在 1930~2100 年的序列号区间"的宽判断。 */
+  const dateXf = await readDateStyles(zip);
 
   // 工作表清单（按 workbook.xml 的顺序找对应的 sheetN.xml）
   const wbXml = (await zip.read('xl/workbook.xml')) || '';
@@ -149,20 +156,82 @@ export async function readXlsx(input, opts = {}) {
     if (!xml) continue;
     sheets.push({
       name: sheetMeta[i]?.name || `Sheet${i + 1}`,
-      rows: parseSheet(xml, shared),
+      rows: parseSheet(xml, shared, dateXf),
     });
   }
   if (!sheets.length) throw new Error('这个 xlsx 里没有工作表');
 
-  const idx = Math.min(Math.max(0, opts.sheetIndex || 0), sheets.length - 1);
-  // 默认智能选表：优先选有内容的那个（有些文件第一个 sheet 是空的说明页）
-  const auto = sheets.find((s) => s.rows.some((r) => r.some((c) => String(c).trim())));
-  return { sheets, rows: (sheets[idx].rows.some((r) => r.some((c) => String(c).trim()))
-    ? sheets[idx].rows
-    : (auto?.rows || sheets[idx].rows)), sheetName: sheets[idx].name };
+  /* 【默认选哪张表：先问"能不能认出这是一张考勤表"】
+     原来只判断「第一个 sheet 有没有内容」。可老师的文件常常是
+     Sheet1=封面（写两行说明）、Sheet2=真正的坐班表 ——
+     封面也有内容 → 返回封面 → 解析失败 → 弹「没认出这张表」，
+     而且用户根本走不到"切换工作表"那一步，只能以为文件有问题重做。
+     现在：① 指定了 sheetIndex 就听指定的；
+           ② 指定了 tryParse 回调（考勤导入会传）就挨个试，挑第一个能认出来的；
+           ③ 都没给，就退回「第一个有内容的」。 */
+  const hasContent = (s) => s.rows.some((r) => (r || []).some((c) => String(c ?? '').trim()));
+  let pick = -1;
+  if (opts.sheetIndex != null) {
+    pick = Math.min(Math.max(0, opts.sheetIndex), sheets.length - 1);
+  } else if (typeof opts.tryParse === 'function') {
+    for (let i = 0; i < sheets.length; i++) {
+      if (!hasContent(sheets[i])) continue;
+      let okPick = false;
+      try { okPick = !!opts.tryParse(sheets[i].rows, sheets[i].name); } catch { okPick = false; }
+      if (okPick) { pick = i; break; }
+    }
+  }
+  if (pick < 0) pick = Math.max(0, sheets.findIndex(hasContent));
+  if (pick < 0) pick = 0;
+  return { sheets, rows: sheets[pick].rows, sheetName: sheets[pick].name, pickedIndex: pick };
 }
 
-function parseSheet(xml, shared) {
+/* ---------- 日期序列号 ---------- */
+
+/* 内置的日期/时间格式编号。
+   14~17 是日期，18~21 是时间，22 是日期+时间，45~47 是带秒/时长。
+   这几个不需要查 numFmts 就是日期 —— Excel 文档里写死了。 */
+const BUILTIN_DATE_FMT = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47]);
+
+/* 读 styles.xml，返回一个 Set：哪些 cellXfs 下标（=单元格 s="N"）是日期格式 */
+async function readDateStyles(zip) {
+  const out = new Set();
+  try {
+    const xml = await zip.read('xl/styles.xml');
+    if (!xml) return out;
+    // 自定义格式：numFmtId -> formatCode。含 y/m/d/h 的就是日期时间
+    const custom = new Set();
+    for (const m of xml.matchAll(/<numFmt\b[^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"/g)) {
+      const code = unescapeXml(m[2]).replace(/\[[^\]]*\]/g, '');   // 去掉 [$-409] 这种区域标记
+      if (/[ymdhs]/i.test(code) && !/^[#0.,%\s]*$/.test(code)) custom.add(Number(m[1]));
+    }
+    // cellXfs 里的 <xf> 按顺序就是 s="0,1,2…"
+    const xfs = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(xml)?.[1] || '';
+    let i = 0;
+    for (const m of xfs.matchAll(/<xf\b([^>]*?)(?:\/>|>[\s\S]*?<\/xf>)/g)) {
+      const id = Number((/numFmtId="(\d+)"/.exec(m[1]) || [])[1]);
+      if (BUILTIN_DATE_FMT.has(id) || custom.has(id)) out.add(i);
+      i += 1;
+    }
+  } catch { /* 读不到就靠下面的区间判断兜底 */ }
+  return out;
+}
+
+/* 序列号 → 'YYYY-MM-DD'。只取日期部分，考勤表不看几点几分。
+   Excel 的 1900 闰年 bug：它认为 1900-02-29 存在，所以 1900-03-01 之前的
+   序列号要 +1 修正。我们关心的都是 2000 年以后，但仍按标准公式处理。 */
+export function serialToDate(n) {
+  const days = Math.floor(Number(n));
+  if (!Number.isFinite(days)) return null;
+  const ms = Date.UTC(1899, 11, 30) + days * 86400000;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  if (y < 1930 || y > 2100) return null;   // 不像日期，别乱转
+  return `${y}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+function parseSheet(xml, shared, dateXf = new Set()) {
   const rows = [];
   for (const rm of xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)) {
     const rowAttr = rm[1];
@@ -193,6 +262,17 @@ function parseSheet(xml, shared) {
         val = (/<v>([\s\S]*?)<\/v>/.exec(inner) || [])[1] === '1' ? 'TRUE' : 'FALSE';
       } else {
         val = unescapeXml((/<v>([\s\S]*?)<\/v>/.exec(inner) || [])[1] || '');
+        /* 数字 → 可能是日期。两个条件都试过才转：
+           ① 这个单元格的样式是日期格式（最可靠）
+           ② 文件里没有 styles.xml 时，按"序列号落在 1930~2100 年"宽判断
+           其它数字（序号、金额、人数）绝不能被转成日期，
+           所以纯数字只有在上面两个条件之一成立时才转。 */
+        const sIdx = (/ s="(\d+)"/.exec(attr) || [])[1];
+        const looksDate = sIdx != null ? dateXf.has(Number(sIdx)) : false;
+        if (val !== '' && /^\d+(\.\d+)?$/.test(val) && looksDate) {
+          const str = serialToDate(val);
+          if (str) val = str;
+        }
       }
       line[col] = val;
     }

@@ -221,15 +221,35 @@ export function parseAttendanceSheet(rows, opts = {}) {
      （1,24,2,25,3,26…），老师核对时完全对不上原文。
      所以这里先收集，最后按栏号稳定排序：seg 小的在前，同栏内保持原顺序。 */
   const people = [];
+  /* 【被判为"不是人名"的格子，要记下来告诉用户】
+     下面那个正则会把「李四（备课组长）」「赵六一2」这类名字挡掉。
+     原来挡掉就挡掉，一声不吭 —— 老师看到的是"5 个人只导进来 3 个"，
+     而且确认弹层上的「N 位教师」也是少算的，他根本意识不到少了人。
+     现在把每一处被挡掉的原文收进 droppedNames，最后拼一条 warning。 */
+  const droppedNames = [];
   for (let r = headRow + 1; r < rows.length; r++) {
     const row = rows[r] || [];
     let got = 0;
     segCols.forEach((map, si) => {
       const name = String(row[map.name] ?? '').trim();
       if (!name) return;
-      // 姓名必须是中文/字母，且不是标题词
-      if (!/^[\u4e00-\u9fa5a-zA-Z·\s]{2,10}$/.test(name)) return;
-      if (/^(姓名|序号|学科|备注|合计|小计)$/.test(name)) return;
+      /* 【姓名只排除"明显不是人"的，不再要求必须是纯中文】
+         原来的正则 ^[\u4e00-\u9fa5a-zA-Z·\s]{2,10}$ 太窄，真实学校里这些写法全被吃掉了：
+           李四（备课组长）   带职务后缀
+           赵六一2            带编号
+           A2 / 张1          用编号代称
+           比 10 个字更长     少数民族姓名、带说明的名字
+         老师不会因为这些就被"不算人"，所以这里只挡三种：
+           ① 纯数字（那就是序号列认错了）
+           ② 纯符号
+           ③ 长度超过 30（基本是整段话，不是名字）
+         剩下的一律当人名，宁可多认一个错的（确认弹层可以逐行改），
+         也不要少认一个对的（少认是静默的，改都没处改）。 */
+      const isName = name.length <= 30
+        && !/^\d+(\.\d+)?$/.test(name)
+        && /[\u4e00-\u9fa5a-zA-Z]/.test(name);
+      if (!isName) { droppedNames.push(name); return; }
+      if (/^(姓名|序号|学科|备注|合计|小计|总计)$/.test(name)) return;
       const subject = map.subject >= 0 ? String(row[map.subject] ?? '').trim() : '';
       const no = map.no >= 0 ? String(row[map.no] ?? '').trim() : '';
       const marks = {};
@@ -256,7 +276,13 @@ export function parseAttendanceSheet(rows, opts = {}) {
   people.forEach((p) => { delete p._row; });
 
   if (!people.length) {
-    return { ok: false, reason: '找到列标题了，但下面没读到教师姓名 —— 可能这张表还没填名字，或者姓名是贴的图片。', meta, warnings, columns };
+    /* 【提示不能指错方向】
+       原来这里恒报「可能姓名是贴的图片」——可真实原因常常是姓名列填的是编号。
+       把被挡掉的内容摊出来，老师一眼就知道该改哪儿。 */
+    const hint = droppedNames.length
+      ? `姓名那一列读到的是「${[...new Set(droppedNames)].slice(0, 6).join('、')}」，这些不像人名 —— 检查一下姓名列是不是填成了编号。`
+      : '可能这张表还没填名字，或者姓名是贴的图片。';
+    return { ok: false, reason: `找到列标题了，但下面没读到教师姓名 —— ${hint}`, meta, warnings, columns, dropped: droppedNames };
   }
 
   /* ---------- 5. 判断表类型 ---------- */
@@ -302,6 +328,15 @@ export function parseAttendanceSheet(rows, opts = {}) {
   const markedCount = people.reduce((a, p) => a + Object.values(p.marks).filter(Boolean).length, 0);
   if (!markedCount) warnings.push('这张表看起来还没打勾（所有勾选列都是空的），已按空白表导入，你可以打开逐人打勾。');
   if (type === 'research' && !(meta.year && meta.month && meta.day)) warnings.push('教研签到表上没有日期，导入后请在上面把日期填上。');
+  /* 有人名没认出来 → 明确说出来，别让老师靠数人数发现 */
+  if (droppedNames.length) {
+    const uniq = [...new Set(droppedNames)];
+    warnings.push(`有 ${droppedNames.length} 个名字没认出来，已跳过：${uniq.slice(0, 5).join('、')}${uniq.length > 5 ? ` 等 ${uniq.length} 个` : ''}。如果确实是老师姓名，请在上面的表格里补一行。`);
+  }
+  /* 日期没解析出来 → 也说出来，否则会静默回落成"今天"，老师以为没问题 */
+  if (!(meta.year && meta.month && meta.day)) {
+    warnings.push('表头上没找到日期，导入后会先记成今天，请确认一下。');
+  }
 
   const date = (meta.year && meta.month && meta.day)
     ? `${meta.year}-${String(meta.month).padStart(2, '0')}-${String(meta.day).padStart(2, '0')}`

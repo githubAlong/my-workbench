@@ -751,17 +751,32 @@ function bindHeader(t, s, reload) {
 /* ---------- 原表：当初上传的那个 Excel / CSV ---------- */
 async function sourceSheet(t) {
   const list = await api.get('/attachments', { owner_type: 'attendance', owner_id: t.id }).catch(() => []);
-  const files = (list || []).filter((a) => /\.(xlsx|xlsm|csv|tsv|txt)$/i.test(a.name || ''));
-  if (!files.length) {
+  /* 【这里原来只认 .xlsx/.xlsm/.csv/.tsv/.txt，而留档名是 xxx.xlsx.raw.json】
+     名字以 .json 结尾 → 一个都匹配不上 → 恒提示「这张表不是从文件导入的」，
+     按钮 100% 失效。现在两头都改：留档存原始文件（原名原字节），
+     这里同时放行原始表格和早先存下的 .raw.json（老数据也能救回来）。 */
+  const XLSX_RE = /\.(xlsx|xlsm|csv|tsv|txt)$/i;
+  const all = (list || []).filter((a) => XLSX_RE.test(a.name || '') || /\.raw\.json$/i.test(a.name || ''));
+  // 优先展示真表格；只有解析快照时才展示快照，并在界面上说明它不是原表
+  const files = all.filter((a) => XLSX_RE.test(a.name || ''));
+  const snaps = all.filter((a) => /\.raw\.json$/i.test(a.name || ''));
+  if (!files.length && !snaps.length) {
     toast('这张表不是从文件导入的，没有原表可以下载', 'warn');
     return;
   }
   const body = el(`<div class="sheet-body">
     <div class="small muted" style="margin-bottom:10px">下面是你上传的原表，库里存的是解析后的结构化数据，原文件留档方便核对。</div>
-    ${files.map((f) => `<div class="ap-item">
+    ${files.length ? files.map((f) => `<div class="ap-item">
       <div class="ap-meta"><div class="ap-name">${esc(f.name)}</div><div class="ap-size">${fmtSize(f.size)}</div></div>
       <a class="btn ghost sm" href="${esc(f.url)}" download="${esc(f.name)}">下载</a>
-    </div>`).join('')}
+    </div>`).join('') : ''}
+    ${snaps.length ? `<div class="att-tip-note" style="margin-bottom:8px">
+      这张表是旧版本导入的，只留下了「解析后的数据」快照，不是原始 Excel。下载后是 JSON，能用记事本打开核对内容。
+    </div>
+    ${snaps.map((f) => `<div class="ap-item">
+      <div class="ap-meta"><div class="ap-name">${esc(f.name.replace(/\.raw\.json$/i, ''))}<span class="chip grey" style="margin-left:6px">解析快照</span></div><div class="ap-size">${fmtSize(f.size)}</div></div>
+      <a class="btn ghost sm" href="${esc(f.url)}" download="${esc(f.name)}">下载</a>
+    </div>`).join('')}` : ''}
     <div class="att-tip-note" style="margin-top:10px">
       Excel 里那一列列勾（√ / ×）在导入时已经转成了表里的 ✓ / × 状态。
       以后想按原表格式再导一份，用表里的「导出 Excel」按钮。
@@ -1434,12 +1449,21 @@ function uploadDialog(grade, reload) {
 async function readGrid(file) {
   const name = String(file.name || '').toLowerCase();
   if (/\.(xlsx|xlsm)$/.test(name)) {
-    const r = await readXlsx(file);
-    return { grid: r.rows, sheetName: r.sheetName, sheets: r.sheets };
+    /* 【多工作表时，让 xlsx-lite 自己挑出"能认出来的那张"】
+       只传 sheetIndex 的话默认是第一张。老师的文件常常是
+       Sheet1=封面（两行说明）、Sheet2=真正的坐班表 —— 封面也有内容，
+       于是解析失败、弹「没认出这张表」，而用户根本走不到"切换工作表"那一步。
+       这里把 parseAttendanceSheet 当探针递进去，让它挨个试。 */
+    const r = await readXlsx(file, {
+      tryParse: (sheetRows) => {
+        try { return !!parseAttendanceSheet(sheetRows, {}).ok; } catch { return false; }
+      },
+    });
+    return { grid: r.rows, sheetName: r.sheetName, sheets: r.sheets, file };
   }
   if (/\.(csv|tsv|txt)$/.test(name)) {
     const text = await file.text();
-    return { grid: readDelimited(text, /\.[tT][sS][vV]$/.test(name) ? '\t' : undefined), sheetName: '' };
+    return { grid: readDelimited(text, /\.[tT][sS][vV]$/.test(name) ? '\t' : undefined), sheetName: '', file };
   }
   if (/\.xls$/.test(name)) {
     throw new Error('这是 Excel 97-2003 的老格式（.xls）。用 Excel / WPS 打开，「另存为」选 .xlsx 再传。');
@@ -1470,12 +1494,27 @@ function failDialog(title, reason, tips = [], rawText = '') {
 }
 
 async function doImportFile(file, s, grade, reload) {
+  /* 【先把"上传"这个弹层关掉，再干活】
+     原来这个 s 传进来却一次都没关：
+       · 读失败时弹出「这个文件读不出来」，但它盖在"上传 Excel 表格"上面，
+         用户点「知道了」以为完事了，其实底下那层还在，整页被遮罩挡着，
+         看起来就像"按钮全失灵了"，只能刷页面。
+       · 读成功时反过来 —— 确认弹层盖在上传弹层上，关掉确认弹层后
+         又露出一张空白上传框，像是没反应。
+     现在无论成败，先把上传弹层关掉，再往下走。 */
+  try { s?.close?.(); } catch { }
+  /* close() 只是开始 220ms 的淡出动画，遮罩这时还挂在 DOM 上、
+     仍然吃点击。这两句让它在淡出期间立刻"透明掉"，不会挡后面的操作。 */
+  try {
+    if (s?.wrap) { s.wrap.style.pointerEvents = 'none'; s.wrap.classList.remove('in'); }
+  } catch { }
   if (file.size > 12 * 1024 * 1024) return toast('文件太大了（上限 12MB）', 'warn');
   toast('正在读取表格…');
-  let grid; let sheetName = ''; let sheets = [];
+  let grid; let sheetName = ''; let sheets = []; let rawFile = null;
   try {
     const r = await readGrid(file);
     grid = r.grid; sheetName = r.sheetName; sheets = r.sheets || [];
+    rawFile = r.file || null;
   } catch (e) {
     return failDialog('这个文件读不出来', e.message, [
       '用 Excel 或 WPS 打开它，「另存为」选 <b>.xlsx</b> 再传一次。',
@@ -1502,10 +1541,15 @@ async function doImportFile(file, s, grade, reload) {
       '传的是有数据的那张工作表，不是封面或说明页。',
     ], preview || '（前 8 行都是空的）');
   }
-  s.close();
-  /* 多个工作表时，让用户挑 —— 一个 xlsx 里常常同时放着高一和高二的表 */
-  const multi = sheets.filter((x) => x.rows.some((r) => r.some((c) => String(c).trim()))).length > 1;
-  confirmSheet(parsed, { grade, reload, filename: file.name, grid, sheetName, sheets: multi ? sheets : null });
+  /* 多个工作表时，让用户挑 —— 一个 xlsx 里常常同时放着高一和高二的表。
+     注意这里**不再要求"第一张能解析成功"**：现在默认选的是"能认出来的那张"，
+     用户可能想切回封面看看，或者文件里确实有多张都像考勤表的。
+     只要有多张有内容的表，就把切换条亮出来。 */
+  const filled = sheets.filter((x) => x.rows.some((r) => (r || []).some((c) => String(c ?? '').trim())));
+  confirmSheet(parsed, {
+    grade, reload, filename: file.name, grid, sheetName, rawFile,
+    sheets: filled.length > 1 ? sheets : null,
+  });
 }
 
 /* 只有照片、没有 Excel：先建空表（带名册），再把照片存进去 */
@@ -1770,12 +1814,25 @@ function confirmSheet(parsed, ctx) {
       source: 'upload', filename,
     });
 
-    /* 原表留档：以后想核对「Excel 里到底怎么勾的」能翻出来。
-       静态版把文件存 localStorage，单文件上限 1.5MB，超了就跳过并说清楚。 */
+    /* 【原表留档：存的就是当初那个文件本身】
+       原来存的是 JSON.stringify({filename, sheet, grid}) 落在 `xxx.xlsx.raw.json`，
+       两个后果：
+         ① 「原表」按钮的过滤正则只认 .xlsx/.csv/...，根本列不出这个 .raw.json
+            → 老师点「原表」永远得到「这张表不是从文件导入的」，按钮等于坏的；
+         ② 就算放行，下回来的也是一坨 JSON，双击打不开，老师只会更困惑。
+       现在改成**原样存原始字节**，名字也保持原名（高一坐班表.xlsx），
+       点「原表」下回来就能直接用 Excel 打开对照。
+       JSON 那份也留着 —— 万一原文件太大存不下，至少还能拿到解析后的数据。 */
     try {
       const fd = new FormData();
-      const blob = new Blob([JSON.stringify({ filename, sheet: ctx.sheetName || '', grid: ctx.grid })], { type: 'application/json' });
-      fd.append('file', new File([blob], filename + '.raw.json', { type: 'application/json' }));
+      const origName = filename || '考勤表.xlsx';
+      if (ctx.rawFile) {
+        fd.append('file', ctx.rawFile, origName);
+      } else {
+        // 没拿到原始 File（理论上不会），退回存解析结果，名字也标清楚
+        const blob = new Blob([JSON.stringify({ filename, sheet: ctx.sheetName || '', grid: ctx.grid })], { type: 'application/json' });
+        fd.append('file', new File([blob], origName + '.raw.json', { type: 'application/json' }));
+      }
       fd.append('owner_type', 'attendance');
       fd.append('owner_id', String(res.table_id));
       await api.post('/upload', fd);
