@@ -859,7 +859,7 @@ async function renderTimetable(box) {
       };
     });
     box.querySelector('#add-course').onclick = () => courseEditor(null, load);
-    saving(box.querySelector('#update-autumn-timetable'), () => updatePresetTimetable(reload));
+    saving(box.querySelector('#update-autumn-timetable'), () => updatePresetTimetable(load));
     box.querySelector('#import-tt').onclick = () => importTimetableDialog(load);
     box.querySelector('#edit-periods').onclick = () => periodEditor(periods, load);
     box.querySelector('#print-tt').onclick = async () => {
