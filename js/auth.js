@@ -8,10 +8,9 @@
 
    现在是：输一次邮箱密码 → 数据就在云上 → 打开网址就在。
 
-   【首次使用只有一步】
-   教师在 Supabase 后台建好自己的账号后，第一次打开会看到「连接云端」，
-   填邮箱 + 密码即可。地址和 anon key 会写在这个文件顶部（部署时已填好），
-   教师不用去后台复制任何东西。
+   【认证方式】
+   新账号通过手机号注册，支持手机号密码和短信验证码登录；
+   旧邮箱账号保留兼容入口。Supabase Phone Provider 与短信服务由项目后台配置。
 
    【为什么还要保留旧的手动同步】
    旧数据还在 localStorage 里（29 张表）。这一版只把「课时」搬上云，
@@ -20,7 +19,7 @@
    ========================================================================== */
 
 import { toast, el, esc, sheet, confirmDialog } from './core.js';
-import { icon } from './ui.js';
+import { icon, setUser } from './ui.js';
 import * as cloud from './cloud.js';
 import { migrateLessons, previewMigration, migrateInvigilations, migrateAttendance, migrateAttachments } from './migrate.js';
 
@@ -151,17 +150,21 @@ export async function autoLoginFromUrl() {
        页面要不要显示"登录页"看的是 state.user。
        以前只做了前半段，结果手机上打开链接后 token 拿到了，
        界面却还停在登录页 —— 用户会觉得"根本没登进去"，然后再手输一次。
-       这里直接用服务端给的邮箱号建/登本机账号，两边一次对齐。 */
+       这里用服务端返回的手机号或邮箱建/登本机账号，两边一次对齐。 */
     try {
       const { api } = await import('./core.js');
-      const local = await api.post('/auth/login-cloud', { email: j.user?.email || '', uid: j.user?.id || '' }, { silent: true });
+      const local = await api.post('/auth/login-cloud', {
+        email: j.user?.email || '', phone: j.user?.phone || '', uid: j.user?.id || '',
+      }, { silent: true });
       if (local?.user) {
         const ui = await import('./ui.js');
         ui.setUser(local.user);
       }
     } catch (e) {
-      /* 本机账号对齐失败不影响云端登录本身，只是首屏还要再登一次本机账号 */
       console.warn('本机账号对齐失败', e);
+      await cloud.logout();
+      toast(e.message || '登录链接与当前设备账号不匹配', 'warn', 8000);
+      return false;
     }
 
     toast('已在这台设备上登录', 'ok');
@@ -189,21 +192,36 @@ export function loginSheet(opts = {}) {
       <div>
         <div class="bold">登录后，数据跟着账号走</div>
         <div class="tiny muted" style="margin-top:3px">
-          手机、平板、电脑打开同一个网址，看到的是同一份数据。改完就存到云上，不用点上传。
+          新账号使用手机号登录；已注册的邮箱账号仍可从旧邮箱入口登录。
         </div>
       </div>
     </div>
 
-    <div class="field"><label class="field-label">邮箱</label>
-      <input class="input" id="cl-mail" type="email" inputmode="email" autocomplete="username"
-        placeholder="邮箱，比如 name@qq.com">
-      <div class="tiny muted" id="cl-hint" style="margin-top:5px;display:none">
-        这是<b>邮箱</b>不是手机号 —— Supabase 只认邮箱格式，填手机号会提示「密码不对」。
-      </div>
+    <div class="seg" id="cl-auth-method" style="margin-bottom:14px">
+      <button class="on" data-auth-method="phone-password">手机号 + 密码</button>
+      <button data-auth-method="phone-otp">手机号 + 验证码</button>
+      <button data-auth-method="email">旧邮箱账号</button>
     </div>
 
-    <div class="field"><label class="field-label">密码</label>
+    <div class="field" id="cl-phone-field"><label class="field-label">手机号</label>
+      <input class="input" id="cl-phone" type="tel" inputmode="tel" autocomplete="tel"
+        placeholder="大陆手机号或 + 国际区号">
+    </div>
+
+    <div class="field" id="cl-mail-field" style="display:none"><label class="field-label">旧邮箱</label>
+      <input class="input" id="cl-mail" type="email" inputmode="email" autocomplete="username"
+        placeholder="邮箱，比如 name@qq.com">
+    </div>
+
+    <div class="field" id="cl-pwd-field"><label class="field-label">密码</label>
       <input class="input" id="cl-pwd" type="password" autocomplete="current-password" placeholder="密码"></div>
+
+    <div class="field" id="cl-otp-field" style="display:none"><label class="field-label">短信验证码</label>
+      <div style="display:flex;gap:8px">
+        <input class="input" id="cl-otp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="验证码">
+        <button class="btn ghost" id="cl-send-otp" type="button" style="white-space:nowrap">获取验证码</button>
+      </div>
+    </div>
 
     <div class="tiny" style="margin-top:2px;color:var(--muted);line-height:1.6">
       这台设备登录一次，以后打开就不用再输了。
@@ -216,9 +234,8 @@ export function loginSheet(opts = {}) {
     <div class="tiny muted" id="cl-msg" style="margin-top:12px;min-height:19px;text-align:center"></div>
 
     <div class="cl-tip">
-      <b>没有账号？</b> 不用再去后台建了 ——
-      打开工作台的登录页，点「还没有账号？注册一个」，自己设账号和密码就行。
-      注册完回到这里用同一个邮箱密码登录，云端就接上了。
+      <b>新用户注册：</b>返回工作台登录页，选择「注册新账号」，使用手机号和密码完成注册。
+      已有邮箱账号仍可使用上方「旧邮箱账号」入口。
     </div>
 
     ${(() => {
@@ -243,37 +260,106 @@ export function loginSheet(opts = {}) {
 
   const sh = sheet({ title: '登录云同步', body: b });
   const mail = b.querySelector('#cl-mail');
+  const phone = b.querySelector('#cl-phone');
   const pwd = b.querySelector('#cl-pwd');
+  const otp = b.querySelector('#cl-otp');
+  const otpField = b.querySelector('#cl-otp-field');
+  const pwdField = b.querySelector('#cl-pwd-field');
+  const phoneField = b.querySelector('#cl-phone-field');
+  const mailField = b.querySelector('#cl-mail-field');
   const go = b.querySelector('#cl-go');
   const msg = b.querySelector('#cl-msg');
-
-  /* 记住上次用的邮箱，省得每次重打 */
-  try { mail.value = localStorage.getItem('wb_last_mail') || ''; } catch { }
-
-  /* 手机号一眼看穿：边输边提示，不用等到点了登录才挨一句「密码不对」 */
-  const hint = b.querySelector('#cl-hint');
-  const checkMail = () => {
-    hint.style.display = cloud.looksLikePhone(mail.value) ? 'block' : 'none';
-  };
-  mail.oninput = checkMail;
-  checkMail();
-
   const say = (t, kind = 'muted') => {
     msg.textContent = t;
     msg.style.color = kind === 'err' ? 'var(--red)' : kind === 'ok' ? 'var(--green, var(--text))' : 'var(--muted)';
+  };
+  let authMethod = 'phone-password';
+  let otpSent = false;
+
+  try {
+    mail.value = localStorage.getItem('wb_last_mail') || '';
+    phone.value = localStorage.getItem('wb_last_phone') || '';
+  } catch { }
+
+  b.querySelectorAll('[data-auth-method]').forEach((button) => {
+    button.onclick = () => {
+      authMethod = button.dataset.authMethod;
+      b.querySelectorAll('[data-auth-method]').forEach((item) => item.classList.toggle('on', item === button));
+      phoneField.style.display = authMethod === 'email' ? 'none' : '';
+      mailField.style.display = authMethod === 'email' ? '' : 'none';
+      pwdField.style.display = authMethod === 'phone-otp' ? 'none' : '';
+      otpField.style.display = authMethod === 'phone-otp' ? '' : 'none';
+      otpSent = false;
+      say('');
+    };
+  });
+
+  let otpTimer = null;
+  sh.onClose = () => { if (otpTimer) clearInterval(otpTimer); };
+  const sendOtp = b.querySelector('#cl-send-otp');
+  phone.oninput = () => { otpSent = false; };
+  sendOtp.onclick = async () => {
+    const normalized = cloud.normalizePhone(phone.value);
+    if (!normalized) return say('请输入有效手机号（大陆手机号或 + 国际区号）', 'err');
+    sendOtp.disabled = true;
+    sendOtp.textContent = '发送中…';
+    try {
+      await cloud.requestPhoneOtp(normalized);
+      otpSent = true;
+      say('验证码已发送，请查收短信。', 'ok');
+      let seconds = 60;
+      sendOtp.textContent = `${seconds} 秒后重试`;
+      otpTimer = setInterval(() => {
+        seconds -= 1;
+        if (seconds <= 0) {
+          clearInterval(otpTimer);
+          otpTimer = null;
+          sendOtp.disabled = false;
+          sendOtp.textContent = '重新获取';
+        } else sendOtp.textContent = `${seconds} 秒后重试`;
+      }, 1000);
+    } catch (err) {
+      sendOtp.disabled = false;
+      sendOtp.textContent = '获取验证码';
+      say(err.message || String(err), 'err');
+    }
   };
 
   async function submit() {
     const e = (mail.value || '').trim();
     const p = pwd.value || '';
-    if (!e) return say('请填邮箱', 'err');
-    if (!p) return say('请填密码', 'err');
+    const normalized = cloud.normalizePhone(phone.value);
+    if (authMethod === 'email' && !e) return say('请填邮箱', 'err');
+    if (authMethod !== 'email' && !normalized) return say('请输入有效手机号（大陆手机号或 + 国际区号）', 'err');
+    if (authMethod !== 'phone-otp' && !p) return say('请填密码', 'err');
+    if (authMethod === 'phone-otp' && !otpSent) return say('请先获取短信验证码', 'err');
+    if (authMethod === 'phone-otp' && !otp.value.trim()) return say('请填写短信验证码', 'err');
     go.disabled = true;
     go.textContent = '登录中…';
     say('');
     try {
-      const s2 = await cloud.login(e, p);
-      try { localStorage.setItem('wb_last_mail', e); } catch { }
+      let s2;
+      if (authMethod === 'phone-password') {
+        s2 = await cloud.loginPhonePassword(normalized, p);
+        try { localStorage.setItem('wb_last_phone', normalized); } catch { }
+      } else if (authMethod === 'phone-otp') {
+        s2 = await cloud.verifyPhoneOtp(normalized, otp.value, 'sms');
+        try { localStorage.setItem('wb_last_phone', normalized); } catch { }
+      } else {
+        s2 = await cloud.login(e, p);
+        try { localStorage.setItem('wb_last_mail', e); } catch { }
+      }
+      try {
+        const { api } = await import('./core.js');
+        const identity = authMethod === 'email' ? { email: e } : { phone: normalized };
+        const local = await api.post('/auth/login-cloud', {
+          ...identity, uid: s2.uid || '', password: authMethod === 'phone-otp' ? '' : p,
+        }, { silent: true });
+        setUser(local.user);
+      } catch (err) {
+        await cloud.logout();
+        throw err;
+      }
       /* 告诉实时同步模块：登录状态变了，该建连接了。
          main.js 只在这个事件上挂了一次，不会有重复订阅。 */
       try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
@@ -298,6 +384,8 @@ export function loginSheet(opts = {}) {
   go.onclick = submit;
   pwd.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
   mail.onkeydown = (ev) => { if (ev.key === 'Enter') pwd.focus(); };
+  phone.onkeydown = (ev) => { if (ev.key === 'Enter') authMethod === 'phone-otp' ? otp.focus() : pwd.focus(); };
+  otp.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
 
   const adv = b.querySelector('#cl-adv');
   if (adv) adv.onclick = () => {
@@ -311,7 +399,7 @@ export function loginSheet(opts = {}) {
     setTimeout(() => loginSheet(opts), 200);
   };
 
-  setTimeout(() => { (mail.value ? pwd : mail).focus(); }, 250);
+  setTimeout(() => { (phone.value ? pwd : phone).focus(); }, 250);
 }
 
 /* 已登录时点「云同步」看到的页面 */
@@ -322,7 +410,7 @@ function accountSheet() {
       <div class="cl-ico ok">${icon('shield', 24)}</div>
       <div>
         <div class="bold">已连上云端</div>
-        <div class="tiny muted" style="margin-top:3px">${esc(s.email || '')}</div>
+        <div class="tiny muted" style="margin-top:3px">${esc(s.phone || s.email || '')}</div>
       </div>
     </div>
 
@@ -338,6 +426,10 @@ function accountSheet() {
       这台设备关掉浏览器、关机、明天再打开，都不用重新输密码。
       其余模块（考勤、监考、值日等）这一步还没搬，仍存在本机。
     </div>
+
+    ${s.email && !s.phone ? `<button class="btn ghost block" id="cl-bind-phone" style="margin-top:12px;justify-content:center">
+      绑定手机号，保留此账号的数据
+    </button>` : ''}
 
     <button class="btn ghost block" id="cl-dev" style="margin-top:14px;justify-content:center">
       在手机 / 另一台电脑上登录
@@ -366,6 +458,10 @@ function accountSheet() {
 
   b.querySelector('#cl-dev').onclick = () => { sh.close(); setTimeout(deviceSheet, 200); };
   b.querySelector('#cl-mig').onclick = () => { sh.close(); setTimeout(migrateSheet, 200); };
+  b.querySelector('#cl-bind-phone')?.addEventListener('click', () => {
+    sh.close();
+    setTimeout(phoneBindSheet, 200);
+  });
 
   b.querySelector('#cl-out').onclick = async () => {
     if (!(await confirmDialog('退出后课时数据在云端保留，重新登录还能看到。确定退出？'))) return;
@@ -376,6 +472,84 @@ function accountSheet() {
     toast('已退出登录', 'ok');
     sh.close();
   };
+}
+
+function phoneBindSheet() {
+  const b = el(`<div class="sheet-body">
+    <div class="tiny muted" style="line-height:1.6;margin-bottom:12px">
+      绑定会把手机号添加到当前云端账号，不会新建账号或改变云端用户 ID，原有数据保持不变。
+    </div>
+    <div class="field"><label class="field-label">手机号</label>
+      <input class="input" id="bind-phone" type="tel" inputmode="tel" autocomplete="tel"
+        placeholder="大陆手机号或 + 国际区号"></div>
+    <div class="field"><label class="field-label">短信验证码</label>
+      <div style="display:flex;gap:8px">
+        <input class="input" id="bind-otp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="验证码">
+        <button class="btn ghost" id="bind-send" type="button" style="white-space:nowrap">发送验证码</button>
+      </div>
+    </div>
+    <button class="btn primary block" id="bind-confirm" style="justify-content:center;margin-top:12px">验证并绑定</button>
+    <div class="tiny muted" id="bind-message" style="margin-top:10px;min-height:18px;text-align:center"></div>
+  </div>`);
+  const sh = sheet({ title: '绑定手机号', body: b });
+  const phone = b.querySelector('#bind-phone');
+  const otp = b.querySelector('#bind-otp');
+  const send = b.querySelector('#bind-send');
+  const confirm = b.querySelector('#bind-confirm');
+  const message = b.querySelector('#bind-message');
+  const say = (text, error = false) => {
+    message.textContent = text;
+    message.style.color = error ? 'var(--red)' : 'var(--muted)';
+  };
+  let sentPhone = '';
+  let timer = null;
+  phone.oninput = () => { sentPhone = ''; };
+  send.onclick = async () => {
+    const normalized = cloud.normalizePhone(phone.value);
+    if (!normalized) return say('请输入有效手机号（大陆手机号或 + 国际区号）', true);
+    send.disabled = true;
+    send.textContent = '发送中…';
+    try {
+      sentPhone = await cloud.requestPhoneChange(normalized);
+      say('验证码已发送，请查收短信。');
+      let seconds = 60;
+      send.textContent = `${seconds} 秒后重试`;
+      timer = setInterval(() => {
+        seconds -= 1;
+        if (seconds <= 0) {
+          clearInterval(timer);
+          timer = null;
+          send.disabled = false;
+          send.textContent = '重新发送';
+        } else send.textContent = `${seconds} 秒后重试`;
+      }, 1000);
+    } catch (e) {
+      send.disabled = false;
+      send.textContent = '发送验证码';
+      say(e.message || '验证码发送失败', true);
+    }
+  };
+  confirm.onclick = async () => {
+    if (!sentPhone) return say('请先发送验证码', true);
+    confirm.disabled = true;
+    confirm.textContent = '验证中…';
+    try {
+      const session = await cloud.verifyPhoneOtp(sentPhone, otp.value, 'phone_change');
+      const { api } = await import('./core.js');
+      const local = await api.post('/auth/login-cloud', {
+        email: session.email || '', phone: session.phone || sentPhone, uid: session.uid || '',
+      }, { silent: true });
+      setUser(local.user);
+      try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
+      toast('手机号已绑定，原账号数据保持不变', 'ok');
+      sh.close();
+    } catch (e) {
+      confirm.disabled = false;
+      confirm.textContent = '验证并绑定';
+      say(e.message || '手机号绑定失败', true);
+    }
+  };
+  sh.onClose = () => { if (timer) clearInterval(timer); };
 }
 
 /* ============================================================================

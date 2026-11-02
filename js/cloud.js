@@ -14,7 +14,7 @@
             → RLS 只放行 user_id = 你的行
 
    【登录】
-   用 Supabase Auth 邮箱密码登录。登录拿到的 access_token 存 localStorage，
+   新账号用 Supabase Auth 手机号认证，旧账号保留邮箱密码登录。access_token 存 localStorage，
    每次请求放进 Authorization: Bearer。没有 token 时 RLS 一律拒绝 ——
    这正是「只有我这个账号能看」的实现方式，不再是靠一把可以复制的钥匙。
    ========================================================================== */
@@ -83,7 +83,7 @@ function setTok(t) {
 export function session() {
   const t = tok();
   if (!t || !t.access_token) return null;
-  return { email: t.email, uid: t.uid, expires_at: t.expires_at };
+  return { email: t.email, phone: t.phone, uid: t.uid, expires_at: t.expires_at };
 }
 
 /* ---------------- Auth ---------------- */
@@ -94,6 +94,106 @@ export function session() {
 export function looksLikePhone(v) {
   const s = String(v || '').replace(/[\s\-()]/g, '');
   return /^\+?\d{7,15}$/.test(s);
+}
+
+export function normalizePhone(v) {
+  const s = String(v || '').replace(/[\s\-()]/g, '');
+  if (/^1[3-9]\d{9}$/.test(s)) return '+86' + s;
+  if (/^\+\d{7,15}$/.test(s)) return s;
+  return '';
+}
+
+function authError(j, status) {
+  const msg = j.error_description || j.msg || j.message || ('HTTP ' + status);
+  const code = String(j.error_code || j.code || '');
+  if (/already registered|already exists|user_already_exists|phone_exists/i.test(msg + code)) {
+    return new Error('这个手机号已经注册过了，请直接登录');
+  }
+  if (/Invalid login credentials/i.test(msg)) return new Error('手机号或密码不正确');
+  if (/phone not confirmed|phone_not_confirmed/i.test(msg + code)) return new Error('该手机号尚未验证，请使用短信验证码登录');
+  if (/weak_password|Password should be/i.test(msg + code)) return new Error('密码未达到安全要求，请换一个更强的密码');
+  if (/Token has expired|otp_expired/i.test(msg + code)) return new Error('验证码已过期，请重新获取');
+  if (/Invalid token|otp_expired|token is invalid/i.test(msg + code)) return new Error('验证码不正确或已过期');
+  if (/signup_disabled|Signups not allowed/i.test(msg + code)) return new Error('当前暂不允许注册，请联系管理员');
+  if (/phone_provider_disabled|Phone provider is disabled/i.test(msg + code)) return new Error('手机号认证尚未在 Supabase 启用');
+  return new Error(msg);
+}
+
+async function authRequest(path, body, method = 'POST') {
+  const c = cfg();
+  if (!c) throw new Error('还没配置 Supabase 地址');
+  const t = tok();
+  const headers = { 'Content-Type': 'application/json', apikey: c.anon };
+  if (path === '/auth/v1/user' && t?.access_token) headers.Authorization = 'Bearer ' + t.access_token;
+  const r = await fetch(c.url + path, { method, headers, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw authError(j, r.status);
+  return j;
+}
+
+export async function signUpPhone(phone, password) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
+  if (String(password || '').length < 6) throw new Error('密码至少 6 位');
+  const j = await authRequest('/auth/v1/signup', { phone: normalized, password });
+  if (j.access_token) {
+    adoptTokens(j);
+    return { session: session(), needConfirm: false, phone: normalized };
+  }
+  return { session: null, needConfirm: true, phone: normalized };
+}
+
+export async function requestPhoneOtp(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
+  await authRequest('/auth/v1/otp', { phone: normalized, create_user: false });
+  return normalized;
+}
+
+export async function requestPhoneRecovery(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
+  await authRequest('/auth/v1/recover', { phone: normalized });
+  return normalized;
+}
+
+export async function requestPhoneChange(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
+  if (!await freshToken()) throw new Error('云端登录已失效，请重新登录');
+  await authRequest('/auth/v1/user', { phone: normalized }, 'PUT');
+  return normalized;
+}
+
+export async function verifyPhoneOtp(phone, token, type = 'sms') {
+  const normalized = normalizePhone(phone);
+  const code = String(token || '').trim();
+  if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
+  if (!['sms', 'recovery', 'phone_change'].includes(type)) throw new Error('验证码用途无效');
+  if (!/^\d{4,10}$/.test(code)) throw new Error('请输入短信中的验证码');
+  const j = await authRequest('/auth/v1/verify', { phone: normalized, token: code, type });
+  if (!j.access_token) throw new Error('验证成功但未取得登录凭证，请重新登录');
+  adoptTokens(j);
+  return session();
+}
+
+export async function updatePassword(password) {
+  if (String(password || '').length < 6) throw new Error('新密码至少 6 位');
+  const c = cfg();
+  const t = tok();
+  if (!c || !t?.access_token) throw new Error('登录状态已失效，请重新获取验证码');
+  const r = await fetch(c.url + '/auth/v1/user', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: c.anon,
+      Authorization: 'Bearer ' + t.access_token,
+    },
+    body: JSON.stringify({ password }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw authError(j, r.status);
+  return session();
 }
 
 /* ----------------------------------------------------------------------------
@@ -246,13 +346,18 @@ export async function login(email, password) {
     if (/Email not confirmed/i.test(msg)) throw new Error('这个邮箱还没验证。去 Supabase 后台把「Confirm email」关掉，或手动确认该用户');
     throw new Error(msg);
   }
-  setTok({
-    access_token: j.access_token,
-    refresh_token: j.refresh_token,
-    expires_at: Date.now() + (j.expires_in || 3600) * 1000,
-    email: j.user?.email || email,
-    uid: j.user?.id || '',
+  adoptTokens(j);
+  return session();
+}
+
+export async function loginPhonePassword(phone, password) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
+  if (!password) throw new Error('请填写密码');
+  const j = await authRequest('/auth/v1/token?grant_type=password', {
+    phone: normalized, password,
   });
+  adoptTokens(j);
   return session();
 }
 
@@ -272,7 +377,8 @@ export function adoptTokens(j) {
     access_token: j.access_token,
     refresh_token: j.refresh_token || old.refresh_token,
     expires_at: Date.now() + (j.expires_in || 3600) * 1000,
-    email: j.user?.email || old.email,
+    email: j.user ? (j.user.email || '') : old.email,
+    phone: j.user ? (j.user.phone || '') : old.phone,
     uid: j.user?.id || old.uid,
   });
   return session();
@@ -309,6 +415,7 @@ async function freshToken() {
       refresh_token: j.refresh_token || t.refresh_token,
       expires_at: Date.now() + (j.expires_in || 3600) * 1000,
       email: j.user?.email || t.email,
+      phone: j.user?.phone || t.phone,
       uid: j.user?.id || t.uid,
     });
     return j.access_token;

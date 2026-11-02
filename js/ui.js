@@ -585,33 +585,21 @@ const QQ_G = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor
    于是界面上真能用的扫码 tab 被一行「未开通」误导了很久。 */
 /* 登录页当前是「登录」还是「注册」——只在这两个之间切换，没有第三种方式 */
 let authMode = 'login';
+let authLegacy = false;
+let authPhoneMethod = 'password';
+let authCountdownTimer = null;
 
-export const AUTH_CFG = { allowRegister: false, demoMode: false, smsEnabled: false, qrEnabled: false, siteQrLogin: true, wbEnabled: false, testPasscode: false };
+export const AUTH_CFG = { allowRegister: true, demoMode: false, smsEnabled: true, qrEnabled: false, siteQrLogin: true, wbEnabled: false, testPasscode: false };
 
 export async function loadAuthConfig() {
   try {
     const c = await api.get('/auth/config', null, { silent: true });
     Object.assign(AUTH_CFG, c);
-  } catch { /* 取不到就用默认值，保持密码登录可用 */ }
+  } catch { /* 取不到时仍可使用手机号登录 */ }
   return AUTH_CFG;
 }
 
-/* 【登录方式：只有账号 + 密码】
-   用户明确要求「只支持账号和密码登录和注册，不需要发送短信，自己设置账号密码就行，
-   只要账号和密码正确就可以登录成功」。
-
-   所以这里不再有验证码页签、扫码页签、第三方登录按钮 —— 全部删掉，
-   只留「账号 / 密码」两个输入框，加一个「登录」和一行「还没有账号？注册」。
-
-   【2026-10 注册入口重新打开】
-   曾经关掉过，理由是「账号由教师在 Supabase 后台自己建」。
-   但真实后果是：没有后台权限的人一个号都没有，登录页成了死胡同 ——
-   用户的原话是「暂时我也没有账号，因为现在不可以注册」。
-
-   所以现在打开。安全边界交给云端 RLS（user_id = auth.uid()），不靠藏按钮：
-   藏按钮从来不叫禁用，控制台发一个请求就绕过了；而 RLS 是数据库层面拦的，
-   一个空账号进得去工作台本机功能，但读不到任何别人的数据。
-   这才把"能不能用"和"能看到谁的数据"分开，也是更靠谱的那一半。 */
+/* 手机号注册是新账号的默认流程；旧账号入口只用于兼容已存在的本机/邮箱账号。 */
 const ALLOW_SIGNUP = true;
 
 function authTabsHTML() {
@@ -673,15 +661,288 @@ function authLogin() {
     </div>`;
   document.getElementById('auth-switch')?.addEventListener('click', () => {
     authMode = authMode === 'register' ? 'login' : 'register';
+    authLegacy = false;
     authLogin();
   });
-  authPassword();
+  if (authLegacy && authMode === 'login') authPassword();
+  else authPhone();
 }
 
 function checkAgree() {
   const a = document.getElementById('agree');
   if (a && !a.checked) { toast('请先勾选同意服务协议', 'warn'); return false; }
   return true;
+}
+
+async function completeAuth(user, isReg) {
+  state.user = user;
+  try { await loadMe(); } catch { }
+  try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
+  const back = takeQrReturn();
+  location.hash = back ? `#/qr?id=${back}` : '#/home';
+  render();
+  toast(isReg ? '手机号已注册，开始使用吧' : '欢迎回来', 'ok');
+}
+
+async function attachCloudUser(cloud, identity, password = '') {
+  try {
+    return await api.post('/auth/login-cloud', {
+      ...identity, password,
+    }, { silent: true });
+  } catch (e) {
+    await cloud.logout();
+    throw e;
+  }
+}
+
+async function registerCloudUser(cloud, phone, password, uid) {
+  try {
+    return await api.post('/auth/register-cloud', {
+      phone, password, uid,
+    }, { silent: true });
+  } catch (e) {
+    await cloud.logout();
+    throw e;
+  }
+}
+
+function authPhone() {
+  if (authCountdownTimer) clearInterval(authCountdownTimer);
+  const isReg = authMode === 'register';
+  const body = document.getElementById('auth-body');
+  const isSms = !isReg && authPhoneMethod === 'sms';
+  body.innerHTML = `
+    ${!isReg ? `<div class="auth-tabs" style="margin-top:-8px">
+      <button class="${isSms ? '' : 'on'}" id="auth-phone-password">手机号 + 密码</button>
+      <button class="${isSms ? 'on' : ''}" id="auth-phone-sms">手机号 + 验证码</button>
+    </div>` : ''}
+    <div class="auth-input"><input id="phone" type="tel" inputmode="tel" autocomplete="tel"
+      placeholder="手机号（大陆手机号或 + 国际区号）" maxlength="24"></div>
+    ${isReg || !isSms ? `<div class="auth-input"><input id="pwd" type="password"
+      autocomplete="${isReg ? 'new-password' : 'current-password'}" placeholder="${isReg ? '设置密码（至少 6 位）' : '密码'}" maxlength="72"></div>` : ''}
+    ${isReg ? '<div class="auth-input"><input id="pwd2" type="password" autocomplete="new-password" placeholder="再输入一次密码" maxlength="72"></div>' : ''}
+    ${isSms ? `<div class="auth-input"><input id="otp" type="text" inputmode="numeric" autocomplete="one-time-code"
+      placeholder="短信验证码" maxlength="10"><button class="otp-btn" id="send-otp" type="button">获取验证码</button></div>` : ''}
+    <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册手机号' : '登录'}</button>
+    <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6">${isReg
+      ? '注册短信验证由 Supabase Phone Confirmation 设置控制。'
+      : '手机号用于登录和找回密码。'}</div>
+    ${!isReg && !isSms ? '<div class="auth-forgot"><button type="button" class="link-btn" id="forgot-password">忘记密码？</button></div>' : ''}
+    ${!isReg ? '<div class="auth-forgot"><button type="button" class="link-btn" id="legacy-login">使用旧账号 / 邮箱登录</button></div>' : ''}`;
+
+  const phone = body.querySelector('#phone');
+  const pwd = body.querySelector('#pwd');
+  const btn = body.querySelector('#do-login');
+  const hint = body.querySelector('#auth-hint');
+  const say = (text) => { if (hint) hint.textContent = text || ''; };
+
+  body.querySelector('#auth-phone-password')?.addEventListener('click', () => {
+    authPhoneMethod = 'password';
+    authPhone();
+  });
+  body.querySelector('#auth-phone-sms')?.addEventListener('click', () => {
+    authPhoneMethod = 'sms';
+    authPhone();
+  });
+  body.querySelector('#legacy-login')?.addEventListener('click', () => {
+    authLegacy = true;
+    authLogin();
+  });
+  body.querySelector('#forgot-password')?.addEventListener('click', () => authForgot(phone.value.trim()));
+
+  const send = body.querySelector('#send-otp');
+  if (send) {
+    send.onclick = async () => {
+      if (!checkAgree()) return;
+      const normalized = (await import('./cloud.js')).normalizePhone(phone.value);
+      if (!normalized) return say('请输入有效手机号（大陆手机号或 + 国际区号）');
+      send.disabled = true;
+      send.textContent = '发送中…';
+      try {
+        const cloud = await import('./cloud.js');
+        await cloud.requestPhoneOtp(normalized);
+        say('验证码已发送，请查收短信。');
+        startAuthCountdown(send);
+      } catch (e) {
+        send.disabled = false;
+        send.textContent = '获取验证码';
+        say(e.message || '验证码发送失败');
+      }
+    };
+  }
+
+  btn.onclick = async () => {
+    if (!checkAgree()) return;
+    const enteredPhone = phone.value.trim();
+    const password = pwd?.value || '';
+    const cloud = await import('./cloud.js');
+    const normalized = cloud.normalizePhone(enteredPhone);
+    if (!normalized) return say('请输入有效手机号（大陆手机号或 + 国际区号）');
+    if ((isReg || !isSms) && password.length < 6) return say('密码至少 6 位');
+    if (isReg && password !== body.querySelector('#pwd2').value) return say('两次输入的密码不一致');
+    btn.disabled = true;
+    btn.textContent = isReg ? '注册中…' : '登录中…';
+    try {
+      if (isReg) {
+        const result = await cloud.signUpPhone(normalized, password);
+        if (result.needConfirm) {
+          authPhoneRegistrationOtp(normalized, password);
+          return;
+        }
+        const session = cloud.session();
+        const local = await registerCloudUser(cloud, normalized, password, session?.uid || '');
+        await completeAuth(local.user, true);
+        return;
+      }
+
+      let session;
+      if (isSms) {
+        const code = body.querySelector('#otp').value.trim();
+        session = await cloud.verifyPhoneOtp(normalized, code, 'sms');
+      } else {
+        session = await cloud.loginPhonePassword(normalized, password);
+      }
+      const local = await attachCloudUser(cloud, {
+        phone: session.phone || normalized, uid: session.uid || '',
+      }, isSms ? '' : password);
+      await completeAuth(local.user, false);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = isReg ? '注册手机号' : '登录';
+      say(e.message || '操作失败，请稍后重试');
+    }
+  };
+
+  body.querySelectorAll('input').forEach((input) => {
+    input.onkeydown = (ev) => { if (ev.key === 'Enter') btn.click(); };
+  });
+  phone.focus();
+}
+
+function startAuthCountdown(button) {
+  if (authCountdownTimer) clearInterval(authCountdownTimer);
+  let seconds = 60;
+  button.disabled = true;
+  button.textContent = `${seconds} 秒后重试`;
+  authCountdownTimer = setInterval(() => {
+    seconds -= 1;
+    if (seconds <= 0) {
+      clearInterval(authCountdownTimer);
+      authCountdownTimer = null;
+      button.disabled = false;
+      button.textContent = '重新获取';
+    } else button.textContent = `${seconds} 秒后重试`;
+  }, 1000);
+}
+
+function authPhoneRegistrationOtp(phone, password) {
+  const body = document.getElementById('auth-body');
+  body.innerHTML = `
+    <div class="auth-note"><b>验证手机号</b><span>验证码已发送到 ${esc(phone)}。输入验证码以完成注册。</span></div>
+    <div class="auth-input"><input id="register-otp" type="text" inputmode="numeric" autocomplete="one-time-code"
+      placeholder="短信验证码" maxlength="10"><button class="otp-btn" id="register-send-otp" type="button">重新发送</button></div>
+    <button class="auth-btn" id="verify-register-otp">验证并注册</button>
+    <div class="small muted" id="auth-hint" style="margin-top:10px"></div>`;
+  const input = body.querySelector('#register-otp');
+  const btn = body.querySelector('#verify-register-otp');
+  const resend = body.querySelector('#register-send-otp');
+  const hint = body.querySelector('#auth-hint');
+  resend.onclick = async () => {
+    resend.disabled = true;
+    resend.textContent = '发送中…';
+    try {
+      const cloud = await import('./cloud.js');
+      await cloud.requestPhoneOtp(phone);
+      hint.textContent = '验证码已重新发送。';
+      startAuthCountdown(resend);
+    } catch (e) {
+      resend.disabled = false;
+      resend.textContent = '重新发送';
+      hint.textContent = e.message || '验证码发送失败';
+    }
+  };
+  const submit = async () => {
+    if (!checkAgree()) return;
+    btn.disabled = true;
+    btn.textContent = '验证中…';
+    try {
+      const cloud = await import('./cloud.js');
+      const session = await cloud.verifyPhoneOtp(phone, input.value, 'sms');
+      const local = await registerCloudUser(cloud, phone, password, session.uid || '');
+      await completeAuth(local.user, true);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '验证并注册';
+      hint.textContent = e.message || '验证失败';
+    }
+  };
+  btn.onclick = submit;
+  input.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
+  input.focus();
+}
+
+function authForgot(prefillPhone = '') {
+  if (authCountdownTimer) clearInterval(authCountdownTimer);
+  const body = document.getElementById('auth-body');
+  body.innerHTML = `
+    <div class="auth-note"><b>通过短信验证码重置密码</b><span>验证码将发送到注册手机号。</span></div>
+    <div class="auth-input"><input id="reset-phone" type="tel" inputmode="tel" autocomplete="tel"
+      placeholder="手机号（大陆手机号或 + 国际区号）" maxlength="24" value="${esc(prefillPhone)}">
+      <button class="otp-btn" id="send-reset-otp" type="button">获取验证码</button></div>
+    <div class="auth-input"><input id="reset-otp" type="text" inputmode="numeric" autocomplete="one-time-code"
+      placeholder="短信验证码" maxlength="10"></div>
+    <div class="auth-input"><input id="reset-password" type="password" autocomplete="new-password"
+      placeholder="新密码（至少 6 位）" maxlength="72"></div>
+    <div class="auth-input"><input id="reset-password2" type="password" autocomplete="new-password"
+      placeholder="再次输入新密码" maxlength="72"></div>
+    <button class="auth-btn" id="reset-submit">验证并重置密码</button>
+    <button type="button" class="link-btn" id="back-to-login" style="margin-top:12px">返回登录</button>
+    <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6"></div>`;
+  const phoneInput = body.querySelector('#reset-phone');
+  const send = body.querySelector('#send-reset-otp');
+  const btn = body.querySelector('#reset-submit');
+  const hint = body.querySelector('#auth-hint');
+  body.querySelector('#back-to-login').onclick = () => authLogin();
+  send.onclick = async () => {
+    if (!checkAgree()) return;
+    const cloud = await import('./cloud.js');
+    const phone = cloud.normalizePhone(phoneInput.value);
+    if (!phone) return hint.textContent = '请输入有效手机号（大陆手机号或 + 国际区号）';
+    send.disabled = true;
+    send.textContent = '发送中…';
+    try {
+      await cloud.requestPhoneRecovery(phone);
+      hint.textContent = '验证码已发送，请查收短信。';
+      startAuthCountdown(send);
+    } catch (e) {
+      send.disabled = false;
+      send.textContent = '获取验证码';
+      hint.textContent = e.message || '验证码发送失败';
+    }
+  };
+  btn.onclick = async () => {
+    if (!checkAgree()) return;
+    const cloud = await import('./cloud.js');
+    const phone = cloud.normalizePhone(phoneInput.value);
+    const password = body.querySelector('#reset-password').value;
+    if (!phone) return hint.textContent = '请输入有效手机号（大陆手机号或 + 国际区号）';
+    if (password.length < 6) return hint.textContent = '新密码至少 6 位';
+    if (password !== body.querySelector('#reset-password2').value) return hint.textContent = '两次输入的新密码不一致';
+    btn.disabled = true;
+    btn.textContent = '正在重置…';
+    try {
+      const session = await cloud.verifyPhoneOtp(phone, body.querySelector('#reset-otp').value, 'recovery');
+      await cloud.updatePassword(password);
+      const local = await attachCloudUser(cloud, {
+        phone: session.phone || phone, uid: session.uid || '',
+      }, password);
+      await completeAuth(local.user, false);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '验证并重置密码';
+      hint.textContent = e.message || '密码重置失败';
+    }
+  };
 }
 
 /* 【已删除】loginQR() + drawQR()
@@ -734,234 +995,65 @@ function sheetRaw(title, bodyEl) {
   return { mask, close, set onClose(fn) { h.onClose = fn; } };
 }
 
-/* 【账号 + 密码：一个表单同时管登录和注册】
-   注册与登录的差别只有两处：要不要输第二遍密码、提交走哪条路。
-   所以做成同一个表单，authMode 决定文案和提交路径 ——
-   这样用户永远只面对两个输入框，不会在页面之间来回跳。
-
-   【账号可以填邮箱】
-   很多人记得住自己的邮箱，记不住"第几个账号名"。Supabase 那边也只认邮箱，
-   所以这里统一放开：短名和邮箱都能过，短名在送云端时补一个 @workbench.local 后缀
-   （见 cloud.js 的 toCloudEmail）。 */
-const ACCT_MAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const ACCT_NAME_RE = /^[A-Za-z0-9_]{3,20}$/;
-function acctOk(v) {
-  const a = String(v || '').trim();
-  return ACCT_MAIL_RE.test(a) ? a.length <= 64 : ACCT_NAME_RE.test(a);
-}
-
-/* 【注册时云端那一步的结果，只记不说】
-   值：ok / off（后台开关关着）/ exists（云端已有同邮箱）/ need_confirm（要收确认邮件）/ error
-   存在 localStorage 而不是弹窗，是因为这东西不该打断人：
-   账号已经建好、人已经进工作台了，再甩一条红字警告只会让人以为"注册失败了"。
-   真正需要看它的是「我的 → 云同步」那一行 —— 那里本来就要显示云端状态。 */
-function rememberCloudState(v) {
-  try { localStorage.setItem('wb_signup_cloud_state', v); } catch { }
-}
-export function signupCloudState() {
-  try { return localStorage.getItem('wb_signup_cloud_state') || ''; } catch { return ''; }
-}
-
 function authPassword() {
-  const isReg = authMode === 'register';
   const body = document.getElementById('auth-body');
   body.innerHTML = `
-    <div class="auth-input"><input id="acct" type="text" autocomplete="username"
-      placeholder="账号或邮箱（如 zhangsan / you@qq.com）" maxlength="64"></div>
-    <div class="auth-input"><input id="pwd" type="password" autocomplete="${isReg ? 'new-password' : 'current-password'}"
-      placeholder="密码（至少 6 位）" maxlength="32"></div>
-    ${isReg ? '<div class="auth-input"><input id="pwd2" type="password" autocomplete="new-password" placeholder="再输一遍密码" maxlength="32"></div>' : ''}
-    <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册并登录' : '登录'}</button>
-    <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6"></div>
-    <div class="small muted" style="margin-top:6px;line-height:1.6">
-      ${isReg
-      ? '账号密码由你自己设，不需要手机号、不需要短信验证码。'
-      : '登录后数据跟着账号走，手机、电脑打开是同一份。'}
+    <div class="auth-input"><input id="legacy-account" type="text" autocomplete="username"
+      placeholder="旧账号或邮箱" maxlength="64"></div>
+    <div class="auth-input"><input id="legacy-password" type="password" autocomplete="current-password"
+      placeholder="密码" maxlength="72"></div>
+    <button class="auth-btn" id="legacy-submit" style="margin-top:6px">登录</button>
+    <button type="button" class="link-btn" id="phone-login" style="margin-top:12px">返回手机号登录</button>
+    <div class="small muted" id="legacy-hint" style="margin-top:10px;line-height:1.6">
+      此入口仅用于兼容已存在的旧账号；新账号请使用手机号注册。
     </div>`;
-
-  const hint = document.getElementById('auth-hint');
-  const say = (t) => { if (hint) hint.textContent = t || ''; };
-
-  /* 注册模式下先把云端状态探一次，好让用户提交之前就知道"注册完能不能连上云"，
-     而不是注册完、进了工作台，才发现数据页一片空白 */
-  if (isReg) {
-    (async () => {
-      try {
-        const cloud = await import('./cloud.js');
-        const st = await cloud.canSignUp();
-        if (st.ok) say('注册后会自动连上云端，手机和电脑看到的是同一份数据。');
-        else if (st.reason === 'off') say('网站后台暂时没开云端注册。你可以先注册本机账号照常用，云端那部分等后台打开后自动接上。');
-        else say('这会儿网络不太顺，先注册本机账号也能正常用。');
-      } catch { /* 探测失败不影响注册 */ }
-    })();
-  }
-
+  const account = body.querySelector('#legacy-account');
+  const password = body.querySelector('#legacy-password');
+  const btn = body.querySelector('#legacy-submit');
+  body.querySelector('#phone-login').onclick = () => {
+    authLegacy = false;
+    authLogin();
+  };
   const submit = async () => {
     if (!checkAgree()) return;
-    const acct = document.getElementById('acct').value.trim();
-    const pwd = document.getElementById('pwd').value;
-    if (!acctOk(acct)) return toast('账号要 3~20 位字母、数字或下划线，或者直接填邮箱', 'warn');
-    if (!pwd || pwd.length < 6) return toast('密码至少 6 位', 'warn');
-    if (isReg) {
-      const pwd2 = document.getElementById('pwd2').value;
-      if (pwd !== pwd2) return toast('两次输入的密码不一致', 'warn');
-    }
-    const btn = document.getElementById('do-login');
-    btn.disabled = true; btn.textContent = isReg ? '注册中…' : '登录中…';
-
+    btn.disabled = true;
+    btn.textContent = '登录中…';
+    const enteredAccount = account.value.trim();
     try {
-      if (!isReg) {
-        const r = await api.post('/auth/login', { account: acct, password: pwd });
-        await done(r.user, false);
-        return;
-      }
-
-      /* ---------------- 注册 ----------------
-         顺序是「先本机、再云端」，而不是反过来。
-         原因：本机注册一定能成（数据就在 localStorage 里），
-         云端注册要撞后台开关，可能被拒。
-         先本机成功 → 用户已经能进工作台了，云端失败只是"少了一半功能"而不是"注册失败"。
-         反过来的话，云端一拒，用户连本机账号都没有，又回到"没有账号"的死局。 */
-      let local;
+      let localResult;
       try {
-        local = await api.post('/auth/register', { account: acct, password: pwd });
-      } catch (e) {
-        /* "这台设备已经有账号了"不算失败 —— 说明以前注册过，
-           正好接着往下走云端那一步，而不是把人挡在外面 */
-        if (e.code !== 409) throw e;
-        local = null;
-      }
-
-      /* ---------------- 云端那半边 ----------------
-         【结果不再用弹层告知】
-         以前这里会在注册成功后固定弹一条「云端注册开关还关着…」停留 9 秒。
-         实际效果是：账号明明建好了、也进得去工作台，右上角却挂着一句警告，
-         让人以为"注册出问题了"。而且每次注册都要问候一次 Supabase，
-         网络慢一点还会拖慢整个注册流程。
-
-         现在改成：
-           · 云端连上了 → 什么都不说，一切照常
-           · 云端没连上 → 什么都不弹，只把这个状态存进 localStorage，
-             由「我的 → 云同步」那一行如实显示（本来那里就该写"未登录"）
-           · 注册页顶部那行小字（say()）已经在提交前把云端状态讲清楚了，
-             不需要进了工作台再讲一遍
-         这样"注册成功"就是纯粹的注册成功，不再自带一条吓人的附注。 */
-      try {
+        localResult = await api.post('/auth/login', {
+          account: enteredAccount, password: password.value,
+        });
+      } catch (localError) {
         const cloud = await import('./cloud.js');
-        const mail = cloud.toCloudEmail(acct);
-        const up = await cloud.signUp(mail, pwd);
-        if (up.needConfirm) {
-          rememberCloudState('need_confirm');
-        } else {
-          const uid = cloud.cloudUid();
-          const rc = await api.post('/auth/register-cloud',
-            { account: acct, password: pwd, email: mail, uid }, { silent: true });
-          if (rc?.user) local = rc;
-          rememberCloudState('ok');
-          try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
-        }
-      } catch (e) {
-        /* 只记状态，不弹提示。原因见上。 */
-        if (e.code === 'signup_disabled') rememberCloudState('off');
-        else if (e.code === 'exists') rememberCloudState('exists');
-        else rememberCloudState('error');
-        console.warn('[signup] 云端这一步没成：', e.message || e);
-      }
-
-      if (!local) {
-        /* 409 且账号密码也与本机一致 —— 相当于重登，不需要云端再做一遍 */
-        local = await api.post('/auth/login', { account: acct, password: pwd });
-      }
-      await done(local.user, true);
-    } catch (e) {
-      btn.disabled = false; btn.textContent = isReg ? '注册并登录' : '登录';
-      toast(e.message || '登录失败', 'err');
-    }
-  };
-
-  /* 登录/注册成功后的共同收尾：写 state、跳页面、给提示 */
-  async function done(user, isReg) {
-    state.user = user;
-    try { await loadMe(); } catch { }
-    const back = takeQrReturn();
-    location.hash = back ? `#/qr?id=${back}` : '#/home';
-    render();
-    toast(isReg ? '账号已创建，开始使用吧' : '欢迎回来', 'ok');
-  }
-
-  document.getElementById('do-login').onclick = submit;
-  /* 回车直接提交，不用去点按钮 */
-  body.querySelectorAll('input').forEach((el) => {
-    el.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
-  });
-  document.getElementById('acct').focus();
-}
-
-/* ================= 忘记密码 =================
-   场景是「没配短信 + 密码想不起来」，这时候一切靠短信的自助流程都是死路。
-   所以做一个不依赖短信、也不需要用户碰终端的中间态：
-
-     1. 用户填手机号 → 服务端生成一个 8 位取件码（30 分钟有效，用完即焚）
-     2. 页面上把取件码和一条现成的命令一起亮出来，点一下就能复制
-     3. 有服务器权限的人（我）执行那条命令，密码就重置了
-     4. 用户点「我已重置，去登录」
-
-   为什么不做成「填码就改密码」：取件码本来就显示在这个页面上，
-   谁能看到这行字谁就能改密码，等于没有验证。只有「得有人去服务器上执行」
-   才构成一道真实的门——而这道门恰好是用户本来就有的（他找我就行）。
-   ——如果哪天配了短信通道，这套流程会自动退化成短信自助重置，不需要改这里。 */
-function forgotSheet(prefillPhone = '') {
-  const box = el(`<div class="fp-box">
-    <div class="small muted" style="line-height:1.7;margin-bottom:14px">
-      本站没配短信，收不到验证码。这里给你一个限时取件码：把它（或者下面那条命令）发给能进服务器的人，执行一下密码就重置了。
-    </div>
-    <div class="auth-input"><input id="fp-phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
-    <button class="auth-btn" id="fp-gen" style="margin-top:4px">生成取件码</button>
-    <div id="fp-out"></div>
-  </div>`);
-  const s = sheet({ title: '找回密码', body: box });
-  const out = box.querySelector('#fp-out');
-  const btn = box.querySelector('#fp-gen');
-  btn.onclick = async () => {
-    const phone = box.querySelector('#fp-phone').value.trim();
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
-    btn.disabled = true; btn.textContent = '生成中…';
-    try {
-      const r = await api.post('/auth/forgot', { phone });
-      btn.hidden = true;
-      out.innerHTML = `
-        <div class="fp-code-wrap">
-          <div class="fp-code-label">取件码（30 分钟内有效）</div>
-          <div class="fp-code" id="fp-code">${esc(r.code)}</div>
-          <div class="fp-line">
-            <input class="input" id="fp-cmd" readonly value="${esc(r.command)}">
-            <button class="btn-sm" id="fp-copy">复制</button>
-          </div>
-        </div>
-        <div class="small muted" style="margin-top:12px;line-height:1.7">
-          ${r.hasServerAccess
-            ? '你也可以自己执行：把上面那条命令粘到服务器终端里回车，然后重新登录即可。'
-            : '把上面这条命令发给管理员（或这台服务器的主人），他执行完你就能用新密码登录了。'}
-        </div>
-        <button class="auth-btn" id="fp-done" style="margin-top:14px">我已重置，去登录</button>`;
-      const copy = async (text) => {
+        if (!enteredAccount.includes('@') && !/^[A-Za-z0-9_]{3,20}$/.test(enteredAccount)) throw localError;
+        const email = cloud.toCloudEmail(enteredAccount);
         try {
-          await navigator.clipboard.writeText(text);
-          toast('已复制');
-        } catch {
-          /* https 下 clipboard 一般都可用；万一被策略拦了，选中让用户自己复制，
-             总比只弹一句「复制失败」强。 */
-          const i = document.getElementById('fp-cmd'); i?.select();
-          toast('已选中，按 Ctrl/⌘+C 复制', 'warn', 4000);
+          const session = await cloud.login(email, password.value);
+          const local = await attachCloudUser(cloud, { email, uid: session.uid || '' }, password.value);
+          await completeAuth(local.user, false);
+          return;
+        } catch (cloudError) {
+          await cloud.logout();
+          throw cloudError;
         }
-      };
-      out.querySelector('#fp-copy').onclick = () => copy(out.querySelector('#fp-cmd').value);
-      out.querySelector('#fp-done').onclick = () => s.close();
+      }
+      const cloud = await import('./cloud.js');
+      await cloud.logout();
+      try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
+      await completeAuth(localResult.user, false);
     } catch (e) {
-      btn.disabled = false; btn.textContent = '生成取件码';
-      toast(e.message, 'err', 4000);
+      btn.disabled = false;
+      btn.textContent = '登录';
+      body.querySelector('#legacy-hint').textContent = e.message || '登录失败';
     }
   };
+  btn.onclick = submit;
+  body.querySelectorAll('input').forEach((input) => {
+    input.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
+  });
+  account.focus();
 }
 
 /* ================= 扫一扫（移动端入口 + 摄像头解码） =================

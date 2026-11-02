@@ -130,8 +130,11 @@ function publicUser(u) {
   if (!u) return null;
   return {
     id: u.id, account: u.account || '', nickname: u.nickname, avatar: u.avatar,
+    phone: u.phone || u.cloudPhone || '',
+    cloudUid: u.cloudUid || '',
+    cloudEmail: u.cloudEmail || '',
     school: u.school, subject: u.subject, title: u.title,
-    bindings: { phone: false, wechat: false, qq: false, workbuddy: false },
+    bindings: { phone: !!(u.phone || u.cloudPhone), wechat: false, qq: false, workbuddy: false },
     /* settings 必须带上：前端 state.user 来自 /auth/me 的返回值，
        这里不含 settings 的话，课时单价永远读回默认值 30 元。 */
     settings: u.settings || {},
@@ -1419,9 +1422,9 @@ const on = (method, pattern, fn) => {
 
 /* ---- 账号 ---- */
 on('GET', '/auth/config', () => ({
-  allowRegister: false,
+  allowRegister: true,
   demoMode: true,
-  smsEnabled: false,
+  smsEnabled: true,
   testPasscode: false,
   qrEnabled: false,
   siteQrLogin: false,
@@ -1454,21 +1457,10 @@ on('GET', '/auth/me', () => {
   return { user: publicUser(u) };
 });
 
-/* 【登录：只有账号 + 密码】
-   用户明确要求「只支持账号和密码登录和注册，不需要发送短信，自己设置账号密码就行，
-   只要账号和密码正确就可以登录成功」。所以这里没有验证码、没有手机号、没有扫码。
-
-   静态版没有服务端，「数据库」就是这台设备的 localStorage：
-   注册 = 把账号和口令摘要写进 db.meta.user；登录 = 拿输入和它比对。
-   这意味着数据跟着浏览器走 —— 换设备 / 清缓存就没了，界面上要和用户说清楚。 */
-/* 【账号形态：短名 或 邮箱】
-   原来只认 ^[A-Za-z0-9_]{3,20}$，于是 516796162@qq.com 这种正常的邮箱
-   被前端正则直接拦下、连提交都到不了 —— 用户明明有一组邮箱密码却"登不进去"。
-   而云端 Supabase 只认邮箱，短名又必须留（很多人不想用邮箱当账号）。
-   两边都得能过，所以这里放宽成「两者之一」。
-   长度上限 64：邮箱里常见的长串到不了 64，但要防有人贴一整段进来。 */
+/* 旧账号兼容校验；手机号使用独立的 E.164 校验。 */
 const ACCT_RE = /^[A-Za-z0-9_]{3,20}$/;
 const MAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const PHONE_RE = /^\+[1-9]\d{6,14}$/;
 function checkAccount(v) {
   const a = String(v || '').trim();
   if (MAIL_RE.test(a)) return a.length <= 64 ? '' : '邮箱太长了';
@@ -1476,68 +1468,39 @@ function checkAccount(v) {
   return '账号要 3~20 位字母、数字或下划线，或者直接填邮箱';
 }
 
-on('POST', '/auth/register', async ({ body }) => {
-  /* 【注册入口已经重新打开】
-     2026-10 一度在这里 403 挡住，理由是「账号由教师在 Supabase 后台自己建」。
-     结果是没有后台权限的人一个号都没有，登录页永远进不去 —— 门关得太死了。
-     现在改成：注册就建本机账号，云端那边由前端先试 /auth/v1/signup，
-     云端能建就两边一起有，不能建（后台开关关着）就只建本机并在界面上说清楚。
-     所以这里不再拦，只做校验。 */
-  const account = String(body?.account || '').trim();
-  const password = String(body?.password || '');
-  const bad = checkAccount(account);
-  if (bad) fail(400, bad);
-  if (password.length < 6) fail(400, '密码至少 6 位');
+on('POST', '/auth/register', () => fail(410, '新账号请使用手机号注册，并完成短信验证'));
 
-  const u = currentUser();
-  /* 已经有账号了就不许再「注册」覆盖 —— 否则谁打开页面都能把别人的号顶掉。
-     但「同名同密码」视为同一个人重登（清过 sessionStorage 又点回注册页的常见情况），
-     直接放行，不让人卡在「这台设备已经注册过」这句话上出不去。 */
-  if (u.account) {
-    if (u.account === account && u.pwd === await hashPwd(password)) {
-      setLoggedOut(false);
-      seedIfEmpty();
-      return { user: publicUser(u), token: 'static', created: false, existed: true };
-    }
-    fail(409, '这台设备已经有账号「' + u.account + '」了，请直接登录；要用新账号请先在「我的」里退出');
-  }
-
-  u.account = account;
-  u.pwd = await hashPwd(password);
-  u.nickname = account.includes('@') ? account.split('@')[0] : account;
-  saveUser(u);
-  setLoggedOut(false);
-  seedIfEmpty();
-  return { user: publicUser(u), token: 'static', created: true };
-});
-
-/* 【云端已注册成功，把本机账号对上】
-   前端注册的顺序是「先云端、再本机」：云端建号拿到 token 之后，
-   本机必须也有一个同名账号，否则下一次打开页面 meta.user.account 为空，
-   又会回到登录页 —— 用户会觉得「我明明注册过」。
-   这里**保留真实的密码摘要**（不像 login-cloud 那样写空），
-   这样「退出 → 用同一组账号密码再登」走得通。 */
+/* 云端注册或手机号验证完成后，将 Supabase 身份与本机数据空间关联。 */
 on('POST', '/auth/register-cloud', async ({ body }) => {
-  const account = String(body?.account || '').trim();
+  const phone = String(body?.phone || '').trim();
+  const account = String(body?.account || phone).trim();
   const password = String(body?.password || '');
   const email = String(body?.email || '').trim().toLowerCase();
   const uid = String(body?.uid || '');
   if (!account) fail(400, '缺少账号');
+  if (phone && !PHONE_RE.test(phone)) fail(400, '手机号格式无效');
+  if (!uid) fail(400, '缺少云端账号标识');
+  if (password.length < 6) fail(400, '密码至少 6 位');
 
   const u = currentUser();
   /* 本机已有别的账号：不覆盖，免得把上一个账号的本机数据挂到新人头上。
      但如果是同一个账号（重装、换设备），只补云端标记即可。 */
   if (u.account && u.account !== account) {
-    fail(409, '这台设备已经有账号「' + u.account + '」了');
+    fail(409, '当前浏览器已有其他本机账号。为避免覆盖本机数据，请先导出备份，再用独立浏览器完成注册');
+  }
+  if (u.cloudUid && u.cloudUid !== uid) {
+    fail(409, '这台设备已关联另一个云端账号，请先备份本机数据后再切换');
   }
   if (!u.account) {
-    const bad = checkAccount(account);
-    if (bad) fail(400, bad);
-    if (password.length < 6) fail(400, '密码至少 6 位');
+    if (!phone) {
+      const bad = checkAccount(account);
+      if (bad) fail(400, bad);
+    }
     u.account = account;
-    u.pwd = await hashPwd(password);
-    u.nickname = account.includes('@') ? account.split('@')[0] : account;
   }
+  if (password.length >= 6) u.pwd = await hashPwd(password);
+  if (!u.nickname || u.nickname === '老师') u.nickname = phone || (account.includes('@') ? account.split('@')[0] : account);
+  if (phone) { u.phone = phone; u.cloudPhone = phone; }
   u.cloudUid = uid;
   u.cloudEmail = email;
   saveUser(u);
@@ -1546,43 +1509,39 @@ on('POST', '/auth/register-cloud', async ({ body }) => {
   return { user: publicUser(u), token: 'cloud', cloud: true };
 });
 
-/* 【换设备链接自动登录之后，把本机账号也对齐】
-   场景：手机上第一次点开 #k=… 一次性链接，云端 token 已经换到手了，
-   但这台手机的 localStorage 里没有工作台账号，界面还卡在登录页。
-
-   这里按云端邮箱建一个本机账号（已存在就直接放行）。
-   它只解决「界面能不能进去」，真正的数据访问权限仍然由 Supabase 的
-   RLS + 云端 token 控制 —— 所以就算有人伪造这个请求，
-   拿到的也只是个空的本地主题设置，读不到任何云端数据。 */
+/* 换设备链接或云端登录成功后，将手机号/邮箱身份与本机数据空间关联。 */
 on('POST', '/auth/login-cloud', async ({ body }) => {
   const email = String(body?.email || '').trim().toLowerCase();
+  const phone = String(body?.phone || '').trim();
   const uid = String(body?.uid || '');
   const password = String(body?.password || '');
-  if (!email) fail(400, '缺少邮箱');
+  if (!email && !phone) fail(400, '缺少手机号或邮箱');
+  if (phone && !PHONE_RE.test(phone)) fail(400, '手机号格式无效');
+  if (!uid) fail(400, '缺少云端账号标识');
 
   const u = currentUser();
-  /* 账号名用邮箱的 @ 前面那段（516796162），比整串邮箱好认。
-     但剥完可能短于 3 位或空（a@qq.com），这时退回用完整邮箱。 */
   const local = (email.split('@')[0] || '').replace(/[^A-Za-z0-9_]/g, '');
-  const acct = local.length >= 3 ? local.slice(0, 20) : email;
+  const emailAcct = u.account === email || !email.endsWith('@workbench.local')
+    ? email : local.length >= 3 ? local.slice(0, 20) : email;
+  const acct = phone && u.account && (u.account === email || u.account === emailAcct)
+    ? u.account : phone || emailAcct;
 
-  /* 已经用过别的账号：不再改账号名，避免把本机历史数据挂到新人头上 */
+  if (u.cloudUid && u.cloudUid !== uid) {
+    fail(409, '这台设备已关联另一个云端账号，请先备份本机数据后再切换');
+  }
+  if (u.account && u.account !== acct && !u.cloudUid) {
+    fail(409, '当前浏览器已有其他本机账号。为避免覆盖本机数据，请先导出备份，再用独立浏览器登录');
+  }
   if (!u.account) {
     u.account = acct;
-    /* 【以前这里写的是 u.pwd = ''，结果是"退出登录"变成单向门】
-       云端登录之后本机没有密码摘要，用户在「我的」里点退出，
-       再想用同一组账号密码登回来 —— /auth/login 比对空摘要，永远失败，
-       只能重新去点云同步那个弹层。这是很容易踩到、又极难排查的坑。
-       现在只要前端把密码带过来，就存下真实摘要；没带（老版本 / #k= 链接）
-       才退回空值，此时 /auth/login 会给出"该去云同步登录"的明确提示。 */
     u.pwd = password.length >= 6 ? await hashPwd(password) : '';
-    u.nickname = u.nickname && u.nickname !== '老师' ? u.nickname : (local || email);
-  } else if (u.account === acct && password.length >= 6 && !u.pwd) {
-    /* 本机有账号但没密码摘要（正是上面那种历史遗留），顺手补上 */
+    u.nickname = u.nickname && u.nickname !== '老师' ? u.nickname : (phone || local || email);
+  } else if (password.length >= 6) {
     u.pwd = await hashPwd(password);
   }
   u.cloudUid = uid;
   u.cloudEmail = email;
+  if (phone) { u.phone = phone; u.cloudPhone = phone; }
   saveUser(u);
   setLoggedOut(false);
   seedIfEmpty();
@@ -1595,9 +1554,8 @@ on('POST', '/auth/login', async ({ body }) => {
   if (!account || !password) fail(400, '请填写账号和密码');
 
   const u = currentUser();
-  /* 本机从没建过号时，别只说"没登录过"——得告诉他现在能自己注册了，
-     否则人会以为这网站需要找人开权限。 */
-  if (!u.account) fail(400, '这台设备还没有账号。点登录框下面的「注册一个」，自己设个账号密码就能用');
+  /* 此接口只用于旧本机账号登录；新用户应走云端手机号注册。 */
+  if (!u.account) fail(400, '这台设备还没有账号。请使用手机号注册并完成短信验证');
   /* 账号不对和密码不对回同一句话，不告诉试探者「账号是存在的」 */
   if (u.account !== account || u.pwd !== await hashPwd(password)) {
     /* 云端账号（密码由 Supabase 管）在本机存的是空摘要，
@@ -1636,9 +1594,9 @@ on('POST', '/auth/logout', () => { setLoggedOut(true); return { ok: true }; });
    但也不能只说「去找管理员」——现在能自己注册了，最省事的出路是
    换一个账号名重新注册（本机数据会跟着新账号的空白状态走，旧数据留在浏览器里但看不到）。
    如果是云端账号，则只能去 Supabase 后台重置。两条路都写清楚，让人能自己选。 */
+/* 旧本机账号不能通过手机号找回；手机号账号由 Supabase Auth 处理。 */
 on('POST', '/auth/forgot', () => fail(400,
-  '本机账号的密码找不回来（没有服务端，也没有短信）。最简单的办法：换个账号名重新注册，马上就能用。'
-  + '如果你用的是云端账号，请到 Supabase 后台 → Authentication → Users 重置密码。'));
+  '旧本机账号不支持短信找回。手机号账号请在登录页使用“忘记密码”完成短信验证重置。'));
 
 on('POST', '/auth/qr', () => fail(400, '静态版没有服务端，扫码登录不可用'));
 on('GET', '/auth/qr/:id', () => fail(400, '静态版没有服务端，扫码登录不可用'));

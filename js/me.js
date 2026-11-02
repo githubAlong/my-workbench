@@ -5,6 +5,7 @@ import { registerView, onViewLeave, state, icon, go, pageHead, parseHash, render
 import { AUTH_CFG } from './ui.js';
 import { makeShareLink } from './cloudsync.js';
 import { loginSheet, cloudOn } from './auth.js';
+import * as cloud from './cloud.js';
 
 registerView(async function me(main, { query }) {
   const { path } = parseHash();
@@ -118,7 +119,14 @@ async function renderMe(main) {
     if (a === 'recycle') return go('recycle');
     if (a === 'theme') return openThemeSheet();
     if (a === 'logout') {
-      if (await confirmDialog('确定退出登录？')) { await api.post('/auth/logout'); state.user = null; location.hash = '#/home'; render(); }
+      if (await confirmDialog('确定退出登录？')) {
+        await api.post('/auth/logout');
+        await cloud.logout();
+        try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
+        state.user = null;
+        location.hash = '#/home';
+        render();
+      }
       return;
     }
     if (a === 'bind') return bindManager();
@@ -128,7 +136,7 @@ async function renderMe(main) {
       /* 【A 方案：这里不再是手动上传/下载，而是登录】
          以前点进来是「生成/输入同步密钥 → 上传 / 下载」，
          换设备要重输 32 位密钥，改完还得记得点上传。
-         现在改成邮箱密码登录，课时直接读写云上。
+         现在使用手机号或旧邮箱登录，课时直接读写云上。
          旧的 bindSheet 没删（还有别的入口在用），但主路径换成登录。 */
       loginSheet({
         onDone: () => { render(); },
@@ -584,8 +592,9 @@ function bindManager() {
   const body = el(`<div class="sheet-body">
     ${bindRow('account', `${icon('user', 15)} 登录账号`, u.account || '未设置', !!u.account, false, '改密码')}
     <div class="tiny muted" style="margin-top:12px;line-height:1.7">
-      账号和密码都只存在这台设备上，换设备或清浏览器数据之后就没了。
-      平时记得在「数据导出与备份」里导出一份。
+      ${u.cloudUid
+        ? '该账号已连接云端。修改密码会同步更新 Supabase 登录密码。'
+        : '这是旧本机账号，凭证只保存在此浏览器；换设备前请在「数据导出与备份」中保存数据。'}
     </div>
   </div>`);
   const sh = sheet({ title: '账号', body });
@@ -616,20 +625,16 @@ function bindRow(type, label, val, bound, disabled = false, onAct = '') {
     ${acts}</div>`;
 }
 
-/* 【改密码】账号 + 密码是本机唯一凭证，所以改密码必须验原密码。
-   没有服务端可以做「忘记密码 -> 邮箱验证」，所以这里只有这一条路：
-   记得旧密码就能改，忘了就只能清本站数据重来。 */
+/* 云端账号先向 Supabase 验证原密码并修改云端密码，再更新本机凭证摘要。 */
 function accountPwdSheet(parent) {
   const b = el(`<div class="sheet-body">
-    <div class="tiny muted" style="margin-bottom:10px;line-height:1.7">
-      当前账号 <b>${esc(state.user?.account || '')}</b>。密码只存在这台设备上，改完下次打开就用新密码。
-    </div>
+    <div class="tiny muted" style="margin-bottom:10px;line-height:1.7">当前账号 <b>${esc(state.user?.account || '')}</b>。</div>
     <div class="field"><label class="field-label">原密码</label>
-      <input class="input" id="op" type="password" autocomplete="current-password" maxlength="32" placeholder="当前密码"></div>
+      <input class="input" id="op" type="password" autocomplete="current-password" maxlength="72" placeholder="当前密码"></div>
     <div class="field"><label class="field-label">新密码</label>
-      <input class="input" id="np" type="password" autocomplete="new-password" maxlength="32" placeholder="至少 6 位"></div>
+      <input class="input" id="np" type="password" autocomplete="new-password" maxlength="72" placeholder="至少 6 位"></div>
     <div class="field"><label class="field-label">再输一遍</label>
-      <input class="input" id="np2" type="password" autocomplete="new-password" maxlength="32" placeholder="确认新密码"></div>
+      <input class="input" id="np2" type="password" autocomplete="new-password" maxlength="72" placeholder="确认新密码"></div>
     <button class="btn primary block" id="pw-save" style="margin-top:6px">保存新密码</button>
   </div>`);
   const sh = sheet({ title: '修改密码', body: b });
@@ -642,13 +647,21 @@ function accountPwdSheet(parent) {
     if (np !== np2) return toast('两次输入的新密码不一致', 'warn');
     const btn = b.querySelector('#pw-save');
     btn.disabled = true; btn.textContent = '保存中…';
+    let cloudUpdated = false;
     try {
+      if (state.user?.cloudUid) {
+        if (state.user.phone) await cloud.loginPhonePassword(state.user.phone, op);
+        else if (state.user.cloudEmail) await cloud.login(state.user.cloudEmail, op);
+        else throw new Error('云端登录方式缺失，请重新登录后再试');
+        await cloud.updatePassword(np);
+        cloudUpdated = true;
+      }
       await api.post('/auth/password', { oldPassword: op, newPassword: np });
       toast('密码已改，下次登录用新密码');
       sh.close();
     } catch (e) {
       btn.disabled = false; btn.textContent = '保存新密码';
-      toast(e.message || '修改失败', 'err');
+      toast(cloudUpdated ? `云端密码已修改，但本机凭证同步失败：${e.message || '请重新登录'}` : (e.message || '修改失败'), 'err');
     }
   };
 }
