@@ -4,8 +4,10 @@ import { registerView, state, icon, go, pageHead, onViewLeave, subCurrentOf, NAV
 import { renderAttendance } from './attendance.js';
 import { detectTimetable } from './ttimage.js';
 import { loginBanner, hookBanner } from './auth.js';
+import { AUTUMN_2026_TIMETABLE } from './autumn-2026-timetable.js';
 
 const M = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+const TIMETABLE_ARCHIVE_KEY = 'wb_timetable_archives_v1';
 /* 备注字段统一生成器。
    用户反馈「备注要重点显示、加个方框，不然不知道能写字」——问题出在各处写法不统一：
    有的用 <input>、有的用 <textarea>，有的没 placeholder，有的连 label 都省了。
@@ -817,6 +819,7 @@ async function renderTimetable(box) {
     box.innerHTML = `
       <div class="row wrap" style="margin-bottom:12px">
         <button class="btn primary sm" id="add-course">${icon('plus', 15)} 添加课程</button>
+        <button class="btn ghost sm" id="update-autumn-timetable">更新2026秋季信息课表</button>
         <button class="btn ghost sm" id="import-tt">${icon('download', 15)} 导入课表</button>
         <button class="btn ghost sm" id="edit-periods">编辑节次时间</button>
         <button class="btn ghost sm" id="print-tt">${icon('download', 15)} 打印/导出课表</button>
@@ -856,6 +859,7 @@ async function renderTimetable(box) {
       };
     });
     box.querySelector('#add-course').onclick = () => courseEditor(null, load);
+    saving(box.querySelector('#update-autumn-timetable'), () => updatePresetTimetable(reload));
     box.querySelector('#import-tt').onclick = () => importTimetableDialog(load);
     box.querySelector('#edit-periods').onclick = () => periodEditor(periods, load);
     box.querySelector('#print-tt').onclick = async () => {
@@ -866,6 +870,101 @@ async function renderTimetable(box) {
   };
   await load();
 }
+
+function archiveTimetable(courses, periods, note) {
+  let archives = [];
+  let raw;
+  try {
+    raw = localStorage.getItem(TIMETABLE_ARCHIVE_KEY);
+  } catch (e) {
+    throw new Error(`读取本机课表备份失败，未替换课表：${e.message}`);
+  }
+  if (raw) {
+    try {
+      archives = JSON.parse(raw);
+      if (!Array.isArray(archives)) throw new Error('备份格式无效');
+    } catch (e) {
+      throw new Error(`读取本机课表备份失败，未替换课表：${e.message}`);
+    }
+  }
+  const snapshot = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    archived_at: new Date().toISOString(),
+    note,
+    courses,
+    periods,
+  };
+  try {
+    localStorage.setItem(TIMETABLE_ARCHIVE_KEY, JSON.stringify([...archives, snapshot]));
+  } catch (e) {
+    throw new Error(`保存本机课表备份失败，未替换课表：${e.message}`);
+  }
+  let saved;
+  try {
+    saved = JSON.parse(localStorage.getItem(TIMETABLE_ARCHIVE_KEY) || '[]');
+  } catch (e) {
+    throw new Error(`校验本机课表备份失败，未替换课表：${e.message}`);
+  }
+  if (!saved.some((item) => item.id === snapshot.id)) {
+    throw new Error('本机课表备份校验失败，未替换课表');
+  }
+  return snapshot;
+}
+
+async function updatePresetTimetable(reload) {
+  const [courses, periods] = await Promise.all([api.get('/courses'), api.get('/periods')]);
+  const preset = AUTUMN_2026_TIMETABLE;
+  const confirmed = await confirmDialog(
+    `将用「${preset.name}」的 ${preset.courses.length} 条课程和 ${preset.periods.length} 个节次替换当前课表（当前 ${courses.length} 条课程、${periods.length} 个节次）。` +
+    '替换前会把当前数据备份到本机浏览器；旧课程也会进入回收站。此操作不会上传或提交你的本地数据。确定继续？',
+    { title: '更新课表', okText: '备份并更新', danger: true },
+  );
+  if (!confirmed) return;
+
+  archiveTimetable(courses, periods, `更新前备份：${preset.name}`);
+  for (const course of courses) await api.del('/courses/' + course.id);
+
+  const periodMap = new Map(periods.map((period) => [Number(period.period_no), period]));
+  const targetPeriodNos = new Set(preset.periods.map((period) => Number(period.period_no)));
+  for (const period of preset.periods) {
+    const existing = periodMap.get(Number(period.period_no));
+    if (existing) await api.patch('/periods/' + existing.id, period);
+    else await api.post('/periods', period);
+  }
+  for (const period of periods) {
+    if (!targetPeriodNos.has(Number(period.period_no))) await api.del('/periods/' + period.id);
+  }
+  const savedPeriods = await api.get('/periods');
+  const savedPeriodMap = new Map(savedPeriods.map((period) => [Number(period.period_no), period]));
+  for (const course of preset.courses) {
+    const period = savedPeriodMap.get(Number(course.period_no));
+    await api.post('/courses', {
+      ...course,
+      grade: '',
+      subject: preset.subject,
+      room: '',
+      start_time: period.start_time,
+      end_time: period.end_time,
+    });
+  }
+  const [savedCourses, verifiedPeriods] = await Promise.all([api.get('/courses'), api.get('/periods')]);
+  const expectedCourses = new Set(preset.courses.map((course) =>
+    `${course.weekday}/${course.period_no}/${course.class_name}/${preset.subject}`));
+  const actualCourses = new Set(savedCourses.map((course) =>
+    `${course.weekday}/${course.period_no}/${course.class_name}/${course.subject}`));
+  const periodsMatch = preset.periods.every((period) => {
+    const saved = verifiedPeriods.find((item) => Number(item.period_no) === Number(period.period_no));
+    return saved && saved.start_time === period.start_time && saved.end_time === period.end_time;
+  });
+  if (savedCourses.length !== preset.courses.length || actualCourses.size !== expectedCourses.size ||
+      [...expectedCourses].some((key) => !actualCourses.has(key)) ||
+      verifiedPeriods.length !== preset.periods.length || !periodsMatch) {
+    throw new Error(`课表更新后校验失败（课程 ${savedCourses.length}/${preset.courses.length}，节次 ${verifiedPeriods.length}/${preset.periods.length}）。旧课表备份已保存在本机浏览器。`);
+  }
+  toast(`已更新${preset.name}，旧课表已备份到本机`);
+  reload();
+}
+
 /* 判断两节课之间是不是午休。
    条件：后一节在 12:00 之后开始、前一节在 13:30 之前结束、中间空 ≥40 分钟。
    返回 "12:00-14:10" 这样的时间段，不是午休返回空串。
@@ -1186,7 +1285,7 @@ async function importTimetableDialog(reload) {
           <td><input class="cell-input mono" data-p="${i}" data-k="e" type="time" value="${r[2]}"></td>
         </tr>`).join('')}</tbody></table></div>
       <div class="row" style="margin-top:10px"><button class="btn primary sm" id="tt-savep">保存节次时间</button></div>`;
-    pane.querySelector('#tt-savep').onclick = async () => {
+    saving(pane.querySelector('#tt-savep'), async () => {
       const exist = await api.get('/periods');
       let n = 0;
       for (const r of rows) {
@@ -1195,12 +1294,12 @@ async function importTimetableDialog(reload) {
         if (!sEl.value || !eEl.value) continue;
         const hit = exist.find((x) => Number(x.period_no) === Number(r[0]));
         const payload = { period_no: Number(r[0]), name: r[3] || `第${r[0]}节`, start_time: sEl.value, end_time: eEl.value };
-        if (hit) await api.patch('/periods/' + hit.id, payload).catch(() => {});
-        else await api.post('/periods', payload).catch(() => {});
+        if (hit) await api.patch('/periods/' + hit.id, payload);
+        else await api.post('/periods', payload);
         n += 1;
       }
       toast(`已保存 ${n} 个节次时间`);
-    };
+    });
   };
 
   const paint = () => {
@@ -1243,9 +1342,13 @@ async function importTimetableDialog(reload) {
     }
     if (!list.length) { toast('没有可导入的课程', 'err'); return; }
 
-    const old = await api.get('/courses');
-    for (const c of old) await api.del('/courses/' + c.id).catch(() => {});
-    const ps = await api.get('/periods');
+    const [old, ps] = await Promise.all([api.get('/courses'), api.get('/periods')]);
+    if (!(await confirmDialog(
+      `导入将替换当前 ${old.length} 条课程记录和相关节次设置。替换前会备份当前课表到本机浏览器；旧课程也会进入回收站。确定继续？`,
+      { title: '确认替换课表', okText: '备份并导入', danger: true },
+    ))) return;
+    if (old.length || ps.length) archiveTimetable(old, ps, '普通课表导入前备份');
+    for (const c of old) await api.del('/courses/' + c.id);
     const pmap = new Map(ps.map((p) => [Number(p.period_no), p]));
 
     /* 【顺手把节次时间也写进去】
@@ -1272,7 +1375,9 @@ async function importTimetableDialog(reload) {
         else await api.post('/periods', payload);
         pmap.set(no, { ...(hit || {}), ...payload });
         np += 1;
-      } catch { /* 单个节次失败不阻断 */ }
+      } catch (e) {
+        throw new Error(`保存第${no}节时间失败：${e.message}`);
+      }
     }
 
     let n = 0;
@@ -1286,9 +1391,11 @@ async function importTimetableDialog(reload) {
           subject: c.subject || '', room: c.room || '', color: c.color || '',
         });
         n += 1;
-      } catch (e) { /* 单条失败不阻断 */ }
+      } catch (e) {
+        throw new Error(`导入周${WD_SHORT[c.weekday]}第${c.period_no}节「${c.class_name}」失败：${e.message}`);
+      }
     }
-    toast(`已导入 ${n} 节课${np ? `，节次时间也一并更新了 ${np} 条` : ''}`);
+    toast(`已导入 ${n} 节课${np ? `，节次时间也一并更新了 ${np} 条` : ''}；替换前课表已备份到本机`);
     s.close();
     reload();
   });
