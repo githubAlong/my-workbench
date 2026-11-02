@@ -583,16 +583,28 @@ function renderHome() {
   const todayCourses = d.courses.filter((c) => c.date === d.date);
 
   main.innerHTML = `
-  <div class="searchbar" id="searchbar">
+  <div class="teacher-toolbar"><div class="searchbar" id="searchbar">
     <span class="sb-ico">${icon('search', 17)}</span>
     <input id="gsearch" placeholder="搜索事项、任务、上课、出差、笔记…" autocomplete="off" enterkeyhint="search">
     <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close', 15)}</button>
     <button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search', 15)}</button>
   </div>
+  <button class="btn soft" id="teacher-layout">调整布局</button></div>
   <div class="sr-scrim" id="search-scrim" hidden></div>
   <div class="sr-panel" id="search-result" hidden></div>
 
-  <section class="card card-pad quote quote-top">
+
+  <div class="topbar">
+    <section class="card clk-card">
+      <div class="clk-hello">
+        ${homeAvatarHTML(52)}
+        <div class="clk-hello-t">
+          <div class="clk-greet" id="greet-line">${esc(g1)}</div>
+          <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
+        </div>
+        <button class="icon-btn sm" id="theme-btn" title="主题外观">${icon('sun', 17)}</button>
+      </div>
+  <section class="quote quote-top">
     <div class="qt-head">
       <div class="card-title" style="margin-bottom:0">${icon('sun', 15)} 每日一句</div>
       <span style="flex:1"></span>
@@ -609,16 +621,6 @@ function renderHome() {
     </div>
   </section>
 
-  <div class="topbar">
-    <section class="card clk-card">
-      <div class="clk-hello">
-        ${homeAvatarHTML(52)}
-        <div class="clk-hello-t">
-          <div class="clk-greet" id="greet-line">${esc(g1)}</div>
-          <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
-        </div>
-        <button class="icon-btn sm" id="theme-btn" title="主题外观">${icon('sun', 17)}</button>
-      </div>
       <div class="clock-row">
         <div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div>
         <button class="icon-btn msg-bell" data-msg title="消息中心" aria-label="消息中心">${icon('bell', 19)}
@@ -713,6 +715,10 @@ function renderHome() {
   </div>`;
 
   bindHome();
+  document.getElementById('teacher-layout').onclick = () => {
+    document.getElementById('home-grid').classList.toggle('teacher-layout-edit');
+    toast('按住卡片标题旁的拖动柄，可调整位置');
+  };
   applyLayout();
   // 每次重建 DOM 后，"上次渲染过什么"的记忆必须清掉，
   // 否则 refreshHome() 之后新节点会因为 key 没变而一直空着（周数行曾因此整行空白）
