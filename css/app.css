@@ -1416,32 +1416,42 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
 .hidden { display: none !important; }
 
 /* ============ 上课：课时统计 & 代课对账 ============ */
-.ls-cards { display: grid; grid-template-columns: 1.25fr repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+.lessons-head .page-title { font-size: 28px; }
+.lessons-head .page-sub { margin-top: 5px; font-size: 14px; color: var(--text-2); }
+.lessons-page { --lesson-blue: #2563eb; --lesson-blue-weak: #eff6ff; }
+html[data-theme="dark"] .lessons-page { --lesson-blue: #60a5fa; --lesson-blue-weak: #162943; }
+.ls-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+.ls-month-tools, .ls-month-picker, .ls-actions { display: flex; align-items: center; gap: 8px; }
+.ls-month-picker .month-btn { min-width: 142px; height: 42px; justify-content: center; font-weight: 650; }
+.ls-month-picker .icon-btn { width: 40px; height: 40px; }
+.ls-month-tools > .btn, .ls-actions > .btn { height: 42px; }
+.lessons-page #ls-add { background: var(--lesson-blue); border-color: var(--lesson-blue); color: #fff; }
+.lessons-page #ls-add:hover { filter: brightness(.96); }
+.ls-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
 .ls-card {
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-m);
-  padding: 13px 14px; min-width: 0;
+  min-width: 0; min-height: 116px; padding: 18px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-s);
 }
-.ls-card.main { background: var(--primary-weak); border-color: transparent; }
-.lc-k { font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-.lc-v { font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin-top: 4px; color: var(--text); line-height: 1.1; }
+.ls-card.main, .ls-card.ls-primary { background: var(--lesson-blue-weak); border-color: transparent; }
+.lc-k { font-size: 13px; color: var(--text-2); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.lc-k svg { color: var(--lesson-blue); }
+.lc-v { font-size: 30px; font-weight: 750; letter-spacing: -.02em; margin-top: 9px; color: var(--text); line-height: 1.1; font-variant-numeric: tabular-nums; }
 .lc-v.green { color: var(--green); }
 .lc-v.amber { color: var(--amber); }
-.ls-card.main .lc-v { color: var(--primary); }
-.lc-u { font-size: 13px; font-weight: 600; color: var(--text-3); margin-left: 3px; }
-.lc-s { font-size: 11.5px; color: var(--text-3); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* 三个口径并列 */
-.ls-tri {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  background: var(--card-2); border: 1px solid var(--line); border-radius: var(--r-s);
-  padding: 10px 14px; margin-bottom: 14px;
-}
-.lt-i { display: flex; align-items: baseline; gap: 5px; }
-.lt-k { font-size: 12.5px; color: var(--text-2); }
-.lt-i b { font-size: 17px; font-weight: 800; }
-.lt-u { font-size: 12px; color: var(--text-3); }
-.lt-sep { color: var(--text-3); font-size: 15px; font-weight: 700; }
-.lt-note { margin-left: auto; font-size: 11.5px; color: var(--text-3); }
+.ls-card.main .lc-v, .ls-card.ls-primary .lc-v { color: var(--lesson-blue); }
+.lc-u { font-size: 14px; font-weight: 600; color: var(--text-3); margin-left: 4px; }
+.lc-s { font-size: 12px; color: var(--text-3); margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-extra { margin-top: 5px; color: var(--text-3); font-size: 11px; }
+.ls-schedule { display: grid; grid-template-columns: minmax(120px, .7fr) minmax(140px, .8fr) minmax(220px, 2fr); align-items: center; gap: 20px; padding: 16px 18px; margin-bottom: 20px; background: var(--lesson-blue-weak); border: 1px solid color-mix(in srgb, var(--lesson-blue) 12%, transparent); border-radius: 14px; }
+.ls-schedule-stat { display: flex; flex-direction: column; gap: 5px; color: var(--text-2); font-size: 12px; }
+.ls-schedule-stat b { color: var(--text); font-size: 20px; font-variant-numeric: tabular-nums; }
+.ls-schedule-stat small { font-size: 12px; font-weight: 500; color: var(--text-3); }
+.ls-progress { min-width: 0; }
+.ls-progress-label { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--text-2); font-size: 12px; }
+.ls-progress-label b { color: var(--lesson-blue); font-variant-numeric: tabular-nums; }
+.ls-progress-track { height: 7px; overflow: hidden; background: color-mix(in srgb, var(--lesson-blue) 15%, var(--card)); border-radius: 99px; }
+.ls-progress-track span { display: block; height: 100%; background: var(--lesson-blue); border-radius: inherit; transition: width .2s ease; }
+.ls-progress-note { margin-top: 6px; color: var(--text-3); font-size: 11px; }
 
 /* 跟谁结算 */
 .ls-settle { padding: 4px 14px 10px; margin-bottom: 14px; }
@@ -1453,10 +1463,44 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
 .lss-amt { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .lss-row.done .lss-name, .lss-row.done .lss-amt { color: var(--text-3); text-decoration: line-through; }
 
-/* 明细表 */
-.tbl-lesson { min-width: 900px; }
-.tbl-lesson .lc-content { max-width: 260px; }
+.ls-records { overflow: hidden; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-s); }
+.ls-records .table-wrap { border: 0; border-radius: 0; }
+.ls-records-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 18px 20px; }
+.ls-records-head h2 { margin: 0 0 5px; font-size: 17px; font-weight: 700; }
+.ls-records-hint { color: var(--text-3); font-size: 12px; }
+.ls-filters { display: flex; align-items: center; gap: 8px; }
+.ls-search { display: flex; align-items: center; gap: 8px; width: min(320px, 42vw); height: 40px; padding: 0 11px; color: var(--text-3); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.ls-search:focus-within { border-color: var(--lesson-blue); box-shadow: 0 0 0 3px var(--lesson-blue-weak); }
+.ls-search input { width: 100%; min-width: 0; padding: 0; color: var(--text); background: transparent; border: 0; outline: 0; font: inherit; font-size: 13px; }
+.ls-filters select { height: 40px; min-width: 112px; padding: 0 10px; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 13px; }
+.ls-filters :focus-visible, .ls-month-tools :focus-visible, .ls-actions :focus-visible, .ls-pagination :focus-visible, .ls-edit:focus-visible, .ls-more summary:focus-visible { outline: 3px solid color-mix(in srgb, var(--lesson-blue) 40%, transparent); outline-offset: 2px; }
+.tbl-lesson { min-width: 850px !important; }
+.tbl-lesson th { padding: 12px 14px !important; }
+.tbl-lesson td { height: 64px; padding: 10px 14px !important; }
 .tbl-lesson tbody tr { cursor: pointer; }
+.tbl-lesson tbody tr:hover td { background: var(--card-2); }
+.tbl-lesson .lc-content { max-width: 620px; line-height: 1.55; }
+.ls-date { white-space: nowrap; }
+.ls-date b, .ls-date span { display: block; }
+.ls-date b { color: var(--text); font-variant-numeric: tabular-nums; }
+.ls-date span, .ls-peer { margin-top: 3px; color: var(--text-3); font-size: 11.5px; }
+.ls-class { font-weight: 600; }
+.ls-type-cell .chip { font-weight: 600; }
+.ls-type-cell .ls-peer { display: block; }
+.ls-progress-cell { color: var(--text-2); font-size: 12px; }
+.ls-more { position: relative; display: inline-block; margin-left: 3px; vertical-align: middle; }
+.ls-more summary { display: grid; width: 32px; height: 32px; place-items: center; color: var(--text-2); border-radius: 8px; list-style: none; cursor: pointer; }
+.ls-more summary::-webkit-details-marker { display: none; }
+.ls-more[open] summary, .ls-more summary:hover { background: var(--bg-sunken); }
+.ls-delete { position: absolute; z-index: 5; top: 36px; right: 0; width: 104px; padding: 9px 11px; color: var(--red); text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow-m); cursor: pointer; font: inherit; font-size: 12px; }
+.ls-delete:hover { background: var(--red-weak); }
+.ls-records-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; color: var(--text-3); border-top: 1px solid var(--line); font-size: 12px; }
+.ls-pagination { display: flex; align-items: center; gap: 10px; color: var(--text-2); }
+.ls-pagination .btn { height: 34px; }
+.ls-empty { display: flex; min-height: 190px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-2); text-align: center; }
+.ls-empty strong { color: var(--text); font-size: 15px; }
+.ls-empty > span { color: var(--text-3); font-size: 12px; }
+.ls-empty .btn { margin-top: 4px; background: var(--lesson-blue); border-color: var(--lesson-blue); color: #fff; }
 
 /* 录课弹窗 */
 .le-pick { background: var(--primary-weak); border-radius: var(--r-s); padding: 10px 12px; margin-bottom: 14px; }
@@ -1501,70 +1545,73 @@ html[data-theme="dark"] .note-card.going { background: #16243a; border-color: #1
 
 @media (max-width: 900px) {
   .ls-cards { grid-template-columns: repeat(2, 1fr); }
-  .ls-card.main { grid-column: 1 / -1; }
-  .lc-v { font-size: 23px; }
-  .ls-tri { gap: 8px; padding: 10px 12px; }
-  .lt-note { margin-left: 0; width: 100%; }
+  .ls-schedule { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .lc-v { font-size: 26px; }
   .le-seg { grid-template-columns: repeat(2, 1fr); }
   .le-money { grid-template-columns: 1fr 1fr; }
   .le-reset { grid-column: 1 / -1; }
 }
 @media (max-width: 420px) {
   .ls-cards { gap: 8px; }
-  .ls-card { padding: 11px 12px; }
-  .lc-v { font-size: 21px; }
+  .ls-card { min-height: 104px; padding: 13px 12px; }
+  .lc-v { font-size: 23px; }
   .lss-main { gap: 6px; }
+  .ls-month-tools { gap: 4px; }
+  .ls-month-picker .icon-btn { width: 34px; }
+  .ls-month-picker .month-btn { min-width: 108px; padding: 0 7px; }
+  .ls-month-tools > .btn { gap: 4px; padding: 0 9px; font-size: 12px; }
 }
 
-/* ===== 上课明细：手机端改为卡片式（表格 8 列在 390px 上无法阅读） ===== */
+/* ===== 上课明细：手机端改为易读的记录卡片 ===== */
 @media (max-width: 760px) {
-  table.tbl.tbl-lesson { min-width: 0; width: 100%; display: block; }
-  .table-wrap:has(.tbl-lesson) { border: 0; background: transparent; }
+  .ls-toolbar { align-items: stretch; gap: 10px; margin-bottom: 14px; }
+  .ls-month-tools { justify-content: space-between; }
+  .ls-month-tools, .ls-actions { width: 100%; }
+  .ls-actions > .btn { flex: 1; }
+  .ls-month-picker { gap: 4px; }
+  .ls-month-picker .month-btn { min-width: 128px; }
+  .ls-month-tools > .btn { margin-left: auto; }
+  .ls-cards { gap: 9px; }
+  .ls-card { min-height: 108px; padding: 14px 13px; }
+  .lc-v { font-size: 24px; }
+  .lc-s { font-size: 11px; }
+  .ls-schedule { gap: 13px; padding: 14px; margin-bottom: 14px; }
+  .ls-progress { grid-column: 1 / -1; }
+  .ls-records-head { align-items: stretch; padding: 15px; }
+  .ls-filters { align-items: stretch; width: 100%; }
+  .ls-search { flex: 1; width: auto; }
+  .ls-filters select { flex: 0 0 auto; max-width: 125px; }
+  .ls-records .table-wrap { overflow: visible; border: 0; border-radius: 0; }
+  table.tbl.tbl-lesson { min-width: 0 !important; width: 100%; display: block; }
   .tbl-lesson thead { display: none; }
   .tbl-lesson tbody { display: block; }
   .tbl-lesson tbody tr {
-    position: relative;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas:
-      "date   period"
-      "cls    cls"
-      "ct     ct"
-      "meta   meta";
-    gap: 3px 10px;
-    padding: 11px 12px;
-    border-bottom: 1px solid var(--line);
+      "date date ops"
+      "cls cls cls"
+      "ct ct ct"
+      "progress type hours";
+    gap: 5px 8px; padding: 14px 15px; border-bottom: 1px solid var(--line);
   }
   .tbl-lesson tbody tr:last-child { border-bottom: 0; }
-  .tbl-lesson tbody td { display: block; padding: 0 !important; border: 0 !important; }
-
-  /* 第 1 行：日期 + 节次（表格第 1 列是序号，所以下面全部后移一位） */
-  .tbl-lesson tbody td:nth-child(1) { display: none; }   /* 序号：卡片里用不到 */
-  .tbl-lesson tbody td:nth-child(2) { grid-area: date; display: flex; align-items: baseline; gap: 7px;
-    font-weight: 650; font-size: 13.5px; padding-right: 30px !important; }
-  .tbl-lesson tbody td:nth-child(3) { grid-area: period; justify-self: start; text-align: left;
-    font-size: 12.5px; color: var(--text-2); align-self: baseline; white-space: nowrap; }
-  .tbl-lesson tbody td:nth-child(3) .tiny { display: none; }   /* 具体时间到详情里看 */
-  /* 第 2 行：班级 */
-  .tbl-lesson tbody td:nth-child(4) { grid-area: cls; font-size: 12.5px; color: var(--text-2); }
-  /* 第 3 行：上课内容 + 下次要讲（灰字） */
-  .tbl-lesson tbody td:nth-child(5) { grid-area: ct; line-height: 1.55; }
+  .tbl-lesson tbody td { display: block; min-width: 0; height: auto; padding: 0 !important; border: 0 !important; }
+  .tbl-lesson tbody tr > td:nth-child(1) { grid-area: date; padding-right: 4px !important; }
+  .tbl-lesson tbody tr > td:nth-child(2) { grid-area: cls; color: var(--text-2); font-size: 12px; }
+  .tbl-lesson tbody tr > td:nth-child(3) { grid-area: ct; padding: 2px 0 3px !important; line-height: 1.55; }
   .tbl-lesson .lc-content { max-width: none; }
-  /* 进度手机上不展示 */
-  .tbl-lesson tbody td:nth-child(6) { display: none; }
-  /* 第 4 行：代课标签 + 课时数字 */
-  .tbl-lesson tbody td:nth-child(7) { grid-area: meta; display: flex; align-items: center;
-    gap: 6px; flex-wrap: wrap; margin-top: 1px; }
-  .tbl-lesson tbody td:nth-child(7) .tiny.muted { display: inline; }
-  .tbl-lesson tbody td:nth-child(8) { grid-area: meta; justify-self: end; align-self: center;
-    display: inline-flex; align-items: baseline; gap: 3px;
-    font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-  .tbl-lesson tbody td:nth-child(8)::before { content: "课时"; font-size: 11.5px; opacity: .65; }
-  /* 编辑按钮浮到右上角 */
-  .tbl-lesson tbody td:nth-child(9) { position: absolute; right: 4px; top: 4px;
-    display: flex; gap: 2px; background: transparent; }
-  /* 操作列里的「删除」按钮在卡片上会变成一块白色方块压在正文上，只留铅笔 */
-  .tbl-lesson tbody td:nth-child(9) [data-del-lesson] { display: none; }
+  .tbl-lesson tbody tr > td:nth-child(4) { grid-area: progress; align-self: center; color: var(--text-3); font-size: 11px; }
+  .tbl-lesson tbody tr > td:nth-child(5) { grid-area: type; justify-self: start; }
+  .tbl-lesson tbody tr > td:nth-child(6) { grid-area: hours; justify-self: end; align-self: center; white-space: nowrap; font-size: 12px; }
+  .tbl-lesson tbody tr > td:nth-child(6)::before { content: "课时 "; color: var(--text-3); font-size: 11px; }
+  .tbl-lesson tbody tr > td:nth-child(7) { grid-area: ops; justify-self: end; display: flex; align-items: center; gap: 2px; }
+  .tbl-lesson .ls-edit { height: 32px; padding: 0 9px; }
+  .tbl-lesson .ls-more summary { width: 30px; height: 32px; }
+  .tbl-lesson tbody tr.ls-empty-row { display: block; padding: 0; }
+  .tbl-lesson tbody tr.ls-empty-row td { display: block; }
+  .ls-records-foot { align-items: flex-start; flex-direction: column; padding: 12px 15px; }
+  .ls-pagination { width: 100%; justify-content: space-between; }
+  .ls-pagination:empty { display: none; }
 }
 
 /* 主卡里的「标记已到账」小按钮 */

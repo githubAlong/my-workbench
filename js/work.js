@@ -102,7 +102,7 @@ registerView(async function work(main, { tab, third }) {
   /* 页头标题跟着二级项走：以前所有二级页都顶着「工作」两个字，
      点进「考勤」看到的还是「工作」，会让人怀疑自己点错了。 */
   const meta = {
-    lessons: ['上课', '课时统计、代课对账，一节课一条记录'],
+    lessons: ['上课记录', '记录授课进度，管理课时与代课结算'],
     timetable: ['课表', '这周几节课、哪个班、哪间教室'],
     prep: ['备课', '课前备什么、讲到哪了、下次接着讲什么'],
     repairs: ['维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底'],
@@ -118,6 +118,7 @@ registerView(async function work(main, { tab, third }) {
   main.innerHTML = '<div id="work-body"></div>';
   const body = main.querySelector('#work-body');
   const headEl = el(`<div>${pageHead(meta[0], meta[1], '')}</div>`);
+  if (t === 'lessons') headEl.classList.add('lessons-head');
   main.insertBefore(headEl, body);
   /* 三级页把自己的标题写进 url 的第三段，页头用子项名字，副标题用子项说明 */
   if (t === 'materials' && third) {
@@ -157,7 +158,7 @@ registerView(async function work(main, { tab, third }) {
 });
 
 /* ================= 上课（课时统计 & 代课对账） ================= */
-const SUB_LABEL = { normal: '正常上课', '替他人上': '我代别人上', '他人替我上': '别人代我上', '换课': '换课' };
+const SUB_LABEL = { normal: '本人授课', '替他人上': '替人代课', '他人替我上': '他人代课', '换课': '换课' };
 const money = (n) => (Math.round(Number(n || 0) * 100) / 100).toLocaleString('zh-CN');
 
 /* 默认课时单价。用户明确说过「默认 30 元」——之前是 60，
@@ -168,6 +169,10 @@ const DEFAULT_PRICE = 30;
 async function renderLessons(box) {
   let month = M();
   let price = DEFAULT_PRICE;
+  let search = '';
+  let typeFilter = 'all';
+  let page = 1;
+  const pageSize = 10;
 
   const load = async () => {
     const [data, me] = await Promise.all([
@@ -191,115 +196,127 @@ async function renderLessons(box) {
     const sch = data.scheduled || { total: 0, actual: 0, substitute_out: 0 };
     const net = s.net;
     const netCls = net.direction === 'receivable' ? 'green' : net.direction === 'payable' ? 'amber' : '';
-    const netTxt = net.direction === 'even' ? '已平' : `${net.direction === 'receivable' ? '应收' : '应付'} ${money(Math.abs(net.amount))}`;
+    const netAmount = money(Math.abs(net.amount));
+    const pendingPeople = s.people.filter((p) => !p.settled).length;
+    const netStatus = pendingPeople
+      ? net.direction === 'even' ? '应收应付相抵，仍有待结算' : `${net.direction === 'receivable' ? '待收' : '待付'}`
+      : s.people.length ? '已结清' : '暂无待结算';
+    const now = new Date();
+    const [targetYear, targetMonth] = month.split('-').map(Number);
+    const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
+    const currentMonth = M(now);
+    const partialDays = Number(data.partial?.passed);
+    const elapsedDays = data.partial && Number.isFinite(partialDays)
+      ? Math.min(daysInMonth, Math.max(0, partialDays))
+      : month < currentMonth ? daysInMonth : month > currentMonth ? 0 : now.getDate();
+    const monthProgress = Math.min(100, Math.max(0, Math.round(elapsedDays / daysInMonth * 100)));
 
     box.innerHTML = `
-    ${loginBanner()}
-    <div class="row wrap" style="gap:8px;margin-bottom:12px">
-      <div class="row" style="gap:4px"><button class="icon-btn sm" data-mprev>${icon('left', 16)}</button>
-        <button class="btn ghost sm month-btn" data-mpick style="min-width:112px;justify-content:center">${monthLabel(month)}</button>
-        <button class="icon-btn sm" data-mnext>${icon('right', 16)}</button></div>
-      <button class="btn ghost sm" id="ls-price">${icon('settings', 15)} 单价 ${money(price)} 元/节</button>
-      <span style="flex:1"></span>
-      <button class="btn ghost sm" id="ls-pdf">${icon('download', 15)} 对账单</button>
-      <button class="btn primary sm" id="ls-add">${icon('plus', 15)} 记一节课</button>
-    </div>
-
-    <div class="ls-cards">
-      <div class="ls-card main">
-        <div class="lc-k">本月实际课时</div>
-        <div class="lc-v">${s.total_hours}<span class="lc-u">节</span></div>
-        <div class="lc-s">共 ${s.lesson_count} 节课记录</div>
-      </div>
-      <div class="ls-card">
-        <div class="lc-k">${icon('arrow-up-right', 13)} 我该收</div>
-        <div class="lc-v green">${s.sub_out.hours}<span class="lc-u">节</span></div>
-        <div class="lc-s">${money(s.sub_out.amount)} 元 · ${s.sub_out.count} 次代课</div>
-      </div>
-      <div class="ls-card">
-        <div class="lc-k">${icon('arrow-down-left', 13)} 我该付</div>
-        <div class="lc-v amber">${s.sub_in.hours}<span class="lc-u">节</span></div>
-        <div class="lc-s">${money(s.sub_in.amount)} 元 · ${s.sub_in.count} 次被代</div>
-      </div>
-      <div class="ls-card">
-        <div class="lc-k">净额（未结清）</div>
-        <div class="lc-v ${netCls}">${netTxt}</div>
-        <div class="lc-s">${net.hours ? (net.hours > 0 ? '+' : '') + net.hours + ' 节' : '两边持平'}</div>
-      </div>
-      <div class="ls-card">
-        <div class="lc-k">换课</div>
-        <div class="lc-v">${s.swap.count}<span class="lc-u">次</span></div>
-        <div class="lc-s">只备查，不计账</div>
-      </div>
-    </div>
-
-    <div class="ls-tri">
-      <div class="lt-i"><span class="lt-k">课表排课</span><b>${sch.total}</b><span class="lt-u">节</span></div>
-      <span class="lt-sep">=</span>
-      <div class="lt-i"><span class="lt-k">实际授课</span><b>${s.total_hours}</b><span class="lt-u">节</span></div>
-      <span class="lt-sep">+</span>
-      <div class="lt-i"><span class="lt-k">请假代课</span><b>${s.sub_in.count}</b><span class="lt-u">节</span></div>
-      <div class="lt-note">${data.partial ? `本月才过 ${data.partial.passed}/${data.partial.total} 天，排课数按全月推算` : '排课数按课表整月推算'}</div>
-    </div>
-
-    ${s.people.length ? `<div class="card card-pad ls-settle">
-      <div class="lss-head">跟谁结算<span class="lss-head-s">点开可逐节勾选，先结一部分也行</span></div>
-      ${s.people.map((p) => `<div class="lss-row${p.settled ? ' done' : ''}${p.partial ? ' part' : ''}" data-person="${esc(p.name)}|${p.direction}">
-        <div class="lss-line">
-          <div class="lss-main">
-            <span class="lss-name">${esc(p.name)}</span>
-            <span class="chip ${p.direction === 'out' ? 'green' : 'amber'}">${p.direction === 'out' ? '应收' : '应付'}</span>
-            <span class="lss-amt">${p.settled
-              ? `${p.count} 节 / ${money(p.amount)} 元`
-              : p.partial
-                ? `还剩 ${p.open_hours} 节 / ${money(p.open_amount)} 元<span class="lss-dim">（已结 ${p.settled_count}/${p.count} 节）</span>`
-                : `${p.hours} 节 / ${money(p.amount)} 元`}</span>
-            ${p.settled ? '<span class="chip grey">已结清</span>' : p.partial ? '<span class="chip grey">部分结清</span>' : ''}
+    <div class="lessons-page">
+      ${loginBanner()}
+      <div class="ls-toolbar">
+        <div class="ls-month-tools">
+          <div class="ls-month-picker">
+            <button class="icon-btn sm" data-mprev aria-label="上一个月">${icon('left', 16)}</button>
+            <button class="btn ghost sm month-btn" data-mpick>${monthLabel(month)}</button>
+            <button class="icon-btn sm" data-mnext aria-label="下一个月">${icon('right', 16)}</button>
           </div>
-          <div class="lss-btns">
-            ${p.settled ? '' : `<button class="btn ghost sm" data-toggle="${esc(p.name)}|${p.direction}">逐节结</button>`}
-            <button class="btn ${p.settled ? 'ghost' : 'primary'} sm" data-settle="${esc(p.name)}" data-dir="${p.direction}" data-done="${p.settled ? '1' : ''}">${p.settled ? '撤销结清' : '全部结清'}</button>
+          <button class="btn ghost sm" id="ls-price">${icon('settings', 15)} 单价 ¥${money(price)}/节</button>
+        </div>
+        <div class="ls-actions">
+          <button class="btn ghost" id="ls-pdf">${icon('download', 15)} 导出对账单</button>
+          <button class="btn primary" id="ls-add">${icon('plus', 15)} 记一节课</button>
+        </div>
+      </div>
+
+      <div class="ls-cards">
+        <div class="ls-card ls-primary">
+          <div class="lc-k">实际授课</div>
+          <div class="lc-v">${s.total_hours}<span class="lc-u">节</span></div>
+          <div class="lc-s">本月共 ${s.lesson_count} 条记录</div>
+        </div>
+        <div class="ls-card">
+          <div class="lc-k">${icon('arrow-up-right', 13)} 代课应收</div>
+          <div class="lc-v green">¥${money(s.sub_out.amount)}</div>
+          <div class="lc-s">${s.sub_out.count} 次代课 · ${s.sub_out.hours} 节课时</div>
+          <div class="lc-extra">换课 ${s.swap.count} 次 · 仅备查，不计账</div>
+        </div>
+        <div class="ls-card">
+          <div class="lc-k">${icon('arrow-down-left', 13)} 代课应付</div>
+          <div class="lc-v amber">¥${money(s.sub_in.amount)}</div>
+          <div class="lc-s">${s.sub_in.count} 次被代 · ${s.sub_in.hours} 节课时</div>
+        </div>
+        <div class="ls-card ls-net-card">
+          <div class="lc-k">待结算净额</div>
+          <div class="lc-v ${netCls}">¥${netAmount}</div>
+          <div class="lc-s">${netStatus}</div>
+        </div>
+      </div>
+
+      <section class="ls-schedule" aria-label="排课进度">
+        <div class="ls-schedule-stat"><span>计划排课</span><b>${sch.total}<small> 节</small></b></div>
+        <div class="ls-schedule-stat"><span>已记录课时</span><b>${s.total_hours}<small> 节</small></b></div>
+        <div class="ls-progress">
+          <div class="ls-progress-label"><span>本月时间进度</span><b>${monthProgress}%</b></div>
+          <div class="ls-progress-track"><span style="width:${monthProgress}%"></span></div>
+          <div class="ls-progress-note">已过 ${elapsedDays}/${daysInMonth} 天 · 排课按整月课表统计</div>
+        </div>
+      </section>
+
+      ${s.people.length ? `<div class="card card-pad ls-settle">
+        <div class="lss-head">代课结算<span class="lss-head-s">点开可逐节勾选，先结一部分也行</span></div>
+        ${s.people.map((p) => `<div class="lss-row${p.settled ? ' done' : ''}${p.partial ? ' part' : ''}" data-person="${esc(p.name)}|${p.direction}">
+          <div class="lss-line">
+            <div class="lss-main">
+              <span class="lss-name">${esc(p.name)}</span>
+              <span class="chip ${p.direction === 'out' ? 'green' : 'amber'}">${p.direction === 'out' ? '应收' : '应付'}</span>
+              <span class="lss-amt">${p.settled
+                ? `${p.count} 节 / ${money(p.amount)} 元`
+                : p.partial
+                  ? `还剩 ${p.open_hours} 节 / ${money(p.open_amount)} 元<span class="lss-dim">（已结 ${p.settled_count}/${p.count} 节）</span>`
+                  : `${p.hours} 节 / ${money(p.amount)} 元`}</span>
+              ${p.settled ? '<span class="chip grey">已结清</span>' : p.partial ? '<span class="chip grey">部分结清</span>' : ''}
+            </div>
+            <div class="lss-btns">
+              ${p.settled ? '' : `<button class="btn ghost sm" data-toggle="${esc(p.name)}|${p.direction}">逐节结</button>`}
+              <button class="btn ${p.settled ? 'ghost' : 'primary'} sm" data-settle="${esc(p.name)}" data-dir="${p.direction}" data-done="${p.settled ? '1' : ''}">${p.settled ? '撤销结清' : '全部结清'}</button>
+            </div>
+          </div>
+          ${p.open_items.length && !p.settled ? `<div class="lss-items hidden" data-items="${esc(p.name)}|${p.direction}">
+            ${p.open_items.map((it) => `<label class="lss-item">
+              <input type="checkbox" data-pick="${it.id}" data-name="${esc(p.name)}" data-dir="${p.direction}" data-h="${it.hours}" data-a="${it.amount}">
+              <span class="lsi-d">${esc(String(it.date).slice(5))}${it.period_no ? ' 第' + it.period_no + '节' : ''}</span>
+              <span class="lsi-c">${esc(it.class_name || '')}</span>
+              <span class="lsi-h">${it.hours} 节 / ${money(it.amount)} 元</span>
+            </label>`).join('')}
+            <div class="lss-pick-bar">
+              <span class="lss-pick-sum" data-sum-for="${esc(p.name)}|${p.direction}">未选</span>
+              <button class="btn ghost sm" data-checkall="${esc(p.name)}|${p.direction}">全选</button>
+              <button class="btn primary sm" data-settlepick="${esc(p.name)}|${p.direction}" disabled>结清选中的</button>
+            </div>
+          </div>
+          ` : ''}
+        </div>`).join('')}
+      </div>` : ''}
+
+      <section class="ls-records">
+        <div class="ls-records-head">
+          <div><h2>本月明细</h2><span class="ls-records-hint">${monthLabel(month)} · 可搜索内容、班级或代课人</span></div>
+          <div class="ls-filters">
+            <label class="ls-search">${icon('search', 16)}<input type="search" id="ls-search" placeholder="搜索班级、内容或代课人" aria-label="搜索上课记录"></label>
+            <select id="ls-type-filter" aria-label="按授课类型筛选">
+              <option value="all">全部类型</option><option value="normal">本人授课</option>
+              <option value="替他人上">替人代课</option><option value="他人替我上">他人代课</option><option value="换课">换课</option>
+            </select>
           </div>
         </div>
-        ${p.open_items.length && !p.settled ? `<div class="lss-items hidden" data-items="${esc(p.name)}|${p.direction}">
-          ${p.open_items.map((it) => `<label class="lss-item">
-            <input type="checkbox" data-pick="${it.id}" data-name="${esc(p.name)}" data-dir="${p.direction}" data-h="${it.hours}" data-a="${it.amount}">
-            <span class="lsi-d">${esc(String(it.date).slice(5))}${it.period_no ? ' 第' + it.period_no + '节' : ''}</span>
-            <span class="lsi-c">${esc(it.class_name || '')}</span>
-            <span class="lsi-h">${it.hours} 节 / ${money(it.amount)} 元</span>
-          </label>`).join('')}
-          <div class="lss-pick-bar">
-            <span class="lss-pick-sum" data-sum-for="${esc(p.name)}|${p.direction}">未选</span>
-            <button class="btn ghost sm" data-checkall="${esc(p.name)}|${p.direction}">全选</button>
-            <button class="btn primary sm" data-settlepick="${esc(p.name)}|${p.direction}" disabled>结清选中的</button>
-          </div>
-        </div>` : ''}
-      </div>`).join('')}
-    </div>` : ''}
-
-    <div class="mobile-tip">手机上以卡片显示，点任意一条可修改</div>
-    <div class="table-wrap"><table class="tbl tbl-lesson">
-      <thead><tr><th class="th-no">#</th><th style="width:78px">日期</th><th style="width:64px">节次</th><th style="width:110px">班级</th><th>上课内容 / 下次要讲</th><th style="width:110px">进度</th><th style="width:130px">代课</th><th style="width:56px">课时</th><th class="th-ops">操作</th></tr></thead>
-      <tbody>${rows.length ? rows.map((r, idx) => {
-        const t = r.sub_type || 'normal';
-        const chip = t === 'normal' ? '<span class="tiny muted">—</span>'
-          : `<span class="chip ${t === '替他人上' ? 'green' : t === '他人替我上' ? 'amber' : 'purple'}">${SUB_LABEL[t] || t}</span>${r.peer_name ? `<div class="tiny muted">${esc(r.peer_name)}</div>` : ''}`;
-        return `<tr data-row="${r.id}">
-          <td class="td-no">${idx + 1}</td>
-          <td class="nowrap">${esc(String(r.date).slice(5))}</td>
-          <td class="nowrap">${r.period_no ? '第' + r.period_no + '节' : '—'}<div class="tiny muted">${esc(r.start_time || '')}</div></td>
-          <td>${esc(r.class_name || '—')}</td>
-          <td class="lc-content">${esc(r.content || '')}${r.next_content ? `<div class="lc-next">下次：${esc(r.next_content)}</div>` : ''}${r.discipline ? `<div class="tiny" style="color:var(--amber)">⚠ ${esc(r.discipline)}</div>` : ''}${r.remark ? `<div class="lc-remark">${icon('edit', 11)}<span>${esc(r.remark)}</span></div>` : ''}</td>
-          <td class="tiny">${esc(r.progress || '')}</td>
-          <td>${chip}</td>
-          <td class="num">${r.hours}</td>
-          <td class="td-ops">
-            <button class="icon-btn sm" data-edit="${r.id}" title="修改">${icon('edit', 14)}</button>
-            <button class="icon-btn sm danger" data-del-lesson="${r.id}" title="删除">${icon('trash', 14)}</button>
-          </td>
-        </tr>`;
-      }).join('') : `<tr><td colspan="9"><div class="empty">${monthLabel(month)}还没有上课记录<br><span class="tiny muted">点右上角「记一节课」开始</span></div></td></tr>`}</tbody>
-    </table></div>`;
+        <div class="table-wrap"><table class="tbl tbl-lesson">
+          <thead><tr><th style="width:138px">日期／节次</th><th style="width:132px">班级</th><th>教学内容与下次计划</th><th style="width:110px">进度</th><th style="width:130px">授课类型</th><th style="width:72px">课时</th><th class="th-ops" style="width:116px">操作</th></tr></thead>
+          <tbody id="ls-tbody"></tbody>
+        </table></div>
+        <div class="ls-records-foot"><span id="ls-record-count"></span><div id="ls-pagination" class="ls-pagination"></div></div>
+      </section>
+    </div>`;
 
     // 月份切换
     hookBanner(box);
@@ -309,25 +326,74 @@ async function renderLessons(box) {
     box.querySelector('#ls-add').onclick = () => lessonEditor(null, load, month, price);
     box.querySelector('#ls-price').onclick = () => priceDialog(price, load);
     box.querySelector('#ls-pdf').onclick = () => exportStatement(month, box.querySelector('#ls-pdf'));
-    box.querySelectorAll('[data-edit]').forEach((b) => {
-      b.onclick = (e) => { e.stopPropagation(); lessonEditor(rows.find((r) => String(r.id) === b.dataset.edit), load, month, price); };
-    });
-    /* 第 12 条：操作栏里的删除。
-       必须 stopPropagation —— 整行 tr 也有 onclick（打开编辑器），
-       不拦住的话点删除会先弹编辑器再弹确认框，两个弹层叠在一起。 */
-    box.querySelectorAll('[data-del-lesson]').forEach((b) => {
-      b.onclick = async (e) => {
+    const tbody = box.querySelector('#ls-tbody');
+    const countEl = box.querySelector('#ls-record-count');
+    const pagination = box.querySelector('#ls-pagination');
+    const renderRows = () => {
+      const needle = search.trim().toLocaleLowerCase();
+      const filtered = rows.filter((r) => {
+        const type = r.sub_type || 'normal';
+        if (typeFilter !== 'all' && type !== typeFilter) return false;
+        if (!needle) return true;
+        return [r.class_name, r.content, r.next_content, r.progress, r.peer_name, r.remark]
+          .some((value) => String(value || '').toLocaleLowerCase().includes(needle));
+      });
+      const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+      page = Math.min(page, pageCount);
+      const shown = filtered.slice((page - 1) * pageSize, page * pageSize);
+      tbody.innerHTML = shown.length ? shown.map((r) => {
+        const type = r.sub_type || 'normal';
+        const typeClass = type === '替他人上' ? 'green' : type === '他人替我上' ? 'amber' : type === '换课' ? 'purple' : 'blue';
+        const typeLabel = SUB_LABEL[type] || type;
+        return `<tr data-row="${esc(String(r.id))}">
+          <td class="ls-date"><b>${esc(String(r.date).slice(5))}</b><span>${r.period_no ? '第' + r.period_no + '节' : '未排节次'}${r.start_time ? ' · ' + esc(r.start_time) : ''}</span></td>
+          <td class="ls-class">${esc(r.class_name || '—')}</td>
+          <td class="lc-content">${esc(r.content || '—')}${r.next_content ? `<div class="lc-next">下次：${esc(r.next_content)}</div>` : ''}${r.discipline ? `<div class="tiny" style="color:var(--amber)">⚠ ${esc(r.discipline)}</div>` : ''}${r.remark ? `<div class="lc-remark">${icon('edit', 11)}<span>${esc(r.remark)}</span></div>` : ''}</td>
+          <td class="ls-progress-cell">${esc(r.progress || '—')}</td>
+          <td class="ls-type-cell"><span class="chip ${typeClass}">${esc(typeLabel)}</span>${type !== 'normal' && r.peer_name ? `<span class="ls-peer">${esc(r.peer_name)}</span>` : ''}</td>
+          <td class="num">${esc(String(r.hours ?? 0))}</td>
+          <td class="td-ops">
+            <button class="btn ghost sm ls-edit" data-edit="${esc(String(r.id))}">编辑</button>
+            <details class="ls-more"><summary aria-label="更多操作">${icon('more', 16)}</summary>
+              <button class="ls-delete" data-del-lesson="${esc(String(r.id))}">删除记录</button>
+            </details>
+          </td>
+        </tr>`;
+      }).join('') : `<tr class="ls-empty-row"><td colspan="7"><div class="ls-empty">
+        <strong>${rows.length ? '没有符合条件的记录' : `${monthLabel(month)}还没有上课记录`}</strong>
+        ${rows.length ? '<span>试试调整搜索词或筛选条件</span>' : '<button class="btn primary" data-empty-add>' + icon('plus', 15) + ' 记第一节课</button>'}
+      </div></td></tr>`;
+      countEl.textContent = filtered.length === rows.length
+        ? `共 ${rows.length} 条记录`
+        : `显示 ${filtered.length} 条 / 共 ${rows.length} 条记录`;
+      pagination.innerHTML = filtered.length > pageSize
+        ? `<button class="btn ghost sm" data-page-prev ${page === 1 ? 'disabled' : ''}>上一页</button><span>第 ${page} / ${pageCount} 页</span><button class="btn ghost sm" data-page-next ${page === pageCount ? 'disabled' : ''}>下一页</button>`
+        : '';
+      pagination.querySelector('[data-page-prev]')?.addEventListener('click', () => { page -= 1; renderRows(); });
+      pagination.querySelector('[data-page-next]')?.addEventListener('click', () => { page += 1; renderRows(); });
+    };
+    box.querySelector('#ls-search').addEventListener('input', (e) => { search = e.target.value; page = 1; renderRows(); });
+    box.querySelector('#ls-type-filter').addEventListener('change', (e) => { typeFilter = e.target.value; page = 1; renderRows(); });
+    tbody.onclick = async (e) => {
+      const target = e.target.closest('[data-edit], [data-del-lesson], [data-empty-add]');
+      if (target) {
         e.stopPropagation();
-        const r = rows.find((x) => String(x.id) === b.dataset.delLesson);
+        if (target.hasAttribute('data-empty-add')) return lessonEditor(null, load, month, price);
+        if (target.hasAttribute('data-edit')) {
+          return lessonEditor(rows.find((r) => String(r.id) === target.dataset.edit), load, month, price);
+        }
+        const r = rows.find((item) => String(item.id) === target.dataset.delLesson);
         if (!r) return;
         if (!(await confirmDialog(`删除 ${String(r.date).slice(5)} ${r.class_name || ''} 第${r.period_no || '?'}节这节课？`, { danger: true, okText: '删除' }))) return;
         try { await api.del('/lessons/' + r.id); toast('已删除'); load(); }
         catch (err) { toast(err.message || '删除失败', 'err'); }
-      };
-    });
-    box.querySelectorAll('[data-row]').forEach((tr) => {
-      tr.onclick = () => lessonEditor(rows.find((r) => String(r.id) === tr.dataset.row), load, month, price);
-    });
+        return;
+      }
+      if (e.target.closest('details')) return;
+      const tr = e.target.closest('[data-row]');
+      if (tr) lessonEditor(rows.find((r) => String(r.id) === tr.dataset.row), load, month, price);
+    };
+    renderRows();
     // 全部结清 / 撤销整人结清
     box.querySelectorAll('[data-settle]').forEach((b) => {
       b.onclick = async (e) => {
