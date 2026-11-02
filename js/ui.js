@@ -706,7 +706,7 @@ function authPhone() {
       placeholder="手机号（即登录账号）" maxlength="24"></div>
     <div class="auth-input"><input id="pwd" type="password"
       autocomplete="${isReg ? 'new-password' : 'current-password'}"
-      placeholder="${isReg ? '设置密码（至少 6 位）' : '密码'}" maxlength="72"></div>
+      placeholder="请输入密码" maxlength="72"></div>
     ${isReg ? '<div class="auth-input"><input id="pwd2" type="password" autocomplete="new-password" placeholder="确认密码" maxlength="72"></div>' : ''}
     <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册' : '登录'}</button>
     <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6">${isReg
@@ -730,7 +730,6 @@ function authPhone() {
       const normalized = cloud.normalizePhone(phone.value);
       const password = pwd.value;
       if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
-      if (password.length < 6) throw new Error('密码至少 6 位');
       if (isReg && password !== body.querySelector('#pwd2').value) {
         throw new Error('两次输入的密码不一致');
       }
@@ -838,9 +837,9 @@ function authForgot(prefillPhone = '') {
     <div class="auth-input"><input id="reset-otp" type="text" inputmode="numeric" autocomplete="one-time-code"
       placeholder="短信验证码" maxlength="10"></div>
     <div class="auth-input"><input id="reset-password" type="password" autocomplete="new-password"
-      placeholder="新密码（至少 6 位）" maxlength="72"></div>
+      placeholder="请输入密码" maxlength="72"></div>
     <div class="auth-input"><input id="reset-password2" type="password" autocomplete="new-password"
-      placeholder="再次输入新密码" maxlength="72"></div>
+      placeholder="请再次输入密码" maxlength="72"></div>
     <button class="auth-btn" id="reset-submit">验证并重置密码</button>
     <button type="button" class="link-btn" id="back-to-login" style="margin-top:12px">返回登录</button>
     <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6"></div>`;
@@ -872,7 +871,6 @@ function authForgot(prefillPhone = '') {
     const phone = cloud.normalizePhone(phoneInput.value);
     const password = body.querySelector('#reset-password').value;
     if (!phone) return hint.textContent = '请输入有效手机号（大陆手机号或 + 国际区号）';
-    if (password.length < 6) return hint.textContent = '新密码至少 6 位';
     if (password !== body.querySelector('#reset-password2').value) return hint.textContent = '两次输入的新密码不一致';
     btn.disabled = true;
     btn.textContent = '正在重置…';

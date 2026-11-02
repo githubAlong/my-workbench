@@ -631,9 +631,9 @@ function accountPwdSheet(parent) {
     <div class="field"><label class="field-label">原密码</label>
       <input class="input" id="op" type="password" autocomplete="current-password" maxlength="72" placeholder="当前密码"></div>
     <div class="field"><label class="field-label">新密码</label>
-      <input class="input" id="np" type="password" autocomplete="new-password" maxlength="72" placeholder="至少 6 位"></div>
+      <input class="input" id="np" type="password" autocomplete="new-password" maxlength="72" placeholder="请输入密码"></div>
     <div class="field"><label class="field-label">再输一遍</label>
-      <input class="input" id="np2" type="password" autocomplete="new-password" maxlength="72" placeholder="确认新密码"></div>
+      <input class="input" id="np2" type="password" autocomplete="new-password" maxlength="72" placeholder="请再次输入密码"></div>
     <button class="btn primary block" id="pw-save" style="margin-top:6px">保存新密码</button>
   </div>`);
   const sh = sheet({ title: '修改密码', body: b });
@@ -642,7 +642,6 @@ function accountPwdSheet(parent) {
     const np = b.querySelector('#np').value;
     const np2 = b.querySelector('#np2').value;
     if (!op) return toast('请填写原密码', 'warn');
-    if (np.length < 6) return toast('新密码至少 6 位', 'warn');
     if (np !== np2) return toast('两次输入的新密码不一致', 'warn');
     const btn = b.querySelector('#pw-save');
     btn.disabled = true; btn.textContent = '保存中…';

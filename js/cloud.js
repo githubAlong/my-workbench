@@ -126,7 +126,6 @@ async function authRequest(path, body, method = 'POST') {
 export async function signUpPhone(phone, password) {
   const normalized = normalizePhone(phone);
   if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
-  if (String(password || '').length < 6) throw new Error('密码至少 6 位');
   const j = await authRequest('/auth/v1/signup', { phone: normalized, password });
   if (j.access_token) {
     adoptTokens(j);
@@ -162,7 +161,6 @@ export async function verifyPhoneOtp(phone, token, type = 'sms') {
 }
 
 export async function updatePassword(password) {
-  if (String(password || '').length < 6) throw new Error('新密码至少 6 位');
   const c = cfg();
   const t = tok();
   if (!c || !t?.access_token) throw new Error('登录状态已失效，请重新获取验证码');
