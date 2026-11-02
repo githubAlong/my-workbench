@@ -593,6 +593,9 @@ function renderHome() {
   <div class="sr-scrim" id="search-scrim" hidden></div>
   <div class="sr-panel" id="search-result" hidden></div>
 
+  <section class="cd-bar" id="cd-card">
+    <div class="cdb-body" id="cd-body"></div>
+  </section>
 
   <div class="topbar">
     <section class="card clk-card">
@@ -645,10 +648,6 @@ function renderHome() {
       </div>
     </section>
   </div>
-
-  <section class="cd-bar" id="cd-card">
-    <div class="cdb-body" id="cd-body"></div>
-  </section>
 
   <div class="home-grid" id="home-grid">
     <div class="home-col" data-col="0">
