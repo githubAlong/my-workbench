@@ -585,8 +585,6 @@ const QQ_G = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor
    于是界面上真能用的扫码 tab 被一行「未开通」误导了很久。 */
 /* 登录页当前是「登录」还是「注册」——只在这两个之间切换，没有第三种方式 */
 let authMode = 'login';
-let authLegacy = false;
-let authPhoneMethod = 'password';
 let authCountdownTimer = null;
 
 export const AUTH_CFG = { allowRegister: true, demoMode: false, smsEnabled: true, qrEnabled: false, siteQrLogin: true, wbEnabled: false, testPasscode: false };
@@ -599,18 +597,9 @@ export async function loadAuthConfig() {
   return AUTH_CFG;
 }
 
-/* 手机号注册是新账号的默认流程；旧账号入口只用于兼容已存在的本机/邮箱账号。 */
-const ALLOW_SIGNUP = true;
-
 function authTabsHTML() {
-  const mode = authMode === 'register' ? '注册新账号' : '登录';
-  const other = authMode === 'register' ? '已有账号？去登录' : '还没有账号？注册一个';
-  return {
-    html: `<button class="on">${mode}</button>` +
-      (ALLOW_SIGNUP ? `
-      <button class="auth-switch" id="auth-switch">${other}</button>` : ''),
-    def: null,
-  };
+  return `<button class="${authMode === 'login' ? 'on' : ''}" data-auth-mode="login">登录</button>
+    <button class="${authMode === 'register' ? 'on' : ''}" data-auth-mode="register">注册</button>`;
 }
 
 /* 从扫码确认页跳去登录的用户，登录完要回到那一次确认。
@@ -652,20 +641,21 @@ function renderAuth() {
 
 function authLogin() {
   const card = document.getElementById('auth-card');
-  const tabInfo = authTabsHTML();
   card.innerHTML = `
-    <div class="auth-tabs">${tabInfo.html}</div>
+    <div class="auth-tabs">${authTabsHTML()}</div>
     <div id="auth-body"></div>
     <div class="auth-legal">
       <label><input type="checkbox" id="agree" checked><span>我已阅读并同意《服务协议》与《隐私政策》。登录即表示你同意我们按隐私政策处理你的数据。</span></label>
     </div>`;
-  document.getElementById('auth-switch')?.addEventListener('click', () => {
-    authMode = authMode === 'register' ? 'login' : 'register';
-    authLegacy = false;
-    authLogin();
+  card.querySelectorAll('[data-auth-mode]').forEach((button) => {
+    button.addEventListener('click', () => {
+      authMode = button.dataset.authMode;
+      if (authCountdownTimer) clearInterval(authCountdownTimer);
+      authCountdownTimer = null;
+      authLogin();
+    });
   });
-  if (authLegacy && authMode === 'login') authPassword();
-  else authPhone();
+  authPhone();
 }
 
 function checkAgree() {
@@ -684,10 +674,10 @@ async function completeAuth(user, isReg) {
   toast(isReg ? '手机号已注册，开始使用吧' : '欢迎回来', 'ok');
 }
 
-async function attachCloudUser(cloud, identity, password = '') {
+async function attachCloudUser(cloud, identity) {
   try {
     return await api.post('/auth/login-cloud', {
-      ...identity, password,
+      ...identity,
     }, { silent: true });
   } catch (e) {
     await cloud.logout();
@@ -695,10 +685,10 @@ async function attachCloudUser(cloud, identity, password = '') {
   }
 }
 
-async function registerCloudUser(cloud, phone, password, uid) {
+async function registerCloudUser(cloud, phone, uid) {
   try {
     return await api.post('/auth/register-cloud', {
-      phone, password, uid,
+      phone, uid,
     }, { silent: true });
   } catch (e) {
     await cloud.logout();
@@ -710,79 +700,41 @@ function authPhone() {
   if (authCountdownTimer) clearInterval(authCountdownTimer);
   const isReg = authMode === 'register';
   const body = document.getElementById('auth-body');
-  const isSms = !isReg && authPhoneMethod === 'sms';
   body.innerHTML = `
-    ${!isReg ? `<div class="auth-tabs" style="margin-top:-8px">
-      <button class="${isSms ? '' : 'on'}" id="auth-phone-password">手机号 + 密码</button>
-      <button class="${isSms ? 'on' : ''}" id="auth-phone-sms">手机号 + 验证码</button>
-    </div>` : ''}
-    <div class="auth-input"><input id="phone" type="tel" inputmode="tel" autocomplete="tel"
-      placeholder="手机号（大陆手机号或 + 国际区号）" maxlength="24"></div>
-    ${isReg || !isSms ? `<div class="auth-input"><input id="pwd" type="password"
-      autocomplete="${isReg ? 'new-password' : 'current-password'}" placeholder="${isReg ? '设置密码（至少 6 位）' : '密码'}" maxlength="72"></div>` : ''}
-    ${isReg ? '<div class="auth-input"><input id="pwd2" type="password" autocomplete="new-password" placeholder="再输入一次密码" maxlength="72"></div>' : ''}
-    ${isSms ? `<div class="auth-input"><input id="otp" type="text" inputmode="numeric" autocomplete="one-time-code"
-      placeholder="短信验证码" maxlength="10"><button class="otp-btn" id="send-otp" type="button">获取验证码</button></div>` : ''}
-    <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册手机号' : '登录'}</button>
+    <div class="auth-input"><input id="phone" type="tel" inputmode="tel"
+      autocomplete="${isReg ? 'tel' : 'username'}"
+      placeholder="手机号（即登录账号）" maxlength="24"></div>
+    <div class="auth-input"><input id="pwd" type="password"
+      autocomplete="${isReg ? 'new-password' : 'current-password'}"
+      placeholder="${isReg ? '设置密码（至少 6 位）' : '密码'}" maxlength="72"></div>
+    ${isReg ? '<div class="auth-input"><input id="pwd2" type="password" autocomplete="new-password" placeholder="确认密码" maxlength="72"></div>' : ''}
+    <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册' : '登录'}</button>
     <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6">${isReg
-      ? '注册短信验证由 Supabase Phone Confirmation 设置控制。'
-      : '手机号用于登录和找回密码。'}</div>
-    ${!isReg && !isSms ? '<div class="auth-forgot"><button type="button" class="link-btn" id="forgot-password">忘记密码？</button></div>' : ''}
-    ${!isReg ? '<div class="auth-forgot"><button type="button" class="link-btn" id="legacy-login">使用旧账号 / 邮箱登录</button></div>' : ''}`;
+      ? '手机号即账号。注册短信验证由 Supabase Phone Confirmation 设置控制。'
+      : '使用注册时填写的手机号和密码登录。'}</div>
+    ${!isReg ? '<div class="auth-forgot"><button type="button" class="link-btn" id="forgot-password">忘记密码？</button></div>' : ''}`;
 
   const phone = body.querySelector('#phone');
   const pwd = body.querySelector('#pwd');
   const btn = body.querySelector('#do-login');
   const hint = body.querySelector('#auth-hint');
-  const say = (text) => { if (hint) hint.textContent = text || ''; };
+  const say = (text) => { hint.textContent = text || ''; };
 
-  body.querySelector('#auth-phone-password')?.addEventListener('click', () => {
-    authPhoneMethod = 'password';
-    authPhone();
-  });
-  body.querySelector('#auth-phone-sms')?.addEventListener('click', () => {
-    authPhoneMethod = 'sms';
-    authPhone();
-  });
-  body.querySelector('#legacy-login')?.addEventListener('click', () => {
-    authLegacy = true;
-    authLogin();
-  });
   body.querySelector('#forgot-password')?.addEventListener('click', () => authForgot(phone.value.trim()));
-
-  const send = body.querySelector('#send-otp');
-  if (send) {
-    send.onclick = async () => {
-      if (!checkAgree()) return;
-      const normalized = (await import('./cloud.js')).normalizePhone(phone.value);
-      if (!normalized) return say('请输入有效手机号（大陆手机号或 + 国际区号）');
-      send.disabled = true;
-      send.textContent = '发送中…';
-      try {
-        const cloud = await import('./cloud.js');
-        await cloud.requestPhoneOtp(normalized);
-        say('验证码已发送，请查收短信。');
-        startAuthCountdown(send);
-      } catch (e) {
-        send.disabled = false;
-        send.textContent = '获取验证码';
-        say(e.message || '验证码发送失败');
-      }
-    };
-  }
-
   btn.onclick = async () => {
     if (!checkAgree()) return;
-    const enteredPhone = phone.value.trim();
-    const password = pwd?.value || '';
-    const cloud = await import('./cloud.js');
-    const normalized = cloud.normalizePhone(enteredPhone);
-    if (!normalized) return say('请输入有效手机号（大陆手机号或 + 国际区号）');
-    if ((isReg || !isSms) && password.length < 6) return say('密码至少 6 位');
-    if (isReg && password !== body.querySelector('#pwd2').value) return say('两次输入的密码不一致');
     btn.disabled = true;
     btn.textContent = isReg ? '注册中…' : '登录中…';
     try {
+      const cloud = await import('./cloud.js');
+      const normalized = cloud.normalizePhone(phone.value);
+      const password = pwd.value;
+      if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
+      if (password.length < 6) throw new Error('密码至少 6 位');
+      if (isReg && password !== body.querySelector('#pwd2').value) {
+        throw new Error('两次输入的密码不一致');
+      }
+
       if (isReg) {
         const result = await cloud.signUpPhone(normalized, password);
         if (result.needConfirm) {
@@ -790,25 +742,19 @@ function authPhone() {
           return;
         }
         const session = cloud.session();
-        const local = await registerCloudUser(cloud, normalized, password, session?.uid || '');
+        const local = await registerCloudUser(cloud, normalized, session?.uid || '');
         await completeAuth(local.user, true);
         return;
       }
 
-      let session;
-      if (isSms) {
-        const code = body.querySelector('#otp').value.trim();
-        session = await cloud.verifyPhoneOtp(normalized, code, 'sms');
-      } else {
-        session = await cloud.loginPhonePassword(normalized, password);
-      }
+      const session = await cloud.loginPhonePassword(normalized, password);
       const local = await attachCloudUser(cloud, {
         phone: session.phone || normalized, uid: session.uid || '',
-      }, isSms ? '' : password);
+      });
       await completeAuth(local.user, false);
     } catch (e) {
       btn.disabled = false;
-      btn.textContent = isReg ? '注册手机号' : '登录';
+      btn.textContent = isReg ? '注册' : '登录';
       say(e.message || '操作失败，请稍后重试');
     }
   };
@@ -868,7 +814,7 @@ function authPhoneRegistrationOtp(phone, password) {
     try {
       const cloud = await import('./cloud.js');
       const session = await cloud.verifyPhoneOtp(phone, input.value, 'sms');
-      const local = await registerCloudUser(cloud, phone, password, session.uid || '');
+      const local = await registerCloudUser(cloud, phone, session.uid || '');
       await completeAuth(local.user, true);
     } catch (e) {
       btn.disabled = false;
@@ -993,67 +939,6 @@ function sheetRaw(title, bodyEl) {
     downOnMask = false;
   });
   return { mask, close, set onClose(fn) { h.onClose = fn; } };
-}
-
-function authPassword() {
-  const body = document.getElementById('auth-body');
-  body.innerHTML = `
-    <div class="auth-input"><input id="legacy-account" type="text" autocomplete="username"
-      placeholder="旧账号或邮箱" maxlength="64"></div>
-    <div class="auth-input"><input id="legacy-password" type="password" autocomplete="current-password"
-      placeholder="密码" maxlength="72"></div>
-    <button class="auth-btn" id="legacy-submit" style="margin-top:6px">登录</button>
-    <button type="button" class="link-btn" id="phone-login" style="margin-top:12px">返回手机号登录</button>
-    <div class="small muted" id="legacy-hint" style="margin-top:10px;line-height:1.6">
-      此入口仅用于兼容已存在的旧账号；新账号请使用手机号注册。
-    </div>`;
-  const account = body.querySelector('#legacy-account');
-  const password = body.querySelector('#legacy-password');
-  const btn = body.querySelector('#legacy-submit');
-  body.querySelector('#phone-login').onclick = () => {
-    authLegacy = false;
-    authLogin();
-  };
-  const submit = async () => {
-    if (!checkAgree()) return;
-    btn.disabled = true;
-    btn.textContent = '登录中…';
-    const enteredAccount = account.value.trim();
-    try {
-      let localResult;
-      try {
-        localResult = await api.post('/auth/login', {
-          account: enteredAccount, password: password.value,
-        });
-      } catch (localError) {
-        const cloud = await import('./cloud.js');
-        if (!enteredAccount.includes('@') && !/^[A-Za-z0-9_]{3,20}$/.test(enteredAccount)) throw localError;
-        const email = cloud.toCloudEmail(enteredAccount);
-        try {
-          const session = await cloud.login(email, password.value);
-          const local = await attachCloudUser(cloud, { email, uid: session.uid || '' }, password.value);
-          await completeAuth(local.user, false);
-          return;
-        } catch (cloudError) {
-          await cloud.logout();
-          throw cloudError;
-        }
-      }
-      const cloud = await import('./cloud.js');
-      await cloud.logout();
-      try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
-      await completeAuth(localResult.user, false);
-    } catch (e) {
-      btn.disabled = false;
-      btn.textContent = '登录';
-      body.querySelector('#legacy-hint').textContent = e.message || '登录失败';
-    }
-  };
-  btn.onclick = submit;
-  body.querySelectorAll('input').forEach((input) => {
-    input.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
-  });
-  account.focus();
 }
 
 /* ================= 扫一扫（移动端入口 + 摄像头解码） =================

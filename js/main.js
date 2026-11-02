@@ -1,5 +1,6 @@
 import { state, loadMe, render, parseHash, loadAuthConfig } from './ui.js';
 import { ls, toast, STATIC } from './core.js';
+import { authResetError, consumeAuthResetNotice } from './localdb.js';
 
 /* 【第 30 条 · 白屏】
    原来这里是 9 行串行 import：
@@ -47,9 +48,8 @@ paintSkeleton();
    踩过的坑：放在后面 await，页面已经 render 过一次、hashchange 也注册了，
    导入时改地址栏会把流程搅乱，数据看起来「没导进去」。
    这里挪到最前，且用 await 卡住，中间不给其他异步留插队的机会。 */
-let imported = false;
 try {
-  imported = await tryImportFromHash();
+  await tryImportFromHash();
 } catch (e) {
   toast(e.message, 'err', 6000);
 }
@@ -60,23 +60,19 @@ try {
    放在 tryImportFromHash 之后，因为两者都靠改地址栏工作，串行更稳。 */
 try {
   const { autoLoginFromUrl } = await import('./auth.js');
-  if (await autoLoginFromUrl()) imported = true;
+  await autoLoginFromUrl();
 } catch (e) {
   toast(e.message, 'err', 6000);
 }
 
-/* 静态版没有服务端，进来先灌一份示例数据（只灌一次），
-   否则新用户看到一个空工作台会以为坏了。
-   已经用链接导入过就不再灌，否则示例数据混进来。 */
-if (STATIC) {
-  const { seedIfEmpty } = await import('./localapi.js');
-  if (!imported) seedIfEmpty();
-}
-
-state.user = await loadAuthConfig().then(() => loadMe());
+state.user = authResetError ? null : await loadAuthConfig().then(() => loadMe());
 if (!location.hash) location.hash = '#/home';
 window.addEventListener('hashchange', () => render());
 await render();
+if (authResetError) toast(`旧账号数据清理失败：${authResetError}`, 'err', 10000);
+else if (consumeAuthResetNotice()) {
+  toast('登录系统已升级：此浏览器中的旧账号及本地数据已清理，云端数据未删除。', 'warn', 8000);
+}
 
 /* ============================================================================
    实时同步（一端改动，另一端自己变）

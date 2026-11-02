@@ -83,10 +83,6 @@ function bumpSeq(table) {
 const DEFAULT_USER = () => ({
   id: 1,
   account: '',
-  /* 只是本地口令，不是真加密：静态版没有服务端，数据全在这台设备的 localStorage 里。
-     真正要防的是「别人拿到你手机后随手打开」，这里存一个不可逆的摘要就够，
-     而且 publicUser() 绝不下发这个字段。 */
-  pwd: '',
   phone: '',
   nickname: '老师',
   avatar: '',
@@ -95,21 +91,6 @@ const DEFAULT_USER = () => ({
   title: '',
   settings: {},
 });
-
-/* 口令摘要：加盐 SHA-256，避免明文躺在 localStorage 里被一眼看光。
-   crypto.subtle 只在 https / localhost 可用，file:// 打开时降级成明文，
-   否则本地双击打开 html 会直接抛错进不去。 */
-const PWD_SALT = 'myworkbench:v1:';
-async function hashPwd(pwd) {
-  const s = PWD_SALT + String(pwd);
-  if (globalThis.crypto?.subtle) {
-    try {
-      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-      return 's:' + [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
-    } catch { /* 非安全上下文，走降级 */ }
-  }
-  return 'p:' + s;
-}
 
 function currentUser() {
   const db = load();
@@ -132,7 +113,6 @@ function publicUser(u) {
     id: u.id, account: u.account || '', nickname: u.nickname, avatar: u.avatar,
     phone: u.phone || u.cloudPhone || '',
     cloudUid: u.cloudUid || '',
-    cloudEmail: u.cloudEmail || '',
     school: u.school, subject: u.subject, title: u.title,
     bindings: { phone: !!(u.phone || u.cloudPhone), wechat: false, qq: false, workbuddy: false },
     /* settings 必须带上：前端 state.user 来自 /auth/me 的返回值，
@@ -1423,7 +1403,7 @@ const on = (method, pattern, fn) => {
 /* ---- 账号 ---- */
 on('GET', '/auth/config', () => ({
   allowRegister: true,
-  demoMode: true,
+  demoMode: false,
   smsEnabled: true,
   testPasscode: false,
   qrEnabled: false,
@@ -1457,146 +1437,74 @@ on('GET', '/auth/me', () => {
   return { user: publicUser(u) };
 });
 
-/* 旧账号兼容校验；手机号使用独立的 E.164 校验。 */
-const ACCT_RE = /^[A-Za-z0-9_]{3,20}$/;
-const MAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
-function checkAccount(v) {
-  const a = String(v || '').trim();
-  if (MAIL_RE.test(a)) return a.length <= 64 ? '' : '邮箱太长了';
-  if (ACCT_RE.test(a)) return '';
-  return '账号要 3~20 位字母、数字或下划线，或者直接填邮箱';
-}
 
-on('POST', '/auth/register', () => fail(410, '新账号请使用手机号注册，并完成短信验证'));
+on('POST', '/auth/register', () => fail(410, '请使用手机号注册'));
 
-/* 云端注册或手机号验证完成后，将 Supabase 身份与本机数据空间关联。 */
+/* 手机号注册完成后，将 Supabase 身份与本机数据空间关联。 */
 on('POST', '/auth/register-cloud', async ({ body }) => {
   const phone = String(body?.phone || '').trim();
   const account = String(body?.account || phone).trim();
-  const password = String(body?.password || '');
-  const email = String(body?.email || '').trim().toLowerCase();
   const uid = String(body?.uid || '');
-  if (!account) fail(400, '缺少账号');
-  if (phone && !PHONE_RE.test(phone)) fail(400, '手机号格式无效');
+  if (!phone || !PHONE_RE.test(phone)) fail(400, '手机号格式无效');
+  if (account !== phone) fail(400, '账号必须是注册手机号');
   if (!uid) fail(400, '缺少云端账号标识');
-  if (password.length < 6) fail(400, '密码至少 6 位');
 
   const u = currentUser();
-  /* 本机已有别的账号：不覆盖，免得把上一个账号的本机数据挂到新人头上。
-     但如果是同一个账号（重装、换设备），只补云端标记即可。 */
   if (u.account && u.account !== account) {
-    fail(409, '当前浏览器已有其他本机账号。为避免覆盖本机数据，请先导出备份，再用独立浏览器完成注册');
+    fail(409, '当前浏览器已关联其他手机号账号，不能覆盖本机数据');
   }
   if (u.cloudUid && u.cloudUid !== uid) {
-    fail(409, '这台设备已关联另一个云端账号，请先备份本机数据后再切换');
+    fail(409, '这台设备已关联另一个云端账号，不能覆盖本机数据');
   }
-  if (!u.account) {
-    if (!phone) {
-      const bad = checkAccount(account);
-      if (bad) fail(400, bad);
-    }
-    u.account = account;
-  }
-  if (password.length >= 6) u.pwd = await hashPwd(password);
-  if (!u.nickname || u.nickname === '老师') u.nickname = phone || (account.includes('@') ? account.split('@')[0] : account);
+  if (!u.account) u.account = phone;
+  if (!u.nickname || u.nickname === '老师') u.nickname = phone;
   if (phone) { u.phone = phone; u.cloudPhone = phone; }
   u.cloudUid = uid;
-  u.cloudEmail = email;
   saveUser(u);
   setLoggedOut(false);
-  seedIfEmpty();
   return { user: publicUser(u), token: 'cloud', cloud: true };
 });
 
-/* 换设备链接或云端登录成功后，将手机号/邮箱身份与本机数据空间关联。 */
+/* 云端手机号登录成功后，将身份与本机数据空间关联。 */
 on('POST', '/auth/login-cloud', async ({ body }) => {
-  const email = String(body?.email || '').trim().toLowerCase();
   const phone = String(body?.phone || '').trim();
   const uid = String(body?.uid || '');
-  const password = String(body?.password || '');
-  if (!email && !phone) fail(400, '缺少手机号或邮箱');
-  if (phone && !PHONE_RE.test(phone)) fail(400, '手机号格式无效');
+  if (!phone || !PHONE_RE.test(phone)) fail(400, '手机号格式无效');
   if (!uid) fail(400, '缺少云端账号标识');
 
   const u = currentUser();
-  const local = (email.split('@')[0] || '').replace(/[^A-Za-z0-9_]/g, '');
-  const emailAcct = u.account === email || !email.endsWith('@workbench.local')
-    ? email : local.length >= 3 ? local.slice(0, 20) : email;
-  const acct = phone && u.account && (u.account === email || u.account === emailAcct)
-    ? u.account : phone || emailAcct;
-
   if (u.cloudUid && u.cloudUid !== uid) {
-    fail(409, '这台设备已关联另一个云端账号，请先备份本机数据后再切换');
+    fail(409, '这台设备已关联另一个云端账号');
   }
-  if (u.account && u.account !== acct && !u.cloudUid) {
-    fail(409, '当前浏览器已有其他本机账号。为避免覆盖本机数据，请先导出备份，再用独立浏览器登录');
+  if (u.account && u.account !== phone && !u.cloudUid) {
+    fail(409, '当前浏览器已有其他账号，请先退出后再登录');
   }
   if (!u.account) {
-    u.account = acct;
-    u.pwd = password.length >= 6 ? await hashPwd(password) : '';
-    u.nickname = u.nickname && u.nickname !== '老师' ? u.nickname : (phone || local || email);
-  } else if (password.length >= 6) {
-    u.pwd = await hashPwd(password);
+    u.account = phone;
+    u.nickname = u.nickname && u.nickname !== '老师' ? u.nickname : phone;
   }
   u.cloudUid = uid;
-  u.cloudEmail = email;
-  if (phone) { u.phone = phone; u.cloudPhone = phone; }
+  u.phone = phone;
+  u.cloudPhone = phone;
   saveUser(u);
   setLoggedOut(false);
-  seedIfEmpty();
   return { user: publicUser(u), token: 'cloud', cloud: true };
 });
 
-on('POST', '/auth/login', async ({ body }) => {
-  const account = String(body?.account || '').trim();
-  const password = String(body?.password || '');
-  if (!account || !password) fail(400, '请填写账号和密码');
-
-  const u = currentUser();
-  /* 此接口只用于旧本机账号登录；新用户应走云端手机号注册。 */
-  if (!u.account) fail(400, '这台设备还没有账号。请使用手机号注册并完成短信验证');
-  /* 账号不对和密码不对回同一句话，不告诉试探者「账号是存在的」 */
-  if (u.account !== account || u.pwd !== await hashPwd(password)) {
-    /* 云端账号（密码由 Supabase 管）在本机存的是空摘要，
-       这时候"账号或密码不对"是句误导 —— 得说清楚该走哪条路。 */
-    if (u.account === account && !u.pwd) {
-      fail(401, '这个账号的密码由云端管理，请在「我的 → 云同步」里登录，或改用注册时设的密码');
-    }
-    fail(401, '账号或密码不对');
-  }
-  setLoggedOut(false);
-  seedIfEmpty();
-  return { user: publicUser(u), token: 'static' };
-});
+on('POST', '/auth/login', () => fail(410, '请使用手机号和密码登录'));
 
 on('GET', '/auth/status', () => {
   const u = currentUser();
   return { registered: !!u.account, account: u.account || '' };
 });
 
-on('POST', '/auth/password', async ({ body }) => {
-  const u = currentUser();
-  if (!u.account) fail(400, '这台设备还没有账号');
-  /* 云端账号（注册时走的是 Supabase）在本机没存密码摘要，
-     "原密码不对"会让人反复怀疑自己输错了。直接说明该去哪改。 */
-  if (!u.pwd) fail(400, '这个账号的密码由云端管理，请到 Supabase 后台 → Authentication → Users 重置');
-  if (u.pwd !== await hashPwd(String(body?.oldPassword || ''))) fail(400, '原密码不对');
-  const np = String(body?.newPassword || '');
-  if (np.length < 6) fail(400, '新密码至少 6 位');
-  u.pwd = await hashPwd(np);
-  saveUser(u);
-  return { ok: true };
-});
+on('POST', '/auth/password', () => fail(410, '登录密码由手机号认证服务管理'));
 
 on('POST', '/auth/logout', () => { setLoggedOut(true); return { ok: true }; });
-/* 忘记密码：静态版没有服务端，也没配短信，不能真的「找回」。
-   但也不能只说「去找管理员」——现在能自己注册了，最省事的出路是
-   换一个账号名重新注册（本机数据会跟着新账号的空白状态走，旧数据留在浏览器里但看不到）。
-   如果是云端账号，则只能去 Supabase 后台重置。两条路都写清楚，让人能自己选。 */
-/* 旧本机账号不能通过手机号找回；手机号账号由 Supabase Auth 处理。 */
-on('POST', '/auth/forgot', () => fail(400,
-  '旧本机账号不支持短信找回。手机号账号请在登录页使用“忘记密码”完成短信验证重置。'));
+/* 找回密码走登录页的 Supabase 手机号验证码流程。 */
+on('POST', '/auth/forgot', () => fail(410,
+  '请在登录页使用“忘记密码”通过手机号验证码重置密码'));
 
 on('POST', '/auth/qr', () => fail(400, '静态版没有服务端，扫码登录不可用'));
 on('GET', '/auth/qr/:id', () => fail(400, '静态版没有服务端，扫码登录不可用'));

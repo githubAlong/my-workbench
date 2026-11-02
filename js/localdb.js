@@ -17,6 +17,50 @@ const DB_KEY = 'wb_static_db_v1';
 /* 云同步要用这个键名去读整库，导出去（cloudsync.js） */
 export { DB_KEY };
 
+const AUTH_RESET_KEY = 'wb_phone_auth_reset_v1';
+const AUTH_RESET_NOTICE_KEY = 'wb_phone_auth_reset_notice';
+const RESET_LOCAL_KEYS = [
+  DB_KEY,
+  'wb_supa_tok',
+  'wb_supa_cfg',
+  'wb_cloud_cfg',
+  'wb_cloud_meta',
+  'wb_backup_before_import',
+  'wb_timetable_archives_v1',
+  'wb_last_mail',
+  'wb_last_phone',
+  'wb_signup_cloud_state',
+  'wb_supa_signup_state',
+];
+let authResetError = '';
+try {
+  if (localStorage.getItem(AUTH_RESET_KEY) !== '1') {
+    const hadLocalData = RESET_LOCAL_KEYS.some((key) => localStorage.getItem(key) !== null);
+    RESET_LOCAL_KEYS.forEach((key) => localStorage.removeItem(key));
+    if (hadLocalData) localStorage.setItem(AUTH_RESET_NOTICE_KEY, '1');
+    localStorage.setItem(AUTH_RESET_KEY, '1');
+    try {
+      ['wb_pin_ok', 'wb_logged_out', 'wb_qr_return', 'wb_att_grade'].forEach((key) => sessionStorage.removeItem(key));
+    } catch (error) {
+      console.warn('清理旧登录会话状态失败', error);
+    }
+  }
+} catch (error) {
+  authResetError = error instanceof Error ? error.message : String(error);
+  console.error('清理旧账号及本地数据失败', error);
+}
+export { authResetError };
+export function consumeAuthResetNotice() {
+  try {
+    if (localStorage.getItem(AUTH_RESET_NOTICE_KEY) !== '1') return false;
+    localStorage.removeItem(AUTH_RESET_NOTICE_KEY);
+    return true;
+  } catch (error) {
+    console.warn('清理登录升级提示状态失败', error);
+    return false;
+  }
+}
+
 /* ---------------- 表结构：照抄 server/index.mjs 的 CRUD ---------------- */
 export const TABLES = {
   periods: ['period_no', 'name', 'start_time', 'end_time'],

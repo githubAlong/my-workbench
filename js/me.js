@@ -136,7 +136,7 @@ async function renderMe(main) {
       /* 【A 方案：这里不再是手动上传/下载，而是登录】
          以前点进来是「生成/输入同步密钥 → 上传 / 下载」，
          换设备要重输 32 位密钥，改完还得记得点上传。
-         现在使用手机号或旧邮箱登录，课时直接读写云上。
+         现在使用手机号账号登录，课时直接读写云上。
          旧的 bindSheet 没删（还有别的入口在用），但主路径换成登录。 */
       loginSheet({
         onDone: () => { render(); },
@@ -582,10 +582,9 @@ export function lockScreen(onOk) {
 }
 
 /* ================= 账号与绑定 ================= */
-/* 账号面板：只剩「账号 + 改密码」。
+/* 账号面板：只剩「手机号账号 + 改密码」。
    微信 / QQ / WorkBuddy 三行原来一直在，但静态版没有任何授权通道，
    点「去绑定」只会弹一句「未开通」——留着就是三个假按钮。
-   手机号那一行同理：它的意义是「换绑后用手机号登录」，而登录已经不要手机号了。
    与其摆一排点了没用的东西，不如只留真正能用的那一个。 */
 function bindManager() {
   const u = state.user || {};
@@ -594,7 +593,7 @@ function bindManager() {
     <div class="tiny muted" style="margin-top:12px;line-height:1.7">
       ${u.cloudUid
         ? '该账号已连接云端。修改密码会同步更新 Supabase 登录密码。'
-        : '这是旧本机账号，凭证只保存在此浏览器；换设备前请在「数据导出与备份」中保存数据。'}
+        : '当前账号尚未连接云端，登录凭证只保存在此浏览器。'}
     </div>
   </div>`);
   const sh = sheet({ title: '账号', body });
@@ -625,7 +624,7 @@ function bindRow(type, label, val, bound, disabled = false, onAct = '') {
     ${acts}</div>`;
 }
 
-/* 云端账号先向 Supabase 验证原密码并修改云端密码，再更新本机凭证摘要。 */
+/* 手机号账号在 Supabase 验证原密码并修改云端密码。 */
 function accountPwdSheet(parent) {
   const b = el(`<div class="sheet-body">
     <div class="tiny muted" style="margin-bottom:10px;line-height:1.7">当前账号 <b>${esc(state.user?.account || '')}</b>。</div>
@@ -647,21 +646,15 @@ function accountPwdSheet(parent) {
     if (np !== np2) return toast('两次输入的新密码不一致', 'warn');
     const btn = b.querySelector('#pw-save');
     btn.disabled = true; btn.textContent = '保存中…';
-    let cloudUpdated = false;
     try {
-      if (state.user?.cloudUid) {
-        if (state.user.phone) await cloud.loginPhonePassword(state.user.phone, op);
-        else if (state.user.cloudEmail) await cloud.login(state.user.cloudEmail, op);
-        else throw new Error('云端登录方式缺失，请重新登录后再试');
-        await cloud.updatePassword(np);
-        cloudUpdated = true;
-      }
-      await api.post('/auth/password', { oldPassword: op, newPassword: np });
+      if (!state.user?.cloudUid || !state.user.phone) throw new Error('请先使用手机号账号登录');
+      await cloud.loginPhonePassword(state.user.phone, op);
+      await cloud.updatePassword(np);
       toast('密码已改，下次登录用新密码');
       sh.close();
     } catch (e) {
       btn.disabled = false; btn.textContent = '保存新密码';
-      toast(cloudUpdated ? `云端密码已修改，但本机凭证同步失败：${e.message || '请重新登录'}` : (e.message || '修改失败'), 'err');
+      toast(e.message || '修改失败', 'err');
     }
   };
 }
@@ -677,19 +670,6 @@ function accountPwdSheet(parent) {
 function syncBadge() {
   if (cloudOn()) {
     return '<span class="chip" style="background:#DCFCE7;color:#166534">已登录</span>';
-  }
-  /* 【注册时云端那一步没成的，在这里如实说】
-     以前这种情况会在注册成功后弹一条 9 秒的警告，人已经进了工作台，
-     右上角却挂着一句"云端开关还关着"，看起来像注册失败。
-     现在不弹了，改成在这里标一下 —— 想知道的人点进「云同步」能看明白，
-     不想管的人完全不会被打扰。 */
-  let st = '';
-  try { st = localStorage.getItem('wb_signup_cloud_state') || ''; } catch { }
-  if (st === 'off') {
-    return '<span class="chip" style="background:#FEF3C7;color:#92400E">云端注册未开</span>';
-  }
-  if (st === 'need_confirm') {
-    return '<span class="chip" style="background:#FEF3C7;color:#92400E">待邮箱确认</span>';
   }
   try {
     const c = JSON.parse(localStorage.getItem('wb_cloud_cfg') || 'null');
