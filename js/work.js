@@ -659,7 +659,7 @@ async function renderTimetable(box) {
         <thead><tr><th style="width:96px">节次</th>${wd.map((d) => `<th>周${WD_SHORT[d]}</th>`).join('')}</tr></thead>
         <tbody>${Array.from({ length: maxP }, (_, i) => i + 1).map((p) => {
           const per = periods.find((x) => Number(x.period_no) === p);
-          return `<tr><td><b>第${p}节</b><div class="tiny muted mono">${per ? per.start_time + '-' + per.end_time : '未设置'}</div></td>
+          return `${p === 5 ? '<tr><td colspan="8" style="height:38px;text-align:center;background:var(--bg-subtle,#f5f7fa);color:var(--muted);font-weight:600">午休　12:20-14:10</td></tr>' : ''}<tr><td><b>第${p}节</b><div class="tiny muted mono">${per ? per.start_time + '-' + per.end_time : '未设置'}</div></td>
             ${wd.map((d) => {
               const c = get(d, p);
               return `<td data-cell="${d}-${p}" style="cursor:pointer;min-width:104px;height:52px;background:${c ? colorBg(c.class_name) : 'transparent'}">
@@ -696,14 +696,14 @@ function printTimetableHTML(courses, periods, maxP) {
   <style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei";margin:24px;color:#17203a}
   h2{margin:0 0 4px}.meta{color:#667085;font-size:12px;margin-bottom:12px}
   table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #c8d0dd;padding:6px;text-align:center;height:46px}
-  th{background:#eff3fa}td small{color:#667085;display:block}
+  th{background:#eff3fa}td small{color:#667085;display:block}.break-row td{height:30px;background:#f5f7fa;color:#667085;font-weight:600}
   @media print{@page{size:A4 landscape;margin:12mm}}</style>
   <h2>${esc(state.user?.nickname || '')} 个人课表</h2>
   <div class="meta">${esc(state.user?.school || '')}　${esc(state.user?.subject || '')}　导出时间 ${new Date().toLocaleDateString('zh-CN')}</div>
   <table><tr><th>节次/时间</th>${[1,2,3,4,5,6,0].map((d) => `<th>周${WD_SHORT[d]}</th>`).join('')}</tr>
   ${Array.from({ length: maxP }, (_, i) => i + 1).map((p) => {
     const per = periods.find((x) => Number(x.period_no) === p);
-    return `<tr><td><b>第${p}节</b><small>${per ? per.start_time + '-' + per.end_time : ''}</small></td>
+    return `${p === 5 ? '<tr class="break-row"><td colspan="8">午休　12:20-14:10</td></tr>' : ''}<tr><td><b>第${p}节</b><small>${per ? per.start_time + '-' + per.end_time : ''}</small></td>
     ${[1,2,3,4,5,6,0].map((d) => { const c = get(d, p); return `<td>${c ? `<b>${esc(c.class_name)}</b><small>${esc(c.subject)} ${esc(c.room || '')}</small>` : ''}</td>`; }).join('')}</tr>`;
   }).join('')}</table>`;
 }
