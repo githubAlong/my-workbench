@@ -30,6 +30,7 @@ import { parseAttendanceSheet, SUBJECT_ORDER, subjectRank, attRowState, stateLab
 import { voiceSheet } from './attvoice.js';
 import { statsSheet } from './attstats.js';
 import { registerLiveHook } from './live.js';
+import { dayBoardHTML, bindDayBoard, ensureDay, dayKeyOf, ymd as dayStr } from './attday.js';
 
 const WD = ['日', '一', '二', '三', '四', '五', '六'];
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -128,8 +129,11 @@ export async function renderAttendance(box) {
      每天查两三个年级，来回切。切走再回来能停在原来那个 tab 上，
      不用每次重新点一遍。但关掉浏览器就回到第一个（一般是从高一查起）。 */
   let activeGrade = sessionStorage.getItem('wb_att_grade') || '';
+  /* 看板看的是哪一天。默认今天，点日期能翻到别的日子补录。 */
+  let viewDate = sessionStorage.getItem('wb_att_date') || dayStr();
 
-  const load = async () => {
+  const load = async (d) => {
+    if (d) { viewDate = d; sessionStorage.setItem('wb_att_date', d); }
     [gradesData, tables] = await Promise.all([
       api.get('/grades').catch(() => gradesData),
       api.get('/attendance'),
@@ -139,6 +143,21 @@ export async function renderAttendance(box) {
     gradesData.tabs = [...MAIN_GRADES, ...extra];
     if (!activeGrade || !gradesData.tabs.includes(activeGrade)) activeGrade = gradesData.tabs[0];
     paint();
+  };
+
+  /* 惰性生成（PRD FR-DAY-1）：进页面时看今天这组在不在，不在就补。
+     一个浏览器一天只自动补一次，剩下的靠看板上那个「补齐这组」，
+     免得每次切 tab 都发一轮请求。失败不打扰用户 —— 看板上会显示「未生成」。 */
+  const autoEnsure = async () => {
+    const key = `wb_att_ensured_${viewDate}_${activeGrade}`;
+    if (viewDate !== dayStr() || sessionStorage.getItem(key)) return;
+    /* 名册空的年级不自动建表：建出来也是三张空表，不如让老师先去录名册 */
+    if (!(gradesData.counts?.[activeGrade] > 0)) return;
+    sessionStorage.setItem(key, '1');
+    try {
+      const n = await ensureDay({ date: viewDate, grade: activeGrade });
+      if (n) { toast(`今天 ${activeGrade} 的 ${n} 张表已铺好名单`, 'ok', 3600); await load(); }
+    } catch { /* 离线/没配云：什么都不做，用户点「补齐」会看到具体错误 */ }
   };
 
   const paint = () => {
@@ -163,6 +182,8 @@ export async function renderAttendance(box) {
         </div>
       </div>
 
+      ${dayBoardHTML({ date: viewDate, grade: activeGrade, tables: gradeTables(activeGrade) })}
+
       <div class="att-ops">
         <button class="btn primary sm" id="att-upload">${icon('upload', 15)} 上传 Excel 表格</button>
         <button class="btn ghost sm" id="att-new">${icon('plus', 15)} 手填新建</button>
@@ -184,12 +205,24 @@ export async function renderAttendance(box) {
     box.querySelector('#att-expset').onclick = () => exportSettingDialog();
     box.querySelector('#att-add-grade').onclick = () => addGradeDialog(load);
     box.querySelectorAll('[data-grade]').forEach((b) => {
-      b.onclick = () => { activeGrade = b.dataset.grade; sessionStorage.setItem('wb_att_grade', activeGrade); paint(); };
+      b.onclick = () => {
+        activeGrade = b.dataset.grade;
+        sessionStorage.setItem('wb_att_grade', activeGrade);
+        paint();
+        autoEnsure();
+      };
     });
     bindGroups(box, load, activeGrade);
+    bindDayBoard(box, {
+      date: viewDate,
+      grade: activeGrade,
+      load,
+      openTable: (id) => openTable(id, load),
+    });
   };
 
   await load();
+  autoEnsure();
 }
 
 /* 三栏：坐班表 / 教研签到表 / 上课检查表。
@@ -512,6 +545,12 @@ function newSheetDialog(grade, reload, type = 'seat') {
       name: $('#name').value,
       month: d.slice(0, 7),
       columns: colsOf(t),
+      /* day_key 让「同一天同一节次」在库里能认出来（见 attday.js）。
+         手建的也带上，不然看板会以为这天还没这张表。 */
+      meta: {
+        day_key: dayKeyOf(d, g, t, t === 'research' ? '' : String($('#periods').value || '')),
+        gen: 'manual',
+      },
     });
     if (!r.id) throw new Error('建表失败，请重试');
     if (people.length) {
@@ -957,6 +996,12 @@ function tempTeacherDialog(t, cols, done) {
         <input class="input" id="tt-subj" list="tt-subjs" placeholder="如：物理" autocomplete="off">
         <datalist id="tt-subjs">${subjects.map((s) => `<option>${esc(s)}</option>`).join('')}</datalist></div>
     </div>
+    <div class="field"><label class="field-label">借调自</label>
+      <select class="input" id="tt-from">
+        <option value="">外校 / 不记来源</option>
+        ${MAIN_GRADES.filter((g) => g !== t.grade).map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join('')}
+      </select>
+      <div class="field-hint">跨年级借调就选原来那个年级，统计里能看出他从哪借来的。</div></div>
     <div class="field"><label class="field-label">上课状态</label>
       <select class="input" id="tt-st">
         ${checkCols.map((c, i) => `<option value="${esc(c.key)}" ${i === 0 ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}
@@ -978,6 +1023,7 @@ function tempTeacherDialog(t, cols, done) {
     done({
       name,
       subject,
+      borrowGrade: String($('#tt-from').value || ''),
       statusKey: $('#tt-st').value || checkCols[0]?.key || '',
       remarkKey: remarkCol ? remarkCol.key : '',
       remark: String($('#tt-rem').value || '').trim(),
@@ -1129,6 +1175,9 @@ function bindHeader(t, s, reload, ctx) {
       t.confirm_dirty = 0;
       t.confirm_state = 'confirmed';
       toast(again ? '已重新确认，覆盖为这一版' : '已确认生成，这张表正式生效了', 'ok', 3200);
+      /* 顺便把背后的列表/今日看板刷一下：不刷的话，关掉弹层还显示「未确认」，
+         用户会以为没点成功，再点一遍。 */
+      reload?.();
     } catch (e) {
       toast(e.message || '确认失败，请重试', 'err', 4000);
     } finally {
@@ -1772,6 +1821,8 @@ function openSeat(t, reload) {
     target.data = target.data || {};
     /* __temp 是给统计用的：哪怕这人名字刚好和名册里的重名，也按临时老师算 */
     target.data.__temp = 1;
+    /* 从哪个年级借来的：统计里能归口，也知道该找谁核对 */
+    if (it.borrowGrade) target.data.borrow_grade = it.borrowGrade;
     if (it.statusKey) target.data[it.statusKey] = '1';
     if (it.remarkKey && it.remark) target.data[it.remarkKey] = it.remark;
     touched = true;

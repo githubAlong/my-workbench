@@ -2422,8 +2422,15 @@ on('PATCH', '/attendance/:id', ({ params, body }) => {
 on('POST', '/attendance/:id/confirm', ({ params }) => {
   const t = byId('attendance_tables', params.id);
   if (!t) fail(404, '考勤表不存在');
+  const meta = safeJSON(t.meta, {});
+  /* 留痕：确认过几次、每次是不是在改完以后重认的。
+     老师最常问的就是「这张表什么时候认的、认完又动没动」，
+     以前只有最新一个时间戳，问起来只能靠回忆。 */
+  const audit = Array.isArray(meta.audit) ? meta.audit.slice(-19) : [];
+  audit.push({ at: nowISO(), action: t.confirmed_at ? 'reconfirm' : 'confirm', dirty: num(t.confirm_dirty) ? 1 : 0 });
   t.confirmed_at = nowISO();
   t.confirm_dirty = 0;
+  t.meta = JSON.stringify({ ...meta, audit });
   t.updated_at = nowISO();
   save();
   return t;
@@ -3116,7 +3123,7 @@ on('POST', '/subjects/delete', ({ body }) => {
 /* PRD FR-STAT：按年级独立，按老师汇总；请假拆病假/事假/上午/下午/时长；
    临时老师（不在名册里 / 行上打了 __temp）单独一行，保证总数对得上三张表。 */
 function emptyPerson(name, subject, temp) {
-  return { name, subject: subject || '', temp: temp ? 1 : 0, classes: 0, research: 0, leaves: 0, absent: 0, sick: 0, personal: 0, unknown: 0, hours: 0, am: 0, pm: 0, full: 0 };
+  return { name, subject: subject || '', temp: temp ? 1 : 0, classes: 0, research: 0, days: 0, borrow: '', leaves: 0, absent: 0, sick: 0, personal: 0, unknown: 0, hours: 0, am: 0, pm: 0, full: 0 };
 }
 
 function attMonthlyStats(grade, year) {
@@ -3135,6 +3142,15 @@ function attAggregate(grade, year, roster, tabs, detailOf) {
   roster.forEach((t) => { subjOf[t.name] = t.subject || ''; });
   const months = {};
   const yearMap = {};
+  /* 坐班天数：按日期去重。坐班表一天可能好几张（按节次），
+     直接数张数会把一个人算成三四次，交财务时对不上。 */
+  const seatDaysY = new Map();
+  const seatDaysM = new Map();
+  const addDay = (map, key, date) => {
+    if (!date) return;
+    if (!map.has(key)) map.set(key, new Set());
+    map.get(key).add(date);
+  };
   const person = (map, name, subject) => {
     if (!map[name]) map[name] = emptyPerson(name, subject, !rosterNames.has(name));
     return map[name];
@@ -3163,6 +3179,15 @@ function attAggregate(grade, year, roster, tabs, detailOf) {
       const temp = !rosterNames.has(name) || num(data.__temp) === 1;
       m.temp = y.temp = temp ? 1 : 0;
       const st = attRowState(data, detail.columns, type);
+      /* 坐班天数：这张坐班表里这个人有实际记载（在岗或请假）就算来过一天。
+         划了 × 和整格空白的都不算 —— 那是「没来」，不是「来过」。 */
+      if (type === 'seat' && (st === 'on' || st === 'leave')) {
+        const dk = String(t.sheet_date || '').slice(0, 10);
+        addDay(seatDaysY, name, dk);
+        addDay(seatDaysM, `${monthKey}|${name}`, dk);
+      }
+      /* 跨年级借调来的临时老师，记下从哪个年级借的（PRD FR-CLASS-2） */
+      if (data.borrow_grade) m.borrow = y.borrow = String(data.borrow_grade);
       for (const target of [m, y]) {
         if (kClass.some((c) => data[c.key] === '1')) target.classes++;
         if (kResearch.some((c) => data[c.key] === '1')) target.research++;
@@ -3185,6 +3210,13 @@ function attAggregate(grade, year, roster, tabs, detailOf) {
       }
     }
   }
+  /* 把去重后的天数写回到人头上 */
+  for (const [name, set] of seatDaysY) if (yearMap[name]) yearMap[name].days = set.size;
+  for (const [key, set] of seatDaysM) {
+    const i = key.indexOf('|');
+    const mk = key.slice(0, i); const nm = key.slice(i + 1);
+    if (months[mk]?.[nm]) months[mk][nm].days = set.size;
+  }
   const fix = (map) => {
     /* 有表的月份，把名册里零记录的老师也补成 0 行（交财务要的是全名单） */
     for (const key of Object.keys(months)) {
@@ -3205,7 +3237,7 @@ function attAggregate(grade, year, roster, tabs, detailOf) {
     if (!temps.length) return null;
     const agg = emptyPerson(`临时老师（${temps.length} 人）`, '—', 1);
     for (const r of temps) {
-      for (const k of ['classes', 'research', 'leaves', 'absent', 'sick', 'personal', 'unknown', 'am', 'pm', 'full']) agg[k] += r[k];
+      for (const k of ['classes', 'research', 'days', 'leaves', 'absent', 'sick', 'personal', 'unknown', 'am', 'pm', 'full']) agg[k] += r[k];
       agg.hours += r.hours;
     }
     return agg;
@@ -4465,7 +4497,11 @@ async function cloudRoute(method, clean, query, body) {
       const id = decodeURIComponent(second);
       const t = await m.getRow('attendance_tables', id);
       if (!t) throw new Error('考勤表不存在');
-      const meta = { ...safeJSON(t.meta, {}), confirmed_at: nowISO(), confirm_dirty: 0 };
+      const prevM = safeJSON(t.meta, {});
+      /* 留痕，跟本地版一致：确认/重新确认各记一条，最多留 20 条 */
+      const audit = Array.isArray(prevM.audit) ? prevM.audit.slice(-19) : [];
+      audit.push({ at: nowISO(), action: prevM.confirmed_at ? 'reconfirm' : 'confirm', dirty: num(prevM.confirm_dirty) ? 1 : 0 });
+      const meta = { ...prevM, confirmed_at: nowISO(), confirm_dirty: 0, audit };
       const row = await m.updateRow('attendance_tables', id, { meta });
       return { ...row, columns: attCols(row), meta, confirm_state: 'confirmed' };
     }

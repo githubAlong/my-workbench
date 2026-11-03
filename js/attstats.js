@@ -29,7 +29,9 @@ function recentMonths(n) {
 }
 
 const COLS = [
-  ['姓名', 'name'], ['学科', 'subject'], ['上课节数', 'classes'], ['教研次数', 'research'],
+  /* 「坐班天数」跟「上课节数」不是一个口径：坐班表按节次一天可能好几张，
+     直接数张数会把一个人算成三四次。天数按日期去重，交财务看的是这个。 */
+  ['姓名', 'name'], ['学科', 'subject'], ['上课节数', 'classes'], ['教研次数', 'research'], ['坐班天数', 'days'],
   ['请假次数', 'leaves'], ['未到', 'absent'], ['病假', 'sick'], ['事假', 'personal'], ['未注明', 'unknown'],
   ['上午', 'am'], ['下午', 'pm'], ['全天', 'full'], ['请假时长(天)', 'hours'],
 ];
@@ -131,7 +133,7 @@ export async function statsSheet(grade) {
     const trs = rows.map((r) => `<tr${r.temp ? ' class="stt-temp"' : ''}>
       <td class="bold">${esc(r.name)}${r.temp ? ' <span class="stt-badge">临时</span>' : ''}</td>
       <td>${esc(r.subject || '')}</td>
-      <td>${r.classes}</td><td>${r.research}</td>
+      <td>${r.classes}</td><td>${r.research}</td><td>${r.days || ''}</td>
       <td${r.leaves ? ' style="color:var(--red);font-weight:700"' : ''}>${r.leaves}</td>
       <td${r.absent ? ' style="color:var(--amber);font-weight:700"' : ''}>${r.absent}</td>
       <td>${r.sick}</td><td>${r.personal}</td><td>${r.unknown}</td>
@@ -140,7 +142,7 @@ export async function statsSheet(grade) {
     </tr>`).join('');
     const aggTr = agg ? `<tr class="stt-agg">
       <td class="bold">${esc(agg.name)}</td><td>—</td>
-      <td>${agg.classes}</td><td>${agg.research}</td><td>${agg.leaves}</td><td>${agg.absent}</td>
+      <td>${agg.classes}</td><td>${agg.research}</td><td>${agg.days || ''}</td><td>${agg.leaves}</td><td>${agg.absent}</td>
       <td>${agg.sick}</td><td>${agg.personal}</td><td>${agg.unknown}</td>
       <td>${agg.am}</td><td>${agg.pm}</td><td>${agg.full}</td>
       <td>${Math.round(agg.hours * 10) / 10}</td></tr>` : '';
