@@ -86,16 +86,20 @@ export const state = {
 export const NAV = [
   { id: 'home', label: '首页', icon: 'home' },
   { id: 'work', label: '工作', icon: 'work' },
-  /* 【第 22 / 23 条】自习、维修各自独立成页。
-     没有塞进「工作」的页签里：工作页已经有 8 个页签，再加两个就要横向滚了；
-     而这两件事的发生频率和周次都不一样（自习几乎每天、维修偶尔），
-     放在一级导航里一步就到，比藏在页签里点两下更符合实际用法。 */
-  { id: 'selfstudy', label: '自习', icon: 'clock' },
-  { id: 'repairs', label: '维修', icon: 'wrench' },
   { id: 'daily', label: '日常', icon: 'daily' },
   { id: 'study', label: '学习', icon: 'study' },
+  { id: 'selfstudy', label: '小助手', icon: 'clock' },
   { id: 'recycle', label: '回收站', icon: 'trash' },
   { id: 'me', label: '我的', icon: 'me' },
+];
+const MOBILE_NAV = NAV.filter((n) => !['selfstudy', 'recycle'].includes(n.id));
+const WORK_NAV = [
+  { path: 'work/attendance', label: '考勤' },
+  { path: 'work/timetable', label: '课表' },
+  { path: 'work/lessons', label: '上课' },
+  { path: 'repairs', label: '维修' },
+  { path: 'work/trips', label: '出差' },
+  { path: 'work/invigilation', label: '监考' },
 ];
 export const WORK_TABS = [
   { id: 'lessons', label: '上课' },
@@ -220,23 +224,78 @@ const views = {};
 function navHTML(n, cls) {
   const active = isActive(n.id) ? 'active' : '';
   const badge = n.id === 'me' && state.unread ? `<span class="badge-dot">${state.unread > 99 ? '99+' : state.unread}</span>` : '';
-  return `<button class="${cls} ${active}" data-nav="${n.id}">
+  const menuAttrs = cls === 'bn-item' && n.id === 'work' ? 'aria-haspopup="dialog" aria-expanded="false"' : '';
+  return `<button class="${cls} ${active}" data-nav="${n.id}" ${menuAttrs}>
     ${cls === 'bn-item' ? icon(n.icon, 22) : `<span class="ni">${icon(n.icon, 20)}</span>`}
     <span>${n.label}</span>${badge}</button>`;
 }
 function isActive(id) {
   const r = state.route;
   if (id === 'home') return r === 'home' || r === '';
-  if (id === 'work') return r.startsWith('work');
+  if (id === 'work') return r.startsWith('work') || r === 'repairs';
   if (id === 'daily') return r.startsWith('daily');
   if (id === 'study') return r.startsWith('study');
+  if (id === 'selfstudy') return r === 'selfstudy';
   if (id === 'me') return r === 'me' || r === 'messages' || r === 'profile';
   if (id === 'recycle') return r === 'recycle';
   return false;
 }
 
+function workNavHTML() {
+  const open = isActive('work');
+  const items = WORK_NAV.map((item) => {
+    const active = state.route === item.path ? 'active' : '';
+    return `<button class="nav-subitem ${active}" data-shell-route="${item.path}">${item.label}</button>`;
+  }).join('');
+  return `<div class="nav-group${open ? ' open' : ''}">
+    <div class="nav-group-head">
+      ${navHTML(NAV.find((n) => n.id === 'work'), 'nav-item')}
+      <button class="nav-group-toggle" aria-label="${open ? '收起' : '展开'}工作分类" aria-expanded="${open ? 'true' : 'false'}" aria-controls="work-subnav">${icon('down', 15)}</button>
+    </div>
+    <div class="nav-submenu" id="work-subnav"${open ? '' : ' hidden'}>${items}</div>
+  </div>`;
+}
+
 function bindShell() {
-  document.querySelectorAll('[data-nav]').forEach((b) => { b.onclick = () => go(b.dataset.nav); });
+  document.querySelectorAll('[data-nav]').forEach((b) => {
+    b.onclick = () => {
+      if (b.classList.contains('bn-item') && b.dataset.nav === 'work') {
+        const menu = document.getElementById('work-quick-menu');
+        const scrim = document.getElementById('work-quick-scrim');
+        const open = menu.hidden;
+        menu.hidden = !open;
+        scrim.hidden = !open;
+        b.setAttribute('aria-expanded', open ? 'true' : 'false');
+        return;
+      }
+      go(b.dataset.nav);
+    };
+  });
+  document.querySelectorAll('[data-shell-route]').forEach((b) => {
+    b.onclick = () => {
+      const menu = document.getElementById('work-quick-menu');
+      const scrim = document.getElementById('work-quick-scrim');
+      if (menu) menu.hidden = true;
+      if (scrim) scrim.hidden = true;
+      document.querySelector('.bn-item[data-nav=work]')?.setAttribute('aria-expanded', 'false');
+      go(b.dataset.shellRoute);
+    };
+  });
+  document.querySelectorAll('.nav-group-toggle').forEach((b) => {
+    b.onclick = () => {
+      const submenu = document.getElementById('work-subnav');
+      const open = submenu.hidden;
+      submenu.hidden = !open;
+      b.setAttribute('aria-expanded', open ? 'true' : 'false');
+      b.setAttribute('aria-label', `${open ? '收起' : '展开'}工作分类`);
+      b.closest('.nav-group').classList.toggle('open', open);
+    };
+  });
+  document.getElementById('work-quick-scrim')?.addEventListener('click', () => {
+    document.getElementById('work-quick-menu').hidden = true;
+    document.getElementById('work-quick-scrim').hidden = true;
+    document.querySelector('.bn-item[data-nav=work]')?.setAttribute('aria-expanded', 'false');
+  });
   const st = document.getElementById('side-theme');
   if (st) st.onclick = () => openThemeSheet();
   const su = document.getElementById('side-user');
@@ -318,7 +377,9 @@ export async function render() {
   const pageShell = `<div class="app">
     <aside class="sidebar">
       <div class="brand"><div class="brand-logo">台</div><div><div class="brand-name">我的工作台</div><div class="brand-sub">Workbench</div></div></div>
-      ${NAV.map((n) => navHTML(n, 'nav-item')).join('')}
+      <div class="sidebar-links">
+        ${NAV.map((n) => n.id === 'work' ? workNavHTML() : navHTML(n, 'nav-item')).join('')}
+      </div>
       <div class="sidebar-foot">
         <button class="nav-item" id="side-theme" title="切换主题外观"><span class="theme-dot" style="background:${(THEME_MAP[state.theme] || THEMES[0]).sw.pri}"></span><span>主题外观</span><span class="theme-now">${esc(themeName(state.theme))}</span></button>
         <button class="nav-item" id="side-wide" title="让正文铺满整个屏幕宽度"><span class="ni">${icon('expand', 18)}</span><span>平铺整页</span><span class="theme-now" id="wide-now">关</span></button>
@@ -327,7 +388,14 @@ export async function render() {
       </div>
     </aside>
     <main class="main" id="main"></main>
-    <nav class="bottom-nav"><div class="bn-inner">${NAV.map((n) => navHTML(n, 'bn-item')).join('')}</div></nav>
+    <nav class="bottom-nav">
+      <div class="bn-inner">${MOBILE_NAV.map((n) => navHTML(n, 'bn-item')).join('')}</div>
+      <div class="work-quick-scrim" id="work-quick-scrim" hidden></div>
+      <div class="work-quick-menu" id="work-quick-menu" role="dialog" aria-label="工作模块" hidden>
+        <div class="work-quick-title">工作模块</div>
+        <div class="work-quick-grid">${WORK_NAV.map((item) => `<button class="work-quick-item" data-shell-route="${item.path}">${item.label}</button>`).join('')}</div>
+      </div>
+    </nav>
   </div>`;
   app.innerHTML = pageShell;
   bindShell();
