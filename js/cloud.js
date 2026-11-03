@@ -56,7 +56,17 @@ export function cfg() {
 
   let c = null;
   try { c = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch { }
-  if (c && c.url) return c;
+  if (c && c.url) {
+    const storedUrl = String(c.url).replace(/\/+$/, '');
+    if (storedUrl === BUILTIN_URL) {
+      const current = { url: BUILTIN_URL, anon: BUILTIN_ANON };
+      if (c.anon !== BUILTIN_ANON) {
+        try { localStorage.setItem(CFG_KEY, JSON.stringify(current)); } catch { }
+      }
+      return current;
+    }
+    return c;
+  }
 
   /* 从没配过：灌内置的正式项目，登录框立刻可用 */
   try { localStorage.setItem(CFG_KEY, JSON.stringify({ url: BUILTIN_URL, anon: BUILTIN_ANON })); } catch { }
@@ -96,19 +106,24 @@ export function normalizePhone(v) {
 }
 
 function authError(j, status) {
-  const msg = j.error_description || j.msg || j.message || ('HTTP ' + status);
+  const msg = String(j.error_description || j.msg || j.message || j.error || '');
   const code = String(j.error_code || j.code || '');
-  if (/already registered|already exists|user_already_exists|phone_exists/i.test(msg + code)) {
+  const detail = msg + ' ' + code;
+  if (/invalid api key|unregistered api key|invalid_api_key/i.test(detail)) {
+    return new Error('Supabase API 密钥无效或与项目不匹配，请确认项目 URL 和 Publishable key 来自同一项目。');
+  }
+  if (/already registered|already exists|user_already_exists|phone_exists/i.test(detail)) {
     return new Error('这个手机号已经注册过了，请直接登录');
   }
-  if (/Invalid login credentials/i.test(msg)) return new Error('手机号或密码不正确');
-  if (/phone not confirmed|phone_not_confirmed/i.test(msg + code)) return new Error('该手机号尚未验证，请使用短信验证码登录');
-  if (/weak_password|Password should be/i.test(msg + code)) return new Error('密码未达到安全要求，请换一个更强的密码');
-  if (/Token has expired|otp_expired/i.test(msg + code)) return new Error('验证码已过期，请重新获取');
-  if (/Invalid token|otp_expired|token is invalid/i.test(msg + code)) return new Error('验证码不正确或已过期');
-  if (/signup_disabled|Signups not allowed/i.test(msg + code)) return new Error('当前暂不允许注册，请联系管理员');
-  if (/phone_provider_disabled|Phone provider is disabled/i.test(msg + code)) return new Error('手机号认证尚未在 Supabase 启用');
-  return new Error(msg);
+  if (/Invalid login credentials|invalid_credentials/i.test(detail)) return new Error('手机号或密码不正确');
+  if (/phone not confirmed|phone_not_confirmed/i.test(detail)) return new Error('该手机号尚未确认，请在 Supabase 中关闭手机号确认后重新注册');
+  if (/weak_password|Password should be/i.test(detail)) return new Error('密码未达到安全要求，请换一个更强的密码');
+  if (/Token has expired|otp_expired/i.test(detail)) return new Error('验证码已过期，请重新获取');
+  if (/Invalid token|token is invalid/i.test(detail)) return new Error('验证码不正确或已过期');
+  if (/signup_disabled|Signups not allowed/i.test(detail)) return new Error('当前暂不允许注册，请在 Supabase 身份验证设置中启用新用户注册');
+  if (/phone_provider_disabled|Phone provider is disabled/i.test(detail)) return new Error('手机号认证尚未在 Supabase 启用');
+  if (/over_sms_send_rate_limit|rate limit/i.test(detail)) return new Error('操作过于频繁，请稍后再试');
+  return new Error(`请求失败（服务端错误 ${status}），请稍后重试或联系管理员检查 Supabase 配置`);
 }
 
 async function authRequest(path, body, method = 'POST') {
@@ -117,7 +132,12 @@ async function authRequest(path, body, method = 'POST') {
   const t = tok();
   const headers = { 'Content-Type': 'application/json', apikey: c.anon };
   if (path === '/auth/v1/user' && t?.access_token) headers.Authorization = 'Bearer ' + t.access_token;
-  const r = await fetch(c.url + path, { method, headers, body: JSON.stringify(body) });
+  let r;
+  try {
+    r = await fetch(c.url + path, { method, headers, body: JSON.stringify(body) });
+  } catch {
+    throw new Error('无法连接 Supabase，请检查网络和项目地址后重试');
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw authError(j, r.status);
   return j;

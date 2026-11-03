@@ -754,7 +754,12 @@ function authPhone() {
     } catch (e) {
       btn.disabled = false;
       btn.textContent = isReg ? '注册' : '登录';
-      say(e.message || '操作失败，请稍后重试');
+      const message = String(e.message || '');
+      say(/[\u3400-\u9fff]/.test(message)
+        ? message
+        : isReg
+          ? '注册未能完成，请检查手机号、密码和 Supabase 配置后重试；若手机号已注册，请切换到登录。'
+          : '登录失败，请检查手机号和密码后重试。');
     }
   };
 
