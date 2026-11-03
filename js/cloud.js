@@ -41,7 +41,7 @@ const TOK_KEY = 'wb_supa_tok';    // { access_token, refresh_token, expires_at, 
    localStorage 里残留的旧配置、别人给的错误地址，都会被纠正回来。
 --------------------------------------------------------------------------- */
 export const BUILTIN_URL = 'https://gfgxvpvexzcfbujkwsqw.supabase.co';
-export const BUILTIN_ANON = 'sb_publishable_-AYrJyaZEN6_zeVh45oZ3w_YMOGF-3P';
+export const BUILTIN_ANON = 'sb_publishable_-cCYwAxVzEIioR4rdsmGpw_HThEm8gi';
 
 export function cfg() {
   /* 优先级：地址栏的 ?supa= （测试用） > localStorage > 内置的正式项目。
