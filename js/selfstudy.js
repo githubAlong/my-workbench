@@ -6,139 +6,16 @@
      记进「考勤」也不对，考勤记的是「学生到没到」，这里要记的是「我看了哪一节、做了什么」。
    所以单独一张表、单独一页，口径各自独立，互不污染。 */
 import {
-  api, el, esc, toast, sheet, confirmDialog, ymd, fmtDateTime, studentUrl, shortPath,
+  api, esc, toast, sheet, confirmDialog, ymd, fmtDateTime,
 } from './core.js';
 import { registerView, icon, pageHead, state } from './ui.js';
 
-/* 单独占一个视图名还保留着，是为了 #/selfstudy 这种老链接能落到正确的地方；
-   实际渲染走 render() 里的 translate，这里只做兜底。 */
-registerView(async function selfstudy(main, ctx) {
-  main.innerHTML = pageHead('自习', '晚自习、早读、周末自习——记哪个班、第几节、做了什么');
-  const box = el('<div id="ss-body"></div>');
-  main.appendChild(box);
-  return renderSelfstudyBody(box, ctx);
-});
+registerView(async function selfstudy(main) {
+  main.innerHTML = pageHead('自习', '晚自习、早读、周末自习——记哪个班、第几节、做了什么',
+    `<button class="btn primary sm" id="ss-new">${icon('plus', 15)} 记一次自习</button>`)
+    + '<div id="ss-body"></div>';
+  const box = main.querySelector('#ss-body');
 
-export async function renderSelfstudyBody(box, ctx = {}) {
-  /* 这一页有两个身份：
-       ① 学生页面里的「自习」模块配置（从「课件 → 自习」进来）
-       ② 老师自己记自习（从旧的一级导航进来）
-     两者的数据不是一回事：①配置的是 student.html 上那个签到模块，
-     ②记的是我看了哪个班的自习、多长、算不算课时。所以顶部给一道切换，
-     默认落在 ①（因为二级/三级导航点进来的都是 i）。 */
-  let mode = ctx.studentTab ? 'student' : 'mine';
-  const tabs = el(`<div class="seg" style="margin-bottom:14px">
-    <button data-m="student" class="${mode === 'student' ? 'on' : ''}">学生页面里的自习</button>
-    <button data-m="mine" class="${mode === 'mine' ? 'on' : ''}">我自己看的自习</button>
-  </div>`);
-  const pane = el('<div></div>');
-  box.innerHTML = '';
-  box.appendChild(tabs);
-  box.appendChild(pane);
-  tabs.querySelectorAll('[data-m]').forEach((b) => {
-    b.onclick = () => {
-      mode = b.dataset.m;
-      tabs.querySelectorAll('[data-m]').forEach((x) => x.classList.toggle('on', x === b));
-      paint();
-    };
-  });
-  const paint = () => {
-    if (mode === 'student') return renderStudentSelfstudy(pane);
-    return renderMySelfstudy(pane);
-  };
-  return paint();
-}
-
-/* ---------- ① 学生页面里的自习模块 ----------
-   学生打开短链后，如果老师开了自习签到，顶部会出现「签到」页，点「我到了」。
-   老师这边能做的只有三件事：开一场、看谁到了、结束。
-   配置项（是否需要学生填姓名、是否允许迟到）存在 link.settings 上。 */
-async function renderStudentSelfstudy(box) {
-  const [links, sessions, rosters] = await Promise.all([
-    api.get('/links').catch(() => []),
-    api.get('/roll/sessions').catch(() => []),
-    api.get('/rosters').catch(() => []),
-  ]);
-  const link = links[0];
-  const open = sessions.filter((s) => s.status === 'open');
-  const today = sessions.filter((s) => String(s.date || '') === ymd(new Date()));
-  box.innerHTML = `
-    <div class="card card-pad" style="margin-bottom:14px">
-      <div class="card-title">${icon('route', 16)} 学生看到的入口</div>
-      ${link
-      ? `<div class="row wrap" style="gap:10px;margin-top:8px">
-             <code class="mono link-short" id="ss-link">${esc(shortPath(link.code))}</code>
-             <button class="btn ghost sm" id="ss-copy">${icon('copy', 14)} 复制链接</button>
-             <a class="btn ghost sm" href="${esc(studentUrl(link.code))}" target="_blank" rel="noopener">打开看看</a>
-           </div>
-           <div class="field-hint" style="margin-top:8px">学生打开这个链接，顶部就有「自习」页；没有进行中的签到时，页面会显示「现在没有在进行的签到」。</div>`
-      : `<div class="empty" style="padding:18px">还没有生成学生链接。<button class="btn primary sm" id="ss-mklink">生成一条</button></div>`}
-    </div>
-
-    <div class="ss-stats mod-stats">
-      <div class="card card-pad ss-stat"><div class="ss-k">进行中</div>
-        <div class="ss-v" style="color:${open.length ? 'var(--green)' : 'var(--text)'}">${open.length}<span class="ss-u">场</span></div>
-        <div class="tiny muted">${open.length ? '学生正在点「我到了」' : '点下面开始一场'}</div></div>
-      <div class="card card-pad ss-stat"><div class="ss-k">今天开了</div>
-        <div class="ss-v">${today.length}<span class="ss-u">场</span></div>
-        <div class="tiny muted">含已结束的</div></div>
-      <div class="card card-pad ss-stat"><div class="ss-k">名单</div>
-        <div class="ss-v">${rosters.length}<span class="ss-u">个班</span></div>
-        <div class="tiny muted">${rosters.slice(0, 2).map((r) => esc(r.class_name)).join('、') || '还没有班级名单'}</div></div>
-    </div>
-
-    <div class="row wrap" style="gap:8px;margin:16px 0 10px">
-      <button class="btn primary sm" id="ss-open">${icon('play', 15)} 开始自习签到</button>
-      <span style="flex:1"></span>
-      <span class="tiny muted">学生端每 3 秒刷新一次人数</span>
-    </div>
-
-    <div class="card" id="ss-sess">${open.length || today.length ? '' : '<div class="empty">今天还没有自习签到</div>'}</div>`;
-
-  box.querySelector('#ss-copy')?.addEventListener('click', async () => {
-    const url = studentUrl(link.code);
-    try { await navigator.clipboard.writeText(url); toast('已复制，发到班级群就行'); } catch { prompt('复制下面的链接', url); }
-  });
-  box.querySelector('#ss-mklink')?.addEventListener('click', async () => {
-    await api.post('/links', { title: '班级资料站' }).catch(() => { });
-    renderStudentSelfstudy(box);
-  });
-  box.querySelector('#ss-open')?.addEventListener('click', () => openRollDialog(rosters, () => renderStudentSelfstudy(box)));
-
-  /* 场次列表 */
-  const list = (open.length ? open : today).slice(0, 6);
-  const wrapBox = box.querySelector('#ss-sess');
-  wrapBox.innerHTML = list.map((s) => {
-    const st = s.stats || {};
-    const came = (st.present || 0) + (st.late || 0);
-    return `<div class="list-item">
-      <div class="doc-ico">${icon('clock', 17)}</div>
-      <div style="flex:1;min-width:0">
-        <div class="row wrap" style="gap:8px"><span class="bold">${esc(s.class_name || s.grade || '未填班级')}</span>
-          ${s.status === 'open' ? '<span class="chip green">进行中</span>' : '<span class="chip">已结束</span>'}
-          ${s.period_no ? `<span class="chip blue">第 ${s.period_no} 节</span>` : ''}</div>
-        <div class="tiny muted">${esc(String(s.date || ''))} · 应到 ${s.expect || '-'} · 已到 ${came}</div>
-      </div>
-      <button class="btn ghost sm" data-detail="${s.id}">看名单</button>
-      ${s.status === 'open' ? `<button class="btn ghost sm" data-close="${s.id}">结束</button>` : ''}
-    </div>`;
-  }).join('') || '<div class="empty">今天还没有自习签到</div>';
-
-  wrapBox.querySelectorAll('[data-detail]').forEach((b) => {
-    b.onclick = () => rollDetail(Number(b.dataset.detail), () => renderStudentSelfstudy(box));
-  });
-  wrapBox.querySelectorAll('[data-close]').forEach((b) => {
-    b.onclick = async () => {
-      if (!(await confirmDialog('结束这场自习签到？结束后学生就点不了了，记录会保留。'))) return;
-      await api.patch('/roll/sessions/' + b.dataset.close, { status: 'closed' });
-      toast('已结束');
-      renderStudentSelfstudy(box);
-    };
-  });
-}
-
-/* ---------- ② 我自己看的自习（原来的记录页） ---------- */
-async function renderMySelfstudy(box) {
   let rows = [];
   let month = ymd(new Date()).slice(0, 7);
 
@@ -329,13 +206,6 @@ async function renderMySelfstudy(box) {
     };
   }
 
-  /* 「记一次自习」按钮原来挂在页头上，现在页头由 work.js 统一画，
-     按钮挪到正文里，靠 id 绑定。 */
-  const newBtn = el(`<div class="row wrap" style="gap:8px;margin:0 0 12px">
-    <button class="btn primary sm" id="ss-new">${icon('plus', 15)} 记一次自习</button>
-    <span class="tiny muted">只记「我看了哪个班的自习」，和上面那个学生签到不是一回事</span>
-  </div>`);
-  box.insertBefore(newBtn, box.firstChild);
-  newBtn.querySelector('#ss-new').onclick = () => editor(null);
+  main.querySelector('#ss-new').onclick = () => editor(null);
   await load();
-}
+});

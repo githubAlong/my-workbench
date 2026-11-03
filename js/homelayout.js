@@ -56,60 +56,24 @@ export function readLayout() {
 }
 
 let saveTimer = null;
-let pendingCards = null;
 /* 存布局。防抖 600ms：拖一次可能触发多次 drop，
    不防抖会连打十几个 PATCH，慢网下互相覆盖，最后存进去的是中间态。 */
-export function saveLayout(cards, { immediate = false } = {}) {
-  pendingCards = cards;
+export function saveLayout(cards) {
   clearTimeout(saveTimer);
-  const flush = async () => {
-    saveTimer = null;
-    const payload = pendingCards;
-    pendingCards = null;
+  saveTimer = setTimeout(async () => {
     try {
-      /* 【必须在这里现读 settings，不能在排定时器时就快照】
-         早先是 `{ ...(state.user?.settings || {}), layout }` 在 saveLayout 调用瞬间求值，
-         然后 PATCH 整块 settings 覆盖上去。于是「拖完卡片 600ms 内又去改昵称/学校」时，
-         后发的用户名改动会被这份 600ms 前的旧快照盖回去——表现为改完昵称刷新又变回原名。
-         现在改成发送时才读一次，且服务端 /me 的 PATCH 也改成按字段浅合并，双保险。 */
-      const settings = { ...(state.user?.settings || {}), layout: { cards: payload } };
+      const settings = { ...(state.user?.settings || {}), layout: { cards } };
       const r = await api.patch('/me', { settings });
       if (r?.user) state.user = r.user;
     } catch {
       toast('布局没保存成功，下次打开会回到原来的排法', 'warn');
     }
-  };
-  if (immediate) flush();
-  else saveTimer = setTimeout(flush, 600);
+  }, 600);
 }
-
-/* 关标签/切后台时把待写的布局立刻落下去，否则「重置后立刻关页面」等于没重置 */
-function flushPending() {
-  if (saveTimer && pendingCards) { clearTimeout(saveTimer); saveTimer = null; }
-}
-if (typeof window !== 'undefined') {
-  window.addEventListener('pagehide', () => {
-    if (pendingCards) {
-      const cards = pendingCards;
-      clearTimeout(saveTimer); saveTimer = null; pendingCards = null;
-      try {
-        const settings = { ...(state.user?.settings || {}), layout: { cards } };
-        api.patch('/me', { settings }).then((r) => { if (r?.user) state.user = r.user; }).catch(() => {});
-      } catch { }
-    }
-  });
-}
-void flushPending;
 
 export function resetLayout() {
   const cards = HOME_CARDS.map((c) => ({ id: c.id, col: c.col }));
-  /* 重置必须是「立即」的：早先也走 600ms 防抖，用户看到「已恢复默认布局」
-     然后马上切页或关标签，那次 PATCH 根本没发出去，下次打开还是乱的。
-     同时先把内存里的 layout 改掉，让当次画面也真的复原。 */
-  if (state.user) {
-    state.user.settings = { ...(state.user.settings || {}), layout: { cards } };
-  }
-  saveLayout(cards, { immediate: true });
+  saveLayout(cards);
   return cards;
 }
 
@@ -197,7 +161,6 @@ export function enableDragSort(gridEl, { onDrop } = {}) {
     }
     if (placeholder) placeholder.remove();
     placeholder = null;
-    card.style.visibility = '';   /* 触摸拖拽时先隐藏了本体，这里无论如何都要还原 */
     card.classList.remove('hcard-dragging');
     document.body.classList.remove('hcard-dragging-body');
     dragging = null;
@@ -228,13 +191,6 @@ export function enableDragSort(gridEl, { onDrop } = {}) {
       if (card.__hbound) return;   /* 重绑会叠加监听器，用标记挡住 */
       card.__hbound = true;
       const handle = card.querySelector('[data-drag-handle]') || card;
-      /* 【桌面拖不动的根因】
-         早先只给 handle 挂了 dragstart 监听，却没给它设 draggable=true，
-         浏览器压根不会对不可拖拽的元素派发 dragstart —— 于是桌面端拖拽等于不存在。
-         卡片本体保留 draggable=false，避免和内部输入框的选中文字打架。 */
-      card.draggable = false;
-      handle.draggable = true;
-      handle.style.cursor = 'grab';
 
       /* 桌面 HTML5 */
       handle.addEventListener('dragstart', (e) => {
@@ -253,19 +209,13 @@ export function enableDragSort(gridEl, { onDrop } = {}) {
         /* 卡片里的按钮、输入框不能被拖拽吃掉点击 —— 这是拖拽功能最常见的破坏点 */
         if (t.closest('button, a, input, textarea, select, label')) return;
         pid = e.pointerId; sx = e.clientX; sy = e.clientY; moved = false; active = false;
-        /* 【不能 setPointerCapture】
-           早先这里调了 handle.setPointerCapture(pid)，指针捕获之后 pointermove 的目标
-           被重定向到 handle，挂在 .home-col 上的 dragover/drop 收不到事件；
-           同时手指一滑就把卡片「粘」住，松手时因为 placeholder 还从没被创建过，
-           finish(true) 里的 insertBefore 被跳过，卡片就停在原地——
-           表现就是「iPad 上一碰手柄卡片就不动了」。
-           现在改成把 move/up 挂到 window 上，全程手动算位置并直接放占位条。 */
+        handle.setPointerCapture?.(pid);
       };
       const onMove = (e) => {
-        if (pid == null || e.pointerId !== pid) return;
+        if (pid !== e.pointerId) return;
         const dx = e.clientX - sx; const dy = e.clientY - sy;
         if (!active) {
-          /* 移动超过 8px 才算拖，避免滑一下就误触 */
+          /* 长按 220ms 或移动超过 8px 才算拖，避免滑一下就误触 */
           if (Math.hypot(dx, dy) < 8) return;
           active = true;
           start(card);
@@ -275,11 +225,8 @@ export function enableDragSort(gridEl, { onDrop } = {}) {
           ghostEl.style.width = r.width + 'px';
           ghostEl.style.height = r.height + 'px';
           document.body.appendChild(ghostEl);
-          /* 卡片本体先藏起来，否则原位置和浮标会同时出现在屏幕上一遍 */
-          card.style.visibility = 'hidden';
-          placePlaceholder(findTarget(e.clientX, e.clientY));
         }
-        if (e.cancelable) e.preventDefault();
+        e.preventDefault();
         moved = true;
         if (ghostEl) {
           ghostEl.style.transform = `translate(${e.clientX - sx}px, ${e.clientY - sy}px) rotate(1.2deg)`;
@@ -287,23 +234,21 @@ export function enableDragSort(gridEl, { onDrop } = {}) {
         placePlaceholder(findTarget(e.clientX, e.clientY));
       };
       const onUp = (e) => {
-        if (pid == null || (e.pointerId != null && e.pointerId !== pid)) return;
+        if (pid !== e.pointerId) return;
         const wasActive = active;
         pid = null; active = false;
         if (ghostEl) { ghostEl.remove(); ghostEl = null; }
-        card.style.visibility = '';
         if (wasActive) finish(moved);
       };
-      /* 挂在 window 上而不是 handle 上：手指滑出卡片范围也要继续跟手 */
       handle.addEventListener('pointerdown', onDown);
-      window.addEventListener('pointermove', onMove, { passive: false });
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onUp);
+      handle.addEventListener('pointermove', onMove, { passive: false });
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onUp);
       cleanups.push(() => {
         handle.removeEventListener('pointerdown', onDown);
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onUp);
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onUp);
       });
     });
   };

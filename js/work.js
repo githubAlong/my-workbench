@@ -1,24 +1,16 @@
-import { api, el, esc, clsName, startPoll, toast, sheet, saving, confirmDialog, promptDialog, ymd, pad2, WD_SHORT, fmtDateTime, fmtTime, parseDT, exportUrl, download, doExport, STATIC, studentUrl, shortPath } from './core.js';
-import { printStatement } from './pdfprint.js';
-import { registerView, state, icon, go, pageHead, onViewLeave, subCurrentOf, NAV } from './ui.js';
+import { api, el, esc, clsName, startPoll, toast, sheet, saving, confirmDialog, ymd, pad2, WD_SHORT, fmtDateTime, fmtTime, parseDT, exportUrl, download } from './core.js';
+import { registerView, state, icon, go, pageHead, tabsBar, bindTabs, WORK_TABS, onViewLeave } from './ui.js';
 import { renderAttendance } from './attendance.js';
-import { detectTimetable } from './ttimage.js';
-import { loginBanner, hookBanner } from './auth.js';
-import { AUTUMN_2026_TIMETABLE } from './autumn-2026-timetable.js';
 
 const M = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
-const TIMETABLE_ARCHIVE_KEY = 'wb_timetable_archives_v1';
 /* 备注字段统一生成器。
    用户反馈「备注要重点显示、加个方框，不然不知道能写字」——问题出在各处写法不统一：
    有的用 <input>、有的用 <textarea>，有的没 placeholder，有的连 label 都省了。
    抽成一个函数后，样式和占位文案只需改这里一处，不会再漏。 */
-function remarkField({ id = 'remark', value = '', placeholder = '', rows = 0, hint = '' } = {}) {
-  /* 默认不写占位文案：预填/预提示的内容如果不符实际，用户还得先删掉，反而更慢。
-     需要说明时由调用方显式传 placeholder，没传就不输出这个属性（不留空壳）。 */
-  const ph = placeholder ? ` placeholder="${esc(placeholder)}"` : '';
+function remarkField({ id = 'remark', value = '', placeholder = '有什么要补充的？直接在这里写', rows = 0, hint = '' } = {}) {
   const tag = rows
-    ? `<textarea class="input" id="${id}" rows="${rows}"${ph}>${esc(value)}</textarea>`
-    : `<input class="input" id="${id}" value="${esc(value)}"${ph}>`;
+    ? `<textarea class="input" id="${id}" rows="${rows}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`
+    : `<input class="input" id="${id}" value="${esc(value)}" placeholder="${esc(placeholder)}">`;
   return `<div class="remark-field"><label class="field-label">${icon('edit', 13)} 备注${hint ? `<span class="rf-hint">${esc(hint)}</span>` : ''}</label>${tag}</div>`;
 }
 const monthLabel = (m) => { const [y, mm] = String(m || '').split('-'); return y ? `${y}年${Number(mm)}月` : '选择月份'; };
@@ -63,8 +55,8 @@ export function exportSheet(kind, ctx = {}) {
     b.onclick = () => {
       const f = b.dataset.f;
       const q = { month: kind === 'attendance' ? String(ctx.tableId || '') : (ctx.month || ''), format: f };
-      // 静态版没有 /api/export 文件流，改为本地取数后造文件下载
-      doExport(kind, { month: q.month, format: f });
+      if (f === 'html') { window.open(exportUrl(kind, q), '_blank'); }
+      else download(exportUrl(kind, q), `${kind}-${Date.now()}.${f}`);
       s.close();
     };
   });
@@ -72,7 +64,7 @@ export function exportSheet(kind, ctx = {}) {
 export function importSheet(kind, reload) {
   const body = el(`<div class="sheet-body">
     <div class="small muted" style="margin-bottom:8px">从 Excel / WPS 选中区域 <b>Ctrl+C</b> 后粘贴到这里（第一行可为表头），或选择文本文件。</div>
-    <textarea class="input" id="imp" rows="9"></textarea>
+    <textarea class="input" id="imp" rows="9" placeholder="日期\t节次\t班级\t内容&#10;2026-10-20\t1\t高二(3)班\t《劝学》第二课时"></textarea>
     <div class="row" style="margin-top:10px"><input type="file" id="imp-file" accept=".csv,.txt" class="small"><span style="flex:1"></span>
     <button class="btn ghost" id="imp-cancel">取消</button><button class="btn primary" id="imp-ok">导入</button></div>
   </div>`);
@@ -92,75 +84,23 @@ export function importSheet(kind, reload) {
   };
 }
 
-/* ================= 工作（二级导航分发） ================= */
-/* 路由：work/<tab>，tab 取自 ui.js 的 NAV.work.sub。
-   课件（materials）下面还有第三级 work/materials/<third>：
-     selfstudy 自习 · textbook 教材 · pick 抽人 · mystery 盲盒
-   这四项对应的是**学生看到的那个页面**（student.html）里的模块，
-   老师这边需要的是「发链接、配内容、看谁用了」，所以第三级不是把学生页
-   照搬过来，而是给它做后台。 */
-registerView(async function work(main, { tab, third }) {
-  const t = tab || 'lessons';
-  /* 页头标题跟着二级项走：以前所有二级页都顶着「工作」两个字，
-     点进「考勤」看到的还是「工作」，会让人怀疑自己点错了。 */
-  const meta = {
-    lessons: ['上课记录', '记录授课进度，管理课时与代课结算'],
-    timetable: ['课表', '这周几节课、哪个班、哪间教室'],
-    prep: ['备课', '课前备什么、讲到哪了、下次接着讲什么'],
-    repairs: ['维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底'],
-    attendance: ['考勤', '教师坐班表与学生到课，拍照就能认'],
-    invigilation: ['监考', '监考场次、时间、补贴，一场不漏'],
-    trips: ['出差', '行程、报销、补贴，按天自动算'],
-    materials: ['课件', '发给学生的那个页面：自习、教材、抽人、盲盒都在这里配'],
-    notes: ['笔记', '随手记的教学笔记，可搜索、可归档'],
-  }[t] || ['工作', ''];
-
-  /* 页头先不放进 main：课件下面的三级页（自习/教材/抽人/盲盒）要换成自己的标题，
-     先画「课件」再改字符串会闪一下。所以正文容器先给出来，标题由正文渲染完再定。 */
-  main.innerHTML = '<div id="work-body"></div>';
+/* ================= 工作首页 ================= */
+registerView(async function work(main, { tab }) {
+  main.innerHTML = pageHead('工作', '课时、课表、考勤、监考、出差、课件与笔记') + tabsBar(WORK_TABS, 'work', tab) + '<div id="work-body"></div>';
+  bindTabs(main);
   const body = main.querySelector('#work-body');
-  const headEl = el(`<div>${pageHead(meta[0], meta[1], '')}</div>`);
-  if (t === 'lessons') headEl.classList.add('lessons-head');
-  main.insertBefore(headEl, body);
-  /* 三级页把自己的标题写进 url 的第三段，页头用子项名字，副标题用子项说明 */
-  if (t === 'materials' && third) {
-    const sub = (NAV.find((n) => n.id === 'work')?.sub || []).find((x) => x.id === 'materials')?.sub || [];
-    const node = sub.find((x) => x.id === third);
-    if (node) {
-      headEl.innerHTML = pageHead(node.label, {
-        selfstudy: '学生端「自习」：开一场签到，学生点「我到了」，这里实时看人数',
-        textbook: '学生端「教材」：你勾了「学生可见」的资料，就是学生看到的全部',
-        pick: '学生端「抽人」：按号码或按名单，抽过的不重复',
-        mystery: '学生端「盲盒」：点一下随机弹一个任务，这一轮不重复',
-      }[third] || '');
-    }
-  }
-  if (t === 'lessons') return renderLessons(body);
-  if (t === 'prep') return renderPreps(body);
-  if (t === 'timetable') return renderTimetable(body);
-  if (t === 'attendance') return renderAttendance(body);
-  if (t === 'invigilation') return renderInvigilation(body);
-  if (t === 'trips') return renderTrips(body);
-  if (t === 'repairs') {
-    const m = await import('./repairs.js');
-    return m.renderRepairsBody(body);
-  }
-  if (t === 'materials') {
-    if (third === 'selfstudy') {
-      const m = await import('./selfstudy.js');
-      return m.renderSelfstudyBody(body, { studentTab: 'checkin' });
-    }
-    if (third === 'textbook') return renderStudentModule(body, 'textbook');
-    if (third === 'pick') return renderStudentModule(body, 'pick');
-    if (third === 'mystery') return renderStudentModule(body, 'mystery');
-    return renderMaterials(body);
-  }
-  if (t === 'notes') return renderNotes(body);
-  return renderLessons(body);
+  if (tab === 'lessons') return renderLessons(body);
+  if (tab === 'prep') return renderPreps(body);
+  if (tab === 'timetable') return renderTimetable(body);
+  if (tab === 'attendance') return renderAttendance(body);
+  if (tab === 'invigilation') return renderInvigilation(body);
+  if (tab === 'trips') return renderTrips(body);
+  if (tab === 'materials') return renderMaterials(body);
+  if (tab === 'notes') return renderNotes(body);
 });
 
 /* ================= 上课（课时统计 & 代课对账） ================= */
-const SUB_LABEL = { normal: '本人授课', '替他人上': '替人代课', '他人替我上': '他人代课', '换课': '换课' };
+const SUB_LABEL = { normal: '正常上课', '替他人上': '我代别人上', '他人替我上': '别人代我上', '换课': '换课' };
 const money = (n) => (Math.round(Number(n || 0) * 100) / 100).toLocaleString('zh-CN');
 
 /* 默认课时单价。用户明确说过「默认 30 元」——之前是 60，
@@ -171,10 +111,6 @@ const DEFAULT_PRICE = 30;
 async function renderLessons(box) {
   let month = M();
   let price = DEFAULT_PRICE;
-  let search = '';
-  let typeFilter = 'all';
-  let page = 1;
-  const pageSize = 10;
 
   const load = async () => {
     const [data, me] = await Promise.all([
@@ -198,204 +134,141 @@ async function renderLessons(box) {
     const sch = data.scheduled || { total: 0, actual: 0, substitute_out: 0 };
     const net = s.net;
     const netCls = net.direction === 'receivable' ? 'green' : net.direction === 'payable' ? 'amber' : '';
-    const netAmount = money(Math.abs(net.amount));
-    const pendingPeople = s.people.filter((p) => !p.settled).length;
-    const netStatus = pendingPeople
-      ? net.direction === 'even' ? '应收应付相抵，仍有待结算' : `${net.direction === 'receivable' ? '待收' : '待付'}`
-      : s.people.length ? '已结清' : '暂无待结算';
-    const now = new Date();
-    const [targetYear, targetMonth] = month.split('-').map(Number);
-    const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
-    const currentMonth = M(now);
-    const partialDays = Number(data.partial?.passed);
-    const elapsedDays = data.partial && Number.isFinite(partialDays)
-      ? Math.min(daysInMonth, Math.max(0, partialDays))
-      : month < currentMonth ? daysInMonth : month > currentMonth ? 0 : now.getDate();
-    const monthProgress = Math.min(100, Math.max(0, Math.round(elapsedDays / daysInMonth * 100)));
+    const netTxt = net.direction === 'even' ? '已平' : `${net.direction === 'receivable' ? '应收' : '应付'} ${money(Math.abs(net.amount))}`;
 
     box.innerHTML = `
-    <div class="lessons-page">
-      ${loginBanner()}
-      <div class="ls-toolbar">
-        <div class="ls-month-tools">
-          <div class="ls-month-picker">
-            <button class="icon-btn sm" data-mprev aria-label="上一个月">${icon('left', 16)}</button>
-            <button class="btn ghost sm month-btn" data-mpick>${monthLabel(month)}</button>
-            <button class="icon-btn sm" data-mnext aria-label="下一个月">${icon('right', 16)}</button>
-          </div>
-          <button class="btn ghost sm" id="ls-price">${icon('settings', 15)} 单价 ¥${money(price)}/节</button>
-        </div>
-        <div class="ls-actions">
-          <button class="btn ghost" id="ls-pdf">${icon('download', 15)} 导出对账单</button>
-          <button class="btn primary" id="ls-add">${icon('plus', 15)} 记一节课</button>
-        </div>
+    <div class="row wrap" style="gap:8px;margin-bottom:12px">
+      <div class="row" style="gap:4px"><button class="icon-btn sm" data-mprev>${icon('left', 16)}</button>
+        <button class="btn ghost sm month-btn" data-mpick style="min-width:112px;justify-content:center">${monthLabel(month)}</button>
+        <button class="icon-btn sm" data-mnext>${icon('right', 16)}</button></div>
+      <button class="btn ghost sm" id="ls-price">${icon('settings', 15)} 单价 ${money(price)} 元/节</button>
+      <span style="flex:1"></span>
+      <button class="btn ghost sm" id="ls-pdf">${icon('download', 15)} 对账单</button>
+      <button class="btn primary sm" id="ls-add">${icon('plus', 15)} 记一节课</button>
+    </div>
+
+    <div class="ls-cards">
+      <div class="ls-card main">
+        <div class="lc-k">本月实际课时</div>
+        <div class="lc-v">${s.total_hours}<span class="lc-u">节</span></div>
+        <div class="lc-s">共 ${s.lesson_count} 节课记录</div>
       </div>
-
-      <div class="ls-cards">
-        <div class="ls-card ls-primary">
-          <div class="lc-k">实际授课</div>
-          <div class="lc-v">${s.total_hours}<span class="lc-u">节</span></div>
-          <div class="lc-s">本月共 ${s.lesson_count} 条记录</div>
-        </div>
-        <div class="ls-card">
-          <div class="lc-k">${icon('arrow-up-right', 13)} 代课应收</div>
-          <div class="lc-v green">¥${money(s.sub_out.amount)}</div>
-          <div class="lc-s">${s.sub_out.count} 次代课 · ${s.sub_out.hours} 节课时</div>
-          <div class="lc-extra">换课 ${s.swap.count} 次 · 仅备查，不计账</div>
-        </div>
-        <div class="ls-card">
-          <div class="lc-k">${icon('arrow-down-left', 13)} 代课应付</div>
-          <div class="lc-v amber">¥${money(s.sub_in.amount)}</div>
-          <div class="lc-s">${s.sub_in.count} 次被代 · ${s.sub_in.hours} 节课时</div>
-        </div>
-        <div class="ls-card ls-net-card">
-          <div class="lc-k">待结算净额</div>
-          <div class="lc-v ${netCls}">¥${netAmount}</div>
-          <div class="lc-s">${netStatus}</div>
-        </div>
+      <div class="ls-card">
+        <div class="lc-k">${icon('arrow-up-right', 13)} 我该收</div>
+        <div class="lc-v green">${s.sub_out.hours}<span class="lc-u">节</span></div>
+        <div class="lc-s">${money(s.sub_out.amount)} 元 · ${s.sub_out.count} 次代课</div>
       </div>
+      <div class="ls-card">
+        <div class="lc-k">${icon('arrow-down-left', 13)} 我该付</div>
+        <div class="lc-v amber">${s.sub_in.hours}<span class="lc-u">节</span></div>
+        <div class="lc-s">${money(s.sub_in.amount)} 元 · ${s.sub_in.count} 次被代</div>
+      </div>
+      <div class="ls-card">
+        <div class="lc-k">净额（未结清）</div>
+        <div class="lc-v ${netCls}">${netTxt}</div>
+        <div class="lc-s">${net.hours ? (net.hours > 0 ? '+' : '') + net.hours + ' 节' : '两边持平'}</div>
+      </div>
+      <div class="ls-card">
+        <div class="lc-k">换课</div>
+        <div class="lc-v">${s.swap.count}<span class="lc-u">次</span></div>
+        <div class="lc-s">只备查，不计账</div>
+      </div>
+    </div>
 
-      <section class="ls-schedule" aria-label="排课进度">
-        <div class="ls-schedule-stat"><span>计划排课</span><b>${sch.total}<small> 节</small></b></div>
-        <div class="ls-schedule-stat"><span>已记录课时</span><b>${s.total_hours}<small> 节</small></b></div>
-        <div class="ls-progress">
-          <div class="ls-progress-label"><span>本月时间进度</span><b>${monthProgress}%</b></div>
-          <div class="ls-progress-track"><span style="width:${monthProgress}%"></span></div>
-          <div class="ls-progress-note">已过 ${elapsedDays}/${daysInMonth} 天 · 排课按整月课表统计</div>
-        </div>
-      </section>
+    <div class="ls-tri">
+      <div class="lt-i"><span class="lt-k">课表排课</span><b>${sch.total}</b><span class="lt-u">节</span></div>
+      <span class="lt-sep">=</span>
+      <div class="lt-i"><span class="lt-k">实际授课</span><b>${s.total_hours}</b><span class="lt-u">节</span></div>
+      <span class="lt-sep">+</span>
+      <div class="lt-i"><span class="lt-k">请假代课</span><b>${s.sub_in.count}</b><span class="lt-u">节</span></div>
+      <div class="lt-note">${data.partial ? `本月才过 ${data.partial.passed}/${data.partial.total} 天，排课数按全月推算` : '排课数按课表整月推算'}</div>
+    </div>
 
-      ${s.people.length ? `<div class="card card-pad ls-settle">
-        <div class="lss-head">代课结算<span class="lss-head-s">点开可逐节勾选，先结一部分也行</span></div>
-        ${s.people.map((p) => `<div class="lss-row${p.settled ? ' done' : ''}${p.partial ? ' part' : ''}" data-person="${esc(p.name)}|${p.direction}">
-          <div class="lss-line">
-            <div class="lss-main">
-              <span class="lss-name">${esc(p.name)}</span>
-              <span class="chip ${p.direction === 'out' ? 'green' : 'amber'}">${p.direction === 'out' ? '应收' : '应付'}</span>
-              <span class="lss-amt">${p.settled
-                ? `${p.count} 节 / ${money(p.amount)} 元`
-                : p.partial
-                  ? `还剩 ${p.open_hours} 节 / ${money(p.open_amount)} 元<span class="lss-dim">（已结 ${p.settled_count}/${p.count} 节）</span>`
-                  : `${p.hours} 节 / ${money(p.amount)} 元`}</span>
-              ${p.settled ? '<span class="chip grey">已结清</span>' : p.partial ? '<span class="chip grey">部分结清</span>' : ''}
-            </div>
-            <div class="lss-btns">
-              ${p.settled ? '' : `<button class="btn ghost sm" data-toggle="${esc(p.name)}|${p.direction}">逐节结</button>`}
-              <button class="btn ${p.settled ? 'ghost' : 'primary'} sm" data-settle="${esc(p.name)}" data-dir="${p.direction}" data-done="${p.settled ? '1' : ''}">${p.settled ? '撤销结清' : '全部结清'}</button>
-            </div>
+    ${s.people.length ? `<div class="card card-pad ls-settle">
+      <div class="lss-head">跟谁结算<span class="lss-head-s">点开可逐节勾选，先结一部分也行</span></div>
+      ${s.people.map((p) => `<div class="lss-row${p.settled ? ' done' : ''}${p.partial ? ' part' : ''}" data-person="${esc(p.name)}|${p.direction}">
+        <div class="lss-line">
+          <div class="lss-main">
+            <span class="lss-name">${esc(p.name)}</span>
+            <span class="chip ${p.direction === 'out' ? 'green' : 'amber'}">${p.direction === 'out' ? '应收' : '应付'}</span>
+            <span class="lss-amt">${p.settled
+              ? `${p.count} 节 / ${money(p.amount)} 元`
+              : p.partial
+                ? `还剩 ${p.open_hours} 节 / ${money(p.open_amount)} 元<span class="lss-dim">（已结 ${p.settled_count}/${p.count} 节）</span>`
+                : `${p.hours} 节 / ${money(p.amount)} 元`}</span>
+            ${p.settled ? '<span class="chip grey">已结清</span>' : p.partial ? '<span class="chip grey">部分结清</span>' : ''}
           </div>
-          ${p.open_items.length && !p.settled ? `<div class="lss-items hidden" data-items="${esc(p.name)}|${p.direction}">
-            ${p.open_items.map((it) => `<label class="lss-item">
-              <input type="checkbox" data-pick="${it.id}" data-name="${esc(p.name)}" data-dir="${p.direction}" data-h="${it.hours}" data-a="${it.amount}">
-              <span class="lsi-d">${esc(String(it.date).slice(5))}${it.period_no ? ' 第' + it.period_no + '节' : ''}</span>
-              <span class="lsi-c">${esc(it.class_name || '')}</span>
-              <span class="lsi-h">${it.hours} 节 / ${money(it.amount)} 元</span>
-            </label>`).join('')}
-            <div class="lss-pick-bar">
-              <span class="lss-pick-sum" data-sum-for="${esc(p.name)}|${p.direction}">未选</span>
-              <button class="btn ghost sm" data-checkall="${esc(p.name)}|${p.direction}">全选</button>
-              <button class="btn primary sm" data-settlepick="${esc(p.name)}|${p.direction}" disabled>结清选中的</button>
-            </div>
-          </div>
-          ` : ''}
-        </div>`).join('')}
-      </div>` : ''}
-
-      <section class="ls-records">
-        <div class="ls-records-head">
-          <div><h2>本月明细</h2><span class="ls-records-hint">${monthLabel(month)} · 可搜索内容、班级或代课人</span></div>
-          <div class="ls-filters">
-            <label class="ls-search">${icon('search', 16)}<input type="search" id="ls-search" placeholder="搜索班级、内容或代课人" aria-label="搜索上课记录"></label>
-            <select id="ls-type-filter" aria-label="按授课类型筛选">
-              <option value="all">全部类型</option><option value="normal">本人授课</option>
-              <option value="替他人上">替人代课</option><option value="他人替我上">他人代课</option><option value="换课">换课</option>
-            </select>
+          <div class="lss-btns">
+            ${p.settled ? '' : `<button class="btn ghost sm" data-toggle="${esc(p.name)}|${p.direction}">逐节结</button>`}
+            <button class="btn ${p.settled ? 'ghost' : 'primary'} sm" data-settle="${esc(p.name)}" data-dir="${p.direction}" data-done="${p.settled ? '1' : ''}">${p.settled ? '撤销结清' : '全部结清'}</button>
           </div>
         </div>
-        <div class="table-wrap"><table class="tbl tbl-lesson">
-          <thead><tr><th style="width:138px">日期／节次</th><th style="width:132px">班级</th><th>教学内容与下次计划</th><th style="width:110px">进度</th><th style="width:130px">授课类型</th><th style="width:72px">课时</th><th class="th-ops" style="width:116px">操作</th></tr></thead>
-          <tbody id="ls-tbody"></tbody>
-        </table></div>
-        <div class="ls-records-foot"><span id="ls-record-count"></span><div id="ls-pagination" class="ls-pagination"></div></div>
-      </section>
-    </div>`;
+        ${p.open_items.length && !p.settled ? `<div class="lss-items hidden" data-items="${esc(p.name)}|${p.direction}">
+          ${p.open_items.map((it) => `<label class="lss-item">
+            <input type="checkbox" data-pick="${it.id}" data-name="${esc(p.name)}" data-dir="${p.direction}" data-h="${it.hours}" data-a="${it.amount}">
+            <span class="lsi-d">${esc(String(it.date).slice(5))}${it.period_no ? ' 第' + it.period_no + '节' : ''}</span>
+            <span class="lsi-c">${esc(it.class_name || '')}</span>
+            <span class="lsi-h">${it.hours} 节 / ${money(it.amount)} 元</span>
+          </label>`).join('')}
+          <div class="lss-pick-bar">
+            <span class="lss-pick-sum" data-sum-for="${esc(p.name)}|${p.direction}">未选</span>
+            <button class="btn ghost sm" data-checkall="${esc(p.name)}|${p.direction}">全选</button>
+            <button class="btn primary sm" data-settlepick="${esc(p.name)}|${p.direction}" disabled>结清选中的</button>
+          </div>
+        </div>` : ''}
+      </div>`).join('')}
+    </div>` : ''}
+
+    <div class="mobile-tip">手机上以卡片显示，点任意一条可修改</div>
+    <div class="table-wrap"><table class="tbl tbl-lesson">
+      <thead><tr><th class="th-no">#</th><th style="width:78px">日期</th><th style="width:64px">节次</th><th style="width:110px">班级</th><th>上课内容 / 下次要讲</th><th style="width:110px">进度</th><th style="width:130px">代课</th><th style="width:56px">课时</th><th class="th-ops">操作</th></tr></thead>
+      <tbody>${rows.length ? rows.map((r, idx) => {
+        const t = r.sub_type || 'normal';
+        const chip = t === 'normal' ? '<span class="tiny muted">—</span>'
+          : `<span class="chip ${t === '替他人上' ? 'green' : t === '他人替我上' ? 'amber' : 'purple'}">${SUB_LABEL[t] || t}</span>${r.peer_name ? `<div class="tiny muted">${esc(r.peer_name)}</div>` : ''}`;
+        return `<tr data-row="${r.id}">
+          <td class="td-no">${idx + 1}</td>
+          <td class="nowrap">${esc(String(r.date).slice(5))}</td>
+          <td class="nowrap">${r.period_no ? '第' + r.period_no + '节' : '—'}<div class="tiny muted">${esc(r.start_time || '')}</div></td>
+          <td>${esc(r.class_name || '—')}</td>
+          <td class="lc-content">${esc(r.content || '')}${r.next_content ? `<div class="lc-next">下次：${esc(r.next_content)}</div>` : ''}${r.discipline ? `<div class="tiny" style="color:var(--amber)">⚠ ${esc(r.discipline)}</div>` : ''}${r.remark ? `<div class="lc-remark">${icon('edit', 11)}<span>${esc(r.remark)}</span></div>` : ''}</td>
+          <td class="tiny">${esc(r.progress || '')}</td>
+          <td>${chip}</td>
+          <td class="num">${r.hours}</td>
+          <td class="td-ops">
+            <button class="icon-btn sm" data-edit="${r.id}" title="修改">${icon('edit', 14)}</button>
+            <button class="icon-btn sm danger" data-del-lesson="${r.id}" title="删除">${icon('trash', 14)}</button>
+          </td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="9"><div class="empty">${monthLabel(month)}还没有上课记录<br><span class="tiny muted">点右上角「记一节课」开始</span></div></td></tr>`}</tbody>
+    </table></div>`;
 
     // 月份切换
-    hookBanner(box);
     box.querySelector('[data-mprev]').onclick = () => { month = monthShift(month, -1); load(); };
     box.querySelector('[data-mnext]').onclick = () => { month = monthShift(month, 1); load(); };
     box.querySelector('[data-mpick]').onclick = () => pickMonth(month, (m) => { month = m; load(); });
     box.querySelector('#ls-add').onclick = () => lessonEditor(null, load, month, price);
     box.querySelector('#ls-price').onclick = () => priceDialog(price, load);
     box.querySelector('#ls-pdf').onclick = () => exportStatement(month, box.querySelector('#ls-pdf'));
-    const tbody = box.querySelector('#ls-tbody');
-    const countEl = box.querySelector('#ls-record-count');
-    const pagination = box.querySelector('#ls-pagination');
-    const renderRows = () => {
-      const needle = search.trim().toLocaleLowerCase();
-      const filtered = rows.filter((r) => {
-        const type = r.sub_type || 'normal';
-        if (typeFilter !== 'all' && type !== typeFilter) return false;
-        if (!needle) return true;
-        return [r.class_name, r.content, r.next_content, r.progress, r.peer_name, r.remark]
-          .some((value) => String(value || '').toLocaleLowerCase().includes(needle));
-      });
-      const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-      page = Math.min(page, pageCount);
-      const shown = filtered.slice((page - 1) * pageSize, page * pageSize);
-      tbody.innerHTML = shown.length ? shown.map((r) => {
-        const type = r.sub_type || 'normal';
-        const typeClass = type === '替他人上' ? 'green' : type === '他人替我上' ? 'amber' : type === '换课' ? 'purple' : 'blue';
-        const typeLabel = SUB_LABEL[type] || type;
-        return `<tr data-row="${esc(String(r.id))}">
-          <td class="ls-date"><b>${esc(String(r.date).slice(5))}</b><span>${r.period_no ? '第' + r.period_no + '节' : '未排节次'}${r.start_time ? ' · ' + esc(r.start_time) : ''}</span></td>
-          <td class="ls-class">${esc(r.class_name || '—')}</td>
-          <td class="lc-content">${esc(r.content || '—')}${r.next_content ? `<div class="lc-next">下次：${esc(r.next_content)}</div>` : ''}${r.discipline ? `<div class="tiny" style="color:var(--amber)">⚠ ${esc(r.discipline)}</div>` : ''}${r.remark ? `<div class="lc-remark">${icon('edit', 11)}<span>${esc(r.remark)}</span></div>` : ''}</td>
-          <td class="ls-progress-cell">${esc(r.progress || '—')}</td>
-          <td class="ls-type-cell"><span class="chip ${typeClass}">${esc(typeLabel)}</span>${type !== 'normal' && r.peer_name ? `<span class="ls-peer">${esc(r.peer_name)}</span>` : ''}</td>
-          <td class="num">${esc(String(r.hours ?? 0))}</td>
-          <td class="td-ops">
-            <button class="btn ghost sm ls-edit" data-edit="${esc(String(r.id))}">编辑</button>
-            <details class="ls-more"><summary aria-label="更多操作">${icon('more', 16)}</summary>
-              <button class="ls-delete" data-del-lesson="${esc(String(r.id))}">删除记录</button>
-            </details>
-          </td>
-        </tr>`;
-      }).join('') : `<tr class="ls-empty-row"><td colspan="7"><div class="ls-empty">
-        <strong>${rows.length ? '没有符合条件的记录' : `${monthLabel(month)}还没有上课记录`}</strong>
-        ${rows.length ? '<span>试试调整搜索词或筛选条件</span>' : '<button class="btn primary" data-empty-add>' + icon('plus', 15) + ' 记第一节课</button>'}
-      </div></td></tr>`;
-      countEl.textContent = filtered.length === rows.length
-        ? `共 ${rows.length} 条记录`
-        : `显示 ${filtered.length} 条 / 共 ${rows.length} 条记录`;
-      pagination.innerHTML = filtered.length > pageSize
-        ? `<button class="btn ghost sm" data-page-prev ${page === 1 ? 'disabled' : ''}>上一页</button><span>第 ${page} / ${pageCount} 页</span><button class="btn ghost sm" data-page-next ${page === pageCount ? 'disabled' : ''}>下一页</button>`
-        : '';
-      pagination.querySelector('[data-page-prev]')?.addEventListener('click', () => { page -= 1; renderRows(); });
-      pagination.querySelector('[data-page-next]')?.addEventListener('click', () => { page += 1; renderRows(); });
-    };
-    box.querySelector('#ls-search').addEventListener('input', (e) => { search = e.target.value; page = 1; renderRows(); });
-    box.querySelector('#ls-type-filter').addEventListener('change', (e) => { typeFilter = e.target.value; page = 1; renderRows(); });
-    tbody.onclick = async (e) => {
-      const target = e.target.closest('[data-edit], [data-del-lesson], [data-empty-add]');
-      if (target) {
+    box.querySelectorAll('[data-edit]').forEach((b) => {
+      b.onclick = (e) => { e.stopPropagation(); lessonEditor(rows.find((r) => String(r.id) === b.dataset.edit), load, month, price); };
+    });
+    /* 第 12 条：操作栏里的删除。
+       必须 stopPropagation —— 整行 tr 也有 onclick（打开编辑器），
+       不拦住的话点删除会先弹编辑器再弹确认框，两个弹层叠在一起。 */
+    box.querySelectorAll('[data-del-lesson]').forEach((b) => {
+      b.onclick = async (e) => {
         e.stopPropagation();
-        if (target.hasAttribute('data-empty-add')) return lessonEditor(null, load, month, price);
-        if (target.hasAttribute('data-edit')) {
-          return lessonEditor(rows.find((r) => String(r.id) === target.dataset.edit), load, month, price);
-        }
-        const r = rows.find((item) => String(item.id) === target.dataset.delLesson);
+        const r = rows.find((x) => String(x.id) === b.dataset.delLesson);
         if (!r) return;
         if (!(await confirmDialog(`删除 ${String(r.date).slice(5)} ${r.class_name || ''} 第${r.period_no || '?'}节这节课？`, { danger: true, okText: '删除' }))) return;
         try { await api.del('/lessons/' + r.id); toast('已删除'); load(); }
         catch (err) { toast(err.message || '删除失败', 'err'); }
-        return;
-      }
-      if (e.target.closest('details')) return;
-      const tr = e.target.closest('[data-row]');
-      if (tr) lessonEditor(rows.find((r) => String(r.id) === tr.dataset.row), load, month, price);
-    };
-    renderRows();
+      };
+    });
+    box.querySelectorAll('[data-row]').forEach((tr) => {
+      tr.onclick = () => lessonEditor(rows.find((r) => String(r.id) === tr.dataset.row), load, month, price);
+    });
     // 全部结清 / 撤销整人结清
     box.querySelectorAll('[data-settle]').forEach((b) => {
       b.onclick = async (e) => {
@@ -515,30 +388,19 @@ async function exportStatement(month, btn) {
   if (btn) { btn.disabled = true; btn.innerHTML = '生成中…'; }
   toast('正在生成对账单…');
   try {
-    /* 静态版：服务端 Python 渲染改成浏览器排版 + 打印（选「另存为 PDF」即得文件） */
-    const r = await api.get('/lessons/statement', { month });
-    const [yy, mm2] = month.split('-').map(Number);
-    const refresh = await api.get('/lessons/summary', { month });
-    printStatement({
-      month_label: monthLabel(month),
-      teacher: r.summary ? (state?.user?.nickname || '') : '',
-      school: state?.user?.school || '',
-      subject: state?.user?.subject || '',
-      created: new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }),
-      price: r.price,
-      scheduled: refresh?.scheduled || { total: 0 },
-      summary: r.summary,
-      people: (r.summary?.people || []).map((p) => ({
-        name: p.name, direction: p.direction, hours: p.hours, amount: p.amount, settled: p.settled,
-      })),
-      rows: (r.rows || []).map((x) => ({
-        date: x.date, period: x.period_no ? '第' + x.period_no + '节' : '',
-        class_name: x.class_name, subject: x.subject, content: x.content,
-        hours: x.hours, sub_type: x.sub_type || 'normal', peer_name: x.peer_name || '',
-      })),
-    });
-    void yy; void mm2;
-    toast('已打开打印预览，选「另存为 PDF」即可');
+    const res = await fetch(`/api/lessons/statement?month=${month}`, { credentials: 'same-origin' });
+    if (!res.ok) {
+      let msg = '生成失败';
+      try { const j = await res.json(); msg = j.error || msg; } catch { /* 非 JSON */ }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${monthLabel(month)}课时对账单.pdf`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 8000);
+    toast('对账单已生成');
   } catch (e) {
     toast(e.message || '生成失败', 'err');
   } finally {
@@ -594,8 +456,8 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
     <div class="form-grid">
       <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="date" value="${esc(row?.date || today)}"></div>
       <div class="field"><label class="field-label">节次</label><select class="input" id="period">${[1,2,3,4,5,6,7,8,9,10].map((n) => `<option ${row?.period_no === n ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
-      <div class="field"><label class="field-label">班级</label><input class="input" id="class" value="${esc(row?.class_name || '')}"></div>
-      <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}"></div>
+      <div class="field"><label class="field-label">班级</label><input class="input" id="class" value="${esc(row?.class_name || '')}" placeholder="高二(3)班"></div>
+      <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '语文')}"></div>
       <div class="field"><label class="field-label">开始时间</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
       <div class="field"><label class="field-label">结束时间</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
     </div>
@@ -610,14 +472,14 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
 
     <div id="le-sub" class="le-sub hidden">
       <div class="field"><label class="field-label" id="le-peer-l">对方姓名</label>
-        <input class="input" id="peer" list="le-tlist" value="${esc(row?.peer_name || '')}">
+        <input class="input" id="peer" list="le-tlist" value="${esc(row?.peer_name || '')}" placeholder="从名册选或直接输入">
         <datalist id="le-tlist">${[...new Set(teachers.map((t) => t?.name).filter(Boolean))].map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
       </div>
       <div class="field hidden" id="le-swap-w">
         <label class="field-label">换课说明</label>
         <div class="form-grid">
-          <input class="input" id="swap_from" value="${esc(row?.swap_from || '')}">
-          <input class="input" id="swap_to" value="${esc(row?.swap_to || '')}">
+          <input class="input" id="swap_from" value="${esc(row?.swap_from || '')}" placeholder="我原上的是，如 周三第5节">
+          <input class="input" id="swap_to" value="${esc(row?.swap_to || '')}" placeholder="换成，如 周四第4节">
         </div>
       </div>
       <div class="le-tip" id="le-tip"></div>
@@ -625,10 +487,10 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
 
     <div class="field"><label class="field-label">上课内容</label><textarea class="input" id="content" rows="2">${esc(row?.content || '')}</textarea></div>
     <div class="form-grid">
-      <div class="field"><label class="field-label">教学进度</label><input class="input" id="progress" value="${esc(row?.progress || '')}"></div>
+      <div class="field"><label class="field-label">教学进度</label><input class="input" id="progress" value="${esc(row?.progress || '')}" placeholder="如：完成第二段翻译"></div>
       <div class="field"><label class="field-label">下一节课内容</label><input class="input" id="next_content" value="${esc(row?.next_content || '')}"></div>
     </div>
-    <div class="field"><label class="field-label">违纪情况</label><input class="input" id="discipline" value="${esc(row?.discipline || '')}"></div>
+    <div class="field"><label class="field-label">违纪情况</label><input class="input" id="discipline" value="${esc(row?.discipline || '')}" placeholder="如：张三上课睡觉（口头提醒一次）"></div>
     ${remarkField({ value: row?.remark || '', placeholder: '如：投影仪坏了、下节课带试卷' })}
 
     <!-- 【第 6 条：上课时单价不能改】
@@ -703,27 +565,8 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
     $('#pay_amount').value = Math.round(ph * up * 100) / 100;
     syncType();
   };
-  /* 【课时 / 单价不接受负数】
-     type=number 写了 min="0"，但浏览器只在"提交表单"时才管它，
-     这里的输入框是手动读 .value 再算的，压根不会触发校验。
-     所以填 -5 时，金额框会老老实实显示 -150，保存时却被 Number(...)||0 变成别的数 ——
-     屏幕上和存下来的不是同一个数，用户回头对账会以为自己记错了。
-     现在：输入即时夹紧到 >= 0 并回写到输入框，让用户看见的就是真正会存的。 */
-  const clampNum = (q, min = 0) => {
-    const el = $(q);
-    const v = el.value === '' ? '' : Number(el.value);
-    if (v !== '' && (Number.isNaN(v) || v < min)) {
-      el.value = min;
-      return min;
-    }
-    return v === '' ? 0 : v;
-  };
-  $('#pay_hours').oninput = () => { clampNum('#pay_hours'); recalc(); };
-  $('#pay_hours').onblur = () => { clampNum('#pay_hours'); recalc(); };
-  $('#le_price').oninput = () => { clampNum('#le_price'); recalc(); };
-  $('#le_price').onblur = () => { clampNum('#le_price'); recalc(); };
-  $('#hours').oninput = () => clampNum('#hours');
-  $('#hours').onblur = () => clampNum('#hours');
+  $('#pay_hours').oninput = recalc;
+  $('#le_price').oninput = recalc;
   /* 「按单价重算」也要跟着当前单价走，同时把单价写回这一条记录 */
   const resetBtn = $('#le-reset');
   if (resetBtn) resetBtn.onclick = () => { recalc(); };
@@ -749,10 +592,12 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
     };
   });
 
-  /* 金额按 课时口径 × 单价 重算。
-     【这里曾经绑了两次】上面 resetBtn 那次读的是输入框里的当前单价（正确），
-     下面这段又用闭包里那个「打开面板时」的旧 price 覆盖了一次，后绑的生效，
-     所以改完单价点「按单价重算」，金额会跳回旧数。只留上面那一次。 */
+  // 金额按 课时口径 × 单价 重算
+  $('#le-reset').onclick = () => {
+    const ph = Number($('#pay_hours').value) || 0;
+    $('#pay_amount').value = Math.round(ph * price * 100) / 100;
+    syncType();
+  };
 
   syncType();
   $('#cancel').onclick = s.close;
@@ -772,27 +617,18 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
       orig_teacher: type === '替他人上' ? peer : '',
       swap_from: type === '换课' ? $('#swap_from').value.trim() : '',
       swap_to: type === '换课' ? $('#swap_to').value.trim() : '',
-      /* 负数在这里再兜一道：界面上已经夹紧了，但用户可能用键盘删掉重输后直接回车，
-         blur 不一定来得及跑。存进库的必须是 >= 0 的数。 */
-      hours: type === '他人替我上' ? 0 : Math.max(0, Number($('#hours').value) || 0),
-      pay_hours: Math.max(0, Number($('#pay_hours').value) || 0),
+      hours: type === '他人替我上' ? 0 : (Number($('#hours').value) || 0),
+      pay_hours: Number($('#pay_hours').value) || 0,
       /* 单价跟着这一条走。存下来有两个用处：
          ① 以后改全局单价时，历史记录的单价和金额不会被一起改掉（对账要能复现）；
          ② 编辑旧记录时输入框回填的就是当时那个单价，而不是现在的默认值。 */
-      unit_price: $('#le_price').value === '' ? null : Math.max(0, Number($('#le_price').value) || 0),
-      pay_amount: Math.max(0, Number($('#pay_amount').value) || 0),
+      unit_price: $('#le_price').value === '' ? null : Number($('#le_price').value),
+      pay_amount: Number($('#pay_amount').value) || 0,
       content: $('#content').value, progress: $('#progress').value,
       next_content: $('#next_content').value, discipline: $('#discipline').value,
       remark: $('#remark').value,
     };
     if (!payload.date) return toast('请选择日期', 'warn');
-    /* 【班级是必填的】
-       原来只校验了日期，班级空着也能存 →
-       列表里显示「-- 未填科目」，一节课没有任何归属，
-       到月底统计课时和课时费的时候既不能按班汇总，也没法查是哪节课。
-       科目可以先空着（有时候临时顶课，事后才补），但班级必须选。 */
-    payload.class_name = String(payload.class_name || '').trim();
-    if (!payload.class_name) { toast('请选择或填写班级，不然这节课没法归到哪个班', 'warn'); return; }
     if (isNew) await api.post('/lessons', payload); else await api.patch('/lessons/' + row.id, payload);
     s.close(); toast('已保存'); reload();
   });
@@ -809,18 +645,11 @@ async function renderTimetable(box) {
   const load = async () => {
     const [courses, periods] = await Promise.all([api.get('/courses'), api.get('/periods')]);
     const maxP = Math.max(8, ...periods.map((p) => Number(p.period_no)));
-    /* 【列顺序】周一到周日，周日放最后。
-       数据里 weekday 用 0 表示周日（跟 Date.getDay() 一致），
-       但「0 排最前」是 JS 的约定，不是人的习惯 —— 老师看课表都是从周一开始。
-       所以这里单独定一张显示顺序表，不直接拿数字排序。 */
-    const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
-    const wd = WD_ORDER;
+    const wd = [0, 1, 2, 3, 4, 5, 6];
     const get = (d, p) => courses.find((c) => Number(c.weekday) === d && Number(c.period_no) === p);
     box.innerHTML = `
       <div class="row wrap" style="margin-bottom:12px">
         <button class="btn primary sm" id="add-course">${icon('plus', 15)} 添加课程</button>
-        <button class="btn ghost sm" id="update-autumn-timetable">更新2026秋季信息课表</button>
-        <button class="btn ghost sm" id="import-tt">${icon('download', 15)} 导入课表</button>
         <button class="btn ghost sm" id="edit-periods">编辑节次时间</button>
         <button class="btn ghost sm" id="print-tt">${icon('download', 15)} 打印/导出课表</button>
         <span style="flex:1"></span>
@@ -830,18 +659,7 @@ async function renderTimetable(box) {
         <thead><tr><th style="width:96px">节次</th>${wd.map((d) => `<th>周${WD_SHORT[d]}</th>`).join('')}</tr></thead>
         <tbody>${Array.from({ length: maxP }, (_, i) => i + 1).map((p) => {
           const per = periods.find((x) => Number(x.period_no) === p);
-          /* 【第 40 条：课表中间没有午休】
-             老师看课表的习惯是「上午四节 → 午休 → 下午四节」，
-             真实贴在墙上的课表中间一定有一条「午休」。
-             这里按节次时间的空隙自动判断：
-               上一节结束到这一节开始，跨过了 12:00 且间隔 ≥ 40 分钟 → 就是午休。
-             不去读「午休」这种行，是因为节次表里根本没存它；
-             按时间算出来的，改了节次时间也自动跟着对。 */
-          const prev = periods.find((x) => Number(x.period_no) === p - 1);
-          const lunch = lunchGap(prev, per);
-          const lunchRow = lunch ? `<tr class="tt-lunch">
-            <td colspan="${wd.length + 1}">🍚 午休 ${lunch}</td></tr>` : '';
-          return `${lunchRow}<tr><td><b>第${p}节</b><div class="tiny muted mono">${per ? per.start_time + '-' + per.end_time : '未设置'}</div></td>
+          return `<tr><td><b>第${p}节</b><div class="tiny muted mono">${per ? per.start_time + '-' + per.end_time : '未设置'}</div></td>
             ${wd.map((d) => {
               const c = get(d, p);
               return `<td data-cell="${d}-${p}" style="cursor:pointer;min-width:104px;height:52px;background:${c ? colorBg(c.class_name) : 'transparent'}">
@@ -859,8 +677,6 @@ async function renderTimetable(box) {
       };
     });
     box.querySelector('#add-course').onclick = () => courseEditor(null, load);
-    saving(box.querySelector('#update-autumn-timetable'), () => updatePresetTimetable(load));
-    box.querySelector('#import-tt').onclick = () => importTimetableDialog(load);
     box.querySelector('#edit-periods').onclick = () => periodEditor(periods, load);
     box.querySelector('#print-tt').onclick = async () => {
       const w = window.open('', '_blank');
@@ -870,564 +686,10 @@ async function renderTimetable(box) {
   };
   await load();
 }
-
-function archiveTimetable(courses, periods, note) {
-  let archives = [];
-  let raw;
-  try {
-    raw = localStorage.getItem(TIMETABLE_ARCHIVE_KEY);
-  } catch (e) {
-    throw new Error(`读取本机课表备份失败，未替换课表：${e.message}`);
-  }
-  if (raw) {
-    try {
-      archives = JSON.parse(raw);
-      if (!Array.isArray(archives)) throw new Error('备份格式无效');
-    } catch (e) {
-      throw new Error(`读取本机课表备份失败，未替换课表：${e.message}`);
-    }
-  }
-  const snapshot = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    archived_at: new Date().toISOString(),
-    note,
-    courses,
-    periods,
-  };
-  try {
-    localStorage.setItem(TIMETABLE_ARCHIVE_KEY, JSON.stringify([...archives, snapshot]));
-  } catch (e) {
-    throw new Error(`保存本机课表备份失败，未替换课表：${e.message}`);
-  }
-  let saved;
-  try {
-    saved = JSON.parse(localStorage.getItem(TIMETABLE_ARCHIVE_KEY) || '[]');
-  } catch (e) {
-    throw new Error(`校验本机课表备份失败，未替换课表：${e.message}`);
-  }
-  if (!saved.some((item) => item.id === snapshot.id)) {
-    throw new Error('本机课表备份校验失败，未替换课表');
-  }
-  return snapshot;
-}
-
-async function updatePresetTimetable(reload) {
-  const [courses, periods] = await Promise.all([api.get('/courses'), api.get('/periods')]);
-  const preset = AUTUMN_2026_TIMETABLE;
-  const confirmed = await confirmDialog(
-    `将用「${preset.name}」的 ${preset.courses.length} 条课程和 ${preset.periods.length} 个节次替换当前课表（当前 ${courses.length} 条课程、${periods.length} 个节次）。` +
-    '替换前会把当前数据备份到本机浏览器；旧课程也会进入回收站。此操作不会上传或提交你的本地数据。确定继续？',
-    { title: '更新课表', okText: '备份并更新', danger: true },
-  );
-  if (!confirmed) return;
-
-  archiveTimetable(courses, periods, `更新前备份：${preset.name}`);
-  for (const course of courses) await api.del('/courses/' + course.id);
-
-  const periodMap = new Map(periods.map((period) => [Number(period.period_no), period]));
-  const targetPeriodNos = new Set(preset.periods.map((period) => Number(period.period_no)));
-  for (const period of preset.periods) {
-    const existing = periodMap.get(Number(period.period_no));
-    if (existing) await api.patch('/periods/' + existing.id, period);
-    else await api.post('/periods', period);
-  }
-  for (const period of periods) {
-    if (!targetPeriodNos.has(Number(period.period_no))) await api.del('/periods/' + period.id);
-  }
-  const savedPeriods = await api.get('/periods');
-  const savedPeriodMap = new Map(savedPeriods.map((period) => [Number(period.period_no), period]));
-  for (const course of preset.courses) {
-    const period = savedPeriodMap.get(Number(course.period_no));
-    await api.post('/courses', {
-      ...course,
-      grade: '',
-      subject: preset.subject,
-      room: '',
-      start_time: period.start_time,
-      end_time: period.end_time,
-    });
-  }
-  const [savedCourses, verifiedPeriods] = await Promise.all([api.get('/courses'), api.get('/periods')]);
-  const expectedCourses = new Set(preset.courses.map((course) =>
-    `${course.weekday}/${course.period_no}/${course.class_name}/${preset.subject}`));
-  const actualCourses = new Set(savedCourses.map((course) =>
-    `${course.weekday}/${course.period_no}/${course.class_name}/${course.subject}`));
-  const periodsMatch = preset.periods.every((period) => {
-    const saved = verifiedPeriods.find((item) => Number(item.period_no) === Number(period.period_no));
-    return saved && saved.start_time === period.start_time && saved.end_time === period.end_time;
-  });
-  if (savedCourses.length !== preset.courses.length || actualCourses.size !== expectedCourses.size ||
-      [...expectedCourses].some((key) => !actualCourses.has(key)) ||
-      verifiedPeriods.length !== preset.periods.length || !periodsMatch) {
-    throw new Error(`课表更新后校验失败（课程 ${savedCourses.length}/${preset.courses.length}，节次 ${verifiedPeriods.length}/${preset.periods.length}）。旧课表备份已保存在本机浏览器。`);
-  }
-  toast(`已更新${preset.name}，旧课表已备份到本机`);
-  reload();
-}
-
-/* 判断两节课之间是不是午休。
-   条件：后一节在 12:00 之后开始、前一节在 13:30 之前结束、中间空 ≥40 分钟。
-   返回 "12:00-14:10" 这样的时间段，不是午休返回空串。
-   注意：前 4 节常见的 11:20 下、14:00 上 → 间隔 160 分钟，命中。 */
-function lunchGap(prev, next) {
-  if (!prev || !next) return '';
-  const toMin = (t) => {
-    const m = String(t || '').match(/^(\d{1,2}):(\d{2})/);
-    return m ? Number(m[1]) * 60 + Number(m[2]) : null;
-  };
-  const a = toMin(prev.end_time); const b = toMin(next.start_time);
-  if (a == null || b == null || b <= a) return '';
-  if (b < 12 * 60) return '';          // 后一节在中午前，不是午休
-  if (a > 13 * 60 + 30) return '';     // 前一节在 13:30 后才下课，不是午休
-  if (b - a < 40) return '';           // 只隔 10 分钟是课间，不是午休
-  return `${prev.end_time}-${next.start_time}`;
-}
-
 function colorBg(name) {
   const c = ['#eef4ff', '#f3eeff', '#e6f7f7', '#fff6e5', '#ffeef6', '#eef0ff'][(String(name).length + String(name).charCodeAt(1) || 1) % 6];
   return c;
 }
-/* ================= 课表批量导入 ================= */
-/* 【为什么要做这个】
-   教务处给的是图片或者一张表，在格子里手工点 13~20 次太累，还容易点错行。
-   这里支持两种最贴近真实的输入：
-     1) 直接粘贴表格文本（从 Excel/WPS 复制出来就是这种，Tab 分隔）
-     2) 粘贴 JSON（工作台自己导出的格式，换设备时用）
-
-   解析规则按老师手里真实的表来设计：
-     - 表头第一格是「节次」，后面是「星期一…星期日」；
-     - 第一列是节次（1 / 第1节 / 第一节 都认）；
-     - 第二列如果是时间（8:00-8:40），当成节次时间读，不是就当班级；
-     - 「午休」「中午」这类合并行整行跳过；
-     - 单元格里「11班」「高一(11)班」都行。 */
-function parseWeekday(s) {
-  const t = String(s || '').trim();
-  const m = t.match(/[周星期]\s*([一二三四五六日天1-7])/);
-  if (!m) return 0;
-  const map = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7 };
-  return map[m[1]] || 0;
-}
-function parsePeriodNo(s) {
-  const t = String(s || '').trim();
-  if (!t) return 0;
-  const late = { 晚一: 10, 晚二: 11, 晚三: 12, 晚四: 13 };
-  for (const [k, v] of Object.entries(late)) if (t.startsWith(k)) return v;
-  const m = t.match(/(\d{1,2})/);
-  if (m) return Number(m[1]);
-  const cn = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
-  const m2 = t.match(/第?([一二三四五六七八九十])/);
-  return m2 ? (cn[m2[1]] || 0) : 0;
-}
-function parseTimeRange(s) {
-  const m = String(s || '').match(/(\d{1,2})[:：](\d{2})\s*[-–—~至]\s*(\d{1,2})[:：](\d{2})/);
-  if (!m) return null;
-  const p = (h, mi) => String(h).padStart(2, '0') + ':' + mi;
-  return [p(m[1], m[2]), p(m[3], m[4])];
-}
-
-function parseTimetableText(text) {
-  const lines = String(text || '').split(/\r?\n/).filter((l) => l.trim());
-  if (!lines.length) return { courses: [], periods: [], errors: ['没有内容'] };
-
-  const courses = [];
-  const periods = [];
-  const errors = [];
-  let headerDays = null;   // 表头每一列对应星期几
-
-  for (const line of lines) {
-    const cells = line.split('\t').map((c) => c.trim());
-    const joined = cells.join('');
-
-    if (!headerDays && /节次/.test(joined) && /周[一二三四五六日天]|星期/.test(joined)) {
-      headerDays = cells.map(parseWeekday);
-      continue;
-    }
-    if (/^(午休|中午|休息|课间|备注|合计)/.test(cells[0]) && cells.filter(Boolean).length <= 2) continue;
-
-    const pn = parsePeriodNo(cells[0]);
-    if (!pn) continue;
-
-    let colStart = 1;
-    const tr = parseTimeRange(cells[1]);
-    if (tr) { periods.push({ period_no: pn, start_time: tr[0], end_time: tr[1] }); colStart = 2; }
-
-    const dayCols = headerDays || [0, 1, 2, 3, 4, 5, 6, 7];
-    for (let i = colStart; i < cells.length; i++) {
-      const v = cells[i];
-      if (!v || v === '—' || v === '-' || v === '/') continue;
-      const wd = dayCols[i] ?? 0;
-      if (!wd) continue;
-      courses.push({ weekday: wd, period_no: pn, class_name: v });
-    }
-  }
-
-  if (!courses.length) errors.push('没解析出课程，请检查第一列是不是节次、第一行是不是星期');
-  return { courses, periods, errors };
-}
-
-/* ============ 导入课表：图片识别 / 粘贴表格 / 节次时间 ============ */
-/* 三个页签是一条流水线的三种来源，最终都落到同一份 courses 上：
-     图片：切开网格 → 找出有课的格子 → 人工确认班号
-     表格：粘贴 Excel 文本 → 解析
-     节次：单独维护上课时间 */
-async function importTimetableDialog(reload) {
-  let tab = 'image';
-  let imgResult = null;   // detectTimetable 的返回值
-  let imgURL = '';
-  let assign = [];        // [{weekday, period, class_name}]
-
-  const body = el(`<div class="sheet-body">
-    <div class="row" style="gap:6px;margin-bottom:12px" id="tt-tabs">
-      <button class="btn primary sm" data-t="image">① 传课表图片</button>
-      <button class="btn ghost sm" data-t="text">② 粘贴表格</button>
-      <button class="btn ghost sm" data-t="period">③ 节次时间</button>
-    </div>
-    <div id="tt-pane"></div>
-    <div class="confirm-actions">
-      <button class="btn ghost" id="tt-cancel">关闭</button>
-      <button class="btn primary" id="tt-ok">导入到课表</button>
-    </div></div>`);
-  const s = sheet({ title: '导入课表', body, wide: true });
-  const pane = body.querySelector('#tt-pane');
-  const okBtn = body.querySelector('#tt-ok');
-  body.querySelector('#tt-cancel').onclick = s.close;
-
-  const setTab = (t) => {
-    tab = t;
-    body.querySelectorAll('#tt-tabs button').forEach((b) => {
-      b.className = b.dataset.t === t ? 'btn primary sm' : 'btn ghost sm';
-    });
-    okBtn.style.display = t === 'period' ? 'none' : '';
-    paint();
-  };
-
-  /* ---------- 图片页 ---------- */
-  const paintImage = () => {
-    pane.innerHTML = `
-      <div class="small muted" style="line-height:1.8;margin-bottom:10px">
-        把课表截图（或拍照）传上来，我会自动切出表格、找出<b>有课的格子</b>，
-        再把格子里的<b>班号数字</b>读出来。<br>
-        全程在你自己的浏览器里算，图片不外传。少数认不准的格子会标成橙色，填个班号就行。
-      </div>
-      <div class="row wrap" style="gap:8px;align-items:center">
-        <label class="btn primary sm" style="cursor:pointer">
-          ${icon('download', 15)} 选择图片
-          <input type="file" id="tt-file" accept="image/*" style="display:none">
-        </label>
-        <span class="tiny muted" id="tt-hint">支持截图、拍照，斜着拍的也能试</span>
-      </div>
-      <div id="tt-work" style="margin-top:12px"></div>`;
-    const file = pane.querySelector('#tt-file');
-    file.onchange = async () => {
-      const f = file.files && file.files[0];
-      if (!f) return;
-      const work = pane.querySelector('#tt-work');
-      work.innerHTML = '<div class="small muted">识别中…</div>';
-      if (imgURL) URL.revokeObjectURL(imgURL);
-      imgURL = URL.createObjectURL(f);
-      const img = new Image();
-      img.onload = () => {
-        try {
-          imgResult = detectTimetable(img);
-        } catch (e) {
-          work.innerHTML = `<div class="small" style="color:var(--red)">识别失败：${esc(e.message)}</div>`;
-          return;
-        }
-        if (!imgResult.ok) {
-          work.innerHTML = `<div class="small" style="color:var(--red)">${esc(imgResult.reason)}</div>`;
-          return;
-        }
-        /* 班号：优先用图片里认出来的数字（16×16 位图模板匹配）。
-           认不出的那几格**留空**，不填任何字。
-           早先这里填的是顺序号 String(autoNo)，结果 14 班那格显示成「12」——
-           顺序号长得跟真班号一模一样，老师扫一眼只会看「需核对」三个小字，
-           多半直接点确认，错班就进课表了。留空反而最安全：空着就必须填。 */
-        assign = imgResult.cells.map((c) => {
-          const guess = c.classGuess || '';
-          return {
-            weekday: c.weekday,
-            period: c.periodGuess,
-            class_name: guess,
-            row: c.row, col: c.col,
-            guessed: !!guess,          // true = 是认出来的，不是顺序填的
-            confidence: c.classConfidence || 0,
-          };
-        });
-        paintImagePreview(work);
-      };
-      img.onerror = () => { work.innerHTML = '<div class="small" style="color:var(--red)">图片打不开，换一张试试</div>'; };
-      img.src = imgURL;
-    };
-  };
-
-  const paintImagePreview = (work) => {
-    const R = imgResult;
-    const scale = Math.min(1, 620 / R.w);
-    /* 认出来的格子用紫色实框，没认出来的用橙色虚线框 —— 一眼看出哪些要核对 */
-    const marks = R.cells.map((c) => {
-      const b = c.box;
-      const sure = !!c.classGuess;
-      return `<rect x="${b.x * scale}" y="${b.y * scale}" width="${b.w * scale}" height="${b.h * scale}"
-        fill="${sure ? 'rgba(124,92,255,.22)' : 'rgba(245,158,11,.20)'}"
-        stroke="${sure ? '#7C5CFF' : '#F59E0B'}" stroke-width="1"
-        ${sure ? '' : 'stroke-dasharray="3 2"'}/>`;
-    }).join('');
-    const nSure = R.cells.filter((c) => c.classGuess).length;
-    const nUnsure = R.cells.length - nSure;
-    work.innerHTML = `
-      <div class="small" style="margin-bottom:8px;line-height:1.8">
-        切出 <b>${R.rows}</b> 行 × <b>${R.cols}</b> 列，其中 <b>${R.cells.length}</b> 格有课。<br>
-        <span style="color:var(--green)">紫色实框 ${nSure} 格：班号已从图里认出来</span>${nUnsure ? `　<span style="color:#B45309">橙色虚框 ${nUnsure} 格：没认出来，班号空着，请你填</span>` : ''}
-      </div>
-      <div style="position:relative;display:inline-block;max-width:100%">
-        <img src="${imgURL}" style="max-width:${Math.round(R.w * scale)}px;display:block;border-radius:8px">
-        <svg style="position:absolute;left:0;top:0;width:${Math.round(R.w * scale)}px;height:${Math.round(R.h * scale)}px;pointer-events:none"
-          viewBox="0 0 ${R.w * scale} ${R.h * scale}">${marks}</svg>
-      </div>
-      <div class="table-wrap" style="margin-top:12px;max-height:280px;overflow:auto">
-        <table class="tbl" style="min-width:0">
-          <thead><tr><th>星期</th><th>第几节</th><th>班级（可改）</th><th></th></tr></thead>
-          <tbody>${assign.map((a, i) => `<tr data-i="${i}"${a.guessed ? '' : ' style="background:rgba(245,158,11,.08)"'}>
-            <td><select class="cell-input" data-k="weekday">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<option value="${d}" ${a.weekday === d ? 'selected' : ''}>周${WD_SHORT[d]}</option>`).join('')}</select></td>
-            <td><input class="cell-input mono" data-k="period" type="number" min="1" max="14" value="${a.period}" style="width:64px"></td>
-            <td><div class="row" style="gap:6px;align-items:center">
-              <input class="cell-input" data-k="class_name" value="${esc(a.class_name)}"
-                placeholder="${a.guessed ? '' : '填写班号'}"
-                style="width:88px;${a.guessed ? '' : 'border-color:#F59E0B;background:#FFF7ED'}"
-                title="${a.guessed ? '从图片识别' : '这一格没认出来，请填班号'}">
-              ${a.guessed ? '' : '<span class="tiny" style="color:#B45309;white-space:nowrap;font-weight:600">待填</span>'}
-            </div></td>
-            <td><button class="icon-btn sm" data-del="1">${icon('close', 14)}</button></td>
-          </tr>`).join('')}</tbody>
-        </table>
-      </div>
-      <div class="row" style="margin-top:8px;gap:8px">
-        <button class="btn ghost sm" id="tt-fill">空着的按 1,2,3… 填</button>
-        <button class="btn ghost sm" id="tt-rows">按行号当节次</button>
-      </div>
-      <div class="tiny muted" style="margin-top:8px">
-        改完直接点右下角「导入到课表」。格子认错了可以删掉那一行。<br>
-        班号是从图里的数字认出来的（不用联网）。<b style="color:#B45309">橙色的行是没认出来的，班号空着，必须填上才能导入</b>。
-      </div>`;
-    work.querySelectorAll('[data-k]').forEach((inp) => {
-      inp.oninput = inp.onchange = () => {
-        const tr = inp.closest('tr');
-        const i = Number(tr.dataset.i);
-        const k = inp.dataset.k;
-        assign[i][k] = k === 'weekday' || k === 'period' ? Number(inp.value) : inp.value;
-      };
-    });
-    work.querySelectorAll('[data-del]').forEach((b) => {
-      b.onclick = () => {
-        const i = Number(b.closest('tr').dataset.i);
-        assign.splice(i, 1);
-        paintImagePreview(work);
-      };
-    });
-    work.querySelector('#tt-fill').onclick = () => {
-      /* 手动把空着的行填成 1,2,3…：只在「图里一个数字都没认出来、只能靠顺序」时才用得上。
-         它填的是序号，不是真班号 —— 所以填完 guessed 仍是 false（行还是橙的），
-         提醒老师这些值不是从图上认出来的，得自己核一遍。 */
-      let k = 0;
-      assign.forEach((a) => {
-        k++;
-        if (String(a.class_name || '').trim()) return;   // 已认出来的不动
-        a.class_name = String(k);
-      });
-      paintImagePreview(work);
-    };
-    work.querySelector('#tt-rows').onclick = () => {
-      // 按格子在原图里所在的行重新推节次（表头下方第几行 = 第几节）
-      const base = R.headerRow >= 0 ? R.headerRow + 1 : 0;
-      assign.forEach((a) => { a.period = a.row - base + 1; });
-      paintImagePreview(work);
-    };
-  };
-
-  /* ---------- 粘贴表格页 ---------- */
-  const paintText = () => {
-    pane.innerHTML = `
-      <div class="small muted" style="line-height:1.8;margin-bottom:10px">
-        从 Excel / WPS 选中整个课表区域（含表头和星期）→ 复制 → 粘到下面。<br>
-        也可以粘贴 JSON（换设备时用）。
-      </div>
-      <textarea id="tt-src" class="cell-input" rows="10" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.6"
-       ></textarea>
-      <div id="tt-preview" class="small" style="margin-top:10px"></div>`;
-    const src = pane.querySelector('#tt-src');
-    const preview = pane.querySelector('#tt-preview');
-    src.oninput = () => {
-      const t = src.value;
-      if (!t.trim()) { preview.innerHTML = ''; return; }
-      const r = parseTimetableAny(t);
-      if (r.errors.length) preview.innerHTML = `<div style="color:var(--red)">${r.errors.map(esc).join('<br>')}</div>`;
-      else {
-        const byDay = {};
-        for (const c of r.courses) byDay[c.weekday] = (byDay[c.weekday] || 0) + 1;
-        preview.innerHTML = `<div style="color:var(--green)">识别到 <b>${r.courses.length}</b> 节课`
-          + `${r.periods.length ? `、<b>${r.periods.length}</b> 个节次时间` : ''}（`
-          + Object.keys(byDay).sort().map((d) => `周${WD_SHORT[d]} ${byDay[d]}`).join('，') + '）</div>';
-      }
-    };
-  };
-
-  /* ---------- 节次时间页 ---------- */
-  const paintPeriod = () => {
-    const rows = PERIOD_PRESET;
-    pane.innerHTML = `
-      <div class="small muted" style="line-height:1.8;margin-bottom:10px">
-        课表上那一列「时间」照抄到这里。以后「今日课程」「上课提醒」都按这个算。
-      </div>
-      <div class="table-wrap"><table class="tbl" style="min-width:0">
-        <thead><tr><th>节次</th><th>开始</th><th>结束</th></tr></thead>
-        <tbody>${rows.map((r, i) => `<tr><td><b>${r[0]}</b></td>
-          <td><input class="cell-input mono" data-p="${i}" data-k="s" type="time" value="${r[1]}"></td>
-          <td><input class="cell-input mono" data-p="${i}" data-k="e" type="time" value="${r[2]}"></td>
-        </tr>`).join('')}</tbody></table></div>
-      <div class="row" style="margin-top:10px"><button class="btn primary sm" id="tt-savep">保存节次时间</button></div>`;
-    saving(pane.querySelector('#tt-savep'), async () => {
-      const exist = await api.get('/periods');
-      let n = 0;
-      for (const r of rows) {
-        const sEl = pane.querySelector(`input[data-p="${rows.indexOf(r)}"][data-k="s"]`);
-        const eEl = pane.querySelector(`input[data-p="${rows.indexOf(r)}"][data-k="e"]`);
-        if (!sEl.value || !eEl.value) continue;
-        const hit = exist.find((x) => Number(x.period_no) === Number(r[0]));
-        const payload = { period_no: Number(r[0]), name: r[3] || `第${r[0]}节`, start_time: sEl.value, end_time: eEl.value };
-        if (hit) await api.patch('/periods/' + hit.id, payload);
-        else await api.post('/periods', payload);
-        n += 1;
-      }
-      toast(`已保存 ${n} 个节次时间`);
-    });
-  };
-
-  const paint = () => {
-    if (tab === 'image') paintImage();
-    else if (tab === 'text') paintText();
-    else paintPeriod();
-  };
-
-  body.querySelectorAll('#tt-tabs button').forEach((b) => { b.onclick = () => setTab(b.dataset.t); });
-
-  /* ---------- 导入 ---------- */
-  saving(okBtn, async () => {
-    let list = [];
-    if (tab === 'image') {
-      if (!assign.length) { toast('先传一张课表图片', 'err'); return; }
-      /* 【空班号必须拦住，不能悄悄过滤】
-         图片里认不出的格子班号是空的。这里如果直接 filter 掉，那节课会**无声消失**
-         —— 老师以为导了 13 节，实际只进 12 节，少的那节要等到上课才发现。
-         所以先检查有没有空行，有就报出在第几行、带着节次，让他直接去填。 */
-      const blank = assign
-        .map((a, i) => ({ a, i }))
-        .filter(({ a }) => !String(a.class_name || '').trim());
-      if (blank.length) {
-        const rowsTxt = blank
-          .map(({ a }) => `周${WD_SHORT[a.weekday] || a.weekday}第${a.period}节`)
-          .join('、');
-        toast(`还有 ${blank.length} 行没填班号（${rowsTxt}），填完再导入`, 'err');
-        const first = pane.querySelector(`tr[data-i="${blank[0].i}"] [data-k=class_name]`);
-        if (first) { first.focus(); first.scrollIntoView({ block: 'center' }); }
-        return;
-      }
-      list = assign
-        .filter((a) => a.weekday && a.period)
-        .map((a) => ({ weekday: a.weekday, period_no: a.period, class_name: String(a.class_name).trim() }));
-    } else {
-      const src = pane.querySelector('#tt-src');
-      const r = parseTimetableAny(src ? src.value : '');
-      if (r.errors.length) { toast(r.errors[0], 'err'); return; }
-      list = r.courses;
-    }
-    if (!list.length) { toast('没有可导入的课程', 'err'); return; }
-
-    const [old, ps] = await Promise.all([api.get('/courses'), api.get('/periods')]);
-    if (!(await confirmDialog(
-      `导入将替换当前 ${old.length} 条课程记录和相关节次设置。替换前会备份当前课表到本机浏览器；旧课程也会进入回收站。确定继续？`,
-      { title: '确认替换课表', okText: '备份并导入', danger: true },
-    ))) return;
-    if (old.length || ps.length) archiveTimetable(old, ps, '普通课表导入前备份');
-    for (const c of old) await api.del('/courses/' + c.id);
-    const pmap = new Map(ps.map((p) => [Number(p.period_no), p]));
-
-    /* 【顺手把节次时间也写进去】
-       老师课表截图上「时间」那一列就是权威作息：8:00-8:40、10:00-10:40…
-       只导课程不导时间的话，课表页会显示系统自带的 07:40-08:25，一眼就看出不对。
-       所以这里把 PERIOD_PRESET（照老师这张表抄的）一并落库。
-
-       什么情况不覆盖：用户自己手动改过的时间要留住。
-       判断依据 = 现有时间「既不是预设值、也不在系统内置默认值里」→ 认为是他改的。
-       内置默认值放一张常量表，是为了区分「从没动过的初始值」和「用户改过的」。 */
-    const BUILTIN_DEFAULT = new Set(['07:40-08:25', '08:35-09:20', '09:35-10:20', '10:30-11:15',
-      '11:25-12:10', '14:20-15:05', '15:15-16:00', '16:10-16:55', '17:10-17:55', '19:00-19:45',
-      '19:55-20:40', '20:45-21:30', '21:35-22:20', '']);
-    let np = 0;
-    for (const [no, st, en, nm] of PERIOD_PRESET) {
-      const hit = pmap.get(no);
-      const cur = hit ? `${hit.start_time || ''}-${hit.end_time || ''}` : '';
-      const same = cur === `${st}-${en}`;
-      if (hit && !same && !BUILTIN_DEFAULT.has(cur)) continue;   // 用户手动改过，尊重他
-      if (same) continue;                                        // 已经对了，不用写
-      const payload = { period_no: no, name: nm, start_time: st, end_time: en };
-      try {
-        if (hit) await api.patch('/periods/' + hit.id, payload);
-        else await api.post('/periods', payload);
-        pmap.set(no, { ...(hit || {}), ...payload });
-        np += 1;
-      } catch (e) {
-        throw new Error(`保存第${no}节时间失败：${e.message}`);
-      }
-    }
-
-    let n = 0;
-    for (const c of list) {
-      const p = pmap.get(Number(c.period_no)) || {};
-      try {
-        await api.post('/courses', {
-          weekday: Number(c.weekday), period_no: Number(c.period_no),
-          start_time: c.start_time || p.start_time || '', end_time: c.end_time || p.end_time || '',
-          grade: c.grade || '', class_name: c.class_name,
-          subject: c.subject || '', room: c.room || '', color: c.color || '',
-        });
-        n += 1;
-      } catch (e) {
-        throw new Error(`导入周${WD_SHORT[c.weekday]}第${c.period_no}节「${c.class_name}」失败：${e.message}`);
-      }
-    }
-    toast(`已导入 ${n} 节课${np ? `，节次时间也一并更新了 ${np} 条` : ''}；替换前课表已备份到本机`);
-    s.close();
-    reload();
-  });
-
-  setTab('image');
-}
-
-/* 统一解析入口：JSON 走 JSON，其余按 Tab 表格解析 */
-function parseTimetableAny(text) {
-  const t = String(text || '').trim();
-  if (!t) return { courses: [], periods: [], errors: ['还没有内容'] };
-  if (/^[[{]/.test(t)) {
-    try {
-      const j = JSON.parse(t);
-      const cs = j.courses || (Array.isArray(j) ? j : []);
-      return { courses: cs, periods: j.periods || [], errors: cs.length ? [] : ['这个 JSON 里没有课程数据'] };
-    } catch (e) { return { courses: [], periods: [], errors: ['JSON 解析失败：' + e.message] }; }
-  }
-  return parseTimetableText(t);
-}
-
-/* 节次时间预设：[节次, 开始, 结束, 名称] */
-const PERIOD_PRESET = [
-  [1, '08:00', '08:40', '第一节'], [2, '08:50', '09:30', '第二节'],
-  [3, '10:00', '10:40', '第三节'], [4, '10:50', '11:30', '第四节'],
-  [5, '11:40', '12:20', '第五节'], [6, '14:10', '14:50', '第六节'],
-  [7, '15:20', '16:00', '第七节'], [8, '16:15', '16:55', '第八节'],
-  [9, '17:05', '17:45', '第九节'], [10, '18:25', '18:40', '晚一'],
-  [11, '19:30', '20:10', '晚二'], [12, '20:20', '21:00', '晚三'],
-  [13, '21:10', '21:55', '晚四'],
-];
-
 function printTimetableHTML(courses, periods, maxP) {
   const get = (d, p) => courses.find((c) => Number(c.weekday) === d && Number(c.period_no) === p);
   return `<!doctype html><meta charset="utf-8"><title>${state.user?.nickname || ''} 课表</title>
@@ -1447,51 +709,21 @@ function printTimetableHTML(courses, periods, maxP) {
 }
 function courseEditor(row, reload) {
   const isNew = !row?.id;
-  /* 【历史值联想】
-     全站不再预填「语文 / 高二」这类默认值 —— 预填的东西如果不符实际，
-     用户还得先删掉才能填，反而更慢。所以默认留空，直接手填。
-     但又不想让用户每次都从头打字：把已存课程里出现过的科目/年级/班级
-     收集成候选，挂在 datalist 上——点一下就能填，不打字也行。
-     这叫「手填为主，联想为辅」：没有强制默认值，只是给个快捷入口。
-
-     注意：这里必须保持同步函数。弹层要立刻出现，不能等接口；
-     历史值晚一步到达也没关系，反正用户点开下拉是在之后。 */
-
   const body = el(`<div class="sheet-body"><div class="form-grid">
     <div class="field"><label class="field-label">星期</label><select class="input" id="weekday">${[1,2,3,4,5,6,0].map((d) => `<option value="${d}" ${Number(row?.weekday) === d ? 'selected' : ''}>周${WD_SHORT[d]}</option>`).join('')}</select></div>
     <div class="field"><label class="field-label">节次</label><input class="input" type="number" id="period_no" value="${row?.period_no || 1}"></div>
     <div class="field"><label class="field-label">开始时间</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
     <div class="field"><label class="field-label">结束时间</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
-    <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(row?.grade || '')}" data-hist="grade"></div>
-    <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(row?.class_name || '')}" data-hist="class_name"></div>
-    <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}" data-hist="subject"></div>
-    <div class="field"><label class="field-label">教室</label><input class="input" id="room" value="${esc(row?.room || '')}" data-hist="room"></div>
+    <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(row?.grade || '高二')}"></div>
+    <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(row?.class_name || '')}"></div>
+    <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '语文')}"></div>
+    <div class="field"><label class="field-label">教室</label><input class="input" id="room" value="${esc(row?.room || '')}"></div>
     <div class="field"><label class="field-label">生效开始日</label><input class="input" type="date" id="sd" value="${esc(row?.start_date || '')}"></div>
     <div class="field"><label class="field-label">生效结束日</label><input class="input" type="date" id="ed" value="${esc(row?.end_date || '')}"></div>
   </div>
-  ${remarkField({ value: row?.remark || '' })}
+  ${remarkField({ value: row?.remark || '', placeholder: '如：走班教室、需带教具' })}
   <div class="confirm-actions">${isNew ? '' : '<button class="btn ghost" id="del" style="margin-right:auto;color:var(--red)">删除</button>'}
   <button class="btn ghost" id="cancel">取消</button><button class="btn primary" id="save">保存</button></div></div>`);
-
-  /* 历史值异步补上：失败就静默，手填照常可用 */
-  api.get('/courses').then((all) => {
-    for (const k of ['grade', 'class_name', 'subject', 'room']) {
-      const vals = [...new Set(all.map((c) => String(c[k] || '').trim()).filter(Boolean))].slice(0, 40);
-      if (!vals.length) continue;
-      const input = body.querySelector(`[data-hist="${k}"]`);
-      if (!input) continue;
-      const id = 'dl-' + k;
-      document.getElementById(id)?.remove();
-      // 用 createElement 而不是 el()：el() 走 template.firstElementChild，
-      // 只保证返回「第一个元素」，这里要的就是 datalist 本身，直接建更清楚。
-      const list = document.createElement('datalist');
-      list.id = id;
-      list.innerHTML = vals.map((v) => `<option value="${esc(v)}">`).join('');
-      body.appendChild(list);
-      input.setAttribute('list', id);
-      input.setAttribute('autocomplete', 'off');
-    }
-  }).catch(() => {});
   const s = sheet({ title: isNew ? '添加课程' : '修改课程', body });
   body.querySelector('#cancel').onclick = s.close;
   body.querySelector('#del')?.addEventListener('click', async () => {
@@ -1837,10 +1069,10 @@ function invEditor(row, reload, month, rules, people) {
     <div class="form-grid">
       <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="date" value="${esc(row?.date || ymd(new Date()))}"></div>
       <div class="field" id="w-peer"><label class="field-label">对方老师</label>
-        <input class="input" id="peer" list="peer-names" value="${esc(row?.peer_name || '')}">
+        <input class="input" id="peer" list="peer-names" value="${esc(row?.peer_name || '')}" placeholder="姓名">
         <datalist id="peer-names">${peerNames.map((n) => `<option value="${esc(n)}">`).join('')}</datalist></div>
-      <div class="field"><label class="field-label">考试名称</label><input class="input" id="exam" value="${esc(row?.exam_name || '')}"></div>
-      <div class="field"><label class="field-label">考场</label><input class="input" id="room" value="${esc(row?.room || '')}"></div>
+      <div class="field"><label class="field-label">考试名称</label><input class="input" id="exam" value="${esc(row?.exam_name || '')}" placeholder="如 期中数学"></div>
+      <div class="field"><label class="field-label">考场</label><input class="input" id="room" value="${esc(row?.room || '')}" placeholder="如 高三(2)"></div>
       <div class="field"><label class="field-label">开始</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
       <div class="field"><label class="field-label">结束</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
       <div class="field"><label class="field-label">时长（分钟）</label><input class="input" type="number" id="mins" value="${row?.duration_min ?? ''}"></div>
@@ -1884,16 +1116,10 @@ function invEditor(row, reload, month, rules, people) {
     q('mins').value = d;
     syncAmt(true);
   };
-
-  /* 【新建时不再无条件预填金额】
-     原来这里有一行 `if (isNew) syncAmt(true);`，一打开表单就把金额填成"单价 × 1 场"（默认 60 元）。
-     用户什么都没填就点保存，存的是一条 60 元的空记录。
-     现在：只有用户真的碰过时间/时长，才自动算金额；
-     全新的空表单保持空白，留空就存 0，不再凭空生出钱。 */
-  q('mins').onchange = () => syncAmt(true);
-  if (!isNew) syncAmt(true);
   q('st').onchange = calcMins; q('et').onchange = calcMins;
+  q('mins').onchange = () => syncAmt(true);
   syncKind();
+  if (isNew) syncAmt(true);
 
   body.querySelector('#c').onclick = s.close;
   body.querySelector('#k').onclick = async () => {
@@ -1920,16 +1146,6 @@ function invEditor(row, reload, month, rules, people) {
       end_at: q('date').value && q('et').value ? `${q('date').value}T${q('et').value}` : '',
     };
     if (dt !== 'school' && !payload.peer_name) { toast('请填对方老师姓名', 'err'); return; }
-    /* 【空监考单曾能一路存进去，还自带 60 元】
-       原来这里只校验了"代别人/别人代我"要填对方姓名，学校和价、考场、时间一个都没管。
-       用户什么都不填点保存 → 成功 → 库里多出一条 60 元、状态"已完成"的记录。
-       60 元是上面 calc() 按单价自动算的，月底对账会真实地算进"学校应发"，
-       用户会以为学校少发了钱。
-       现在要求：考试名称 / 考场 / 开始时间，至少有一个 —— 有了这个才有对账依据。 */
-    if (!payload.exam_name && !payload.room && !payload.start_time) {
-      toast('至少填一下考试名称、考场或开始时间，不然这条没法对账', 'warn');
-      return;
-    }
     try {
       if (isNew) await api.post('/invigilations', payload); else await api.patch('/invigilations/' + row.id, payload);
       s.close(); toast('已保存'); reload();
@@ -2211,7 +1427,7 @@ function itemEditor(tripId, defDate, it, done) {
       <div class="field"><label class="field-label">有没有发票</label>
         <select class="input" id="has"><option value="1" ${it?.has_invoice === 0 ? '' : 'selected'}>有票</option><option value="0" ${it?.has_invoice === 0 ? 'selected' : ''}>没票</option></select></div>
     </div>
-    <div class="field"><label class="field-label">说明</label><input class="input" id="note" value="${esc(it?.note || '')}"></div>
+    <div class="field"><label class="field-label">说明</label><input class="input" id="note" value="${esc(it?.note || '')}" placeholder="如：高铁往返 / 酒店 2 晚"></div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">${it ? '保存' : '添加'}</button></div>
   </div>`);
   const s = sheet({ title: it ? '编辑这一笔' : '加一笔支出', body });
@@ -2269,7 +1485,7 @@ function tripEditor(row, reload) {
       <div class="field"><label class="field-label">目的地</label><input class="input" id="to" value="${esc(row?.to_place || '')}"></div>
     </div>
     <div class="field"><label class="field-label">事由</label><input class="input" id="reason" value="${esc(row?.reason || '')}"></div>
-    <div class="field"><label class="field-label">随行人员</label><input class="input" id="comp" value="${esc(row?.companions || '')}"></div>
+    <div class="field"><label class="field-label">随行人员</label><input class="input" id="comp" value="${esc(row?.companions || '')}" placeholder="没有就留空"></div>
 
     <div class="sec-title" style="margin-top:18px">实报实销 <span class="tiny muted">（大额建议留票）</span></div>
     <div class="form-grid">
@@ -2307,22 +1523,10 @@ function tripEditor(row, reload) {
   });
   const num = (id) => Number(body.querySelector('#' + id).value) || 0;
   body.querySelector('#k').onclick = async () => {
-    /* 目的地和事由至少填一个。
-       原来只校验出发日期（还是默认今天的），别的全靠用户自觉 ——
-       点开「记录出差」什么都不填直接保存，就会生成一张空的出差单：
-       列表里显示「去『未填目的地』」，统计里也算一次出差，月底补贴还要按它算。
-       目的地是这张单子的主语，先要它。 */
-    const toPlace = body.querySelector('#to').value.trim();
-    const reason = body.querySelector('#reason').value.trim();
-    if (!toPlace) {
-      toast('去哪出差？先填一下目的地', 'warn');
-      body.querySelector('#to').focus();
-      return;
-    }
     const payload = {
       start_date: body.querySelector('#sd').value, end_date: body.querySelector('#ed').value || null,
-      from_place: body.querySelector('#from').value.trim(), to_place: toPlace,
-      reason, companions: body.querySelector('#comp').value,
+      from_place: body.querySelector('#from').value, to_place: body.querySelector('#to').value,
+      reason: body.querySelector('#reason').value, companions: body.querySelector('#comp').value,
       transport: num('transport'), hotel: num('hotel'), taxi: num('taxi'),
       toll: num('toll'), parking: num('park'), other: num('other'),
       advance: num('advance'), km: num('km'),
@@ -2337,6 +1541,30 @@ function tripEditor(row, reload) {
       s.close(); toast('已保存'); reload();
     } catch (e) { toast(e.message || '保存失败', 'err'); }
   };
+}
+
+/* 学生短链：把当前访问凭据（?sharecode= 之类）一并带上，
+   否则学生打开会遇到「链接不完整」的拦截页 */
+function studentUrl(code) {
+  if (!code) return '';
+  const qs = new URLSearchParams(location.search);
+  // 只透传平台要求的访问参数，其余（utm 等）不带
+  const keep = new URLSearchParams();
+  for (const k of ['sharecode', 'code', 'access']) {
+    const v = qs.get(k);
+    if (v) keep.set(k, v);
+  }
+  const q = keep.toString();
+  return `${location.origin}/s/${code}${q ? '?' + q : ''}`;
+}
+
+/* 屏幕上只显示路径部分。
+   用户报的是「学生短链仍显示长链」——之前直接把 studentUrl() 整个丢进 <code>，
+   连 https://ad90e9…app.workbuddy.host 这截也一起显示，看着完全不像短链。
+   真正的短链主体是 /s/feutnv 这 9 个字符，复制时再补全成完整地址。 */
+function shortPath(code) {
+  if (!code) return '';
+  return `/s/${code}`;
 }
 
 /* ---------- 课堂签到（教师端） ---------- */
@@ -2413,160 +1641,6 @@ function applyRollStats(sessions) {
   if (tag) tag.hidden = !live;
 }
 
-/* ================= 抽人（第 19 条） =================
-   用户原话：「抽人改成自己填班级 + 人数 + 抽几个，按号码抽」。
-
-   原来的问题是：抽人绑死在「班级名册」上，没有名册就抽不了；
-   而且抽出来的是姓名，课堂上点名不方便 —— 老师喊的是「3 号」，
-   学生看的是自己座位号 / 学号。
-
-   所以这里完全按用户说的做：
-     · 班级随便填（有名册就下拉选，没有就直接打字）；
-     · 人数自己填（40 人），不需要提前导入名单；
-     · 抽几个自己填（1~N）；
-     · 按 1~人数 的号码抽，结果同时显示号码和姓名（名册里有对应就叫名字）。
-   号码和名册的对应关系：名册第 k 个 = k 号。这样不用额外维护学号字段，
-   名册顺序就是座位号顺序，跟老师手里的点名册一致。 */
-function paintPickCard(rosters) {
-  return `<div class="card card-pad pick-card">
-    <div class="row wrap" style="gap:10px;align-items:center">
-      <div style="flex:1;min-width:180px">
-        <div class="bold">${icon('user', 15)} 抽人
-          <span class="tiny muted" style="margin-left:6px">按号码抽，不重复</span></div>
-        <div class="small muted">填班级和人数，选抽几个，点一下就抽。</div>
-      </div>
-      <button class="btn primary sm" id="pick-open">${icon('refresh', 15)} 开始抽</button>
-    </div>
-  </div>`;
-}
-
-function pickStudentDialog(rosters) {
-  const body = el(`<div class="sheet-body">
-    <div class="form-grid">
-      <div class="field"><label class="field-label">班级</label>
-        <input class="input" id="pk-cls" list="pk-cls-list" value="${esc(rosters[0] ? clsName(rosters[0].grade, rosters[0].class_name) : '')}">
-        <datalist id="pk-cls-list">${rosters.map((r) => `<option>${esc(clsName(r.grade, r.class_name))}</option>`).join('')}</datalist></div>
-      <div class="field"><label class="field-label">总人数</label>
-        <input class="input" id="pk-total" type="number" min="1" max="200" value="${esc(String(rosters[0]?.count || 40))}" inputmode="numeric"></div>
-    </div>
-    <div class="form-grid">
-      <div class="field"><label class="field-label">抽几个</label>
-        <input class="input" id="pk-n" type="number" min="1" max="50" value="1" inputmode="numeric"></div>
-      <div class="field"><label class="field-label">已抽过的</label>
-        <div class="row" style="gap:8px;align-items:center;height:38px">
-          <label class="row" style="gap:6px;align-items:center;font-size:13px">
-            <input type="checkbox" id="pk-norepeat" checked> 不重复抽
-          </label>
-          <button class="btn ghost sm" id="pk-reset" style="margin-left:auto">重置</button>
-        </div></div>
-    </div>
-    <div class="pk-stage" id="pk-stage">
-      <div class="pk-hint">点下面的按钮开始</div>
-    </div>
-    <div class="pk-history-wrap">
-      <div class="tiny muted" id="pk-his-tip">这轮还没抽</div>
-      <div class="row wrap" id="pk-history" style="gap:6px;margin-top:6px"></div>
-    </div>
-    <div class="confirm-actions"><button class="btn ghost" id="pk-close">关闭</button>
-      <button class="btn primary" id="pk-go">${icon('refresh', 15)} 抽</button></div>
-  </div>`);
-  const s = sheet({ title: '抽人', body, wide: true });
-  const $ = (q) => body.querySelector(q);
-  const stage = $('#pk-stage');
-  const drawn = [];        // 已抽出的号码（跨次累积，用于「不重复」）
-
-  /* 名册：班级名对上就取名字，对不上就只显示号码。
-     优先精确匹配「高二(3)班」，其次按 grade+class_name 拼出来的名字匹配。 */
-  const namesFor = (cls) => {
-    const hit = rosters.find((r) => clsName(r.grade, r.class_name) === cls) || rosters.find((r) => r.class_name === cls);
-    return Array.isArray(hit?.names) ? hit.names : [];
-  };
-  const totalOf = () => {
-    const n = Number($('#pk-total').value);
-    return Number.isFinite(n) && n > 0 ? Math.min(200, Math.floor(n)) : 0;
-  };
-
-  /* 选班级时自动带出人数：名册里有 count 就用它，省得用户再数一遍 */
-  $('#pk-cls').onchange = () => {
-    const names = namesFor($('#pk-cls').value);
-    if (names.length) $('#pk-total').value = String(names.length);
-  };
-
-  const paintHis = () => {
-    const names = namesFor($('#pk-cls').value);
-    $('#pk-his-tip').textContent = drawn.length ? `这轮已抽 ${drawn.length} 个` : '这轮还没抽';
-    $('#pk-history').innerHTML = drawn.map((no, i) => `<span class="pk-chip">
-      <b>${no}</b>${names[no - 1] ? `<i>${esc(names[no - 1])}</i>` : ''}
-      <button data-un="${i}" title="撤销这个">×</button></span>`).join('');
-    $('#pk-history').querySelectorAll('[data-un]').forEach((b) => {
-      b.onclick = () => { drawn.splice(Number(b.dataset.un), 1); paintHis(); };
-    });
-  };
-
-  /* 抽签：从 1..total 里排除已抽过的，用 crypto 取随机数。
-     不用 Math.random 是因为它的种子可预测，连着抽会出现明显规律；
-     课堂上「怎么又是 3 号」是要被学生起哄的。 */
-  const randInt = (max) => {
-    if (window.crypto?.getRandomValues) {
-      const a = new Uint32Array(1);
-      const lim = Math.floor(0xFFFFFFFF / max) * max;
-      let v = 0;
-      do { window.crypto.getRandomValues(a); v = a[0]; } while (v >= lim);
-      return v % max;
-    }
-    return Math.floor(Math.random() * max);
-  };
-
-  const go = async () => {
-    const total = totalOf();
-    const want = Math.max(1, Math.min(50, Number($('#pk-n').value) || 1));
-    if (!total) return toast('先填总人数', 'warn');
-    const noRepeat = $('#pk-norepeat').checked;
-    const pool = [];
-    for (let i = 1; i <= total; i += 1) if (!noRepeat || !drawn.includes(i)) pool.push(i);
-    if (!pool.length) {
-      stage.innerHTML = `<div class="pk-hint pk-done">1~${total} 号都抽完了，点「重置」重新开始</div>`;
-      return;
-    }
-    const pickCount = Math.min(want, pool.length);
-    const picked = [];
-    for (let i = 0; i < pickCount; i += 1) {
-      const k = randInt(pool.length);
-      picked.push(pool[k]);
-      pool.splice(k, 1);       // 同一次里也不重复
-    }
-    /* 滚动动画：号码快速跳 600ms 再定格。
-       不是为了炫，是为了「抽」这个动作有过程感 —— 直接出结果像内定的。 */
-    stage.innerHTML = `<div class="pk-roll"><span id="pk-roll-num">?</span></div>`;
-    const spin = $('#pk-roll-num');
-    const t0 = Date.now();
-    const timer = setInterval(() => {
-      spin.textContent = String(1 + randInt(total));
-    }, 55);
-    await new Promise((r) => setTimeout(r, 620));
-    clearInterval(timer);
-    void t0;
-    const names = namesFor($('#pk-cls').value);
-    stage.innerHTML = `<div class="pk-result">
-      ${picked.map((no) => `<div class="pk-one">
-        <span class="pk-no">${no}</span>
-        <span class="pk-name">${names[no - 1] ? esc(names[no - 1]) : '<i class="muted">未在名册</i>'}</span>
-      </div>`).join('')}
-    </div>`;
-    picked.forEach((no) => { if (!drawn.includes(no)) drawn.push(no); });
-    paintHis();
-  };
-
-  $('#pk-go').onclick = go;
-  $('#pk-reset').onclick = () => {
-    drawn.length = 0;
-    stage.innerHTML = '<div class="pk-hint">点下面的按钮开始</div>';
-    paintHis();
-  };
-  $('#pk-close').onclick = s.close;
-  paintHis();
-}
-
 /* 惩罚盲盒：学生抽到什么，这里能看到；任务清单也在这里维护 */
 const LV_TXT = { light: '轻松', average: '有点挑战', heavy: '大冒险' };
 const LV_COLOR = { light: 'green', average: 'amber', heavy: 'red' };
@@ -2603,7 +1677,7 @@ function paintPunishCard(items, records) {
 function punishEditor(p, reload) {
   const body = el(`<div class="sheet-body">
     <div class="field"><label class="field-label">任务内容</label>
-      <input class="input" id="t" value="${esc(p?.text || '')}"></div>
+      <input class="input" id="t" value="${esc(p?.text || '')}" placeholder="如：唱歌 30 秒 / 做 20 个深蹲"></div>
     <div class="field"><label class="field-label">强度</label>
       <select class="input" id="lv">
         <option value="light" ${p?.level === 'light' || !p ? 'selected' : ''}>轻松（唱歌、讲笑话）</option>
@@ -2750,270 +1824,6 @@ function askStatus() {
   });
 }
 
-/* ================= 学生页面的三个模块（课件下面的第三级） =================
-   教材 / 抽人 / 盲盒，对应 student.html 顶部的三个页签：
-     material → 老师在「课件」里上传、勾了「学生可见」的资料
-     roll     → 抽人（按号码或按名单，不重复）
-     punish   → 惩罚盲盒（点一下随机弹一个任务）
-   第三级页面不做「学生页的复刻」，而是给这三件事做后台：
-   看学生到底能拿到什么、把要用的东西配好、看用了几次。
-   自习那个模块因为本身就是「开一场签到 + 看名单」，逻辑更重，
-   单独放在 selfstudy.js 里（见 renderSelfstudyBody）。 */
-const STUDENT_MOD = {
-  textbook: {
-    name: '教材', icon: 'book', tab: 'material',
-    desc: '学生打开短链后看到的「课件」页，内容来自你勾了「学生可见」的资料。',
-  },
-  pick: {
-    name: '抽人', icon: 'dice', tab: 'roll',
-    desc: '学生端那台设备上的抽人转盘：填班级和人数，点一下滚出号码或名字。',
-  },
-  mystery: {
-    name: '盲盒', icon: 'gift', tab: 'punish',
-    desc: '学生点「抽任务」随机弹一个。这一轮不重复，抽完自动洗牌。',
-  },
-};
-
-/* 名单字段在库里可能是两种形态：JSON 数组（导入班级时写入）、
-   或者「张一诺,李晨阳」这种逗号串（种子数据与手工录的一条就写成了这样）。
-   以前只有抽人弹层里 JSON.parse 一处，串形态直接抛 SyntaxError，
-   整页白屏。统一走这个函数，解析不了就按分隔符切开。 */
-function parseNames(raw) {
-  if (Array.isArray(raw)) return raw.filter(Boolean);
-  const s = String(raw ?? '').trim();
-  if (!s) return [];
-  if (s.startsWith('[')) { try { return (JSON.parse(s) || []).filter(Boolean); } catch { /* 落到下面按分隔符切 */ } }
-  return s.split(/[\n,，、;；\s]+/).map((x) => x.trim()).filter(Boolean);
-}
-
-async function renderStudentModule(box, key) {
-  const meta = STUDENT_MOD[key];
-  const [links, mats, rosters, punishes, punRecs, rollSess] = await Promise.all([
-    api.get('/links').catch(() => []),
-    api.get('/materials').catch(() => []),
-    api.get('/rosters').catch(() => []),
-    api.get('/punishments').catch(() => []),
-    api.get('/punish/records', { date: ymd(new Date()) }).catch(() => []),
-    api.get('/roll/sessions').catch(() => []),
-  ]);
-  const link = links[0];
-  const pubMats = mats.filter((m) => Number(m.public) !== 0);
-
-  /* 顶部：这个模块在学生那边长什么样 */
-  box.innerHTML = `
-    <div class="card card-pad" style="margin-bottom:14px;background:var(--primary-weak);border-color:transparent">
-      <div class="row wrap" style="gap:10px">
-        <div style="flex:1;min-width:200px">
-          <div class="bold">${icon(meta.icon, 15)} 学生端「${esc(meta.name)}」</div>
-          <div class="small muted" style="margin-top:3px">${esc(meta.desc)}</div>
-        </div>
-        ${link
-      ? `<code class="mono link-short" title="${esc(studentUrl(link.code))}">${esc(shortPath(link.code))}</code>
-             <button class="btn ghost sm" id="sm-copy">${icon('copy', 14)} 复制</button>
-             <a class="btn ghost sm" href="${esc(studentUrl(link.code))}" target="_blank" rel="noopener">打开学生页</a>`
-      : '<button class="btn primary sm" id="sm-mklink">生成学生链接</button>'}
-      </div>
-      <div class="field-hint" style="margin-top:10px">
-        学生打开上面的地址 → 顶部点「${esc(meta.name)}」→ 就是这个模块。学生不用登录，也不需要装 App。
-      </div>
-    </div>
-    <div id="sm-body"></div>`;
-
-  box.querySelector('#sm-copy')?.addEventListener('click', async () => {
-    const url = studentUrl(link.code);
-    try { await navigator.clipboard.writeText(url); toast('已复制，发到班级群就行'); } catch { prompt('复制下面的链接', url); }
-  });
-  box.querySelector('#sm-mklink')?.addEventListener('click', async () => {
-    await api.post('/links', { title: '班级资料站' }).catch(() => { });
-    renderStudentModule(box, key);
-  });
-
-  const inner = box.querySelector('#sm-body');
-
-  if (key === 'textbook') {
-    /* —— 教材：其实就是在管「哪些资料对学生可见」 —— */
-    inner.innerHTML = `
-      <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-        <div class="card card-pad"><div class="tiny muted">资料总数</div>
-          <div style="font-size:24px;font-weight:700">${mats.length}</div></div>
-        <div class="card card-pad"><div class="tiny muted">学生能看到的</div>
-          <div style="font-size:24px;font-weight:700;color:var(--green)">${pubMats.length}</div></div>
-        <div class="card card-pad"><div class="tiny muted">仅自己可见</div>
-          <div style="font-size:24px;font-weight:700;color:var(--amber)">${mats.length - pubMats.length}</div></div>
-      </div>
-      <div class="row wrap" style="gap:8px;margin:16px 0 10px">
-        <button class="btn primary sm" id="tb-up">${icon('upload', 15)} 上传资料</button>
-        <span style="flex:1"></span>
-        <span class="tiny muted">点标题右侧的开关可以随时收回</span>
-      </div>
-      <div class="card" style="overflow:hidden">
-        ${pubMats.length ? pubMats.map((m) => `<div class="list-item">
-          <div class="doc-ico">${icon('book', 17)}</div>
-          <div style="flex:1;min-width:0">
-            <div class="bold">${esc(m.title)}</div>
-            <div class="tiny muted">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · ') || '没有填写说明')}</div>
-          </div>
-          <span class="chip green">学生可见</span>
-          <button class="btn ghost sm" data-unpub="${m.id}">收回</button>
-        </div>`).join('') : '<div class="empty">还没有对学生可见的资料，点「上传资料」开始</div>'}
-      </div>`;
-
-    inner.querySelector('#tb-up')?.addEventListener('click', () => materialEditor(null, 0, () => renderStudentModule(box, key)));
-    inner.querySelectorAll('[data-unpub]').forEach((b) => {
-      b.onclick = async () => {
-        const m = mats.find((x) => String(x.id) === b.dataset.unpub);
-        if (!(await confirmDialog(`把《${m.title}》从学生页面收回？学生就看不到了，文件本身还在。`))) return;
-        await api.patch('/materials/' + m.id, { public: 0 });
-        toast('已收回'); renderStudentModule(box, key);
-      };
-    });
-  } else if (key === 'pick') {
-    /* —— 抽人 —— */
-    const totalNames = rosters.reduce((s, r) => s + (parseNames(r.names).length || Number(r.count) || 0), 0);
-    inner.innerHTML = `
-      <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-        <div class="card card-pad"><div class="tiny muted">可抽班级</div>
-          <div style="font-size:24px;font-weight:700">${rosters.length}</div>
-          <div class="tiny muted">${rosters.slice(0, 2).map((r) => esc(r.class_name)).join('、') || '没有名单也能按号码抽'}</div></div>
-        <div class="card card-pad"><div class="tiny muted">名单人数</div>
-          <div style="font-size:24px;font-weight:700">${totalNames}</div>
-          <div class="tiny muted">没名单就只能按号码</div></div>
-        <div class="card card-pad"><div class="tiny muted">进行中的签到</div>
-          <div style="font-size:24px;font-weight:700">${rollSess.filter((s) => s.status === 'open').length}</div>
-          <div class="tiny muted">抽人不需要签到</div></div>
-      </div>
-      <div class="row wrap" style="gap:8px;margin:16px 0 10px">
-        <button class="btn primary sm" id="pk-try">${icon('dice', 15)} 在这里试抽一次</button>
-        <button class="btn ghost sm" id="pk-ros">${icon('users', 15)} 管理班级名单</button>
-      </div>
-      <div class="card card-pad">
-        <div class="card-title">${icon('users', 16)} 班级名单</div>
-        <div class="tiny muted" style="margin:6px 0 10px">名单只影响「按名单名字抽」这一个选项。没有名单，学生页照样能按 1~50 号抽。</div>
-        ${rosters.length ? `<div class="pb-list">${rosters.map((r) => {
-      const n = parseNames(r.names);
-      return `<div class="pb-row">
-            <span class="chip blue">${esc(clsName(r.grade, r.class_name))}</span>
-            <span class="pb-text">${n.length ? `${n.length} 个名字` : `未导入姓名（按号码抽 ${r.count || 40} 人）`}</span>
-            <span class="tiny muted">${n.slice(0, 6).join('、')}${n.length > 6 ? '…' : ''}</span>
-          </div>`;
-    }).join('')}</div>` : '<div class="empty" style="padding:16px">还没有班级名单</div>'}
-      </div>`;
-
-    inner.querySelector('#pk-try')?.addEventListener('click', () => pickStudentDialog(rosters));
-    inner.querySelector('#pk-ros')?.addEventListener('click', () => openRosterDialog(rosters, () => renderStudentModule(box, key)));
-  } else {
-    /* —— 盲盒 —— */
-    const today = punRecs.filter((r) => r.source === 'student');
-    inner.innerHTML = `
-      <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-        <div class="card card-pad"><div class="tiny muted">盒子里的任务</div>
-          <div style="font-size:24px;font-weight:700">${punishes.length}</div>
-          <div class="tiny muted">${punishes.filter((p) => p.level === 'heavy').length} 个是「大冒险」</div></div>
-        <div class="card card-pad"><div class="tiny muted">今天被抽中</div>
-          <div style="font-size:24px;font-weight:700">${today.length}</div></div>
-        <div class="card card-pad"><div class="tiny muted">正在生效</div>
-          <div style="font-size:24px;font-weight:700;color:var(--green)">${punishes.filter((p) => Number(p.active) !== 0).length}</div></div>
-      </div>
-      <div class="row wrap" style="gap:8px;margin:16px 0 4px">
-        <button class="btn primary sm" id="mb-add">${icon('plus', 15)} 加任务</button>
-        ${punishes.length ? '<button class="btn ghost sm" id="mb-seed">补经典任务</button>' : ''}
-        <span style="flex:1"></span>
-        <span class="tiny muted">学生那边这一轮不重复，抽完自动洗牌</span>
-      </div>
-      <div class="card card-pad" id="mb-list"></div>`;
-
-    const listBox = inner.querySelector('#mb-list');
-    const paintList = () => {
-      listBox.innerHTML = punishes.length ? `<div class="pb-list">${punishes.map((p) => `<div class="pb-row">
-          <span class="chip ${LV_COLOR[p.level] || 'grey'}">${LV_TXT[p.level] || '任务'}</span>
-          <span class="pb-text">${esc(p.text)}</span>
-          <button class="icon-btn sm" data-pb-edit="${p.id}" title="修改">${icon('edit', 14)}</button>
-          <button class="icon-btn sm" data-pb-del="${p.id}" title="删除">${icon('close', 13)}</button>
-        </div>`).join('')}</div>` : '<div class="empty" style="padding:16px">还没有任务，点「加任务」开始</div>';
-      listBox.querySelectorAll('[data-pb-edit]').forEach((b) => {
-        b.onclick = () => punishEditor(punishes.find((p) => String(p.id) === b.dataset.pbEdit), () => renderStudentModule(box, key));
-      });
-      listBox.querySelectorAll('[data-pb-del]').forEach((b) => {
-        b.onclick = async () => {
-          if (!(await confirmDialog('删掉这个任务？学生就抽不到它了。'))) return;
-          await api.del('/punishments/' + b.dataset.pbDel); toast('已删除'); renderStudentModule(box, key);
-        };
-      });
-    };
-    paintList();
-    inner.querySelector('#mb-add')?.addEventListener('click', () => punishEditor(null, () => renderStudentModule(box, key)));
-    inner.querySelector('#mb-seed')?.addEventListener('click', async () => {
-      if (!(await confirmDialog('补一批经典任务（12 个，自动跳过已有的）？'))) return;
-      const have = new Set(punishes.map((p) => p.text.trim()));
-      const seeds = [
-        ['唱歌 30 秒：随便唱一首，全班跟拍', 'light'],
-        ['讲个笑话，要让人笑出来', 'light'],
-        ['做 20 个深蹲', 'heavy'],
-        ['做 15 个开合跳', 'average'],
-        ['领读今天的课文段落', 'average'],
-        ['当小老师：给全班讲一道题', 'average'],
-        ['用一句话总结这节课的重点', 'average'],
-        ['30 秒英文自我介绍', 'heavy'],
-        ['背诵一句名言并解释意思', 'light'],
-        ['给同桌讲一遍刚才的题目', 'average'],
-        ['下节课开头用 1 分钟回顾今天内容', 'heavy'],
-        ['整理讲台与板书', 'light'],
-      ].filter(([t]) => !have.has(t));
-      if (!seeds.length) return toast('这些任务都已经有了');
-      for (const [text, level] of seeds) await api.post('/punishments', { text, level, active: 1 }).catch(() => { });
-      toast(`已补 ${seeds.length} 个任务`);
-      renderStudentModule(box, key);
-    });
-
-    if (today.length) {
-      const rec = el(`<div class="card card-pad" style="margin-top:12px">
-        <div class="card-title">${icon('clock', 15)} 今天学生抽到的（${today.length} 条）</div>
-        <div class="pb-recent">${today.slice(0, 12).map((r) => `<div class="pb-rec">
-          <span class="chip ${r.stu_name ? 'blue' : 'grey'}">${esc(r.stu_name || '匿名')}</span>
-          <span class="pb-rtext">${esc(r.text)}</span>
-          <span class="tiny muted">${esc(fmtTime(r.created_at))}</span>
-        </div>`).join('')}</div>
-      </div>`);
-      inner.appendChild(rec);
-    }
-  }
-}
-
-/* 班级名单管理：本地版没有单独的名单页，就在抽人下面开一个弹层改。
-   以前用户反馈「名单建好了没法改名字」，根因是根本没有编辑入口。 */
-function openRosterDialog(rosters, reload) {
-  const body = el(`<div class="sheet-body">
-    <div class="small muted" style="margin-bottom:10px">名字一行一个，或用逗号、顿号、空格分开都行。名称留空等于删掉这个班。</div>
-    ${rosters.map((r) => {
-    const n = parseNames(r.names);
-    return `<div class="field" data-rid="${r.id}">
-        <label class="field-label">${esc(clsName(r.grade, r.class_name))}</label>
-        <textarea class="input" rows="3" data-names="${r.id}">${esc(n.join('\n'))}</textarea>
-      </div>`;
-  }).join('') || '<div class="empty">还没有班级名单。先在「课件 → 上传资料」里建班，或直接在学生页按号码抽。</div>'}
-    <div class="confirm-actions"><button class="btn ghost" id="rc">取消</button><button class="btn primary" id="ro">保存</button></div>
-  </div>`);
-  const s = sheet({ title: '班级名单', body });
-  body.querySelector('#rc').onclick = s.close;
-  body.querySelector('#ro').onclick = async () => {
-    const btn = body.querySelector('#ro'); btn.disabled = true; btn.textContent = '保存中…';
-    try {
-      for (const r of rosters) {
-        const ta = body.querySelector(`[data-names="${r.id}"]`);
-        if (!ta) continue;
-        const names = ta.value.split(/[\n,，、\s]+/).map((x) => x.trim()).filter(Boolean);
-        /* /rosters 的 PATCH 接口约定 names 是数组（不是字符串），
-           count 不给时会自动用数组长度；这里显式给，防止空名单把人数冲成 0。 */
-        await api.patch('/rosters/' + r.id, { names, count: names.length || Number(r.count) || 0 });
-      }
-      s.close(); toast('名单已保存'); reload?.();
-    } catch (e) {
-      btn.disabled = false; btn.textContent = '保存';
-      toast(e.message || '保存失败', 'err');
-    }
-  };
-}
-
 /* ================= 课件 + 课堂签到 ================= */
 async function renderMaterials(box) {
   let currentCat = 0;
@@ -3042,8 +1852,6 @@ async function renderMaterials(box) {
       </div>
 
       ${paintRollCard(rollSess, rosters)}
-
-      ${paintPickCard(rosters)}
 
       ${paintPunishCard(punishes, punRecs)}
 
@@ -3106,9 +1914,6 @@ async function renderMaterials(box) {
         toast('已结束签到'); load();
       };
     });
-    /* —— 抽人 —— */
-    box.querySelector('#pick-open')?.addEventListener('click', () => pickStudentDialog(rosters));
-
     /* —— 惩罚盲盒 —— */
     box.querySelector('#pb-add')?.addEventListener('click', () => punishEditor(null, load));
     box.querySelectorAll('[data-pb-edit]').forEach((b) => {
@@ -3197,11 +2002,11 @@ async function materialEditor(m, catId, reload) {
   const isNew = !m;
   const cats = await api.get('/categories', { scope: 'material' });
   const body = el(`<div class="sheet-body">
-    <div class="field"><label class="field-label">标题</label><input class="input" id="t" value="${esc(m?.title || '')}"></div>
+    <div class="field"><label class="field-label">标题</label><input class="input" id="t" value="${esc(m?.title || '')}" placeholder="如：《劝学》第一课时 PPT"></div>
     <div class="form-grid">
       <div class="field"><label class="field-label">分类</label><select class="input" id="cat"><option value="">未分类</option>${cats.map((c) => `<option value="${c.id}" ${Number(m?.category_id || catId) === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
       <div class="field"><label class="field-label">班级</label><input class="input" id="cls" value="${esc(m?.class_name || '')}"></div>
-      <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(m?.grade || '')}"></div>
+      <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(m?.grade || '高二')}"></div>
       <div class="field"><label class="field-label">学生可见</label><select class="input" id="pub"><option value="1" ${m?.public !== 0 ? 'selected' : ''}>是（短链可看）</option><option value="0" ${m?.public === 0 ? 'selected' : ''}>否</option></select></div>
     </div>
     <div class="field"><label class="field-label">说明</label><textarea class="input" id="d" rows="2">${esc(m?.descr || '')}</textarea></div>
@@ -3412,18 +2217,18 @@ function prepEditor(row, reload) {
       <div class="field"><label class="field-label">备课日期</label>
         <input class="input" type="date" id="p-date" value="${esc(row?.date || today)}"></div>
       <div class="field"><label class="field-label">班级</label>
-        <input class="input" id="p-class" value="${esc(row?.class_name || '')}"></div>
+        <input class="input" id="p-class" value="${esc(row?.class_name || '')}" placeholder="高二(3)班"></div>
       <div class="field"><label class="field-label">学科</label>
-        <input class="input" id="p-subject" value="${esc(row?.subject || '')}"></div>
+        <input class="input" id="p-subject" value="${esc(row?.subject || '语文')}"></div>
       <div class="field"><label class="field-label">花了多久（分钟，选填）</label>
         <input class="input" id="p-min" type="number" min="0" step="5" value="${row?.minutes ?? ''}"></div>
     </div>
     <div class="field"><label class="field-label">备的是哪一课 <span class="req">*</span></label>
-      <input class="input" id="p-topic" value="${esc(row?.topic || '')}"></div>
+      <input class="input" id="p-topic" value="${esc(row?.topic || '')}" placeholder="如：《劝学》第三段 + 课后练习"></div>
     <div class="field"><label class="field-label">备到哪了</label>
-      <textarea class="input" id="p-progress" rows="3">${esc(row?.progress || '')}</textarea></div>
+      <textarea class="input" id="p-progress" rows="3" placeholder="如：导入和字词梳理做完了，第三段翻译写到一半">${esc(row?.progress || '')}</textarea></div>
     <div class="field"><label class="field-label">下次接着备什么 <span class="prep-hint">这句是重点，写了下回一看就明白</span></label>
-      <textarea class="input" id="p-next" rows="2">${esc(row?.next_step || '')}</textarea></div>
+      <textarea class="input" id="p-next" rows="2" placeholder="如：把第三段剩下的翻译补完，再找两道对比阅读题">${esc(row?.next_step || '')}</textarea></div>
     ${remarkField({ id: 'p-remark', value: row?.remark || '', placeholder: '如：需要打印学案、借投影笔' })}
     <div class="field"><label class="field-label">状态</label>
       <div class="le-seg" id="p-seg">
@@ -3535,7 +2340,7 @@ async function renderNotes(box) {
     ed.hidden = false;
     ed.innerHTML = `
       <div class="row" style="margin-bottom:10px">
-        <input class="input" id="n-title" value="${esc(n?.title || '')}" style="font-weight:650;flex:1">
+        <input class="input" id="n-title" value="${esc(n?.title || '')}" placeholder="笔记标题" style="font-weight:650;flex:1">
         <select class="input" id="n-cat" style="max-width:150px">${cats.map((c) => `<option value="${c.id}" ${Number(n?.category_id) === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
       </div>
       <div class="seg" style="margin-bottom:8px"><button class="on" data-mv="edit">编辑</button><button data-mv="preview">预览</button></div>
