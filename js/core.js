@@ -3,9 +3,10 @@
    - 同源部署（后端同时托管前端）：window.WB_API_BASE 不填或为 ''，走相对路径；
    - 前后端分离（如前端挂 GitHub Pages）：在 index.html 里设 window.WB_API_BASE = 'https://后端域名'。
    凭证双通道：登录/注册响应里的 token 会存进 localStorage，后续请求带
-   X-WB-Token 自定义头（跨域场景的主力，代理不会改写自定义头）；
-   同源时 Cookie 照常生效（credentials:'include'）。 */
+   X-WB-Token 自定义头；跨域时不发送 Cookie，避免后端未启用 CORS credentials 导致浏览器拦截；
+   同源时仍使用 Cookie。 */
 const API_BASE = String(window.WB_API_BASE || '').replace(/\/+$/, '');
+const API_CROSS_ORIGIN = !!API_BASE && new URL(API_BASE, location.href).origin !== location.origin;
 const TOKEN_KEY = 'wb_token';
 /* 平台分享门：托管平台要求请求带 sharecode 才放行（跨域场景无法靠 cookie）。
    同源部署（WB_API_BASE 为空）不需要，也不加。 */
@@ -15,7 +16,7 @@ export function setApiToken(t) {
 }
 export const api = {
   async req(method, path, body, opts = {}) {
-    const init = { method, headers: {}, credentials: 'include' };
+    const init = { method, headers: {}, credentials: API_CROSS_ORIGIN ? 'omit' : 'include' };
     try { const tk = localStorage.getItem(TOKEN_KEY); if (tk) init.headers['X-WB-Token'] = tk; } catch { /* ignore */ }
     if (body instanceof FormData) { init.body = body; }
     else if (body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(body); }
