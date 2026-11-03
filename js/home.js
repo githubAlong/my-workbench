@@ -1,6 +1,7 @@
 import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_CN, WD_SHORT, fmtTime, fmtDateTime, relDay, parseDT, countdown, speak, stopSpeak, colorOf, ls, exportUrl, download, addToSystemCalendar } from './core.js';
 import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
-import { readLayout, saveLayout, resetLayout, enableDragSort, syncDay, DAY_SYNC, HOME_CARDS } from './homelayout.js';
+import { syncDay, DAY_SYNC } from './homelayout.js';
+import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud } from './homegrid.js';
 
 /* ================= 欢迎语 =================
    【第 5 条：按时段问候 + 头像上移】
@@ -547,6 +548,9 @@ registerView(async function home(main) {
   // 会把今天算成昨天，刚记的便签就变成「存进去却看不见」。
   homeData = await api.get('/home', { date: ymd() });
   renderHome();
+  /* 拉一次云端布局：另一台设备排过的话，这里自动换成那一套。
+     没登录云端、或云端没有记录时什么都不会发生，本地这份照常用。 */
+  pullLayoutCloud().catch(() => {});
 });
 
 /* 换城市之后统一走这里：先把天气真正换成新城市的，再只重绘天气区块。
@@ -583,80 +587,104 @@ function renderHome() {
   const todayCourses = d.courses.filter((c) => c.date === d.date);
 
   main.innerHTML = `
+  <!-- 固定区 ①：搜索框。它回答的是「我要找东西」，
+       位置天天一样才好找，所以不参与拖拽。 -->
   <div class="teacher-toolbar"><div class="searchbar" id="searchbar">
     <span class="sb-ico">${icon('search', 17)}</span>
     <input id="gsearch" placeholder="搜索事项、任务、上课、出差、笔记…" autocomplete="off" enterkeyhint="search">
     <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close', 15)}</button>
     <button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search', 15)}</button>
   </div>
-  <button class="btn soft" id="teacher-layout">调整布局</button></div>
+  <button class="btn soft" id="teacher-layout">编辑布局</button></div>
   <div class="sr-scrim" id="search-scrim" hidden></div>
   <div class="sr-panel" id="search-result" hidden></div>
 
-
-  <div class="topbar">
-    <section class="card clk-card">
-      <div class="clk-hello">
-        ${homeAvatarHTML(52)}
-        <div class="clk-hello-t">
-          <div class="clk-greet" id="greet-line">${esc(g1)}</div>
-          <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
-        </div>
-        <button class="icon-btn sm" id="theme-btn" title="主题外观">${icon('sun', 17)}</button>
-      </div>
-  <section class="quote quote-top">
-    <div class="qt-head">
-      <div class="card-title" style="margin-bottom:0">${icon('sun', 15)} 每日一句</div>
-      <span style="flex:1"></span>
-      <button class="btn ghost sm" id="quote-next" title="换一句，不打断今天已定的那句">${icon('refresh', 14)} 换一句</button>
-    </div>
-    <div class="quote-en">
-      <span class="qt" id="q-en">${esc(d.quote.en)}</span>
-      <button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak', 15)}</button>
-    </div>
-    <div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div>
-    <div class="quote-by">
-      <span id="q-author">— ${esc(d.quote.author || '')}</span>
-      <span class="tiny" id="speak-tip">点喇叭听英文</span>
-    </div>
-  </section>
-
-      <div class="clock-row">
-        <div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div>
-        <button class="icon-btn msg-bell" data-msg title="消息中心" aria-label="消息中心">${icon('bell', 19)}
-          ${d.unread ? `<span class="badge-dot msg-bell-dot">${d.unread > 99 ? '99+' : d.unread}</span>` : ''}
-        </button>
-      </div>
-      <div class="clock-date" id="clock-date"></div>
-      <div class="clk-foot" id="clk-foot"></div>
-    </section>
-
-    <section class="card wx-card" id="wx-card">
-      <div class="wx-body">
-        <div id="wx-brief">${weatherBriefHTML()}</div>
-        <div class="wx-aside" id="wx-aside">${wxForecastHTML()}</div>
-      </div>
-      <button class="wx-more" id="wx-more" aria-expanded="false">
-        <span>${icon('down', 13)} <b>详细天气</b></span>
-      </button>
-      <div class="wx-fold" id="wx-fold" hidden>
-        <div class="wx-col" id="wx-metrics">${wxMetricsHTML()}</div>
-        <div class="wx-forecast" id="wx-forecast">${wxForecastHTML()}</div>
-      </div>
-    </section>
-  </div>
-
+  <!-- 固定区 ②：倒计时通栏。同样不参与拖拽。 -->
   <section class="cd-bar" id="cd-card">
     <div class="cdb-body" id="cd-body"></div>
   </section>
 
-  <div class="home-grid" id="home-grid">
-    <div class="home-col" data-col="0">
-      <section class="card home-card" data-hcard="items" data-col="0">
+  <!-- 编辑模式的顶部操作栏。显式保存，不做自动保存：
+       拖拽是试错型操作，自动保存会把「拖歪了」的中间态也写进账号。 -->
+  <div class="hg-toolbar" id="hg-toolbar" hidden>
+    <span class="hg-tb-hint">拖动卡片换位置 · 拖右下角调大小</span>
+    <span style="flex:1"></span>
+    <button class="btn ghost sm" id="hg-manage">卡片管理</button>
+    <button class="btn ghost sm" id="hg-reset">恢复默认</button>
+    <button class="btn ghost sm" id="hg-cancel">取消</button>
+    <button class="btn primary sm" id="hg-save">保存布局</button>
+  </div>
+
+  <!-- 可拖拽区：6 张卡片。位置全部由 data 决定（见 homegrid.js），
+       DOM 顺序不代表视觉顺序，改布局只改 style，不搬节点。 -->
+  <div class="hg-grid" id="home-grid">
+
+    <div class="hg-item" data-hcard="profile">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
+      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
+      <section class="card clk-card">
+        <div class="clk-hello">
+          ${homeAvatarHTML(52)}
+          <div class="clk-hello-t">
+            <div class="clk-greet" id="greet-line">${esc(g1)}</div>
+            <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
+          </div>
+          <button class="icon-btn sm" id="theme-btn" title="主题外观">${icon('sun', 17)}</button>
+        </div>
+        <div class="clock-row">
+          <div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div>
+          <button class="icon-btn msg-bell" data-msg title="消息中心" aria-label="消息中心">${icon('bell', 19)}
+            ${d.unread ? `<span class="badge-dot msg-bell-dot">${d.unread > 99 ? '99+' : d.unread}</span>` : ''}
+          </button>
+        </div>
+        <div class="clock-date" id="clock-date"></div>
+        <div class="clk-foot" id="clk-foot"></div>
+      </section>
+    </div>
+
+    <div class="hg-item" data-hcard="dailyQuote">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
+      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
+      <section class="card quote quote-top">
+        <div class="qt-head">
+          <div class="card-title" style="margin-bottom:0">${icon('sun', 15)} 每日一句</div>
+          <span style="flex:1"></span>
+          <button class="btn ghost sm" id="quote-next" title="换一句，不打断今天已定的那句">${icon('refresh', 14)} 换一句</button>
+        </div>
+        <div class="quote-en">
+          <span class="qt" id="q-en">${esc(d.quote.en)}</span>
+          <button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak', 15)}</button>
+        </div>
+        <div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div>
+        <div class="quote-by">
+          <span id="q-author">— ${esc(d.quote.author || '')}</span>
+          <span class="tiny" id="speak-tip">点喇叭听英文</span>
+        </div>
+      </section>
+    </div>
+
+    <div class="hg-item" data-hcard="weather">
+      <section class="card wx-card" id="wx-card">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
+      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
+        <div class="wx-body">
+          <div id="wx-brief">${weatherBriefHTML()}</div>
+        </div>
+        <button class="wx-more" id="wx-more" aria-expanded="false">
+          <span>${icon('down', 13)} <b>详细信息</b></span>
+        </button>
+      </section>
+    </div>
+
+    <div class="hg-item" data-hcard="todayTodo">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
+      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
+      <section class="card home-card">
         <div class="hc-head">
-          <span class="hc-grip" data-drag-handle title="按住拖动，可换列换顺序" aria-label="拖动调整位置">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-          </span>
           <div class="card-title">${icon('check', 16)} 今日事项 <span class="chip blue" style="margin-left:4px">${d.items.length}</span>
             <button class="more" data-add-item2>＋ 新增</button></div>
         </div>
@@ -671,12 +699,14 @@ function renderHome() {
           <div class="qi-hint" id="quick-hint"></div>
         </div>
       </section>
+    </div>
 
-      <section class="card home-card" data-hcard="courses" data-col="0">
+    <div class="hg-item" data-hcard="todayCourse">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
+      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
+      <section class="card home-card">
         <div class="hc-head">
-          <span class="hc-grip" data-drag-handle title="按住拖动，可换列换顺序" aria-label="拖动调整位置">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-          </span>
           <div class="card-title">${icon('book', 16)} 今日课程 <span class="chip teal" style="margin-left:4px">${todayCourses.length}</span>
             <button class="more" data-goto2="work/timetable">课表 ›</button></div>
         </div>
@@ -684,12 +714,12 @@ function renderHome() {
       </section>
     </div>
 
-    <div class="home-col" data-col="1">
-      <section class="card card-pad calendar-card home-card" data-hcard="calendar" data-col="1">
+    <div class="hg-item" data-hcard="calendar">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
+      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
+      <section class="card card-pad calendar-card home-card">
         <div class="hc-head hc-head-cal">
-          <span class="hc-grip" data-drag-handle title="按住拖动，可换列换顺序" aria-label="拖动调整位置">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-          </span>
           <div class="cal-head" style="flex:1;margin:0">
             <div class="cal-title" id="cal-title"></div>
             <span style="flex:1"></span>
@@ -712,14 +742,14 @@ function renderHome() {
         <div class="cal-day" id="cal-day"></div>
       </section>
     </div>
+
   </div>`;
 
   bindHome();
-  document.getElementById('teacher-layout').onclick = () => {
-    document.getElementById('home-grid').classList.toggle('teacher-layout-edit');
-    toast('按住卡片标题旁的拖动柄，可调整位置');
-  };
-  applyLayout();
+  /* 卡片位置、拖拽、缩放、隐藏全部交给 homegrid。
+     renderHome 每次都重建 DOM，所以这里必须每次重挂一次，
+     否则任何一次刷新都会把用户排好的布局冲回默认。 */
+  mountGrid(document.getElementById('home-grid'));
   // 每次重建 DOM 后，"上次渲染过什么"的记忆必须清掉，
   // 否则 refreshHome() 之后新节点会因为 key 没变而一直空着（周数行曾因此整行空白）
   lastFootKey = '';
@@ -1459,43 +1489,20 @@ function calFoldPref(k, v) {
   } catch { return null; }
 }
 
-/* ================= 首页自定义布局（第 10 条） =================
-   applyLayout()：按账号里存的位置把卡片摆到对应列、对应顺序。
-   renderHome() 每次都重建 DOM（卡片回到模板里的默认位），
-   所以必须每次重建完都重摆一遍——只在首次摆是不够的，
-   任何一次刷新首页都会把用户拖好的顺序冲回默认。 */
-let dragCleanup = null;
-function applyLayout() {
-  const grid = document.getElementById('home-grid');
-  if (!grid) return;
-  const cols = grid.querySelectorAll('.home-col');
-  if (!cols.length) return;
+/* ================= 首页自定义布局 =================
+   卡片位置、拖拽、缩放、隐藏、保存全部搬到了 homegrid.js。
+   这里只留两个入口：
+     · renderHome 里 mountGrid() 负责重挂（DOM 每次重建）
+     · restoreHomeLayout() 给「我的」里的重置入口用
 
-  const layout = readLayout() || HOME_CARDS.map((c) => ({ id: c.id, col: c.col }));
-  for (const item of layout) {
-    const card = grid.querySelector(`[data-hcard="${item.id}"]`);
-    if (!card) continue;
-    const col = cols[Math.min(item.col, cols.length - 1)];
-    col.appendChild(card);   /* appendChild 按调用顺序决定先后，天然就是排序 */
-  }
+   为什么不再在这里维护一份 applyLayout：
+   以前是「两列 + 数组顺序」，现在要存 x/y/w/h 三套断点，
+   再把这份逻辑抄一遍必然和 homegrid 里的算错位。 */
 
-  /* 重绑前先解绑上一次的监听，否则每刷新一次就叠一层，
-     拖一次会触发 N 个回调，最后存进去的是哪一次全看运气 */
-  if (dragCleanup) { try { dragCleanup(); } catch {} dragCleanup = null; }
-  dragCleanup = enableDragSort(grid, {
-    onDrop: (cards) => {
-      saveLayout(cards);
-      toast('布局已记住，换设备登录也是这个样子', 'ok', 2500);
-    },
-  });
-  onViewLeave(() => { if (dragCleanup) { try { dragCleanup(); } catch {} dragCleanup = null; } });
-}
 
-/* 恢复默认布局的入口，挂在首页标题区的「重置布局」上 */
+/* 恢复默认布局的入口 */
 export function restoreHomeLayout() {
-  resetLayout();
-  applyLayout();
-  toast('已恢复默认布局');
+  return resetGridLayout();
 }
 
 function bindHome() {
@@ -1544,27 +1551,10 @@ function bindHome() {
     if (wr) wr.onclick = async () => { wr.textContent = '…'; await loadWeather(true).catch(() => toast('天气刷新失败', 'warn')); renderWeatherOnly(); };
   };
   bindWxRefresh();
+  /* 天气卡默认只显示「今天」，详细内容（指标 / 穿搭 / 逐时 / 一周）
+     走抽屉弹窗，不跳页 —— 跳页会丢掉首页上下文，回来还要滚回原位。 */
   const wxMore = q('#wx-more');
-  const wxFold = q('#wx-fold');
-  const topbar = q('.topbar');
-  const setWx = (open, remember) => {
-    wxFold.hidden = !open;
-    wxMore.setAttribute('aria-expanded', open ? 'true' : 'false');
-    wxMore.classList.toggle('open', open);
-    if (topbar) topbar.classList.toggle('wx-open', open);
-    if (remember) calFoldPref('wxOpen', open ? '1' : '0');
-  };
-  if (wxMore && wxFold) {
-    // 记住上次是展开还是收起，下次进来不用再点
-    const openPref = calFoldPref('wxOpen') === '1';
-    setWx(openPref, false);
-    if (openPref) bindWxRefresh();
-    wxMore.onclick = () => {
-      const open = wxFold.hidden;
-      setWx(open, true);
-      if (open) bindWxRefresh();
-    };
-  }
+  if (wxMore) wxMore.onclick = () => openWeatherSheet();
 
   // 快速便签：今天事项列表底部一行，回车即存
   const qi = q('#quick-input');
@@ -1691,13 +1681,27 @@ function renderWeatherOnly() {
     const wr = brief.querySelector('[data-wx-refresh]');
     if (wr) wr.onclick = async () => { await loadWeather(true).catch(() => {}); renderWeatherOnly(); };
   }
-  const det = document.getElementById('wx-metrics');
-  if (det) det.innerHTML = wxMetricsHTML();
-  const fc = document.getElementById('wx-forecast');
-  if (fc) fc.innerHTML = wxForecastHTML();
-  // 宽屏右侧那份并排预报，换城市/刷新天气时必须一起更新，否则显示的还是旧城市的
-  const aside = document.getElementById('wx-aside');
-  if (aside) aside.innerHTML = wxForecastHTML();
+  /* 抽屉如果开着（换城市/刷新就发生在这个场景里），里面那份也要跟着换，
+     否则会看到「卡片上 8 度、抽屉里还是上一个城市的 20 度」。 */
+  const drawer = document.getElementById('wxd-body');
+  if (drawer) drawer.innerHTML = wxDrawerHTML();
+}
+
+/* 抽屉里那块内容：当前指标 + 逐时 + 未来一周 */
+function wxDrawerHTML() {
+  if (!state.weather?.raw) {
+    return `<div class="small muted" style="padding:10px 0;line-height:1.7">
+      天气还没加载出来。回到首页点天气卡右上角的刷新，或换一个城市再试。</div>`;
+  }
+  return `${wxMetricsHTML()}
+    <div class="wxd-title">未来一周</div>
+    ${wxForecastHTML()}`;
+}
+
+/* 天气详情抽屉：默认不显示，点「详细信息」才打开 */
+function openWeatherSheet() {
+  const body = el(`<div class="wx-drawer" id="wxd-body">${wxDrawerHTML()}</div>`);
+  sheet({ title: `${state.city?.name || '天气'} · 详细天气`, body, wide: true });
 }
 
 /* 清理计时器（切换页面时） */

@@ -85,3 +85,138 @@ html[data-theme="light"] { --bg:#f3f7ff; --text:#17263f; --text-2:#657b9d; --tex
  .home-card .card-title { font-size:17px; }
 }
 html[data-theme="dark"] .app:has(#home-grid) .sidebar { background:var(--card); }
+
+/* ==========================================================================
+   首页栅格布局（12 列）
+   卡片位置由 homegrid.js 直接写 style（grid-column / grid-row），
+   这里只负责「格子长什么样」和编辑态的手柄。
+   ========================================================================== */
+
+/* 特异性要压过上面那些 .main:has(#home-grid) .home-grid 的两列/三列规则，
+   所以这里也用 #home-grid 本身，并且写在文件最后。 */
+.main:has(#home-grid) #home-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-rows: 64px;
+  gap: 14px;
+  align-items: stretch;
+  margin: 0;
+}
+
+.hg-item { position: relative; min-width: 0; min-height: 0; }
+.hg-item[hidden] { display: none; }
+.hg-item > .card { height: 100%; margin: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.hg-item > .quote.quote-top { margin-bottom: 0; }
+
+/* 个人信息卡：原来在顶栏里是「左问候 + 右时钟」两列大卡，
+   现在只占 1/3 宽，两列会挤成一团，改成单列竖排。
+   字号也要跟着收 —— 64px 的时钟在窄卡里会把数字顶出右边界。 */
+.hg-item > .clk-card {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 18px 18px 14px;
+}
+.hg-item > .clk-card .clk-hello { align-items: flex-start; gap: 10px; }
+.hg-item > .clk-card .clk-hello .ah-btn { width: 42px !important; height: 42px !important; }
+.hg-item > .clk-card .clk-greet { font-size: 17px; line-height: 1.35; white-space: normal; }
+.hg-item > .clk-card .clk-greet-sub { margin-top: 6px; font-size: 12px; white-space: normal; line-height: 1.5; }
+.hg-item > .clk-card .clock { font-size: clamp(26px, 2.4vw, 34px); letter-spacing: -1px; }
+.hg-item > .clk-card .clock .sec { font-size: .46em; }
+.hg-item > .clk-card .clock-row { margin-top: 4px; gap: 6px; }
+.hg-item > .clk-card .clock-date { margin-top: 2px; font-size: 12px; }
+.hg-item > .clk-card .clk-foot {
+  margin-top: auto; padding: 7px 9px; font-size: 10.5px; line-height: 1.5;
+  border-radius: 12px; flex-wrap: wrap; gap: 4px 8px;
+}
+
+/* 天气卡：内容顶到上沿，详细按钮贴底 */
+.hg-item > .wx-card { display: flex; flex-direction: column; }
+.hg-item > .wx-card .wx-body { flex: 1 1 auto; min-height: 0; }
+.hg-item > .wx-card .wx-more { margin-top: auto; }
+
+/* 日历卡内部自带宽高，容器变窄时让内容自己滚，别硬挤 */
+.hg-item > .calendar-card { display: flex; flex-direction: column; }
+.hg-item > .calendar-card .cal-grid { flex: 0 0 auto; }
+
+/* ---------- 编辑模式的手柄 / 角标 ---------- */
+
+.hg-grip, .hg-hide, .hg-resize { display: none; }
+
+body.hg-edit .hg-grip {
+  display: inline-flex; position: absolute; z-index: 6;
+  top: -11px; left: 50%; transform: translateX(-50%);
+  width: 46px; height: 22px; border-radius: 11px;
+  align-items: center; justify-content: center;
+  background: var(--primary); color: #fff; cursor: grab;
+  box-shadow: 0 3px 10px rgba(36, 99, 255, .35);
+  touch-action: none;
+}
+body.hg-edit .hg-grip:active { cursor: grabbing; }
+
+body.hg-edit .hg-hide {
+  display: inline-flex; position: absolute; z-index: 6;
+  top: -10px; right: 4px; width: 22px; height: 22px; padding: 0;
+  border-radius: 50%; align-items: center; justify-content: center;
+  background: var(--card); color: var(--red, #dc2626);
+  border: 1px solid var(--line); cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+}
+
+body.hg-edit .hg-resize {
+  display: block; position: absolute; z-index: 6;
+  right: 2px; bottom: 2px; width: 18px; height: 18px;
+  cursor: nwse-resize; touch-action: none;
+  background: linear-gradient(135deg, transparent 48%, var(--primary) 48%);
+  border-radius: 0 0 14px 0; opacity: .85;
+}
+
+/* 编辑态给每张卡片一个明显的边框，告诉用户「这块是可以动的」 */
+body.hg-edit .hg-item > .card { outline: 2px dashed rgba(36, 99, 255, .45); outline-offset: 2px; }
+body.hg-edit .hg-item > .card:hover { outline-color: var(--primary); }
+body.hg-gesture { user-select: none; -webkit-user-select: none; }
+body.hg-gesture .hg-item > .card { pointer-events: none; }
+body.hg-gesture .hg-item.hg-dragging > .card,
+body.hg-gesture .hg-item.hg-resizing > .card {
+  pointer-events: auto;
+  box-shadow: 0 16px 40px rgba(20, 40, 90, .22);
+  outline: 2px solid var(--primary);
+}
+
+/* ---------- 编辑工具条 ---------- */
+.hg-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 16px; padding: 10px 14px;
+  background: var(--card); border: 1px solid var(--primary);
+  border-radius: 14px; box-shadow: 0 6px 20px rgba(36, 99, 255, .1);
+}
+.hg-toolbar[hidden] { display: none; }
+.hg-tb-hint { font-size: 12.5px; color: var(--text-2); }
+
+/* ---------- 卡片管理面板 ---------- */
+.hg-mlist { display: flex; flex-direction: column; gap: 8px; }
+.hg-mrow {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px;
+}
+.hg-mname { flex: 1; font-weight: 600; font-size: 14px; }
+.hg-mstate { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.hg-mstate.on { color: #166534; background: #dcfce7; }
+.hg-mstate.off { color: #92400e; background: #fef3c7; }
+
+/* ---------- 天气详情抽屉 ---------- */
+.wx-drawer { display: flex; flex-direction: column; gap: 14px; }
+.wxd-title { font-size: 13px; font-weight: 700; color: var(--text-2); }
+
+/* ---------- 手机：单列 ---------- */
+@media (max-width: 780px) {
+  .main:has(#home-grid) #home-grid { grid-template-columns: 1fr; grid-auto-rows: auto; }
+  .hg-item > .card { height: auto; }
+  .hg-item > .clk-card { min-height: 200px; }
+  .hg-toolbar { padding: 8px 10px; gap: 6px; }
+  .hg-tb-hint { width: 100%; }
+  body.hg-edit .hg-grip { top: -9px; height: 20px; }
+}
+
+/* 手机单列：拖拽和缩放都不支持（一拖就和页面滚动抢手势），
+   手柄/角标一律藏起来，只留「隐藏」按钮 —— 不显示用不了的控件。 */
+.hg-grid.hg-mobile .hg-grip,
+.hg-grid.hg-mobile .hg-resize { display: none !important; }

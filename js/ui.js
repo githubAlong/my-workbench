@@ -385,7 +385,9 @@ function bindShell() {
   if (sl) sl.onclick = async () => {
     try {
       const m = await import('./home.js');
-      m.restoreHomeLayout();
+      /* 必须 await：重置现在会先弹确认框，不 await 就会「确认框还在，
+         页面已经跳走了」，用户点确定的时候弹层已经被清掉。 */
+      await m.restoreHomeLayout();
       go('home');
     } catch { /* 首页模块加载失败时静默，重置本身不关键 */ }
   };

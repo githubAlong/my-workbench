@@ -74,3 +74,13 @@ https://<项目Ref>.supabase.co/functions/v1/send-sms-hook
 本地工作台数据按 Supabase 用户 ID 分开存储在浏览器 `localStorage` 中。旧的 `wb_static_db_v1` 数据保留原位，不自动迁移给任何新账号。清除浏览器数据会删除对应设备上的本地记录。
 
 现有 Supabase 云同步目前只覆盖项目已接入的表（例如课时）；这项登录改动不会自动把所有本地模块迁移到云端，也不会让所有模块跨设备同步。
+
+## 首页布局
+
+首页 6 张卡片（个人信息、每日一句、天气、今日事项、今日课程、日历）是 12 列栅格里可拖拽、可缩放的模块，实现见 `js/homegrid.js`。搜索框和倒计时通栏是固定区域，不参与拖拽。
+
+- **位置存在哪**：账号的 `settings.homeLayout`，结构是 `{ version, updatedAt, breakpoints: { desktop, tablet, mobile } }`，每套断点各自存 `layout`（`{ id, x, y, w, h }`）与 `hidden`。
+- **跨设备**：保存时额外写一份到 Supabase 的 `wb_sync`（RPC `wb_put`），键名 `home-layout-v1-<用户UID>`；进入首页时用 `wb_get` 拉一次，云端比本地新就用云端。云端不可用时静默退回本地那份，不影响使用。
+- **保存策略**：显式点「保存布局」才提交（不做自动保存）。失败时草稿留在本机 `localStorage` 的 `wb_home_layout_draft`，刷新后仍可重新保存。
+- **隐藏**：隐藏只是不渲染，位置配置保留，三套断点共享同一份 `hidden`；至少保留一张卡片。
+- **手机**：自动单列（`w=12`、行高 auto），不沿用桌面位置，也不提供拖拽/缩放，只保留隐藏/显示。
