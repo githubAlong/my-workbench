@@ -16,18 +16,23 @@ import { el, esc, toast, sheet } from './core.js';
 import { icon } from './ui.js';
 
 /* 状态词表：re 用来在话里找词；colRe 用来把这个词对到当前表的哪一列。
-   顺序即优先级——「按时上课」要在「上课」之前，「病假/事假」要在「请假」之前，
+   枚举值直接照老师手上两张纸表来：
+     坐班表      张三 上课 / 坐班 / 听课 / 教研 / 请假
+     教研签到表  张三 签到 / 请假（纸上还有「备注」，说请假时写进备注）
+   顺序即优先级 —— 「病假/事假」必须排在「请假」之前，
    否则「李四病假」会先被「请假」截走，假别就丢了。 */
 const STATUS_WORDS = [
-  { re: /按时上课|准时|按时/, colRe: /上课|准时|按时/ },
-  { re: /上完课|上课|有课/, colRe: /^上课$/ },
-  { re: /坐班|在班|在办公室/, colRe: /坐班/ },
-  { re: /听课/, colRe: /听课/ },
-  { re: /教研/, colRe: /教研/ },
-  { re: /签到|出席|到了/, colRe: /签到|出席/ },
-  { re: /病假|生病|病了/, colRe: /请假/, leave: true, leaveType: '病假' },
-  { re: /事假|有事/, colRe: /请假/, leave: true, leaveType: '事假' },
-  { re: /请假|休假|休息/, colRe: /请假/, leave: true, leaveType: '' },
+  /* 明确没来：把这一行的状态全清掉再画一个 ×（纸表上就是那一格划掉）。
+     没有这一条，老师说「张三没来」会被当成"没有状态词"整句丢掉。 */
+  { re: /没来|没到|没签到|未到|缺席|缺勤|旷工|旷课/, absent: true },
+  { re: /按时上课|准时|按时|上课|有课/, colRe: /按时上课|上课|准时/ },
+  { re: /坐班|在班|在办公室|在岗/, colRe: /坐班/ },
+  { re: /听课|听了一节/, colRe: /听课/ },
+  { re: /教研活动|教研|集体备课/, colRe: /教研/ },
+  { re: /签到|出席|到了|来了|到会/, colRe: /签到|出席/ },
+  { re: /病假|生病|病了|发烧/, colRe: /请假/, leave: true, leaveType: '病假' },
+  { re: /事假|有事|家里有事/, colRe: /请假/, leave: true, leaveType: '事假' },
+  { re: /请假|休假|休息|调休/, colRe: /请假/, leave: true, leaveType: '' },
 ];
 
 /* 去掉空格：语音识别偶尔会在中文中间塞空格，「张三 上课」和「张三上课」要一视同仁 */
@@ -48,6 +53,11 @@ export function parseVoicePhrases(text, { cols = [], subjects = [] } = {}) {
   };
   const segs = clean(text).split(/[。；;，,、!！?？\n]+/).filter(Boolean);
   const subjList = [...new Set(subjects.filter(Boolean))].sort((a, b) => b.length - a.length);
+  /* 表上只有一个"到场"列时（教研签到表就是：只有「签到」一列），
+     说「上课 / 到了 / 来了」都归到那一列 —— 老师站在教研组门口说「张三到了」，
+     意思就是签到，不该让他在列表里再手选一次。 */
+  const checkList = (cols || []).filter((c) => c.type === 'check');
+  const onOnly = checkList.filter((c) => !/请假/.test(c.label));
   for (let seg of segs) {
     /* 段内还可能连着好几个人（没标点的情况），循环切 */
     let guard = 0;
@@ -79,13 +89,18 @@ export function parseVoicePhrases(text, { cols = [], subjects = [] } = {}) {
       }
       const name = namePart.replace(/^(说|那个|还有|以及)+/g, '');
       if (name.length < 2) continue; /* 不到两个字不算人名 */
-      /* 状态对到列：按 colRe 匹配当前表的列；匹配不上（比如教研表里说「坐班」）就置空，
-         让用户在确认列表里自己选。 */
+      if (best.w.absent) {
+        put({ name, subject, statusKey: null, statusLabel: '未到', absent: true, leave: false, leaveType: '' });
+        continue;
+      }
+      /* 状态对到列：按 colRe 匹配当前表的列；匹配不上（比如教研表里说「坐班」）
+         就置空，让用户在确认列表里自己选。 */
       let statusKey = null;
       let statusLabel = best.w.leave ? '请假' : (best.m[0] || '');
       if (!best.w.leave) {
-        const col = cols.find((c) => c.type === 'check' && best.w.colRe.test(c.label));
+        const col = checkList.find((c) => best.w.colRe.test(c.label));
         if (col) { statusKey = col.key; statusLabel = col.label; }
+        else if (onOnly.length === 1) { statusKey = onOnly[0].key; statusLabel = onOnly[0].label; }
       }
       put({ name, subject, statusKey, statusLabel, leave: !!best.w.leave, leaveType: best.w.leaveType || '' });
     }
@@ -108,15 +123,18 @@ export function voiceSheet({ rows = [], cols = [], isClass = false, onApply }) {
   let fullText = '';
   let rec = null;
 
+  /* 话术示例跟着当前这张表走：坐班表说「上课」，教研签到表说「签到」，
+     直接写死一个例子，老师照着念却对不上自己这张表，等于没提示。 */
+  const sayFirst = checkCols.find((c) => !/请假/.test(c.label))?.label || '签到';
   const body = el(`<div class="vv-body">
     <div class="vv-mic-zone">
       <button class="vv-mic" id="vv-mic" title="点击开始/停止">${icon('speak', 26)}</button>
-      <div class="vv-state" id="vv-state">点击麦克风，说「张三 语文 上课」「李四 请假」，可以连着说多个人</div>
+      <div class="vv-state" id="vv-state">点击麦克风，说「张三 语文 ${esc(sayFirst)}」「李四 请假」「王五 没来」，可以连着说多个人</div>
     </div>
     <div class="vv-live" id="vv-live" hidden></div>
     <div class="vv-fallback">
       <button class="link-btn" id="vv-toggle-manual">没有麦克风 / 接口不可用？打字或粘贴也行 →</button>
-      <textarea class="input" id="vv-manual" rows="3" hidden placeholder="每条一句：张三 语文 上课&#10;李四 请假&#10;王五 数学 上课"></textarea>
+      <textarea class="input" id="vv-manual" rows="3" hidden placeholder="每条一句：张三 语文 ${esc(sayFirst)}&#10;李四 请假&#10;王五 数学 没来"></textarea>
       <button class="btn ghost sm" id="vv-parse" hidden>解析这些话</button>
     </div>
     <div class="vv-list-head" id="vv-lh" hidden>识别结果（核对后再应用）　<b id="vv-count"></b></div>
@@ -131,7 +149,8 @@ export function voiceSheet({ rows = [], cols = [], isClass = false, onApply }) {
 
   const statusOptions = (cur) => checkCols.map((c) =>
     `<option value="${esc(c.key)}" ${cur === c.key ? 'selected' : ''}>${esc(c.label)}</option>`).join('')
-    + `<option value="__leave" ${cur === '__leave' ? 'selected' : ''}>请假</option>`;
+    + `<option value="__leave" ${cur === '__leave' ? 'selected' : ''}>请假</option>`
+    + `<option value="__absent" ${cur === '__absent' ? 'selected' : ''}>未到 / 未签到</option>`;
 
   const paintList = () => {
     $('#vv-lh').hidden = !items.length;
@@ -141,7 +160,7 @@ export function voiceSheet({ rows = [], cols = [], isClass = false, onApply }) {
       <input class="input vv-name" data-i="${i}" value="${esc(it.name)}" list="vv-names" placeholder="姓名">
       <input class="input vv-subj" data-i="${i}" value="${esc(it.subject || '')}" list="vv-subjs" placeholder="学科">
       <select class="input vv-st" data-i="${i}">
-        ${statusOptions(it.leave ? '__leave' : it.statusKey)}
+        ${statusOptions(it.absent ? '__absent' : it.leave ? '__leave' : it.statusKey)}
       </select>
       ${it.leave ? `<span class="vv-lv" data-i="${i}" title="点开选假别/时段/时长">${esc(it.leaveType || '假别未注明')} · ${esc(it.period || '全天')}</span>` : ''}
       <button class="icon-btn sm" data-rm="${i}" title="删除这条">${icon('close', 13)}</button>
@@ -157,9 +176,10 @@ export function voiceSheet({ rows = [], cols = [], isClass = false, onApply }) {
     body.querySelectorAll('.vv-st').forEach((sel) => {
       sel.onchange = () => {
         const it = items[Number(sel.dataset.i)];
-        if (sel.value === '__leave') { it.leave = true; it.statusKey = null; it.statusLabel = '请假'; }
+        if (sel.value === '__leave') { it.leave = true; it.absent = false; it.statusKey = null; it.statusLabel = '请假'; }
+        else if (sel.value === '__absent') { it.leave = false; it.absent = true; it.statusKey = null; it.statusLabel = '未到'; }
         else {
-          it.leave = false; it.statusKey = sel.value;
+          it.leave = false; it.absent = false; it.statusKey = sel.value;
           it.statusLabel = (checkCols.find((c) => c.key === sel.value) || {}).label || '';
         }
         paintList();

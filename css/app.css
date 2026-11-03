@@ -3169,6 +3169,18 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .att-tbl.att-class tbody tr.pending { background: color-mix(in srgb, var(--amber) 7%, transparent); }
 .att-tbl.att-class tbody tr:has(.tick.on) { background: color-mix(in srgb, var(--primary) 6%, transparent); }
 
+/* 行状态：请假淡橙、未到淡红。
+   判定见 js/att-parse.js 的 attRowState —— 一个节次一个人只有一种状态。 */
+.att-tbl tbody tr.att-st-leave td { background: color-mix(in srgb, var(--amber) 8%, transparent); }
+.att-tbl tbody tr.att-st-absent td { background: color-mix(in srgb, var(--red) 7%, transparent); }
+.att-tbl tbody tr.att-st-leave td.td-name .cell-in,
+.att-tbl tbody tr.att-st-absent td.td-name .cell-in { font-weight: 650; }
+
+/* 汇总条里「在岗 / 请假」用两色区分，跟行底色对得上 */
+.as-item.as-on b { color: var(--primary); }
+.as-item.as-leave b { color: var(--amber); }
+.as-sep { width: 1px; height: 14px; background: var(--line-2); }
+
 /* 「剩下没勾的」一次性列出，不用自己从头找 */
 .att-todo { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--amber-weak); border: 1px solid color-mix(in srgb, var(--amber) 26%, transparent); font-size: 12.5px; }
 .att-todo b { color: var(--amber); }
@@ -3300,9 +3312,10 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 /* ---------- 请假格子下的假别/时段 ---------- */
 .td-check { position: relative; }
 .lv-tag {
-  display: block; margin-top: 3px; font-size: 10.5px; line-height: 1.2;
-  color: #9a5b00; background: var(--amber-weak); border-radius: 5px; padding: 1px 4px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 74px; cursor: pointer;
+  display: inline-block; margin: 1px auto 0; font-size: 10px; line-height: 1.25;
+  color: #9a5b00; background: var(--amber-weak); border-radius: 5px; padding: 0 4px;
+  white-space: nowrap; cursor: pointer; font-weight: 650; letter-spacing: .2px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* ---------- 年级管理 ---------- */

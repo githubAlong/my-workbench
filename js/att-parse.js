@@ -58,6 +58,65 @@ export function isMarked(v) {
   return true;
 }
 
+/* ============ 学科顺序（照纸表排） ============
+   老师的「2026年高二老师坐班表」上，人是按学科一段一段排的，顺序是：
+     语文 数学 英语 物理 化学 生物 历史 政治 地理 体育 美术 音乐 日语
+   注意「历史」在「政治」前面 —— 跟多数学校习惯的 政治→历史 相反，
+   但纸表就是这么排的，界面里跟着走，老师核对时才能一行一行对下来。
+   高一那张教研签到表的分块顺序（语文 英语 数学 化学 生物 地理 物理 政治 历史）
+   跟它又不一样：两张纸表本来就不一致，所以统一用坐班表这一套，
+   保证同一个学科在界面上永远出现在同一个位置。 */
+export const SUBJECT_ORDER = [
+  '语文', '数学', '英语', '物理', '化学', '生物', '历史', '政治', '地理',
+  '体育', '美术', '音乐', '信息', '通用技术', '心理', '日语', '俄语', '道法',
+];
+export const subjectRank = (s) => {
+  const i = SUBJECT_ORDER.indexOf(String(s || '').trim());
+  return i < 0 ? 99 : i;
+};
+
+/* ============ 一行到底是「在岗 / 请假 / 未到 / 还没填」 ============
+ * 纸表上一个节次只给一个人划一格：
+ *   坐班表     上课 · 坐班 · 听课 · 教研 · 请假  ← 五选一（同一节次不可能又在讲课又在坐班）
+ *   教研签到表 签到                              ← 到了就打勾
+ *   上课检查表 按时上课                          ← 到堂了就打勾
+ * 所以判定按「优先级」来，不按"勾了几个"来：
+ *   1. 请假格打✓（或带假别细化数据）→ 请假。请假的人不可能是"在岗"，
+ *      哪怕别的格也画了勾（纸表上画错一笔很常见），一律以请假为准。
+ *   2. 到岗格（上课/坐班/听课/教研/签到/按时上课）任一打✓ → 在岗。
+ *   3. 没有✓但画了× → 未到（老师在格子上明确划掉，就是"这人没到"）。
+ *   4. 一格都没动 → blank，还没填，不能算缺勤（表可能刚建出来）。
+ * 缺勤统计只认 3 和「4 但表已经确认」——避免新表刚建出来所有人都是"缺勤"。
+ */
+const ON_LABEL = /上课|坐班|听课|教研|签到|出席|到岗|在岗|准时|按时/;
+const LEAVE_LABEL = /请假|公假|病假|事假/;
+
+export function attRowState(data, cols, type) {
+  const d = data || {};
+  const list = cols || [];
+  const checks = list.filter((c) => c.type === 'check');
+  const leaveCols = checks.filter((c) => LEAVE_LABEL.test(c.label));
+  const onCols = checks.filter((c) => !LEAVE_LABEL.test(c.label) && ON_LABEL.test(c.label));
+  const lv = d.__leave && typeof d.__leave === 'object' ? d.__leave : null;
+  if (lv || leaveCols.some((c) => d[c.key] === '1')) return 'leave';
+  if (onCols.some((c) => d[c.key] === '1')) return 'on';
+  /* 备注里写了「请假 / 病假 / 事假 / 公出」也算请假：
+     教研签到表纸上没有「请假」这一列，老师就是把假别写在备注里的。
+     不认这一条的话，明明请假的人会被统计成「未到」。 */
+  const notes = list.filter((c) => c.type !== 'check').map((c) => String(d[c.key] || ''));
+  if (notes.some((v) => /请假|病假|事假|公假|公出|调休|休假/.test(v))) return 'leave';
+  if (checks.some((c) => d[c.key] === '0')) return 'absent';
+  return 'blank';
+}
+
+/* 状态 → 界面上的说法。教研表和上课表没有「在岗」这个词，用「已签到 / 已到堂」。 */
+export function stateLabel(state, type) {
+  if (state === 'leave') return '请假';
+  if (state === 'on') return type === 'research' ? '已签到' : type === 'class' ? '已到堂' : '在岗';
+  if (state === 'absent') return type === 'research' ? '未签到' : '未到';
+  return '未填';
+}
+
 /* 中文数字 → 阿拉伯数字 */
 const CN_NUM = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10,
   十一: 11, 十二: 12, 十三: 13, 十四: 14, 十五: 15, 十六: 16, 十七: 17, 十八: 18, 十九: 19, 二十: 20 };
@@ -318,11 +377,7 @@ export function parseAttendanceSheet(rows, opts = {}) {
       }
     });
     /* 教研表顺带把顺序按学科整理好，跟纸表分块的读法一致 */
-    const rank = (s) => {
-      const order = ['语文', '数学', '英语', '物理', '化学', '生物', '政治', '历史', '地理', '体育', '音乐', '美术', '信息', '通用技术', '心理', '日语', '俄语', '道法'];
-      const i = order.indexOf(s); return i < 0 ? 99 : i;
-    };
-    people.sort((a, b) => (rank(a.subject) - rank(b.subject)) || (a.seg - b.seg) || 0);
+    people.sort((a, b) => (subjectRank(a.subject) - subjectRank(b.subject)) || (a.seg - b.seg) || 0);
   }
 
   const markedCount = people.reduce((a, p) => a + Object.values(p.marks).filter(Boolean).length, 0);

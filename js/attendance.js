@@ -26,7 +26,7 @@ import { api, el, esc, toast, sheet, saving, confirmDialog, doExport, saveBlob }
 import { printAttendance } from './pdfprint.js';
 import { state, icon } from './ui.js';
 import { readXlsx, readDelimited } from './xlsx-lite.js';
-import { parseAttendanceSheet } from './att-parse.js';
+import { parseAttendanceSheet, SUBJECT_ORDER, subjectRank, attRowState, stateLabel } from './att-parse.js';
 import { voiceSheet } from './attvoice.js';
 import { statsSheet } from './attstats.js';
 import { registerLiveHook } from './live.js';
@@ -49,9 +49,8 @@ const hasPeriod = (t) => t !== 'research';
 /* 两个主 tab。学校的考勤只管高一高二；要加年级走「+」那个按钮。 */
 const MAIN_GRADES = ['高一', '高二'];
 
-/* 学科固定顺序，跟学校习惯一致；没列到的排在后面 */
-const SUBJECT_ORDER = ['语文', '数学', '英语', '物理', '化学', '生物', '政治', '历史', '地理', '体育', '音乐', '美术', '信息', '通用技术', '心理', '日语', '俄语', '道法'];
-const subjectRank = (s) => { const i = SUBJECT_ORDER.indexOf(s); return i < 0 ? 99 : i; };
+/* 学科固定顺序见 att-parse.js（照「高二老师坐班表」上的排法，历史在政治前面）。
+   这里只保留一个转发，免得两处各写一份迟早对不上。 */
 
 /* 坐班表的戳记列（跟纸表一致：上课 坐班 听课 教研 请假 备注） */
 function seatCols() {
@@ -64,11 +63,13 @@ function seatCols() {
     { key: 'k_remark', label: '备注', type: 'text', w: 130 },
   ];
 }
-/* 教研签到表：签到 + 请假（请假可细化假别/时段/时长）+ 备注 */
+/* 教研签到表：纸表就四列「序号 姓名 学科 签到 备注」，没有「请假」。
+   以前这里硬塞了一列请假，跟老师手上的纸表对不上：
+   纸上没签到的人在备注里写「病假」两个字就够了，不必多一格。
+   真要按假别单独统计时，工具栏「＋ 加一列」里能一键加回「请假」列。 */
 function researchCols() {
   return [
     { key: 'k_签到', label: '签到', type: 'check', w: 72 },
-    { key: 'k_请假', label: '请假', type: 'check', w: 72 },
     { key: 'k_remark', label: '备注', type: 'text', w: 150 },
   ];
 }
@@ -81,6 +82,23 @@ function classCols() {
   ];
 }
 const colsOf = (type) => (type === 'research' ? researchCols() : type === 'class' ? classCols() : seatCols());
+
+/* 导入后补齐「纸表上有、但解析器不会生成列定义」的两列。
+   解析器只把 √/× 的格子当勾选列，「请假」「备注」是当文字读的，
+   于是导入进来的表会少这两列，数据却已经写在行上 —— 看得见数、看不见列。
+   纸表顺序是「…上课 坐班 听课 教研 请假 备注」，请假插在备注之前。
+   教研签到表纸上没有请假列：只有原表里真写了请假，才补这一列。 */
+function ensurePaperCols(cols, type, { hasLeave = false } = {}) {
+  const out = cols.slice();
+  const has = (re) => out.some((c) => re.test(c.label));
+  if ((type !== 'research' || hasLeave) && !has(/请假/)) {
+    const col = { key: 'k_请假', label: '请假', type: 'check', w: 62 };
+    const i = out.findIndex((c) => c.type !== 'check');
+    if (i >= 0) out.splice(i, 0, col); else out.push(col);
+  }
+  if (!has(/备注/)) out.push({ key: 'k_remark', label: '备注', type: 'text', w: type === 'research' ? 160 : 130 });
+  return out;
+}
 
 /* 节次：1~9 单选。纸表上就是「第 二 节」这样一个数。 */
 function periodOptions(cur, { allowEmpty = true } = {}) {
@@ -745,11 +763,17 @@ function quickSheet(t, rowsRef, onDone) {
         rowsRef[r._i].data = rowsRef[r._i].data || {};
         if (next === '') delete rowsRef[r._i].data[k]; else rowsRef[r._i].data[k] = next;
         changed++;
-        const allDone = cols.every((c) => rowsRef[r._i].data?.[c.key]);
-        if (allDone && next !== '') {
-          b.className = 'aq-tile ' + (next === '1' ? 'on' : 'off');
+        /* 【一个节次一种状态】勾了一个就把同行其他格清掉（上课/坐班/听课/教研/请假 五选一）。
+           清完这人就算查过了，直接跳到下一位 —— 坐班表上一个人只该点一下，
+           不用像以前那样"把四个格都点一遍才算填完"。 */
+        if (next === '1') {
+          for (const c of cols) if (c.key !== k && rowsRef[r._i].data[c.key] === '1') delete rowsRef[r._i].data[c.key];
+          delete rowsRef[r._i].data.__leave;
+          b.className = 'aq-tile on';
           setTimeout(() => { if (pos < queue.length - 1) { pos++; paint(); } else paint(); }, 180);
-        } else paint();
+          return;
+        }
+        paint();
       };
     });
     $('#aq-prev').disabled = pos === 0;
@@ -902,11 +926,16 @@ function tickCell(value, ri, key) {
   return `<button class="tick ${cls}" data-r="${ri}" data-k="${key}" aria-label="切换">${mark}</button>`;
 }
 
-/* 请假格子下面的小标签：病假 · 上午。信息量小但省得每次点开来确认。 */
+/* 请假格子下面的小标签：假别 + 时段。
+   格子只有 60 来像素宽，「病假 · 上午」五个字塞不下会被截成「病假…」，
+   所以这里用缩写（病·上 / 事·下 / 假），完整信息放在 title 里点开能改。 */
 function leaveTag(lv) {
   if (!lv || !lv.type && !lv.period) return '';
-  const bits = [lv.type || '未注明', lv.period || '全天'];
-  return `<span class="lv-tag" title="点一下「请假」可改假别/时段">${esc(bits.join(' · '))}</span>`;
+  const t = lv.type === '病假' ? '病' : lv.type === '事假' ? '事' : '';
+  const p = { 上午: '上', 下午: '下', 全天: '全' }[lv.period || '全天'] || '';
+  const txt = `${t || '假'}${p && p !== '全' ? '·' + p : ''}`;
+  const full = `${lv.type || '未注明'} · ${lv.period || '全天'}`;
+  return `<span class="lv-tag" title="${esc(full)}，点一下「请假」可改假别/时段">${esc(txt)}</span>`;
 }
 
 /* 上课表的「＋ 临时老师」（FR-CLASS-1/2/3）
@@ -1139,6 +1168,7 @@ function adoptIds(ids, rows) {
    同名覆盖，表里没有的人直接补一行——跨年级来上课的老师就属于这种。 */
 function applyVoiceItems(rows, items, cols) {
   const checkCols = (cols || []).filter((c) => c.type === 'check');
+  const noteCol = (cols || []).find((c) => c.type !== 'check');
   let hit = 0; let added = 0;
   for (const it of items || []) {
     const name = String(it.name || '').trim();
@@ -1152,17 +1182,34 @@ function applyVoiceItems(rows, items, cols) {
     }
     if (it.subject && !r.subject) r.subject = it.subject;
     r.data = r.data || {};
-    if (it.leave) {
-      r.data.__leave = {
-        type: it.leaveType || '',
-        period: it.period || '全天',
-        duration: Number(it.duration) || ((it.period || '全天') === '全天' ? 1 : 0.5),
-      };
+    if (it.absent) {
+      /* 「没来 / 缺勤」：把这一行的状态格都清掉，然后在第一个到岗格上画 ×。
+         纸表上没签到的人那一格是「未签」，统计里要能跟"还没填"分开。 */
+      for (const c of checkCols) delete r.data[c.key];
+      delete r.data.__leave;
+      const first = checkCols.find((c) => !/请假/.test(c.label)) || checkCols[0];
+      if (first) r.data[first.key] = '0';
+    } else if (it.leave) {
       /* 请假列本身也打上勾，纸表上「请假」那格是要划的 */
       const lc = checkCols.find((c) => /请假/.test(c.label));
-      if (lc) r.data[lc.key] = '1';
+      if (lc) {
+        for (const c of checkCols) if (c.key !== lc.key && r.data[c.key] === '1') delete r.data[c.key];
+        r.data[lc.key] = '1';
+        r.data.__leave = {
+          type: it.leaveType || '',
+          period: it.period || '全天',
+          duration: Number(it.duration) || ((it.period || '全天') === '全天' ? 1 : 0.5),
+        };
+      } else {
+        /* 教研签到表纸表上没有「请假」列 —— 假别写进备注，跟老师手写的位置一致 */
+        const txt = `请假${it.leaveType ? `（${it.leaveType}）` : ''}`;
+        if (noteCol) r.data[noteCol.key] = [String(r.data[noteCol.key] || '').trim(), txt].filter(Boolean).join(' ');
+      }
     } else {
       const key = it.statusKey || checkCols[0]?.key;
+      /* 一个节次一种状态：写新状态前把旧的清掉，否则上课和坐班会同时亮 */
+      for (const c of checkCols) if (c.key !== key && r.data[c.key] === '1') delete r.data[c.key];
+      delete r.data.__leave;
       if (key) r.data[key] = '1';
     }
   }
@@ -1367,6 +1414,7 @@ function openSeat(t, reload) {
   const remarkCol = cols.find((c) => c.type !== 'check');
 
   const isClass = (t.sheet_type || t.kind) === 'class';
+  const type = t.sheet_type || t.kind;
   const body = el(`<div class="att-edit">
     ${headerBar(t)}
     <div class="att-sum" id="att-sum"></div>
@@ -1390,7 +1438,7 @@ function openSeat(t, reload) {
       <span><i class="tick on">✓</i> 已做</span>
       <span><i class="tick off">×</i> 明确划掉（未做）</span>
       <span><i class="tick"></i> 空白（未填写）</span>
-      <span class="muted">点方块循环切换：空 → ✓ → × → 空</span>
+      <span class="muted">点方块循环切换：空 → ✓ → × → 空。同一行只有一种状态，勾了新的，旧的自动取消</span>
     </div>
     <div class="att-bottombar">
       <div class="abb-stat" id="att-bstat"></div>
@@ -1430,7 +1478,7 @@ function openSeat(t, reload) {
         ${remarkCol ? `<th class="th-remark">${esc(remarkCol.label)}</th>` : ''}
         <th class="th-del"></th>
       </tr></thead>
-      <tbody>${list.map((r, k) => `<tr data-ri="${r._i}"${isClass && r.data?.[checkCols[0]?.key] !== '1' ? ' class="pending"' : ''}>
+      <tbody>${list.map((r, k) => `<tr data-ri="${r._i}" class="${trCls(r.data)}">
         <td class="td-no">${r._i + 1}</td>
         <td class="td-name"><input class="cell-in" data-r="${r._i}" data-k="__teacher" value="${esc(r.teacher)}"></td>
         <td class="td-subj"><input class="cell-in subject-in" data-r="${r._i}" data-k="__subject" value="${esc(r.subject || '')}" list="subj-list"></td>
@@ -1444,17 +1492,34 @@ function openSeat(t, reload) {
   };
   const sumHTML = () => {
     const sum = (key) => rows.filter((r) => r.data?.[key] === '1').length;
-    const vacant = rows.filter((r) => checkCols.every((c) => !r.data?.[c.key])).length;
+    const st = stateCount();
     return `<span class="as-total"><b>${rows.length}</b> 人</span>
-      ${checkCols.map((c) => `<span class="as-item"><i>${esc(c.label)}</i><b>${sum(c.key)}</b></span>`).join('')}
-      ${vacant ? `<span class="as-warn">${vacant} 人一项都没勾</span>` : ''}`;
+      <span class="as-item as-on"><i>${stateLabel('on', type)}</i><b>${st.on}</b></span>
+      ${st.leave ? `<span class="as-item as-leave"><i>请假</i><b>${st.leave}</b></span>` : ''}
+      ${st.absent ? `<span class="as-warn"><i>${stateLabel('absent', type)}</i> ${st.absent} 人</span>` : ''}
+      ${st.blank ? `<span class="as-item"><i>未填</i><b>${st.blank}</b></span>` : ''}
+      <span class="as-sep"></span>
+      ${checkCols.map((c) => `<span class="as-item"><i>${esc(c.label)}</i><b>${sum(c.key)}</b></span>`).join('')}`;
   };
-  /* 手机底部那一条：只有「已勾几个 / 共几个」，一眼知道还差多少 */
+  /* 【判定口径只有一份】在岗 / 请假 / 未到 / 未填 四个人数，加起来正好是总人数。
+     见 att-parse.js 的 attRowState：请假优先，其次到岗，再次明确划×，最后才是空白。
+     纸表上一个节次一个人只有一种状态，所以这几个数不会互相重复。 */
+  const stateCount = () => {
+    const c = { on: 0, leave: 0, absent: 0, blank: 0 };
+    rows.forEach((r) => { c[attRowState(r.data, cols, type)]++; });
+    return c;
+  };
+  /* 行底色：请假淡橙、未到淡红。扫一眼就知道谁没到，不用逐格看。 */
+  const trCls = (data) => {
+    const st = attRowState(data, cols, type);
+    return `att-st-${st}${isClass && st !== 'on' && st !== 'leave' ? ' pending' : ''}`;
+  };
+  /* 手机底部那一条：在岗 + 请假 都算"过完了" */
   const bstatHTML = () => {
-    const key = checkCols[0]?.key;
-    const done = rows.filter((r) => r.data?.[key] === '1').length;
+    const st = stateCount();
+    const done = st.on + st.leave;
     return `<b>${done}<span style="font-size:13px;color:var(--text-3)">/${rows.length}</span></b>
-      <span>${isClass ? '已到堂' : '已勾'} · 剩 ${rows.length - done} 人</span>`;
+      <span>${isClass ? '已到堂' : '已填'} · 剩 ${rows.length - done} 人</span>`;
   };
 
   /* 【查上课的核心：把「还没勾的人」顶到上面】
@@ -1464,7 +1529,10 @@ function openSeat(t, reload) {
   const paintTodo = () => {
     const key = checkCols[0]?.key;
     if (!key) return;
-    const left = rows.map((r, i) => ({ r, i })).filter((x) => x.r.data?.[key] !== '1');
+    /* 「还没填」按状态算，不按第一个勾选列算：
+       坐班表里一个人填了「坐班」，第一个勾选列（上课）是空的，
+       但他明明已经查过了，不该再出现在待办里。 */
+    const left = rows.map((r, i) => ({ r, i })).filter((x) => attRowState(x.r.data, cols, type) === 'blank');
     const el2 = $('#att-todo');
     if (!el2) return;
     if (!rows.length) { el2.innerHTML = ''; return; }
@@ -1516,6 +1584,23 @@ function openSeat(t, reload) {
       slot.replaceWith(img);
     }).catch(() => { slot.style.display = 'none'; });
   };
+  /* 只把一个格子的 DOM 刷成 data 里的样子。不重绘整表的原因很实在：
+     旁边可能正有人在备注框里打字，整表一换输入框就没了、光标和没提交的字一起消失。 */
+  const paintTick = (ri, key) => {
+    const btn = body.querySelector(`.tick[data-r="${ri}"][data-k="${key}"]`);
+    if (!btn) return;
+    const v = String(rows[ri].data?.[key] ?? '');
+    btn.className = 'tick' + (v === '1' ? ' on' : v === '0' ? ' off' : '');
+    btn.textContent = v === '1' ? '✓' : v === '0' ? '×' : '';
+  };
+  const paintLeaveTag = (ri, key) => {
+    const btn = body.querySelector(`.tick[data-r="${ri}"][data-k="${key}"]`);
+    if (!btn) return;
+    const td = btn.parentElement;
+    const old = td.querySelector('.lv-tag');
+    if (old) old.remove();
+    if (rows[ri].data?.[key] === '1') td.insertAdjacentHTML('beforeend', leaveTag(rows[ri].data.__leave));
+  };
   const bindCells = () => {
     body.querySelectorAll('.tick').forEach((b) => {
       b.onclick = () => {
@@ -1525,34 +1610,43 @@ function openSeat(t, reload) {
         const next = cur === '' ? '1' : cur === '1' ? '0' : '';
         rows[ri].data = rows[ri].data || {};
         if (next === '') delete rows[ri].data[k]; else rows[ri].data[k] = next;
-        /* 局部更新，不重绘整表 —— 重绘会让旁边正在输入的备注框失焦 */
-        b.className = 'tick' + (next === '1' ? ' on' : next === '0' ? ' off' : '');
-        b.textContent = next === '1' ? '✓' : next === '0' ? '×' : '';
+        const col = cols.find((c) => c.key === k);
+
+        /* 【一个节次，一个人只有一种状态】
+           纸表上 上课 / 坐班 / 听课 / 教研 / 请假 这五格，一个人只会在其中一格画勾。
+           所以打 ✓ 时把同行的其他状态格清空 —— 否则「上课」和「坐班」同时亮，
+           统计里这人一天就上了两节课又坐了一天班。
+           打 × 时不清别人：× 的意思是「这一项没做」，它本来就是跟别的格并存的判断。 */
+        if (next === '1') {
+          for (const c of checkCols) {
+            if (c.key === k || !rows[ri].data[c.key]) continue;
+            delete rows[ri].data[c.key];
+            paintTick(ri, c.key);
+            if (/请假/.test(c.label)) paintLeaveTag(ri, c.key);
+          }
+          /* 换成别的状态了，之前填的假别/时段/时长也要一起收掉 */
+          if (!/请假/.test(col?.label || '')) delete rows[ri].data.__leave;
+        }
+        paintTick(ri, k);
+        if (col && /请假/.test(col.label)) paintLeaveTag(ri, k);
         const elSum = $('#att-sum'); if (elSum) elSum.innerHTML = sumHTML();
         if ($('#att-bstat')) $('#att-bstat').innerHTML = bstatHTML();
         paintTodo();
-        /* 查上课时按行上色：勾了变绿、没勾保持黄，扫一眼就知道走到哪了 */
+        /* 行底色跟着状态走：在岗正常、请假淡橙、未到淡红 */
         const tr = b.closest ? b.closest('tr') : null;
-        if (tr) tr.classList.toggle('pending', next !== '1');
+        if (tr) tr.className = trCls(rows[ri].data);
         /* 请假要细化（FR-TABLE-3）：勾上就弹假别/时段/时长；
            取消勾选时把细化数据一起清掉，否则统计里会留下一条没有勾的请假 */
-        const col = cols.find((c) => c.key === k);
         if (col && /请假/.test(col.label)) {
           if (next === '1') {
             leaveDialog(rows[ri].data.__leave || {}, (lv) => {
               rows[ri].data.__leave = lv;
-              /* 只换掉这一格后面的小标签，不重绘整表 */
-              const td = b.parentElement;
-              const old = td.querySelector('.lv-tag');
-              if (old) old.remove();
-              td.insertAdjacentHTML('beforeend', leaveTag(lv));
+              paintLeaveTag(ri, k);
               if ($('#att-sum')) $('#att-sum').innerHTML = sumHTML();
             });
           } else {
             delete rows[ri].data.__leave;
-            const td = b.parentElement;
-            const old = td.querySelector('.lv-tag');
-            if (old) old.remove();
+            paintLeaveTag(ri, k);
           }
         }
       };
@@ -1712,10 +1806,12 @@ function openSeat(t, reload) {
 /* ================= 教研签到表（按学科分块） ================= */
 function openResearch(t, reload) {
   let rows = t.rows.slice();
-  const cols = t.columns.slice();
-  const checkCols = cols.filter((c) => c.type === 'check');
-  const remarkCol = cols.find((c) => c.type !== 'check');
-  const key = checkCols[0]?.key || 'k_签到';
+  /* cols 用 let：工具栏的「＋ 加一列」会重建列定义（教研表最常加的就是「请假」） */
+  let cols = t.columns.slice();
+  let checkCols = cols.filter((c) => c.type === 'check');
+  let remarkCol = cols.find((c) => c.type !== 'check');
+  let key = checkCols[0]?.key || 'k_签到';
+  const trCls = (data) => `att-st-${attRowState(data, cols, 'research')}`;
 
   const body = el(`<div class="att-edit">
     ${headerBar(t)}
@@ -1725,6 +1821,7 @@ function openResearch(t, reload) {
       <button class="btn ghost sm" id="att-expand">展开全部</button>
       <span style="flex:1"></span>
       <button class="btn ghost sm" id="att-addrow">＋ 加一位教师</button>
+      <button class="btn ghost sm" id="att-addcol" title="纸表只有「签到 / 备注」；要按假别分开统计时，在这里加一列「请假」">＋ 加一列</button>
       <button class="btn ghost sm" id="att-xlsx">${icon('download', 14)} Excel</button>
       <button class="btn ghost sm" id="att-shot">${icon('camera', 14)} 截图发群</button>
       <button class="btn ghost sm" id="att-pdf">${icon('download', 14)} PDF</button>
@@ -1750,13 +1847,15 @@ function openResearch(t, reload) {
   let touched = false;
 
   const sumHTML = () => {
-    const signed = rows.filter((r) => r.data?.[key] === '1').length;
-    const rate = rows.length ? Math.round(signed / rows.length * 100) : 0;
+    const st = { on: 0, leave: 0, absent: 0, blank: 0 };
+    rows.forEach((r) => { st[attRowState(r.data, cols, 'research')]++; });
+    const rate = rows.length ? Math.round(st.on / rows.length * 100) : 0;
     const nSub = new Set(rows.map((r) => r.subject || '未分学科')).size;
     return `<span class="as-total"><b>${rows.length}</b> 人 · ${nSub} 个学科</span>
-      <span class="as-item"><i>已签到</i><b>${signed}</b></span>
-      <span class="as-item"><i>签到率</i><b>${rate}%</b></span>
-      ${rows.length - signed ? `<span class="as-warn">${rows.length - signed} 人未签到</span>` : ''}`;
+      <span class="as-item as-on"><i>已签到</i><b>${st.on}</b></span>
+      ${st.leave ? `<span class="as-item as-leave"><i>请假</i><b>${st.leave}</b></span>` : ''}
+      ${st.absent ? `<span class="as-warn"><i>明确未签</i> ${st.absent} 人</span>` : ''}
+      <span class="as-item"><i>签到率</i><b>${rate}%</b></span>`;
   };
 
   const paint = () => {
@@ -1775,6 +1874,11 @@ function openResearch(t, reload) {
       const signed = list.filter((r) => r.data?.[key] === '1').length;
       const isCollapsed = collapsed.has(sj) && !filter;
       const pct = list.length ? Math.round(signed / list.length * 100) : 0;
+      /* 【序号按学科块重新从 1 排】
+         纸表上每个学科组的序号都是各自从 1 开始的（语文组 1~11、数学组又从 1~9），
+         界面上跟着块走，老师拿纸表核对时才能一列一列对下来。
+         用全局行号会出现「语文第 11 号、数学第 20 号」，跟纸表对不上。 */
+      const noOf = new Map(list.map((r, i) => [r._i, i + 1]));
       return `<div class="att-block" data-sj="${esc(sj)}">
         <div class="ab-head">
           <button class="ab-toggle" data-toggle="${esc(sj)}" aria-label="折叠">${icon('down', 15, isCollapsed ? '' : 'rot')}</button>
@@ -1786,12 +1890,13 @@ function openResearch(t, reload) {
           <button class="btn ghost sm" data-all="${esc(sj)}">全部签到</button>
         </div>
         ${isCollapsed ? '' : `<table class="att-tbl att-tbl-compact">
-          <thead><tr><th class="th-no">序号</th><th class="th-name">姓名</th><th class="th-check">${esc(checkCols[0]?.label || '签到')}</th>
+          <thead><tr><th class="th-no">序号</th><th class="th-name">姓名</th>
+          ${checkCols.map((c) => `<th class="th-check">${esc(c.label)}</th>`).join('')}
           ${remarkCol ? `<th class="th-remark">${esc(remarkCol.label)}</th>` : ''}</tr></thead>
-          <tbody>${shown.map((r) => `<tr>
-            <td class="td-no">${r._i + 1}</td>
+          <tbody>${shown.map((r) => `<tr class="${trCls(r.data)}">
+            <td class="td-no">${noOf.get(r._i) || ''}</td>
             <td class="td-name"><input class="cell-in" data-r="${r._i}" data-k="__teacher" value="${esc(r.teacher)}"></td>
-            <td class="td-check">${tickCell(r.data?.[key], r._i, key)}</td>
+            ${checkCols.map((c) => `<td class="td-check">${tickCell(r.data?.[c.key], r._i, c.key)}${/请假/.test(c.label) ? leaveTag(r.data?.__leave) : ''}</td>`).join('')}
             ${remarkCol ? `<td class="td-remark"><input class="cell-in" data-r="${r._i}" data-k="${remarkCol.key}" value="${esc(r.data?.[remarkCol.key] ?? '')}"></td>` : ''}
           </tr>`).join('')}</tbody></table>`}
       </div>`;
@@ -1805,8 +1910,42 @@ function openResearch(t, reload) {
         const next = cur === '' ? '1' : cur === '1' ? '0' : '';
         rows[ri].data = rows[ri].data || {};
         if (next === '') delete rows[ri].data[k]; else rows[ri].data[k] = next;
+        const col = cols.find((c) => c.key === k);
+        /* 签到和请假也是互斥的：签到了就不会请假，请假了就没签到。
+           加了「请假」列的表，勾一边自动取消另一边。 */
+        if (next === '1') {
+          for (const c of checkCols) {
+            if (c.key === k || !rows[ri].data[c.key]) continue;
+            delete rows[ri].data[c.key];
+            const sib = body.querySelector(`.tick[data-r="${ri}"][data-k="${c.key}"]`);
+            if (sib) { sib.className = 'tick'; sib.textContent = ''; }
+            if (/请假/.test(c.label)) {
+              delete rows[ri].data.__leave;
+              const tag = sib?.parentElement?.querySelector('.lv-tag');
+              if (tag) tag.remove();
+            }
+          }
+          if (!/请假/.test(col?.label || '')) delete rows[ri].data.__leave;
+        }
         b.className = 'tick' + (next === '1' ? ' on' : next === '0' ? ' off' : '');
         b.textContent = next === '1' ? '✓' : next === '0' ? '×' : '';
+        if (col && /请假/.test(col.label)) {
+          const td = b.parentElement;
+          const old = td.querySelector('.lv-tag');
+          if (old) old.remove();
+          if (next === '1') {
+            leaveDialog(rows[ri].data.__leave || {}, (lv) => {
+              rows[ri].data.__leave = lv;
+              const td2 = b.parentElement;
+              const o = td2.querySelector('.lv-tag');
+              if (o) o.remove();
+              td2.insertAdjacentHTML('beforeend', leaveTag(lv));
+              refreshBlockHeads();
+            });
+          }
+        }
+        const tr = b.closest ? b.closest('tr') : null;
+        if (tr) tr.className = trCls(rows[ri].data);
         refreshBlockHeads();
       };
     });
@@ -1837,9 +1976,10 @@ function openResearch(t, reload) {
       };
     });
   };
-  /* 手机上那条底栏：教研表按「已签到 / 总人数」算 */
+  /* 手机上那条底栏：教研表按「已签到 / 总人数」算（请假的人也算查过了，不该一直算"剩"） */
   const bstatHTML = () => {
-    const done = rows.filter((r) => r.data?.[key] === '1').length;
+    let done = 0;
+    rows.forEach((r) => { const st = attRowState(r.data, cols, 'research'); if (st === 'on' || st === 'leave') done++; });
     return `<b>${done}<span style="font-size:13px;color:var(--text-3)">/${rows.length}</span></b>
       <span>已签到 · 剩 ${rows.length - done} 人</span>`;
   };
@@ -1860,6 +2000,13 @@ function openResearch(t, reload) {
   $('#att-q').oninput = (e) => { filter = e.target.value.trim(); paint(); };
   $('#att-expand').onclick = () => { collapsed.clear(); paint(); toast('已展开全部学科'); };
   $('#att-addrow').onclick = () => { touched = true; rows.push({ teacher: '', subject: '', data: {} }); paint(); };
+  $('#att-addcol').onclick = () => colEditor(cols, null, () => {
+    touched = true;
+    checkCols = cols.filter((c) => c.type === 'check');
+    remarkCol = cols.find((c) => c.type !== 'check');
+    key = checkCols[0]?.key || 'k_签到';
+    paint();
+  }, checkCols.some((c) => /请假/.test(c.label)) ? '' : '请假');
   /* 【这里的按钮绑定必须判空】
      教研表的工具栏跟坐班表不一样，早先无条件写 $('#att-quick').onclick
      → null 赋值抛 TypeError，后面的保存 / 加行 / PDF 全部没绑上，表存不了。
@@ -1895,10 +2042,12 @@ function openResearch(t, reload) {
   });
 }
 
-/* ---------- 列编辑器（坐班表加列用） ---------- */
-function colEditor(cols, idx, done) {
+/* ---------- 列编辑器（加列 / 改列名用） ----------
+   preset：新列的默认列名。教研表最常加的就是「请假」，预填好名字，
+   老师点开只要按「确定」，不用再打字。 */
+function colEditor(cols, idx, done, preset = '') {
   const isNew = idx === null;
-  const c = isNew ? { key: 'k_' + Date.now().toString(36), label: '新列', type: 'check' } : cols[idx];
+  const c = isNew ? { key: 'k_' + Date.now().toString(36), label: preset || '新列', type: 'check' } : cols[idx];
   const body = el(`<div class="sheet-body">
     <div class="field"><label class="field-label">列名</label><input class="input" id="l" value="${esc(c.label)}"></div>
     <div class="field"><label class="field-label">类型</label><select class="input" id="ty">
@@ -2314,6 +2463,18 @@ function confirmSheet(parsed, ctx) {
       }
     }
 
+    /* 【补齐纸表上有、但解析器不当"勾选列"的两列：请假 / 备注】
+       解析器把「请假」当成一格文字、「备注」当成一格文字，都不会生成列定义。
+       结果导入进来的表只有上课/坐班/听课/教研四列，请假和备注虽然写进了 data，
+       界面上却根本没有这两列 —— 看不见也改不了，老师会以为"导入把请假弄丢了"。
+       纸表就是「… 教研 请假 备注」，这里照着补齐：
+         · 坐班表 / 上课检查表：一定有请假和备注；
+         · 教研签到表：一定有备注；只有原表里真写了请假（hasLeave）才加请假列。 */
+    useCols = ensurePaperCols(useCols, type, {
+      hasLeave: r.people.some((p) => String(p.leave || '').trim()),
+      hasRemark: r.people.some((p) => String(p.remark || '').trim()),
+    });
+
     const rows = r.people.map((p) => {
       const data = {};
       if (type === r.type) {
@@ -2324,7 +2485,13 @@ function confirmSheet(parsed, ctx) {
           if (hit) data[c.key] = '1';
         });
         // 请假 / 备注列单独带过去
-        if (p.leave) data[`k_请假`] = '1';
+        if (p.leave) {
+          data[`k_请假`] = '1';
+          /* 纸表上老师常常直接写「病假」「事假」两个字，别浪费这个信息：
+             写进细化数据，统计里就能分病假/事假，不用再去猜。 */
+          const t2 = /病/.test(p.leave) ? '病假' : /事/.test(p.leave) ? '事假' : '';
+          data.__leave = { type: t2, period: '全天', duration: 1 };
+        }
         if (p.remark) data[`k_remark`] = p.remark;
       } else {
         /* 类型改了：把「签到」映射到目标表的第一个勾选列，其余丢掉 */

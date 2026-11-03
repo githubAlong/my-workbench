@@ -20,6 +20,7 @@ import {
   listTable, createRow, updateRow, deleteRow,
   randomCode, nowISO, pad2, ymd, hydrate,
 } from './localdb.js';
+import { attRowState } from './att-parse.js';
 
 /* ============================ 基础工具 ============================ */
 
@@ -806,14 +807,17 @@ function tripText(t, user) {
 
 /* ============================ 考勤表 ============================ */
 function defaultCols(kind) {
-  /* 教研/上课表也补一列「请假」：
-     PRD FR-TABLE-3 要求请假必须能细化（假别/时段/时长），
-     勾「请假」会弹出细化框，细节数据存在行 data.__leave 里。 */
+  /* 列名照老师手上的纸表来：
+       教师坐班表     序号 姓名 学科 上课 坐班 听课 教研 请假 备注
+       教师教研签到表 序号 姓名 学科 签到 备注
+     教研表以前硬加了一列「请假」，纸上并没有这一格 —— 没签到的人在备注里
+     写一句「病假」就够了；真要按假别单独统计，界面上能自己加一列。
+     PRD FR-TABLE-3 的请假细化（假别/时段/时长）仍然在：勾了「请假」会弹细化框，
+     细节数据存在行 data.__leave 里。 */
   if (kind === 'research') {
     return [
       { key: 'k_签到', label: '签到', type: 'check', w: 62 },
-      { key: 'k_请假', label: '请假', type: 'check', w: 62 },
-      { key: 'k_remark', label: '签到时间 / 备注', type: 'text', w: 160 },
+      { key: 'k_remark', label: '备注', type: 'text', w: 160 },
     ];
   }
   if (kind === 'class') {
@@ -3112,7 +3116,7 @@ on('POST', '/subjects/delete', ({ body }) => {
 /* PRD FR-STAT：按年级独立，按老师汇总；请假拆病假/事假/上午/下午/时长；
    临时老师（不在名册里 / 行上打了 __temp）单独一行，保证总数对得上三张表。 */
 function emptyPerson(name, subject, temp) {
-  return { name, subject: subject || '', temp: temp ? 1 : 0, classes: 0, research: 0, leaves: 0, sick: 0, personal: 0, unknown: 0, hours: 0, am: 0, pm: 0, full: 0 };
+  return { name, subject: subject || '', temp: temp ? 1 : 0, classes: 0, research: 0, leaves: 0, absent: 0, sick: 0, personal: 0, unknown: 0, hours: 0, am: 0, pm: 0, full: 0 };
 }
 
 function attMonthlyStats(grade, year) {
@@ -3141,9 +3145,13 @@ function attAggregate(grade, year, roster, tabs, detailOf) {
     const detail = detailOf(t) || { columns: [], rows: [] };
     const type = t.sheet_type || t.kind;
     const cols = detail.columns.filter((c) => c.type === 'check');
-    const kClass = cols.filter((c) => (type === 'class' ? /上课|准时|按时/ : /^上课$/).test(c.label));
+    /* 到岗/教研/请假三类的认列方式跟纸表一致：
+       坐班表里「上课」是到岗，「教研」是去教研组；教研签到表里「签到」算一次教研。 */
+    const kClass = cols.filter((c) => /上课|准时|按时/.test(c.label));
     const kResearch = cols.filter((c) => (type === 'research' ? /签到|出席/ : /^教研$/).test(c.label));
-    const kLeave = cols.filter((c) => /请假/.test(c.label));
+    /* 缺勤只认两种：老师在格子上明确划了 ×，或者这张表已经确认过却仍然全空。
+       刚建出来还没填的表不能算缺勤，否则统计一亮全是"未到"，没人敢用。 */
+    const confirmed = !!t.confirmed_at;
     months[monthKey] = months[monthKey] || {};
     for (const r of detail.rows) {
       const name = String(r.teacher || '').trim();
@@ -3154,13 +3162,16 @@ function attAggregate(grade, year, roster, tabs, detailOf) {
       const y = person(yearMap, name, subject);
       const temp = !rosterNames.has(name) || num(data.__temp) === 1;
       m.temp = y.temp = temp ? 1 : 0;
+      const st = attRowState(data, detail.columns, type);
       for (const target of [m, y]) {
         if (kClass.some((c) => data[c.key] === '1')) target.classes++;
         if (kResearch.some((c) => data[c.key] === '1')) target.research++;
-        const lv = data.__leave && typeof data.__leave === 'object' ? data.__leave : null;
-        const ticked = kLeave.some((c) => data[c.key] === '1');
-        if (lv || ticked) {
+        if (st === 'absent' || (confirmed && st === 'blank')) target.absent++;
+        /* 请假按「状态」算，不再只看请假列有没有打勾：
+           教研签到表没有请假列，假别写在备注里的那些人也要算进请假次数。 */
+        if (st === 'leave') {
           target.leaves++;
+          const lv = data.__leave && typeof data.__leave === 'object' ? data.__leave : null;
           if (lv) {
             target.hours += Number(lv.duration) || 0;
             if (lv.type === '病假') target.sick++;
@@ -3194,7 +3205,7 @@ function attAggregate(grade, year, roster, tabs, detailOf) {
     if (!temps.length) return null;
     const agg = emptyPerson(`临时老师（${temps.length} 人）`, '—', 1);
     for (const r of temps) {
-      for (const k of ['classes', 'research', 'leaves', 'sick', 'personal', 'unknown', 'am', 'pm', 'full']) agg[k] += r[k];
+      for (const k of ['classes', 'research', 'leaves', 'absent', 'sick', 'personal', 'unknown', 'am', 'pm', 'full']) agg[k] += r[k];
       agg.hours += r.hours;
     }
     return agg;
@@ -4163,7 +4174,11 @@ async function cloudAttendanceStats(m, grade, year) {
     if (!byTable.has(k)) byTable.set(k, []);
     byTable.get(k).push(attRowShape(r));
   }
-  const tabs = (tables || []).filter((t) => String(t.sheet_date || t.month || '').startsWith(year));
+  /* 确认状态存在 meta 里（线上表结构没加列），统计要靠它判断
+     「已确认但格子还空着 = 未到」。不搬过来的话，云端统计的未到永远是 0。 */
+  const tabs = (tables || [])
+    .filter((t) => String(t.sheet_date || t.month || '').startsWith(year))
+    .map((t) => ({ ...t, confirmed_at: safeJSON(t.meta, {}).confirmed_at || '' }));
   const roster = rowsOf('teachers').filter((t) => t.grade === grade && num(t.active) === 1);
   return attAggregate(grade, year, roster, tabs, (t) => ({
     columns: attCols(t),

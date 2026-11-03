@@ -30,7 +30,7 @@ function recentMonths(n) {
 
 const COLS = [
   ['姓名', 'name'], ['学科', 'subject'], ['上课节数', 'classes'], ['教研次数', 'research'],
-  ['请假次数', 'leaves'], ['病假', 'sick'], ['事假', 'personal'], ['未注明', 'unknown'],
+  ['请假次数', 'leaves'], ['未到', 'absent'], ['病假', 'sick'], ['事假', 'personal'], ['未注明', 'unknown'],
   ['上午', 'am'], ['下午', 'pm'], ['全天', 'full'], ['请假时长(天)', 'hours'],
 ];
 
@@ -133,13 +133,14 @@ export async function statsSheet(grade) {
       <td>${esc(r.subject || '')}</td>
       <td>${r.classes}</td><td>${r.research}</td>
       <td${r.leaves ? ' style="color:var(--red);font-weight:700"' : ''}>${r.leaves}</td>
+      <td${r.absent ? ' style="color:var(--amber);font-weight:700"' : ''}>${r.absent}</td>
       <td>${r.sick}</td><td>${r.personal}</td><td>${r.unknown}</td>
       <td>${r.am}</td><td>${r.pm}</td><td>${r.full}</td>
       <td>${r.hours ? String(Math.round(r.hours * 10) / 10) : ''}</td>
     </tr>`).join('');
     const aggTr = agg ? `<tr class="stt-agg">
       <td class="bold">${esc(agg.name)}</td><td>—</td>
-      <td>${agg.classes}</td><td>${agg.research}</td><td>${agg.leaves}</td>
+      <td>${agg.classes}</td><td>${agg.research}</td><td>${agg.leaves}</td><td>${agg.absent}</td>
       <td>${agg.sick}</td><td>${agg.personal}</td><td>${agg.unknown}</td>
       <td>${agg.am}</td><td>${agg.pm}</td><td>${agg.full}</td>
       <td>${Math.round(agg.hours * 10) / 10}</td></tr>` : '';
@@ -147,7 +148,7 @@ export async function statsSheet(grade) {
       <thead><tr>${COLS.map(([h]) => `<th>${h}</th>`).join('')}</tr></thead>
       <tbody>${trs}${aggTr}</tbody></table>`;
     $('#stt-note').textContent = `${rangeText} · ${rows.filter((r) => !r.temp).length} 位在册老师`
-      + `${agg ? ` · ${rows.filter((r) => r.temp).length} 位临时老师` : ''} · 数字来自已录入的三张考勤表`;
+      + `${agg ? ` · ${rows.filter((r) => r.temp).length} 位临时老师` : ''} · 「未到」只算格子上明确划了 ×、或已确认却仍然空着的`;
   };
 
   body.querySelectorAll('#stt-mode .seg-btn').forEach((b) => {
