@@ -141,12 +141,21 @@ async function renderMe(main) {
 
 const maskPhone = (p) => (p ? String(p).replace(/(\d{3})\d{4}(\d{4})/, '$1****$2') : '未绑定手机号');
 
+function avatarUrl(path) {
+  const apiBase = String(window.WB_API_BASE || location.origin);
+  const url = new URL(path, apiBase);
+  if (window.WB_API_SHARECODE && url.origin === new URL(apiBase, location.href).origin) {
+    url.searchParams.set('sharecode', window.WB_API_SHARECODE);
+  }
+  return url.href;
+}
+
 /* 有头像就显示图片，没有就用首字 + 渐变底 */
 function avatarHTML(u, size = 44, cls = '') {
   const first = esc((u.nickname || '师').slice(0, 1));
   if (u.avatar) {
     return `<span class="avatar ${cls}" style="width:${size}px;height:${size}px">
-      <img src="${esc(u.avatar)}" alt="头像" loading="lazy"></span>`;
+      <img src="${esc(avatarUrl(u.avatar))}" alt="头像" loading="lazy"></span>`;
   }
   return `<span class="avatar ${cls} avatar-fallback" style="width:${size}px;height:${size};font-size:${Math.round(size * 0.4)}px">${first}</span>`;
 }
