@@ -86,20 +86,16 @@ export const state = {
 export const NAV = [
   { id: 'home', label: '首页', icon: 'home' },
   { id: 'work', label: '工作', icon: 'work' },
+  /* 【第 22 / 23 条】自习、抽人、盲盒、教材归到「小助手」这个一级目录下。
+     它们发生频率和周次都不一样（自习几乎每天、维修偶尔、抽人 / 盲盒 / 教材随堂），
+     单独做成一个工具箱入口，既避免一级导航越来越长，又让这些轻量功能有统一落脚点。
+     小助手本身是个工具箱首页（#/assistant），点进去再选具体功能，各自仍是独立子页面。 */
+  { id: 'assistant', label: '小助手', icon: 'grid' },
+  { id: 'repairs', label: '维修', icon: 'wrench' },
   { id: 'daily', label: '日常', icon: 'daily' },
   { id: 'study', label: '学习', icon: 'study' },
-  { id: 'selfstudy', label: '小助手', icon: 'clock' },
   { id: 'recycle', label: '回收站', icon: 'trash' },
   { id: 'me', label: '我的', icon: 'me' },
-];
-const MOBILE_NAV = NAV.filter((n) => !['selfstudy', 'recycle'].includes(n.id));
-const WORK_NAV = [
-  { path: 'work/attendance', label: '考勤' },
-  { path: 'work/timetable', label: '课表' },
-  { path: 'work/lessons', label: '上课' },
-  { path: 'repairs', label: '维修' },
-  { path: 'work/trips', label: '出差' },
-  { path: 'work/invigilation', label: '监考' },
 ];
 export const WORK_TABS = [
   { id: 'lessons', label: '上课' },
@@ -110,7 +106,6 @@ export const WORK_TABS = [
   { id: 'attendance', label: '考勤' },
   { id: 'invigilation', label: '监考' },
   { id: 'trips', label: '出差' },
-  { id: 'materials', label: '课件' },
   { id: 'notes', label: '笔记' },
 ];
 export const DAILY_TABS = [
@@ -224,78 +219,25 @@ const views = {};
 function navHTML(n, cls) {
   const active = isActive(n.id) ? 'active' : '';
   const badge = n.id === 'me' && state.unread ? `<span class="badge-dot">${state.unread > 99 ? '99+' : state.unread}</span>` : '';
-  const menuAttrs = cls === 'bn-item' && n.id === 'work' ? 'aria-haspopup="dialog" aria-expanded="false"' : '';
-  return `<button class="${cls} ${active}" data-nav="${n.id}" ${menuAttrs}>
+  return `<button class="${cls} ${active}" data-nav="${n.id}">
     ${cls === 'bn-item' ? icon(n.icon, 22) : `<span class="ni">${icon(n.icon, 20)}</span>`}
     <span>${n.label}</span>${badge}</button>`;
 }
 function isActive(id) {
   const r = state.route;
   if (id === 'home') return r === 'home' || r === '';
-  if (id === 'work') return r.startsWith('work') || r === 'repairs';
+  /* 小助手这一组：工具箱首页自身，以及它收纳的四个子页面，都要高亮小助手 */
+  if (id === 'assistant') return r === 'assistant' || r === 'selfstudy' || r === 'roll' || r === 'blindbox' || r === 'materials';
+  if (id === 'work') return r.startsWith('work');
   if (id === 'daily') return r.startsWith('daily');
   if (id === 'study') return r.startsWith('study');
-  if (id === 'selfstudy') return r === 'selfstudy';
   if (id === 'me') return r === 'me' || r === 'messages' || r === 'profile';
   if (id === 'recycle') return r === 'recycle';
   return false;
 }
 
-function workNavHTML() {
-  const open = isActive('work');
-  const items = WORK_NAV.map((item) => {
-    const active = state.route === item.path ? 'active' : '';
-    return `<button class="nav-subitem ${active}" data-shell-route="${item.path}">${item.label}</button>`;
-  }).join('');
-  return `<div class="nav-group${open ? ' open' : ''}">
-    <div class="nav-group-head">
-      ${navHTML(NAV.find((n) => n.id === 'work'), 'nav-item')}
-      <button class="nav-group-toggle" aria-label="${open ? '收起' : '展开'}工作分类" aria-expanded="${open ? 'true' : 'false'}" aria-controls="work-subnav">${icon('down', 15)}</button>
-    </div>
-    <div class="nav-submenu" id="work-subnav"${open ? '' : ' hidden'}>${items}</div>
-  </div>`;
-}
-
 function bindShell() {
-  document.querySelectorAll('[data-nav]').forEach((b) => {
-    b.onclick = () => {
-      if (b.classList.contains('bn-item') && b.dataset.nav === 'work') {
-        const menu = document.getElementById('work-quick-menu');
-        const scrim = document.getElementById('work-quick-scrim');
-        const open = menu.hidden;
-        menu.hidden = !open;
-        scrim.hidden = !open;
-        b.setAttribute('aria-expanded', open ? 'true' : 'false');
-        return;
-      }
-      go(b.dataset.nav);
-    };
-  });
-  document.querySelectorAll('[data-shell-route]').forEach((b) => {
-    b.onclick = () => {
-      const menu = document.getElementById('work-quick-menu');
-      const scrim = document.getElementById('work-quick-scrim');
-      if (menu) menu.hidden = true;
-      if (scrim) scrim.hidden = true;
-      document.querySelector('.bn-item[data-nav=work]')?.setAttribute('aria-expanded', 'false');
-      go(b.dataset.shellRoute);
-    };
-  });
-  document.querySelectorAll('.nav-group-toggle').forEach((b) => {
-    b.onclick = () => {
-      const submenu = document.getElementById('work-subnav');
-      const open = submenu.hidden;
-      submenu.hidden = !open;
-      b.setAttribute('aria-expanded', open ? 'true' : 'false');
-      b.setAttribute('aria-label', `${open ? '收起' : '展开'}工作分类`);
-      b.closest('.nav-group').classList.toggle('open', open);
-    };
-  });
-  document.getElementById('work-quick-scrim')?.addEventListener('click', () => {
-    document.getElementById('work-quick-menu').hidden = true;
-    document.getElementById('work-quick-scrim').hidden = true;
-    document.querySelector('.bn-item[data-nav=work]')?.setAttribute('aria-expanded', 'false');
-  });
+  document.querySelectorAll('[data-nav]').forEach((b) => { b.onclick = () => go(b.dataset.nav); });
   const st = document.getElementById('side-theme');
   if (st) st.onclick = () => openThemeSheet();
   const su = document.getElementById('side-user');
@@ -377,9 +319,7 @@ export async function render() {
   const pageShell = `<div class="app">
     <aside class="sidebar">
       <div class="brand"><div class="brand-logo">台</div><div><div class="brand-name">我的工作台</div><div class="brand-sub">Workbench</div></div></div>
-      <div class="sidebar-links">
-        ${NAV.map((n) => n.id === 'work' ? workNavHTML() : navHTML(n, 'nav-item')).join('')}
-      </div>
+      ${NAV.map((n) => navHTML(n, 'nav-item')).join('')}
       <div class="sidebar-foot">
         <button class="nav-item" id="side-theme" title="切换主题外观"><span class="theme-dot" style="background:${(THEME_MAP[state.theme] || THEMES[0]).sw.pri}"></span><span>主题外观</span><span class="theme-now">${esc(themeName(state.theme))}</span></button>
         <button class="nav-item" id="side-wide" title="让正文铺满整个屏幕宽度"><span class="ni">${icon('expand', 18)}</span><span>平铺整页</span><span class="theme-now" id="wide-now">关</span></button>
@@ -388,14 +328,7 @@ export async function render() {
       </div>
     </aside>
     <main class="main" id="main"></main>
-    <nav class="bottom-nav">
-      <div class="bn-inner">${MOBILE_NAV.map((n) => navHTML(n, 'bn-item')).join('')}</div>
-      <div class="work-quick-scrim" id="work-quick-scrim" hidden></div>
-      <div class="work-quick-menu" id="work-quick-menu" role="dialog" aria-label="工作模块" hidden>
-        <div class="work-quick-title">工作模块</div>
-        <div class="work-quick-grid">${WORK_NAV.map((item) => `<button class="work-quick-item" data-shell-route="${item.path}">${item.label}</button>`).join('')}</div>
-      </div>
-    </nav>
+    <nav class="bottom-nav"><div class="bn-inner">${NAV.map((n) => navHTML(n, 'bn-item')).join('')}</div></nav>
   </div>`;
   app.innerHTML = pageShell;
   bindShell();
@@ -591,7 +524,7 @@ function authOtp() {
           <b>验证码登录暂未开通</b>
           <span>站点还没配短信通道，验证码发不出去。请先用下面的「密码登录」进入，一切功能都不受影响。</span>
         </div>`}
-    <div class="auth-input"><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="请输入手机号"></div>
+    <div class="auth-input"><input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入手机号"></div>
     <div class="auth-input"><input id="otp" type="tel" inputmode="numeric" maxlength="6" placeholder="6 位验证码"><button class="otp-btn" id="send-otp" ${smsOn || testOn ? '' : 'disabled'}>获取验证码</button></div>
     <button class="auth-btn" id="do-login" style="margin-top:6px" ${smsOn || testOn ? '' : 'disabled'}>${AUTH_CFG.allowRegister ? '进入工作台' : '登录'}</button>
     <div class="small muted auth-one-tip" style="margin-top:10px;line-height:1.6">${!smsOn && !testOn
@@ -603,8 +536,8 @@ function authOtp() {
   const btn = document.getElementById('send-otp');
   const phoneEl = document.getElementById('phone');
   btn.onclick = async () => {
-    const phone = normalizeMainlandPhone(phoneEl.value);
-    if (!phone) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
+    const phone = phoneEl.value.trim();
+    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
     try {
       const r = await api.post('/auth/otp', { phone });
       left = 60; btn.disabled = true;
@@ -630,8 +563,8 @@ function authOtp() {
   };
   document.getElementById('do-login').onclick = async () => {
     if (!checkAgree()) return;
-    const phone = normalizeMainlandPhone(phoneEl.value); const code = document.getElementById('otp').value.trim();
-    if (!phone) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
+    const phone = phoneEl.value.trim(); const code = document.getElementById('otp').value.trim();
+    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
     if (!/^\d{6}$/.test(code)) return toast('请输入 6 位验证码', 'warn');
     const btnL = document.getElementById('do-login');
     btnL.disabled = true; btnL.textContent = '登录中…';
@@ -656,7 +589,7 @@ function authOtp() {
 function authPassword() {
   const body = document.getElementById('auth-body');
   body.innerHTML = `
-    <div class="auth-input"><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="请输入手机号"></div>
+    <div class="auth-input"><input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入手机号"></div>
     <div class="auth-input"><input id="pwd" type="password" placeholder="请输入密码"></div>
     <button class="auth-btn" id="do-login" style="margin-top:6px">登录</button>
     <div class="small muted" style="margin-top:14px;display:flex;justify-content:space-between">
@@ -668,12 +601,8 @@ function authPassword() {
     const btn = document.getElementById('do-login');
     btn.disabled = true; btn.textContent = '登录中…';
     try {
-      const phone = normalizeMainlandPhone(document.getElementById('phone').value);
-      if (!phone) throw new Error('请输入 11 位大陆手机号，也可以填写 +86 开头的号码');
-      const r = await api.post('/auth/login', { phone, password: document.getElementById('pwd').value, mode: 'password' });
-      state.user = r.user;
-      if (!await loadMe()) throw new Error('密码已验证，但手机端未能建立登录会话。请刷新页面重试；若仍失败，请提供此提示和浏览器类型。');
-      { const back = takeQrReturn(); location.hash = back ? `#/qr?id=${back}` : '#/home'; } render(); toast('欢迎回来');
+      const r = await api.post('/auth/login', { phone: document.getElementById('phone').value.trim(), password: document.getElementById('pwd').value, mode: 'password' });
+      state.user = r.user; await loadMe(); { const back = takeQrReturn(); location.hash = back ? `#/qr?id=${back}` : '#/home'; } render(); toast('欢迎回来');
     } catch (e) {
       btn.disabled = false; btn.textContent = '登录';
       /* 密码不对但有可能是老账号（验证码时代建的号没有密码）：引导去补设密码 */
@@ -684,13 +613,6 @@ function authPassword() {
   document.getElementById('goto-reg').onclick = () => authRegister(document.getElementById('phone')?.value.trim() || '');
   const fp = document.getElementById('forgot-pwd');
   if (fp) fp.onclick = () => forgotSheet(document.getElementById('phone')?.value.trim() || '');
-}
-
-function normalizeMainlandPhone(value) {
-  let phone = String(value || '').trim().replace(/[\s()-]/g, '');
-  if (phone.startsWith('+86')) phone = phone.slice(3);
-  else if (phone.startsWith('0086')) phone = phone.slice(4);
-  return /^1[3-9]\d{9}$/.test(phone) ? phone : '';
 }
 
 /* ================= 忘记密码 =================
@@ -715,7 +637,7 @@ function forgotSheet(prefillPhone = '') {
   const box = smsReset
     ? el(`<div class="fp-box">
         <div class="small muted" style="line-height:1.7;margin-bottom:14px">用注册手机号收验证码，验证通过后直接设置新密码。</div>
-        <div class="auth-input"><input id="fp-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
+        <div class="auth-input"><input id="fp-phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
         <div class="auth-input" style="display:flex;gap:8px;margin-top:8px">
           <input id="fp-code" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码" style="flex:1">
           <button class="btn-sm" id="fp-send" style="white-space:nowrap">获取验证码</button>
@@ -728,7 +650,7 @@ function forgotSheet(prefillPhone = '') {
         <div class="small muted" style="line-height:1.7;margin-bottom:14px">
           本站没配短信，收不到验证码。这里给你一个限时取件码：把它（或者下面那条命令）发给能进服务器的人，执行一下密码就重置了。
         </div>
-        <div class="auth-input"><input id="fp-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
+        <div class="auth-input"><input id="fp-phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
         <button class="auth-btn" id="fp-gen" style="margin-top:4px">生成取件码</button>
         <div id="fp-out"></div>
       </div>`);
@@ -739,8 +661,8 @@ function forgotSheet(prefillPhone = '') {
     const sendBtn = box.querySelector('#fp-send');
     const codeInput = box.querySelector('#fp-code');
     sendBtn.onclick = async () => {
-      const phone = normalizeMainlandPhone(box.querySelector('#fp-phone').value);
-      if (!phone) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
+      const phone = box.querySelector('#fp-phone').value.trim();
+      if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
       sendBtn.disabled = true; sendBtn.textContent = '发送中…';
       try {
         const r = await api.post('/auth/otp', { phone, purpose: 'reset' });
@@ -759,10 +681,10 @@ function forgotSheet(prefillPhone = '') {
       }
     };
     box.querySelector('#fp-go').onclick = async () => {
-      const phone = normalizeMainlandPhone(box.querySelector('#fp-phone').value);
+      const phone = box.querySelector('#fp-phone').value.trim();
       const code = codeInput.value.trim();
       const pwd = box.querySelector('#fp-pwd').value;
-      if (!phone) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
+      if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
       if (!/^\d{4,8}$/.test(code)) return toast('请输入短信里的验证码', 'warn');
       if (pwd.length < 6) return toast('密码至少 6 位', 'warn');
       const btn = box.querySelector('#fp-go');
@@ -782,8 +704,8 @@ function forgotSheet(prefillPhone = '') {
 
   const btn = box.querySelector('#fp-gen');
   btn.onclick = async () => {
-    const phone = normalizeMainlandPhone(box.querySelector('#fp-phone').value);
-    if (!phone) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
+    const phone = box.querySelector('#fp-phone').value.trim();
+    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
     btn.disabled = true; btn.textContent = '生成中…';
     try {
       const r = await api.post('/auth/forgot', { phone });
@@ -1340,7 +1262,7 @@ function authRegister(phone = '') {
      在这里填密码 = 补设密码，不会走进死胡同。 */
   card.innerHTML = `
     <div class="auth-tabs"><button class="on">注册新账号</button></div>
-    <div class="auth-input"><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="手机号" value="${esc(phone)}"></div>
+    <div class="auth-input"><input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="手机号" value="${esc(phone)}"></div>
     <div class="auth-input"><input id="pwd" type="password" placeholder="设置密码（至少 6 位）"></div>
     <div class="auth-input"><input id="pwd2" type="password" placeholder="再输一遍密码"></div>
     <div class="auth-input"><input id="nick" placeholder="称呼（选填，如：王老师）"></div>
@@ -1349,10 +1271,10 @@ function authRegister(phone = '') {
   document.getElementById('back-login').onclick = () => authLogin();
   document.getElementById('do-reg').onclick = async () => {
     if (!checkAgree()) return;
-    const p = normalizeMainlandPhone(document.getElementById('phone').value);
+    const p = document.getElementById('phone').value.trim();
     const pw = document.getElementById('pwd').value;
     const pw2 = document.getElementById('pwd2').value;
-    if (!p) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
+    if (!/^1[3-9]\d{9}$/.test(p)) return toast('请输入正确的手机号', 'warn');
     if (pw.length < 6) return toast('密码至少 6 位', 'warn');
     if (pw !== pw2) return toast('两次输入的密码不一样', 'warn');
     const btnReg = document.getElementById('do-reg');

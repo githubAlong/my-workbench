@@ -52,13 +52,8 @@ const nowHM = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2
 function homeAvatarHTML(size = 52) {
   const u = state.user || {};
   const first = esc((u.nickname || '师').slice(0, 1));
-  const apiBase = String(window.WB_API_BASE || location.origin);
-  const avatar = u.avatar ? new URL(u.avatar, apiBase) : null;
-  if (avatar && window.WB_API_SHARECODE && avatar.origin === new URL(apiBase, location.href).origin) {
-    avatar.searchParams.set('sharecode', window.WB_API_SHARECODE);
-  }
   const inner = u.avatar
-    ? `<img src="${esc(avatar.href)}" alt="头像" loading="eager">`
+    ? `<img src="${esc(u.avatar)}" alt="头像" loading="lazy">`
     : `<span class="ah-fallback" style="font-size:${Math.round(size * 0.4)}px">${first}</span>`;
   return `<button class="ah-btn" data-goto="me" title="个人中心" aria-label="个人中心"
     style="width:${size}px;height:${size}px">${inner}</button>`;
@@ -503,10 +498,6 @@ function renderHome() {
   <div class="sr-scrim" id="search-scrim" hidden></div>
   <div class="sr-panel" id="search-result" hidden></div>
 
-  <section class="cd-bar" id="cd-card">
-    <div class="cdb-body" id="cd-body"></div>
-  </section>
-
   <section class="card card-pad quote quote-top">
     <div class="qt-head">
       <div class="card-title" style="margin-bottom:0">${icon('sun', 15)} 每日一句</div>
@@ -558,6 +549,10 @@ function renderHome() {
       </div>
     </section>
   </div>
+
+  <section class="cd-bar" id="cd-card">
+    <div class="cdb-body" id="cd-body"></div>
+  </section>
 
   <div class="home-grid" id="home-grid">
     <div class="home-col" data-col="0">
@@ -921,7 +916,6 @@ async function exportCalendar() {
 
 /* 日历 */
 let calState = { month: '', data: null, selected: '', view: 'month' };
-let dayScheduleOpen = calFoldPref('dayScheduleOpen') !== '0';
 async function loadCal(monthDay) {
   const month = String(monthDay).slice(0, 7);
   calState.month = month;
@@ -1033,27 +1027,13 @@ async function loadDay(date) {
     </div>`).join('');
   box.innerHTML = `
     <div class="cal-day-head">
-      <span class="cal-day-label">${isToday ? '今天安排' : '当日安排'}</span>
       <span class="cal-day-date">${mNum(date)}月${Number(date.slice(8, 10))}日</span>
       <span class="cal-day-wd">${wd}${isToday ? ' · 今天' : ''}</span>
       <span class="cal-day-count">${evs.length} 项</span>
-      <span class="cal-day-spacer"></span>
-      <button class="btn ghost sm" data-toggle-day aria-expanded="${dayScheduleOpen ? 'true' : 'false'}" aria-label="${dayScheduleOpen ? '收起' : '展开'}当日安排">${dayScheduleOpen ? '收起' : '展开'}</button>
+      <span style="flex:1"></span>
       <button class="btn soft sm" data-add-day="${date}" style="padding:4px 10px;font-size:12px">＋ 添加</button>
     </div>
-    <div class="cal-day-content"${dayScheduleOpen ? '' : ' hidden'}>
-      ${evs.length ? `<div class="cal-day-list">${rows}</div>` : `<div class="cal-day-empty">这一天还没有安排<br><span class="tiny">点右上「＋ 添加」记一件事项</span></div>`}
-    </div>`;
-  box.querySelector('[data-toggle-day]').onclick = (e) => {
-    dayScheduleOpen = !dayScheduleOpen;
-    calFoldPref('dayScheduleOpen', dayScheduleOpen ? '1' : '0');
-    const content = box.querySelector('.cal-day-content');
-    const button = e.currentTarget;
-    content.hidden = !dayScheduleOpen;
-    button.textContent = dayScheduleOpen ? '收起' : '展开';
-    button.setAttribute('aria-expanded', dayScheduleOpen ? 'true' : 'false');
-    button.setAttribute('aria-label', `${dayScheduleOpen ? '收起' : '展开'}当日安排`);
-  };
+    ${evs.length ? `<div class="cal-day-list">${rows}</div>` : `<div class="cal-day-empty">这一天还没有安排<br><span class="tiny">点右上「＋ 添加」记一件事项</span></div>`}`;
   box.querySelectorAll('[data-add-day]').forEach((b) => { b.onclick = () => editItem(null, date); });
 }
 
