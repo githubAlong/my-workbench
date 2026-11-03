@@ -94,7 +94,13 @@ function defaultSeg(bp) {
 export function defaultState() {
   return {
     version: 1,
-    updatedAt: new Date().toISOString(),
+    /* 【为什么这里是空串而不是 new Date()】
+       updatedAt 用来判断「云端和本地谁更新」。如果默认状态取"现在"，
+       那一个从没排过布局的新设备，其本地时间永远比云端那次保存更晚，
+       pullCloud 就会一直认为「本地更新」而拒绝采用云端布局 ——
+       换台电脑登录，看到的永远是默认排布，多端同步等于没有。
+       空串表示「从未保存过」，Date.parse('') 得到 NaN，比较时按 0 处理。 */
+    updatedAt: '',
     breakpoints: {
       desktop: defaultSeg('desktop'),
       tablet: defaultSeg('tablet'),
@@ -356,7 +362,9 @@ async function saveEdit() {
 
 async function resetAll() {
   if (!(await confirmDialog('恢复到默认布局？当前自己排的位置会被清掉。'))) return;
-  const st = defaultState();
+  /* 恢复默认也要带真实时间戳：它是一次「用户主动的保存」，
+     应该能同步到另一台设备，而不是被别的设备当成旧数据忽略掉。 */
+  const st = { ...defaultState(), updatedAt: new Date().toISOString(), version: (Number(ST?.version) || 1) + 1 };
   try {
     const settings = { ...(state.user?.settings || {}), [SETTING_KEY]: st };
     const r = await api.patch('/me', { settings });
