@@ -155,7 +155,7 @@ function avatarHTML(u, size = 44, cls = '') {
   const first = esc((u.nickname || '师').slice(0, 1));
   if (u.avatar) {
     return `<span class="avatar ${cls}" style="width:${size}px;height:${size}px">
-      <img src="${esc(avatarUrl(u.avatar))}" alt="头像" loading="lazy"></span>`;
+      <img src="${esc(avatarUrl(u.avatar))}" alt="头像" loading="eager"></span>`;
   }
   return `<span class="avatar ${cls} avatar-fallback" style="width:${size}px;height:${size};font-size:${Math.round(size * 0.4)}px">${first}</span>`;
 }
