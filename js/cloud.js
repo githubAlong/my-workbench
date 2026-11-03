@@ -151,14 +151,7 @@ export async function signUpPhone(phone, password) {
     adoptTokens(j);
     return { session: session(), needConfirm: false, phone: normalized };
   }
-  return { session: null, needConfirm: true, phone: normalized };
-}
-
-export async function requestPhoneOtp(phone) {
-  const normalized = normalizePhone(phone);
-  if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
-  await authRequest('/auth/v1/otp', { phone: normalized, create_user: false });
-  return normalized;
+  throw new Error('Supabase 仍要求短信确认，无法完成免验证码注册。请在 Supabase → Authentication → Sign In / Providers → Phone 中开启自动确认（Phone confirmations 关闭），然后再注册。');
 }
 
 export async function requestPhoneRecovery(phone) {
@@ -168,11 +161,11 @@ export async function requestPhoneRecovery(phone) {
   return normalized;
 }
 
-export async function verifyPhoneOtp(phone, token, type = 'sms') {
+export async function verifyPhoneOtp(phone, token, type = 'recovery') {
   const normalized = normalizePhone(phone);
   const code = String(token || '').trim();
   if (!normalized) throw new Error('请输入有效手机号（大陆手机号或 + 国际区号）');
-  if (!['sms', 'recovery'].includes(type)) throw new Error('验证码用途无效');
+  if (type !== 'recovery') throw new Error('仅支持密码找回验证码');
   if (!/^\d{4,10}$/.test(code)) throw new Error('请输入短信中的验证码');
   const j = await authRequest('/auth/v1/verify', { phone: normalized, token: code, type });
   if (!j.access_token) throw new Error('验证成功但未取得登录凭证，请重新登录');

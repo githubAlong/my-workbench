@@ -710,7 +710,7 @@ function authPhone() {
     ${isReg ? '<div class="auth-input"><input id="pwd2" type="password" autocomplete="new-password" placeholder="确认密码" maxlength="72"></div>' : ''}
     <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册' : '登录'}</button>
     <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6">${isReg
-      ? '手机号即账号。注册短信验证由 Supabase Phone Confirmation 设置控制。'
+      ? '手机号即账号，使用手机号和密码注册，不需要短信验证码。'
       : '使用注册时填写的手机号和密码登录。'}</div>
     ${!isReg ? '<div class="auth-forgot"><button type="button" class="link-btn" id="forgot-password">忘记密码？</button></div>' : ''}`;
 
@@ -735,11 +735,7 @@ function authPhone() {
       }
 
       if (isReg) {
-        const result = await cloud.signUpPhone(normalized, password);
-        if (result.needConfirm) {
-          authPhoneRegistrationOtp(normalized, password);
-          return;
-        }
+        await cloud.signUpPhone(normalized, password);
         const session = cloud.session();
         const local = await registerCloudUser(cloud, normalized, session?.uid || '');
         await completeAuth(local.user, true);
@@ -783,52 +779,6 @@ function startAuthCountdown(button) {
       button.textContent = '重新获取';
     } else button.textContent = `${seconds} 秒后重试`;
   }, 1000);
-}
-
-function authPhoneRegistrationOtp(phone, password) {
-  const body = document.getElementById('auth-body');
-  body.innerHTML = `
-    <div class="auth-note"><b>验证手机号</b><span>验证码已发送到 ${esc(phone)}。输入验证码以完成注册。</span></div>
-    <div class="auth-input"><input id="register-otp" type="text" inputmode="numeric" autocomplete="one-time-code"
-      placeholder="短信验证码" maxlength="10"><button class="otp-btn" id="register-send-otp" type="button">重新发送</button></div>
-    <button class="auth-btn" id="verify-register-otp">验证并注册</button>
-    <div class="small muted" id="auth-hint" style="margin-top:10px"></div>`;
-  const input = body.querySelector('#register-otp');
-  const btn = body.querySelector('#verify-register-otp');
-  const resend = body.querySelector('#register-send-otp');
-  const hint = body.querySelector('#auth-hint');
-  resend.onclick = async () => {
-    resend.disabled = true;
-    resend.textContent = '发送中…';
-    try {
-      const cloud = await import('./cloud.js');
-      await cloud.requestPhoneOtp(phone);
-      hint.textContent = '验证码已重新发送。';
-      startAuthCountdown(resend);
-    } catch (e) {
-      resend.disabled = false;
-      resend.textContent = '重新发送';
-      hint.textContent = e.message || '验证码发送失败';
-    }
-  };
-  const submit = async () => {
-    if (!checkAgree()) return;
-    btn.disabled = true;
-    btn.textContent = '验证中…';
-    try {
-      const cloud = await import('./cloud.js');
-      const session = await cloud.verifyPhoneOtp(phone, input.value, 'sms');
-      const local = await registerCloudUser(cloud, phone, session.uid || '');
-      await completeAuth(local.user, true);
-    } catch (e) {
-      btn.disabled = false;
-      btn.textContent = '验证并注册';
-      hint.textContent = e.message || '验证失败';
-    }
-  };
-  btn.onclick = submit;
-  input.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
-  input.focus();
 }
 
 function authForgot(prefillPhone = '') {
