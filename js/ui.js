@@ -523,7 +523,7 @@ function authOtp() {
           <b>验证码登录暂未开通</b>
           <span>站点还没配短信通道，验证码发不出去。请先用下面的「密码登录」进入，一切功能都不受影响。</span>
         </div>`}
-    <div class="auth-input"><input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入手机号"></div>
+    <div class="auth-input"><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="请输入手机号"></div>
     <div class="auth-input"><input id="otp" type="tel" inputmode="numeric" maxlength="6" placeholder="6 位验证码"><button class="otp-btn" id="send-otp" ${smsOn || testOn ? '' : 'disabled'}>获取验证码</button></div>
     <button class="auth-btn" id="do-login" style="margin-top:6px" ${smsOn || testOn ? '' : 'disabled'}>${AUTH_CFG.allowRegister ? '进入工作台' : '登录'}</button>
     <div class="small muted auth-one-tip" style="margin-top:10px;line-height:1.6">${!smsOn && !testOn
@@ -535,8 +535,8 @@ function authOtp() {
   const btn = document.getElementById('send-otp');
   const phoneEl = document.getElementById('phone');
   btn.onclick = async () => {
-    const phone = phoneEl.value.trim();
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
+    const phone = normalizeMainlandPhone(phoneEl.value);
+    if (!phone) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
     try {
       const r = await api.post('/auth/otp', { phone });
       left = 60; btn.disabled = true;
@@ -562,8 +562,8 @@ function authOtp() {
   };
   document.getElementById('do-login').onclick = async () => {
     if (!checkAgree()) return;
-    const phone = phoneEl.value.trim(); const code = document.getElementById('otp').value.trim();
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
+    const phone = normalizeMainlandPhone(phoneEl.value); const code = document.getElementById('otp').value.trim();
+    if (!phone) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
     if (!/^\d{6}$/.test(code)) return toast('请输入 6 位验证码', 'warn');
     const btnL = document.getElementById('do-login');
     btnL.disabled = true; btnL.textContent = '登录中…';
@@ -588,7 +588,7 @@ function authOtp() {
 function authPassword() {
   const body = document.getElementById('auth-body');
   body.innerHTML = `
-    <div class="auth-input"><input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入手机号"></div>
+    <div class="auth-input"><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="请输入手机号"></div>
     <div class="auth-input"><input id="pwd" type="password" placeholder="请输入密码"></div>
     <button class="auth-btn" id="do-login" style="margin-top:6px">登录</button>
     <div class="small muted" style="margin-top:14px;display:flex;justify-content:space-between">
@@ -600,8 +600,12 @@ function authPassword() {
     const btn = document.getElementById('do-login');
     btn.disabled = true; btn.textContent = '登录中…';
     try {
-      const r = await api.post('/auth/login', { phone: document.getElementById('phone').value.trim(), password: document.getElementById('pwd').value, mode: 'password' });
-      state.user = r.user; await loadMe(); { const back = takeQrReturn(); location.hash = back ? `#/qr?id=${back}` : '#/home'; } render(); toast('欢迎回来');
+      const phone = normalizeMainlandPhone(document.getElementById('phone').value);
+      if (!phone) throw new Error('请输入 11 位大陆手机号，也可以填写 +86 开头的号码');
+      const r = await api.post('/auth/login', { phone, password: document.getElementById('pwd').value, mode: 'password' });
+      state.user = r.user;
+      if (!await loadMe()) throw new Error('密码已验证，但手机端未能建立登录会话。请刷新页面重试；若仍失败，请提供此提示和浏览器类型。');
+      { const back = takeQrReturn(); location.hash = back ? `#/qr?id=${back}` : '#/home'; } render(); toast('欢迎回来');
     } catch (e) {
       btn.disabled = false; btn.textContent = '登录';
       /* 密码不对但有可能是老账号（验证码时代建的号没有密码）：引导去补设密码 */
@@ -612,6 +616,13 @@ function authPassword() {
   document.getElementById('goto-reg').onclick = () => authRegister(document.getElementById('phone')?.value.trim() || '');
   const fp = document.getElementById('forgot-pwd');
   if (fp) fp.onclick = () => forgotSheet(document.getElementById('phone')?.value.trim() || '');
+}
+
+function normalizeMainlandPhone(value) {
+  let phone = String(value || '').trim().replace(/[\s()-]/g, '');
+  if (phone.startsWith('+86')) phone = phone.slice(3);
+  else if (phone.startsWith('0086')) phone = phone.slice(4);
+  return /^1[3-9]\d{9}$/.test(phone) ? phone : '';
 }
 
 /* ================= 忘记密码 =================
@@ -636,7 +647,7 @@ function forgotSheet(prefillPhone = '') {
   const box = smsReset
     ? el(`<div class="fp-box">
         <div class="small muted" style="line-height:1.7;margin-bottom:14px">用注册手机号收验证码，验证通过后直接设置新密码。</div>
-        <div class="auth-input"><input id="fp-phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
+        <div class="auth-input"><input id="fp-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
         <div class="auth-input" style="display:flex;gap:8px;margin-top:8px">
           <input id="fp-code" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码" style="flex:1">
           <button class="btn-sm" id="fp-send" style="white-space:nowrap">获取验证码</button>
@@ -649,7 +660,7 @@ function forgotSheet(prefillPhone = '') {
         <div class="small muted" style="line-height:1.7;margin-bottom:14px">
           本站没配短信，收不到验证码。这里给你一个限时取件码：把它（或者下面那条命令）发给能进服务器的人，执行一下密码就重置了。
         </div>
-        <div class="auth-input"><input id="fp-phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
+        <div class="auth-input"><input id="fp-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
         <button class="auth-btn" id="fp-gen" style="margin-top:4px">生成取件码</button>
         <div id="fp-out"></div>
       </div>`);
@@ -660,8 +671,8 @@ function forgotSheet(prefillPhone = '') {
     const sendBtn = box.querySelector('#fp-send');
     const codeInput = box.querySelector('#fp-code');
     sendBtn.onclick = async () => {
-      const phone = box.querySelector('#fp-phone').value.trim();
-      if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
+      const phone = normalizeMainlandPhone(box.querySelector('#fp-phone').value);
+      if (!phone) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
       sendBtn.disabled = true; sendBtn.textContent = '发送中…';
       try {
         const r = await api.post('/auth/otp', { phone, purpose: 'reset' });
@@ -680,10 +691,10 @@ function forgotSheet(prefillPhone = '') {
       }
     };
     box.querySelector('#fp-go').onclick = async () => {
-      const phone = box.querySelector('#fp-phone').value.trim();
+      const phone = normalizeMainlandPhone(box.querySelector('#fp-phone').value);
       const code = codeInput.value.trim();
       const pwd = box.querySelector('#fp-pwd').value;
-      if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
+      if (!phone) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
       if (!/^\d{4,8}$/.test(code)) return toast('请输入短信里的验证码', 'warn');
       if (pwd.length < 6) return toast('密码至少 6 位', 'warn');
       const btn = box.querySelector('#fp-go');
@@ -703,8 +714,8 @@ function forgotSheet(prefillPhone = '') {
 
   const btn = box.querySelector('#fp-gen');
   btn.onclick = async () => {
-    const phone = box.querySelector('#fp-phone').value.trim();
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
+    const phone = normalizeMainlandPhone(box.querySelector('#fp-phone').value);
+    if (!phone) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
     btn.disabled = true; btn.textContent = '生成中…';
     try {
       const r = await api.post('/auth/forgot', { phone });
@@ -1261,7 +1272,7 @@ function authRegister(phone = '') {
      在这里填密码 = 补设密码，不会走进死胡同。 */
   card.innerHTML = `
     <div class="auth-tabs"><button class="on">注册新账号</button></div>
-    <div class="auth-input"><input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="手机号" value="${esc(phone)}"></div>
+    <div class="auth-input"><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="手机号" value="${esc(phone)}"></div>
     <div class="auth-input"><input id="pwd" type="password" placeholder="设置密码（至少 6 位）"></div>
     <div class="auth-input"><input id="pwd2" type="password" placeholder="再输一遍密码"></div>
     <div class="auth-input"><input id="nick" placeholder="称呼（选填，如：王老师）"></div>
@@ -1270,10 +1281,10 @@ function authRegister(phone = '') {
   document.getElementById('back-login').onclick = () => authLogin();
   document.getElementById('do-reg').onclick = async () => {
     if (!checkAgree()) return;
-    const p = document.getElementById('phone').value.trim();
+    const p = normalizeMainlandPhone(document.getElementById('phone').value);
     const pw = document.getElementById('pwd').value;
     const pw2 = document.getElementById('pwd2').value;
-    if (!/^1[3-9]\d{9}$/.test(p)) return toast('请输入正确的手机号', 'warn');
+    if (!p) return toast('请输入 11 位大陆手机号，也可以填写 +86 开头的号码', 'warn');
     if (pw.length < 6) return toast('密码至少 6 位', 'warn');
     if (pw !== pw2) return toast('两次输入的密码不一样', 'warn');
     const btnReg = document.getElementById('do-reg');
