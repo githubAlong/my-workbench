@@ -566,7 +566,9 @@ html[data-theme="dark"] .quick textarea, html[data-theme="dark"] .quick { color:
 /* 日历下方：当天安排 */
 .cal-day { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); animation: calIn .2s ease; }
 @keyframes calIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-.cal-day-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.cal-day-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; flex-wrap: wrap; }
+.cal-day-label { font-size: 13px; font-weight: 700; white-space: nowrap; }
+.cal-day-spacer { flex: 1; }
 .cal-day-date { font-size: 13.5px; font-weight: 700; }
 .cal-day-wd { font-size: 11.5px; color: var(--text-3); font-weight: 600; }
 .cal-day-count { font-size: 11px; color: var(--text-3); background: var(--bg-sunken); border-radius: 99px; padding: 2px 8px; }
