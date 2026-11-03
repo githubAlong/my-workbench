@@ -241,7 +241,9 @@ function cropSquare(file, size = 512) {
 
 /* ================= 个人信息（独立页） ================= */
 async function renderProfile(main) {
-  const u = state.user;
+  const profile = await api.get('/auth/me');
+  const u = profile?.user;
+  if (u) state.user = u;
   /* 和 renderMe 同一个坑：u 为空时这里会连抛好几个 TypeError */
   if (!u) {
     main.innerHTML = '<div class="empty" style="padding:40px 20px">登录状态已过期，请刷新页面重新登录</div>';
@@ -278,16 +280,22 @@ async function renderProfile(main) {
   };
   main.querySelector('#p-save').onclick = async (e) => {
     const btn = e.currentTarget;
+    const values = {
+      nickname: main.querySelector('#f-nickname').value.trim(),
+      school: main.querySelector('#f-school').value.trim(),
+      subject: main.querySelector('#f-subject').value.trim(),
+      title: main.querySelector('#f-title').value.trim(),
+    };
     btn.disabled = true; btn.textContent = '保存中…';
     try {
-      const r = await api.patch('/me', {
-        nickname: main.querySelector('#f-nickname').value.trim(),
-        school: main.querySelector('#f-school').value.trim(),
-        subject: main.querySelector('#f-subject').value.trim(),
-        title: main.querySelector('#f-title').value.trim(),
-      });
-      state.user = r.user;
-      toast('已保存');
+      await api.patch('/me', values);
+      const saved = await api.get('/auth/me');
+      const user = saved?.user;
+      if (!user || Object.entries(values).some(([key, value]) => String(user[key] || '') !== value)) {
+        throw new Error('服务器未确认资料更新，请重试');
+      }
+      state.user = user;
+      toast('资料已保存并同步');
       render();
     } catch (err) {
       toast(err.message || '保存失败', 'err');
