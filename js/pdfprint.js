@@ -64,13 +64,27 @@ export function printAttendance(payload) {
   const summary = (payload.summary || [])
     .map((s) => `<span style="margin-right:18px">${esc(s.label)}：<b>${esc(s.value)}</b></span>`).join('');
 
+  /* 水印（FR-EXPORT-4）：关掉就不输出这一层，导出的文件是干净的。
+     用一层 fixed 的斜排文字，打印时每页都会重复。 */
+  const wmText = String(payload.watermark || '').trim();
+  const wm = wmText
+    ? `<div class="wm">${Array.from({ length: 18 }, () => `<span>${esc(wmText)}</span>`).join('')}</div>`
+    : '';
+
   const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${esc(payload.title)}</title>
 <style>${BASE_CSS}
 .hd { text-align: center; margin-bottom: 14px; }
 .hd .t { font-size: 19px; font-weight: 700; letter-spacing: 2px; }
 .hd .s { font-size: 12px; color: #475467; margin-top: 6px; }
 .mark { text-align: center; }
+.wm { position: fixed; inset: -10%; z-index: 9999; display: flex; flex-wrap: wrap;
+      gap: 70px 46px; align-content: space-around; justify-content: space-around;
+      pointer-events: none; }
+.wm span { transform: rotate(-26deg); color: rgba(60, 123, 246, .14); font-size: 16px;
+           font-weight: 700; white-space: nowrap; letter-spacing: 2px; }
+@media print { .wm { display: flex; } }
 </style></head><body>
+${wm}
 <div class="hd">
   <div class="t">${esc(payload.title || '考勤表')}</div>
   <div class="s">${esc(payload.grade || '')}　${esc(payload.date_text || '')}　${esc(payload.weekday || '')}　${esc(payload.periods || '')}</div>

@@ -3284,3 +3284,104 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   font-size: 12px; line-height: 1.72;
 }
 [data-theme="dark"] .cl-tip { background: #1b2129; color: #9aa7b5; }
+
+/* ==========================================================================
+   考勤：确认状态 / 请假细化 / 临时老师 / 语音录入 / 统计表 / 年级管理
+   （PRD FR-TABLE-4/5、FR-TABLE-3、FR-CLASS、FR-VOICE、FR-STAT、FR-GRADE）
+   ========================================================================== */
+
+/* ---------- 确认状态徽标 ---------- */
+.att-cstate { display: inline-flex; align-items: center; }
+.att-cst { font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.att-cst.ok { color: #0b7a35; background: var(--green-weak); }
+.att-cst.warn { color: #9a5b00; background: var(--amber-weak); }
+.att-cst.none { color: var(--text-3); background: var(--bg-sunken); }
+
+/* ---------- 请假格子下的假别/时段 ---------- */
+.td-check { position: relative; }
+.lv-tag {
+  display: block; margin-top: 3px; font-size: 10.5px; line-height: 1.2;
+  color: #9a5b00; background: var(--amber-weak); border-radius: 5px; padding: 1px 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 74px; cursor: pointer;
+}
+
+/* ---------- 年级管理 ---------- */
+.gm-list { display: flex; flex-direction: column; gap: 8px; }
+.gm-row { display: flex; align-items: center; gap: 8px; }
+.gm-row .gm-name { flex: 1; min-width: 0; }
+.gm-meta { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+
+/* ---------- 语音录入 ---------- */
+.vv-body { display: flex; flex-direction: column; gap: 12px; }
+.vv-mic-zone { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0 2px; }
+.vv-mic {
+  width: 74px; height: 74px; border-radius: 50%; border: 0; cursor: pointer;
+  display: grid; place-items: center; color: #fff; background: var(--primary);
+  box-shadow: 0 6px 18px rgba(0, 122, 255, .32); transition: transform .12s ease, background .2s;
+}
+.vv-mic:active { transform: scale(.94); }
+.vv-mic.on { background: var(--red); box-shadow: 0 6px 20px rgba(255, 59, 48, .38); animation: vv-pulse 1.4s ease-in-out infinite; }
+@keyframes vv-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, .42); } 50% { box-shadow: 0 0 0 16px rgba(255, 59, 48, 0); } }
+.vv-state { font-size: 12.5px; color: var(--text-2); text-align: center; line-height: 1.5; }
+.vv-live {
+  font-size: 13px; line-height: 1.6; color: var(--text); background: var(--card-2);
+  border: 1px dashed var(--line-2); border-radius: 10px; padding: 8px 10px;
+}
+.vv-interim { color: var(--text-3); }
+.vv-fallback { display: flex; flex-direction: column; gap: 8px; }
+.vv-list-head { font-size: 12.5px; color: var(--text-2); font-weight: 600; }
+.vv-list { display: flex; flex-direction: column; gap: 7px; max-height: 46vh; overflow: auto; }
+.vv-row { display: grid; grid-template-columns: 1.1fr 1fr 1.1fr auto auto; gap: 6px; align-items: center; }
+.vv-row .input { padding: 7px 9px; font-size: 13px; }
+.vv-lv {
+  font-size: 11.5px; padding: 4px 8px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  color: #9a5b00; background: var(--amber-weak);
+}
+.vv-empty { font-size: 12.5px; color: var(--text-3); padding: 10px 2px; }
+
+/* ---------- 统计表 ---------- */
+.stt-body { display: flex; flex-direction: column; gap: 10px; }
+.stt-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.stt-ym { font-size: 14px; font-weight: 700; min-width: 92px; text-align: center; }
+.stt-mode { margin-left: 4px; }
+.stt-months { display: flex; flex-wrap: wrap; gap: 6px; }
+.stt-chip {
+  position: relative; padding: 5px 11px; border-radius: 9px; font-size: 12.5px; font-weight: 600;
+  color: var(--text-2); background: var(--bg-sunken); border: 0; cursor: pointer;
+}
+.stt-chip.on { background: var(--primary); color: #fff; }
+.stt-chip.has i { position: absolute; top: 3px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+.stt-chip.on.has i { background: #fff; }
+.stt-chip-all { background: var(--primary-weak); color: var(--primary-deep); }
+.stt-note { min-height: 16px; }
+.stt-table { max-height: 52vh; overflow: auto; }
+.stt-table .tbl { min-width: 780px; }
+.stt-table .tbl th { position: sticky; top: 0; z-index: 2; background: var(--card-2); }
+.stt-badge { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: var(--indigo-weak); color: var(--indigo); }
+.stt-temp td { background: var(--indigo-weak) !important; }
+.stt-agg td { font-weight: 700; background: var(--primary-weak) !important; }
+
+/* ---------- 手机 ---------- */
+@media (max-width: 780px) {
+  .vv-row { grid-template-columns: 1fr 1fr; }
+  .vv-row .vv-st { grid-column: 1 / -1; }
+  .stt-bar .stt-mode { order: 3; width: 100%; margin-left: 0; }
+  .gm-row { flex-wrap: wrap; }
+  .gm-row .gm-name { flex: 1 1 100%; }
+}
+
+/* 名册的学科筛选条 */
+.ars-filter { margin: 8px 0 10px; }
+.arf-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.arf-row .stt-chip { background: var(--bg-sunken); }
+.arf-row .stt-chip.on { background: var(--primary); color: #fff; }
+.gm-row .btn.danger { color: var(--red); }
+.att-badge.green { background: var(--green-weak); color: #0b7a35; }
+.att-badge.blue { background: var(--primary-weak); color: var(--primary-deep); }
+
+/* 统计表弹层要放宽：12 列挤在 760px 里，「请假时长」会被切掉一半 */
+.sheet.stt-sheet { max-width: 1120px; }
+@media (max-width: 1180px) { .sheet.stt-sheet { max-width: calc(100vw - 28px); } }
+/* 列多但都很窄，字号和左右内边距收一点，一屏能看全 */
+.stt-table .tbl th, .stt-table .tbl td { padding: 7px 8px; font-size: 12.5px; white-space: nowrap; }
+.stt-table .tbl { min-width: 0; width: 100%; }

@@ -806,10 +806,21 @@ function tripText(t, user) {
 
 /* ============================ 考勤表 ============================ */
 function defaultCols(kind) {
+  /* 教研/上课表也补一列「请假」：
+     PRD FR-TABLE-3 要求请假必须能细化（假别/时段/时长），
+     勾「请假」会弹出细化框，细节数据存在行 data.__leave 里。 */
   if (kind === 'research') {
     return [
       { key: 'k_签到', label: '签到', type: 'check', w: 62 },
+      { key: 'k_请假', label: '请假', type: 'check', w: 62 },
       { key: 'k_remark', label: '签到时间 / 备注', type: 'text', w: 160 },
+    ];
+  }
+  if (kind === 'class') {
+    return [
+      { key: 'k_准时', label: '按时上课', type: 'check', w: 96 },
+      { key: 'k_请假', label: '请假', type: 'check', w: 62 },
+      { key: 'k_remark', label: '备注', type: 'text', w: 150 },
     ];
   }
   return [
@@ -840,9 +851,13 @@ function attTablesList(q = {}) {
       if (!anyChecked && !isLeave) unchecked++;
     }
     const subjects = [...new Set(rows.map((r) => r.subject).filter(Boolean))];
+    /* 确认状态（PRD FR-TABLE-4/5）：
+       none＝没确认过；confirmed＝确认过且没动过；modified＝确认后又改了，等重新确认 */
+    const confirm_state = t.confirmed_at ? (num(t.confirm_dirty) ? 'modified' : 'confirmed') : 'none';
     return {
       ...t,
       sheet_type: t.sheet_type || t.kind,
+      confirm_state,
       columns: cols,
       meta: safeJSON(t.meta, {}),
       row_count: rows.length,
@@ -2343,6 +2358,13 @@ on('POST', '/recycle/undo', ({ body }) => {
 });
 
 /* ---- 考勤表 ---- */
+on('GET', '/attendance/stats', ({ query }) => {
+  const grade = String(query.grade || '');
+  const year = String(query.year || String(new Date().getFullYear()));
+  if (!/^\d{4}$/.test(year)) fail(400, '年份不对');
+  if (!grade) fail(400, '要指定年级');
+  return attMonthlyStats(grade, year);
+});
 on('GET', '/attendance', ({ query }) => attTablesList(query));
 on('GET', '/attendance/:id', ({ params }) => attTableDetail(params.id));
 on('POST', '/attendance', ({ body }) => {
@@ -2368,12 +2390,36 @@ on('POST', '/attendance', ({ body }) => {
 on('PATCH', '/attendance/:id', ({ params, body }) => {
   const t = byId('attendance_tables', params.id);
   if (!t) fail(404, '考勤表不存在');
+  /* 哪些字段的内容真的变了？只看"传没传"会把「保存时顺手带上 columns」
+     当成改表头，确认完点个保存就跳成待确认。 */
+  const before = { ...t };
   for (const k of ['name', 'month', 'kind', 'grade', 'sheet_date', 'weekday', 'periods', 'sheet_type', 'subject']) {
     if (k in (body || {})) t[k] = body[k];
   }
   if ('sheet_type' in (body || {})) t.kind = body.sheet_type === 'research' ? 'research' : 'seat';
   if (body?.columns) t.columns = JSON.stringify(body.columns);
   if (body?.meta) t.meta = JSON.stringify(body.meta);
+  /* 确认过又改了表头（日期/节次/列），状态回「已修改·待确认」 */
+  if (t.confirmed_at) {
+    const same = (k) => {
+      if (k === 'columns') return JSON.stringify(attCols(before)) === JSON.stringify(attCols(t));
+      return String(before[k] ?? '') === String(t[k] ?? '');
+    };
+    if (['columns', 'sheet_date', 'weekday', 'periods', 'grade', 'name'].some((k) => k in (body || {}) && !same(k))) {
+      t.confirm_dirty = 1;
+    }
+  }
+  t.updated_at = nowISO();
+  save();
+  return t;
+});
+/* 确认生成：点一下才算正式生效（PRD FR-TABLE-4）。
+   确认之后仍然可以改，改完再点一次「重新确认」覆盖（FR-TABLE-5）。 */
+on('POST', '/attendance/:id/confirm', ({ params }) => {
+  const t = byId('attendance_tables', params.id);
+  if (!t) fail(404, '考勤表不存在');
+  t.confirmed_at = nowISO();
+  t.confirm_dirty = 0;
   t.updated_at = nowISO();
   save();
   return t;
@@ -2404,6 +2450,11 @@ on('POST', '/attendance/:id/rows', ({ params, body }) => {
         ex.subject = String(row.subject ?? '');
         ex.updated_at = nowISO();
         ids.push(ex.id);
+      } else {
+        /* 这一行在别的设备上被删了。这里必须占一个 null 位，
+           否则返回的 ids 和前端提交的 rows 下标就错位了 ——
+           前端按位置回填 id，一错位后面每行都挂着别人的 id。 */
+        ids.push(null);
       }
     } else {
       sort += 1;
@@ -2417,6 +2468,12 @@ on('POST', '/attendance/:id/rows', ({ params, body }) => {
       ids.push(id);
     }
   }
+  /* 保存过行之后，如果这张表确认过，标记「已修改·待重新确认」 */
+  /* 确认过的表又被改动 → 回到「已修改·待确认」。
+     前端改过格子会带 dirty:true；只点了一次保存（没动任何格子）带 dirty:false，
+     这时不该把状态弄脏 —— 否则「确认完随手点个保存」就显示成待确认，很吓人。 */
+  if (t.confirmed_at && body?.dirty !== false) t.confirm_dirty = 1;
+  t.updated_at = nowISO();
   save();
   return { ids };
 });
@@ -2930,8 +2987,12 @@ on('GET', '/grades', () => {
      「打开考勤页面时顺手补一次」，老用户新用户都能拿到。
      只写不读的副作用也没有：没有名册的人才会真的插数据。 */
   seedRoster(load(), nowISO());
-  const extra = (currentUser().settings?.grades || []).filter(Boolean);
-  const set = [...new Set([...DEFAULT_GRADES, ...extra])];
+  /* gradeOff：内置年级被删除/改名后要藏起来的名字。
+     内置名单不能真的从代码里删，只能「关掉」，否则刷新一下又回来了。 */
+  const u = currentUser();
+  const off = (u.settings?.gradeOff || []).filter(Boolean);
+  const extra = (u.settings?.grades || []).filter(Boolean);
+  const set = [...new Set([...DEFAULT_GRADES.filter((g) => !off.includes(g)), ...extra])];
   const counts = {};
   for (const g of set) counts[g] = rowsOf('teachers').filter((t) => t.grade === g && num(t.active) === 1).length;
   return { grades: set, builtin: DEFAULT_GRADES, counts };
@@ -2946,15 +3007,205 @@ on('POST', '/grades', ({ body }) => {
   saveUser(u);
   return { grades: [...new Set([...DEFAULT_GRADES, ...u.settings.grades])] };
 });
-on('DELETE', '/grades/:name', ({ params }) => {
-  const name = decodeURIComponent(params.name);
-  if (DEFAULT_GRADES.includes(name)) fail(400, '内置年级不能删除');
+/* 年级改名（PRD FR-GRADE-2）：名册、考勤表的归属一起迁过去 */
+on('PATCH', '/grades/:name', ({ params, body }) => {
+  const old = decodeURIComponent(params.name);
+  const name = String(body?.name || '').trim();
+  if (!name || name.length > 12) fail(400, '年级名不能为空且不超过 12 个字');
   const u = currentUser();
   u.settings = u.settings || {};
-  u.settings.grades = (u.settings.grades || []).filter((g) => g !== name);
+  const off = u.settings.gradeOff = u.settings.gradeOff || [];
+  const extra = u.settings.grades = u.settings.grades || [];
+  const visible = [...new Set([...DEFAULT_GRADES.filter((g) => !off.includes(g)), ...extra])];
+  if (!visible.includes(old)) fail(404, '没有这个年级');
+  if (name !== old && visible.includes(name)) fail(400, '已经有叫这个名字的年级了');
+  let teachers = 0;
+  for (const r of rowsOf('teachers')) {
+    if (r.grade === old) { r.grade = name; r.updated_at = nowISO(); teachers++; }
+  }
+  let tables = 0;
+  for (const r of T('attendance_tables')) {
+    if (r.grade === old) { r.grade = name; r.updated_at = nowISO(); tables++; }
+  }
+  if (name !== old) {
+    u.settings.grades = [...new Set(extra.map((g) => (g === old ? name : g)).concat(extra.includes(old) ? [] : [name]))];
+    if (DEFAULT_GRADES.includes(old) && !off.includes(old)) off.push(old);
+  }
   saveUser(u);
+  save();
+  return { ok: true, migrated: { teachers, tables } };
+});
+/* 年级删除（PRD FR-GRADE-3）：花名册软删；考勤表软删（回收站可找回）；
+   行跟着表一起软删。删除后在年级列表里消失。 */
+on('DELETE', '/grades/:name', ({ params }) => {
+  const name = decodeURIComponent(params.name);
+  const u = currentUser();
+  u.settings = u.settings || {};
+  const off = u.settings.gradeOff = u.settings.gradeOff || [];
+  const extra = u.settings.grades = u.settings.grades || [];
+  const visible = [...new Set([...DEFAULT_GRADES.filter((g) => !off.includes(g)), ...extra])];
+  if (!visible.includes(name)) fail(404, '没有这个年级');
+  let teachers = 0;
+  for (const r of rowsOf('teachers')) {
+    if (r.grade === name && !r.deleted_at) { r.deleted_at = nowISO(); teachers++; }
+  }
+  const tabIds = new Set(T('attendance_tables').filter((t) => t.grade === name).map((t) => String(t.id)));
+  let tables = 0;
+  for (const r of rowsOf('attendance_tables')) {
+    if (r.grade === name && !r.deleted_at) { r.deleted_at = nowISO(); tables++; tabIds.add(String(r.id)); }
+  }
+  let attRows = 0;
+  for (const r of rowsOf('attendance_rows')) {
+    if (tabIds.has(String(r.table_id)) && !r.deleted_at) { r.deleted_at = nowISO(); attRows++; }
+  }
+  u.settings.grades = extra.filter((g) => g !== name);
+  if (DEFAULT_GRADES.includes(name) && !off.includes(name)) off.push(name);
+  saveUser(u);
+  save();
+  return { ok: true, deleted: { teachers, tables, rows: attRows } };
+});
+
+/* ============================ 学科管理 ============================ */
+/* 学科不是独立的表，是老师身上的一段文本。列表 = 该年级名册里实际用到的学科。 */
+on('GET', '/subjects', ({ query }) => {
+  const grade = query.grade || '';
+  const rows = rowsOf('teachers').filter((t) => (!grade || t.grade === grade) && num(t.active) === 1);
+  const map = {};
+  for (const t of rows) {
+    const s = String(t.subject || '').trim();
+    if (s) map[s] = (map[s] || 0) + 1;
+  }
+  const list = Object.entries(map)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+  return { list };
+});
+/* 学科改名：名册和历史考勤行里的学科文本一起迁，统计才不会断成两截 */
+on('POST', '/subjects/rename', ({ body }) => {
+  const grade = String(body?.grade || '');
+  const from = String(body?.from || '').trim();
+  const to = String(body?.to || '').trim();
+  if (!grade || !from || !to) fail(400, '参数不完整');
+  if (from === to) return { ok: true, teachers: 0, rows: 0 };
+  let teachers = 0;
+  for (const r of rowsOf('teachers')) {
+    if (r.grade === grade && r.subject === from) { r.subject = to; r.updated_at = nowISO(); teachers++; }
+  }
+  const tabIds = new Set(T('attendance_tables').filter((t) => t.grade === grade).map((t) => String(t.id)));
+  let attRows = 0;
+  for (const r of rowsOf('attendance_rows')) {
+    if (tabIds.has(String(r.table_id)) && r.subject === from) { r.subject = to; r.updated_at = nowISO(); attRows++; }
+  }
+  save();
+  return { ok: true, teachers, rows: attRows };
+});
+/* 删除学科：还有老师引用就拒绝（PRD FR-ROSTER-5 建议的处理方式） */
+on('POST', '/subjects/delete', ({ body }) => {
+  const grade = String(body?.grade || '');
+  const name = String(body?.name || '').trim();
+  const used = rowsOf('teachers').filter((t) => t.grade === grade && t.subject === name && num(t.active) === 1).length;
+  if (used) fail(400, `还有 ${used} 位老师挂着「${name}」，先把他们改到别的学科再删`);
   return { ok: true };
 });
+
+/* ============================ 考勤统计（月/年） ============================ */
+/* PRD FR-STAT：按年级独立，按老师汇总；请假拆病假/事假/上午/下午/时长；
+   临时老师（不在名册里 / 行上打了 __temp）单独一行，保证总数对得上三张表。 */
+function emptyPerson(name, subject, temp) {
+  return { name, subject: subject || '', temp: temp ? 1 : 0, classes: 0, research: 0, leaves: 0, sick: 0, personal: 0, unknown: 0, hours: 0, am: 0, pm: 0, full: 0 };
+}
+
+function attMonthlyStats(grade, year) {
+  const roster = rowsOf('teachers').filter((t) => t.grade === grade && num(t.active) === 1);
+  const tabs = T('attendance_tables').filter((t) => t.grade === grade)
+    .filter((t) => String(t.sheet_date || '').startsWith(year) || String(t.month || '').startsWith(year));
+  return attAggregate(grade, year, roster, tabs, (t) => attTableDetail(t.id));
+}
+
+/* 统计的实际算法。跟「数据从哪来」解耦了一层，因为本地版和云端版
+   取数的路径不一样（本地读 localdb，云端走 REST），但统计算法必须只有一份 ——
+   两份算法迟早会算出两个不同的数，交财务的时候就说不清了。 */
+function attAggregate(grade, year, roster, tabs, detailOf) {
+  const rosterNames = new Set(roster.map((t) => t.name));
+  const subjOf = {};
+  roster.forEach((t) => { subjOf[t.name] = t.subject || ''; });
+  const months = {};
+  const yearMap = {};
+  const person = (map, name, subject) => {
+    if (!map[name]) map[name] = emptyPerson(name, subject, !rosterNames.has(name));
+    return map[name];
+  };
+  for (const t of tabs) {
+    const monthKey = String(t.sheet_date || t.month || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(monthKey)) continue;
+    const detail = detailOf(t) || { columns: [], rows: [] };
+    const type = t.sheet_type || t.kind;
+    const cols = detail.columns.filter((c) => c.type === 'check');
+    const kClass = cols.filter((c) => (type === 'class' ? /上课|准时|按时/ : /^上课$/).test(c.label));
+    const kResearch = cols.filter((c) => (type === 'research' ? /签到|出席/ : /^教研$/).test(c.label));
+    const kLeave = cols.filter((c) => /请假/.test(c.label));
+    months[monthKey] = months[monthKey] || {};
+    for (const r of detail.rows) {
+      const name = String(r.teacher || '').trim();
+      if (!name) continue;
+      const data = r.data || {};
+      const subject = subjOf[name] || r.subject || '';
+      const m = person(months[monthKey], name, subject);
+      const y = person(yearMap, name, subject);
+      const temp = !rosterNames.has(name) || num(data.__temp) === 1;
+      m.temp = y.temp = temp ? 1 : 0;
+      for (const target of [m, y]) {
+        if (kClass.some((c) => data[c.key] === '1')) target.classes++;
+        if (kResearch.some((c) => data[c.key] === '1')) target.research++;
+        const lv = data.__leave && typeof data.__leave === 'object' ? data.__leave : null;
+        const ticked = kLeave.some((c) => data[c.key] === '1');
+        if (lv || ticked) {
+          target.leaves++;
+          if (lv) {
+            target.hours += Number(lv.duration) || 0;
+            if (lv.type === '病假') target.sick++;
+            else if (lv.type === '事假') target.personal++;
+            else target.unknown++;
+            if (lv.period === '上午') target.am++;
+            else if (lv.period === '下午') target.pm++;
+            else if (lv.period === '全天') target.full++;
+          } else target.unknown++;
+        }
+      }
+    }
+  }
+  const fix = (map) => {
+    /* 有表的月份，把名册里零记录的老师也补成 0 行（交财务要的是全名单） */
+    for (const key of Object.keys(months)) {
+      const mm = months[key];
+      for (const t of roster) if (!mm[t.name]) mm[t.name] = emptyPerson(t.name, t.subject || '', 0);
+    }
+    const arr = Object.values(map);
+    arr.sort((a, b) => (a.temp - b.temp) || String(a.subject).localeCompare(String(b.subject), 'zh-Hans-CN') || String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
+    return arr;
+  };
+  const monthList = Object.keys(months).sort().map((k) => ({ month: k, rows: fix(months[k]) }));
+  /* 年视图：把名册全部补齐（含全年没出现过的人） */
+  for (const t of roster) if (!yearMap[t.name]) yearMap[t.name] = emptyPerson(t.name, t.subject || '', 0);
+  const yearRows = fix(yearMap);
+  /* 临时老师合计行 */
+  const tempAgg = (rows) => {
+    const temps = rows.filter((r) => r.temp);
+    if (!temps.length) return null;
+    const agg = emptyPerson(`临时老师（${temps.length} 人）`, '—', 1);
+    for (const r of temps) {
+      for (const k of ['classes', 'research', 'leaves', 'sick', 'personal', 'unknown', 'am', 'pm', 'full']) agg[k] += r[k];
+      agg.hours += r.hours;
+    }
+    return agg;
+  };
+  return {
+    grade, year,
+    months: monthList.map((m) => ({ month: m.month, rows: m.rows, temp_agg: tempAgg(m.rows) })),
+    year_rows: yearRows,
+    year_temp_agg: tempAgg(yearRows),
+  };
+}
 on('GET', '/teachers', ({ query }) => {
   const grade = query.grade || '';
   let list = rowsOf('teachers').filter((t) => !grade || t.grade === grade);
@@ -3900,6 +4151,27 @@ async function cloudAttendanceDetail(id) {
   } catch { return null; }
 }
 
+/* 云端版的整月/整年统计（PRD FR-STAT）。
+   名册还在本机（teachers 没上云），所以名册照旧读本地，
+   考勤表和明细从云端一次性取回来，再交给同一个 attAggregate 算。
+   注意别退化成「一张表算一次」——一次请求循环几十次 REST 会慢到转圈。 */
+async function cloudAttendanceStats(m, grade, year) {
+  const { tables, rows } = await m.listAttendance({ grade });
+  const byTable = new Map();
+  for (const r of rows || []) {
+    const k = String(r.table_id);
+    if (!byTable.has(k)) byTable.set(k, []);
+    byTable.get(k).push(attRowShape(r));
+  }
+  const tabs = (tables || []).filter((t) => String(t.sheet_date || t.month || '').startsWith(year));
+  const roster = rowsOf('teachers').filter((t) => t.grade === grade && num(t.active) === 1);
+  return attAggregate(grade, year, roster, tabs, (t) => ({
+    columns: attCols(t),
+    rows: byTable.get(String(t.id)) || [],
+  }));
+}
+
+
 /* 云端路由。
    ────────────────────────────────────────────────────────────────────────────
    原来这里写死了 lessons，加一张表就要加一串 if。现在改成通用映射：
@@ -4027,6 +4299,15 @@ async function cloudRoute(method, clean, query, body) {
           const c = await m.createRow('attendance_rows', row);
           ids.push(c.id);
         }
+        /* 确认过的表又被改动 → 回「已修改·待确认」。dirty:false 表示
+           用户只是点了个保存、一个格子都没动，不该把状态弄脏。 */
+        if (body?.dirty !== false) {
+          const t0 = await m.getRow('attendance_tables', tid).catch(() => null);
+          const m0 = t0 ? safeJSON(t0.meta, {}) : null;
+          if (m0 && m0.confirmed_at && !num(m0.confirm_dirty)) {
+            await m.updateRow('attendance_tables', tid, { meta: { ...m0, confirm_dirty: 1 } }).catch(() => {});
+          }
+        }
         return { ids, saved: ids.length };
       }
       throw new Error(`云端暂不支持：${method} ${clean}`);
@@ -4035,6 +4316,18 @@ async function cloudRoute(method, clean, query, body) {
     /* ---- 删表：前端走 /attendance_tables/:id ---- */
     if (head === 'attendance_tables' && method === 'DELETE' && second) {
       return m.deleteAttendanceTable(decodeURIComponent(second));
+    }
+
+    /* ---- 年级统计：GET /attendance/stats?grade=高一&year=2026 ----
+       【必须排在「统计：/attendance/:id/stats」和「详情」之前】
+       这两条一个判断 third==='stats'、一个只看 second，而这里的 second 恰好是
+       字符串 'stats' —— 放到后面就会被当成"表 id 叫 stats"，返回「考勤表不存在」。 */
+    if (head === 'attendance' && method === 'GET' && second === 'stats') {
+      const grade = String(query.grade || '');
+      const year = String(query.year || String(new Date().getFullYear()));
+      if (!grade) throw new Error('要指定年级');
+      if (!/^\d{4}$/.test(year)) throw new Error('年份不对');
+      return cloudAttendanceStats(m, grade, year);
     }
 
     /* ---- 统计：必须在「详情」之前判断 ----
@@ -4133,8 +4426,33 @@ async function cloudRoute(method, clean, query, body) {
       /* 前端改类型时只送 sheet_type，DB 里的 kind 要跟着变：
          列表页按 sheet_type 分组、统计页按 kind 分支，不同步就会打架。 */
       if ('sheet_type' in patch) patch.kind = patch.sheet_type === 'research' ? 'research' : 'seat';
+      /* 确认过的表改了表头（日期/节次/列）→ 回到「已修改·待确认」。
+         【必须比较内容而不是"有没有传这个字段"】
+         前端每次保存都会顺手 PATCH 一次 {columns}（列定义随保存一起落库），
+         按"传了就算改"判断的话，确认完随便点个保存就变成待重新确认了。 */
+      const prev = await m.getRow('attendance_tables', decodeURIComponent(second));
+      if (prev) {
+        const pm = safeJSON(prev.meta, {});
+        const norm = (k, v) => (k === 'columns' ? JSON.stringify(attCols({ columns: v })) : String(v ?? ''));
+        const touchedKeys = ['columns', 'sheet_date', 'weekday', 'periods', 'grade', 'name']
+          .filter((k) => k in patch && norm(k, patch[k]) !== norm(k, prev[k]));
+        if (pm.confirmed_at && touchedKeys.length) {
+          patch.meta = { ...pm, confirm_dirty: 1 };
+        }
+      }
       const row = await m.updateRow('attendance_tables', decodeURIComponent(second), patch);
       return { ...row, columns: attCols(row), meta: safeJSON(row.meta, {}) };
+    }
+
+    /* ---- 确认生成：/attendance/:id/confirm（PRD FR-TABLE-4/5）----
+       确认之后仍然可以改，改完再确认一次即可覆盖。 */
+    if (head === 'attendance' && method === 'POST' && second && third === 'confirm') {
+      const id = decodeURIComponent(second);
+      const t = await m.getRow('attendance_tables', id);
+      if (!t) throw new Error('考勤表不存在');
+      const meta = { ...safeJSON(t.meta, {}), confirmed_at: nowISO(), confirm_dirty: 0 };
+      const row = await m.updateRow('attendance_tables', id, { meta });
+      return { ...row, columns: attCols(row), meta, confirm_state: 'confirmed' };
     }
 
     /* ---- 粘贴导入：/attendance/:id/import ---- */
@@ -4207,6 +4525,15 @@ function attRowShape(r) {
   return { ...r, data: safeJSON(r.data, {}) };
 }
 
+/* 确认状态（PRD FR-TABLE-4/5）。云端 attendance_tables 是线上已有的表，
+   加列要改数据库 schema，所以状态存在 meta（jsonb）里：
+   meta.confirmed_at = 确认时间，meta.confirm_dirty = 确认后又改过。 */
+function attConfirmState(meta) {
+  const m = meta && typeof meta === 'object' ? meta : {};
+  if (!m.confirmed_at) return 'none';
+  return num(m.confirm_dirty) ? 'modified' : 'confirmed';
+}
+
 function attListShape(tables, rows) {
   const byTable = new Map();
   for (const r of rows) {
@@ -4226,11 +4553,14 @@ function attListShape(tables, rows) {
       if (!anyChecked && !isLeave) unchecked += 1;
     }
     const subjects = [...new Set(mine.map((r) => r.subject).filter(Boolean))];
+    const meta = safeJSON(t.meta, {});
     return {
       ...t,
       sheet_type: t.sheet_type || t.kind,
       columns: cols,
-      meta: safeJSON(t.meta, {}),
+      meta,
+      confirm_state: attConfirmState(meta),
+      confirmed_at: meta.confirmed_at || '',
       row_count: mine.length,
       subjects,
       summary: { leave: leaveCount, leave_names: leaveNames.slice(0, 6), none: unchecked },
@@ -4240,11 +4570,14 @@ function attListShape(tables, rows) {
 }
 
 function attDetailShape(t, rows, photoCount) {
+  const meta = safeJSON(t.meta, {});
   return {
     ...t,
     sheet_type: t.sheet_type || t.kind,
     columns: attCols(t),
-    meta: safeJSON(t.meta, {}),
+    meta,
+    confirm_state: attConfirmState(meta),
+    confirmed_at: meta.confirmed_at || '',
     /* 原件照片张数。以前写死 0，卡片上的「原件 N」永远是 0，
        明明存了照片也不显示，只能点进去才发现。现在由调用方数好传进来。
        传不进来（老调用点）就退回 0，不会崩。 */

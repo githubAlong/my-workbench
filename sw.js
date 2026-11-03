@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v86-home-grid-layout';
+const CACHE = 'wb-v87-attendance-prd';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -80,6 +80,8 @@ const ASSETS = [
   './js/homegrid.js',
   './js/xlsx-lite.js',
   './js/att-parse.js',
+  './js/attvoice.js',
+  './js/attstats.js',
 ];
 
 /* 【预缓存的超时】
