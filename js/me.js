@@ -1,14 +1,24 @@
 import {
-  api, el, esc, toast, sheet, confirmDialog, fmtDateTime, download, ls, setApiToken,
+  api, el, esc, toast, sheet, confirmDialog, fmtDateTime, download, saveBlob, ls, ymd,
 } from './core.js';
-import { registerView, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, paintUnread, refreshUnread } from './ui.js';
+import { registerView, onViewLeave, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, paintUnread, refreshUnread } from './ui.js';
 import { AUTH_CFG } from './ui.js';
+import { makeShareLink } from './cloudsync.js';
+import { loginSheet, cloudOn } from './auth.js';
+import * as cloud from './cloud.js';
+
+const ADMIN_PHONE = '+8613071825243';
 
 registerView(async function me(main, { query }) {
   const { path } = parseHash();
   // 每次 render() 都会重建 main 节点，这里加类不会残留到别的页面。
   // 桌面端靠 .page-me 把卡片收窄，否则菜单行会被拉成一整条 1100px 的长条。
   main.classList.add('page-me');
+  /* 离开个人信息页就把草稿丢掉。
+     不丢的话，下次再进来会看到上一次没保存的残字，比清空更让人困惑。 */
+  onViewLeave(() => {
+    if (parseHash().path !== 'profile') profileDraft = null;
+  });
   if (path === 'messages') return renderMessages(main);
   if (path === 'profile') return renderProfile(main);
   return renderMe(main);
@@ -49,17 +59,21 @@ async function renderMe(main) {
     return;
   }
 
-  const [msgs, sessions] = await Promise.all([
+  const [msgs, rawSessions] = await Promise.all([
     api.get('/messages').catch(() => ({ unread: 0, counts: {} })),
-    api.get('/me/sessions').catch(() => []),
+    api.get('/me/sessions').catch(() => null),
   ]);
+  /* 接口回的是 { rows: [...] }，这里统一成数组，后面 length / map 才不会炸 */
+  const sessions = Array.isArray(rawSessions) ? rawSessions : (rawSessions?.rows || []);
   const needProfile = !u.school || !u.subject;
+  const adminPhone = cloud.session()?.phone || '';
+  const isAdmin = adminPhone === ADMIN_PHONE || adminPhone === ADMIN_PHONE.slice(3);
   main.innerHTML = `
     <div class="me-hero">
-      ${avatarHTML(u, 74, 'me-avatar-lg')}
+      ${avatarHTML(u, 74, 'me-avatar-lg', true)}
       <div class="me-hero-info">
         <div class="me-name">${esc(u.nickname || '未设置昵称')}</div>
-        <div class="me-sub">${esc(maskPhone(u.phone))}${u.school ? ' · ' + esc(u.school) : ''}${u.subject ? ' · ' + esc(u.subject) : ''}</div>
+        <div class="me-sub">${esc(u.account || '')}${u.school ? ' · ' + esc(u.school) : ''}${u.subject ? ' · ' + esc(u.subject) : ''}</div>
         <div class="me-chips">
           ${u.bindings?.wechat ? '<span class="chip green">微信</span>' : ''}
           ${u.bindings?.qq ? '<span class="chip blue">QQ</span>' : ''}
@@ -74,15 +88,21 @@ async function renderMe(main) {
       ['bell', '消息中心', msgs.unread ? `${msgs.unread} 条未读` : '暂无未读', 'messages',
         msgs.unread ? `<span class="msg-badge">${msgs.unread > 99 ? '99+' : msgs.unread}</span>` : ''],
       ['user', '个人信息', needProfile ? '昵称、学校、学科填一下' : '昵称、头像、学校、学科、职务', 'profile', ''],
-      ['shield', '账号安全', '改密码、登录设备管理', 'security', ''],
-      ['qr', '账号与绑定', '微信 / QQ / 手机号', 'bind', ''],
+      ['shield', '账号安全', '本机 PIN 锁、打开需验证', 'security', ''],
+      ['qr', '账号', '登录账号与改密码', 'bind', ''],
     ], needProfile)}
+
+    ${isAdmin ? group('管理', [
+      ['shield', '重置用户密码', '生成一次性临时密码', 'admin-reset', ''],
+    ]) : ''}
 
     ${group('个性化', [
       ['sun', '主题外观', `当前：${themeName(state.theme)}`, 'theme', `<span class="tiny muted">共 6 套</span>`],
     ])}
 
     ${group('数据', [
+      ['refresh', '云同步', '已接入模块跨设备同步', 'cloud', syncBadge()],
+      ['copy', '搬到另一台设备', '生成一条链接，手机点开即导入', 'share', ''],
       ['down', '数据导出与备份', '导出全部数据、导入恢复', 'backup', ''],
       ['copy', '学生短链', '课件 / 点名 / 惩罚 三合一', 'link', ''],
       ['trash', '回收站', '删除的内容可在这里找回', 'recycle', ''],
@@ -94,7 +114,7 @@ async function renderMe(main) {
 
     <div class="card card-pad small muted" style="margin-top:14px">
       <div class="row"><b style="color:var(--text)">关于</b><span style="flex:1"></span><span>v1.0</span></div>
-      <div style="margin-top:6px">我的工作台 · 教师个人工作台。数据保存在你的账号下，手机、iPad、电脑打开即为同一份。</div>
+      <div style="margin-top:6px">我的工作台 · 教师个人工作台。登录账号跨设备一致；本地模块数据按账号在当前浏览器隔离，云同步仅覆盖已接入模块。</div>
       <div style="margin-top:6px" class="tiny">登录设备：${sessions.length} 台在线</div>
     </div>`;
 
@@ -107,12 +127,25 @@ async function renderMe(main) {
     if (a === 'recycle') return go('recycle');
     if (a === 'theme') return openThemeSheet();
     if (a === 'logout') {
-      if (await confirmDialog('确定退出登录？')) { await api.post('/auth/logout'); setApiToken(null); state.user = null; location.hash = '#/home'; render(); }
+      if (await confirmDialog('确定退出登录？')) window.dispatchEvent(new Event('wb:signout'));
       return;
     }
-    if (a === 'bind') return bindManager(sessions);
+    if (a === 'admin-reset') return adminResetSheet();
+    if (a === 'bind') return bindManager();
     if (a === 'security') return securitySheet();
     if (a === 'backup') return backupSheet();
+    if (a === 'cloud') {
+      /* 【A 方案：这里不再是手动上传/下载，而是登录】
+         以前点进来是「生成/输入同步密钥 → 上传 / 下载」，
+         换设备要重输 32 位密钥，改完还得记得点上传。
+         现在复用全站的手机号 Supabase 会话，课时直接读写云上。
+         旧的 bindSheet 没删（还有别的入口在用），但主路径换成登录。 */
+      loginSheet({
+        onDone: () => { render(); },
+      });
+      return;
+    }
+    if (a === 'share') return shareSheet();
     if (a === 'link') {
       const links = await api.get('/links');
       const code = links[0]?.code;
@@ -139,16 +172,91 @@ async function renderMe(main) {
   }
 }
 
+function adminResetSheet() {
+  const body = el(`<div class="sheet-body">
+    <div class="tiny muted" style="line-height:1.7;margin-bottom:12px">
+      输入已注册用户的手机号，系统会生成临时密码并立即替换原密码。密码仅在此页面显示一次，请通过私下渠道交给用户。
+    </div>
+    <div class="auth-input"><input id="admin-reset-phone" type="tel" inputmode="numeric" maxlength="11" placeholder="用户手机号"></div>
+    <button class="auth-btn" id="admin-reset-go" style="margin-top:8px">生成临时密码</button>
+    <div id="admin-reset-result" class="small" style="margin-top:12px;line-height:1.7"></div>
+  </div>`);
+  const sh = sheet({ title: '重置用户密码', body });
+  const button = body.querySelector('#admin-reset-go');
+  const result = body.querySelector('#admin-reset-result');
+  button.onclick = async () => {
+    const phone = body.querySelector('#admin-reset-phone').value.trim();
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
+      result.textContent = '请输入正确的 11 位手机号';
+      result.style.color = 'var(--red)';
+      return;
+    }
+    button.disabled = true;
+    button.textContent = '重置中…';
+    result.textContent = '';
+    try {
+      const reset = await cloud.adminResetPassword(phone);
+      result.style.color = 'var(--text)';
+      result.innerHTML = `<div>临时密码（仅本次显示）</div>
+        <code id="admin-reset-password" style="display:block;word-break:break-all;padding:10px;background:var(--bg2);border-radius:8px">${esc(reset.password)}</code>
+        <button class="btn-sm" id="admin-reset-copy" style="margin-top:8px">复制密码</button>
+        <div class="tiny muted" style="margin-top:8px">请立即私下转交给用户。为安全起见，不要在公开群聊中发送。</div>`;
+      result.querySelector('#admin-reset-copy').onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(reset.password);
+          toast('临时密码已复制', 'ok');
+        } catch {
+          toast('复制失败，请手动选中临时密码复制', 'warn');
+        }
+      };
+      button.hidden = true;
+    } catch (e) {
+      result.textContent = e.message || '重置失败';
+      result.style.color = 'var(--red)';
+      button.disabled = false;
+      button.textContent = '生成临时密码';
+    }
+  };
+}
+
 const maskPhone = (p) => (p ? String(p).replace(/(\d{3})\d{4}(\d{4})/, '$1****$2') : '未绑定手机号');
 
-/* 有头像就显示图片，没有就用首字 + 渐变底 */
-function avatarHTML(u, size = 44, cls = '') {
+/* 有头像就显示图片，没有就用首字 + 渐变底。
+   slot=true 时额外打上 data-avatar-* 标记，供 refreshAvatarUI() 原地替换。
+
+   【为什么要这个标记】
+   换头像成功后如果走整页 render()，用户手输但还没保存的学校/学科/职务会一起没掉。
+   正确做法是只把头像那个 span 换掉，其它 DOM 一动不动。
+   可 avatarHTML() 一共被三处用（我的主页 74px、个人信息页 68px、换头像弹层里 96px 预览），
+   尺寸/类名各不相同，靠选择器猜容易把弹层里的预览也换掉，
+   所以让调用方显式声明「这块要能被刷新」。 */
+function avatarHTML(u, size = 44, cls = '', slot = false) {
   const first = esc((u.nickname || '师').slice(0, 1));
+  // data-avatar-* 只在 slot 模式下输出，避免污染弹层预览和列表里的一次性头像
+  const mark = slot ? ` data-avatar-slot data-avatar-size="${size}" data-avatar-cls="${esc(cls)}"` : '';
   if (u.avatar) {
-    return `<span class="avatar ${cls}" style="width:${size}px;height:${size}px">
+    return `<span class="avatar ${cls}"${mark} style="width:${size}px;height:${size}px">
       <img src="${esc(u.avatar)}" alt="头像" loading="lazy"></span>`;
   }
-  return `<span class="avatar ${cls} avatar-fallback" style="width:${size}px;height:${size};font-size:${Math.round(size * 0.4)}px">${first}</span>`;
+  return `<span class="avatar ${cls} avatar-fallback"${mark} style="width:${size}px;height:${size};font-size:${Math.round(size * 0.4)}px">${first}</span>`;
+}
+
+/* 只刷新页面上带 data-avatar-slot 的头像节点，不重建 DOM。
+
+   换头像 / 移除头像调这里，不调 render()。
+   注意替换的是 span 本身（outerHTML），但外层容器不动 ——
+   「个人信息」页的点击事件绑在 #p-avatar 这个 button 上，
+   button 不动，onclick 就还活着，换完还能接着点。 */
+function refreshAvatarUI(u) {
+  const nodes = document.querySelectorAll('[data-avatar-slot]');
+  for (const node of nodes) {
+    const size = Number(node.getAttribute('data-avatar-size')) || 44;
+    const cls = node.getAttribute('data-avatar-cls') || '';
+    node.outerHTML = avatarHTML(u, size, cls, true);
+  }
+  // 弹层里的「移除头像」按钮：第一次上传后才该出现，移除后又要消失
+  const del = document.querySelector('#av-del');
+  if (del && !u.avatar) del.remove();
 }
 
 /* ================= 头像 ================= */
@@ -174,7 +282,10 @@ function avatarSheet() {
     if (f.size > 2 * 1024 * 1024) return toast(`图片 ${(f.size / 1024 / 1024).toFixed(1)}MB，超过 2MB 了`, 'warn');
     hint.textContent = '裁切中…';
     try {
-      const blob = await cropSquare(f, 512);
+      /* 512px / q0.9 压出来常有 60~120KB，而 localStorage 整库只有 5MB，
+         存两三个大附件就满。头像实际最大显示 74px（@2x 148px 足够），
+         降到 192px / q0.72 后一般 10~18KB。 */
+      const blob = await cropSquare(f, 192);
       hint.textContent = '上传中…';
       const fd = new FormData();
       fd.append('files', blob, 'avatar.jpg');
@@ -182,7 +293,13 @@ function avatarSheet() {
       state.user = r.user;
       sh.close();
       toast('头像已更新');
-      render();
+      /* 【这里原来调的是 render()，就是用户报的那个 bug】
+         整页重绘会把用户手输但还没保存的学校/学科/职务冲掉。
+         现在只换头像节点，输入框里的字一个都不碰。
+         captureProfileDraft() 是为了兜住弹层开着时补一次快照 ——
+         万一别处触发了整页重绘，草稿还能把字救回来。 */
+      captureProfileDraft();
+      refreshAvatarUI(r.user);
     } catch (e) {
       hint.textContent = '';
       toast(e.message || '上传失败', 'err');
@@ -201,7 +318,9 @@ function avatarSheet() {
       state.user = r.user;
       sh.close();
       toast('已移除');
-      render();
+      // 同上：移除头像也不整页重绘
+      captureProfileDraft();
+      refreshAvatarUI(r.user);
     } catch (e) {
       del.disabled = false;
       del.textContent = '移除头像';
@@ -212,7 +331,7 @@ function avatarSheet() {
 
 /* 正方形裁切 + 压成 512px 的 JPEG。
    手机拍的原图动辄 4000px，直接传会撑爆存储，也没必要。 */
-function cropSquare(file, size = 512) {
+function cropSquare(file, size = 192) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -231,12 +350,49 @@ function cropSquare(file, size = 512) {
           if (!blob) return reject(new Error('图片处理失败'));
           if (blob.size > 2 * 1024 * 1024) return reject(new Error('裁切后仍超过 2MB，换张小点的图'));
           resolve(blob);
-        }, 'image/jpeg', 0.9);
+        }, 'image/jpeg', 0.72);
       } catch (e) { URL.revokeObjectURL(url); reject(e); }
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('这张图片读不出来，换一张试试')); };
     img.src = url;
   });
+}
+
+/* ================= 个人信息页的输入草稿 =================
+   【要解决什么】
+   这四个输入框（昵称/学校/学科/职务）的 value 原本只从 state.user 取。
+   只要中间发生一次整页 render()（app.innerHTML 重建整棵 DOM），
+   用户刚敲进去、还没点保存的字就会全部变回旧值 ——
+   用户看到的就是「上传照片把我填的信息清空了」。
+
+   第一层修法是让换头像/移除头像不再整页重绘（见 refreshAvatarUI）。
+   但整页重绘的入口不止一个：保存成功、改完密码返回、云同步重新登录回来、
+   切主题、另一台设备推了 wb:remote……任何一个都会再冲一次。
+   所以再加这一层：把输入框里的字实时镜像到 profileDraft，
+   renderProfile 回填时优先用草稿。
+
+   草稿什么时候清掉？
+     · 保存成功（已经落盘了，草稿没用了）
+     · 离开个人信息页（不能把上一页没保存的字带到下次进来）
+   focusout 时不抓、input 时才抓 —— 因为 input 事件是「值真的变了」，
+   而 focusout 只是「光标走了」，抓了会白存一份同样的值。 */
+let profileDraft = null;
+const PROFILE_FIELDS = ['nickname', 'school', 'subject', 'title'];
+
+/* 把当前页面上四个输入框的值快照到 profileDraft。
+   页面不在个人信息页、或者四个框都不在，就什么都不做。 */
+function captureProfileDraft() {
+  const box = document.querySelector('#f-nickname');
+  if (!box) return;                       // 不在个人信息页
+  const d = {};
+  let any = false;
+  for (const k of PROFILE_FIELDS) {
+    const inp = document.querySelector('#f-' + k);
+    if (!inp) continue;
+    d[k] = inp.value;
+    any = true;
+  }
+  if (any) profileDraft = d;
 }
 
 /* ================= 个人信息（独立页） ================= */
@@ -247,262 +403,392 @@ async function renderProfile(main) {
     main.innerHTML = '<div class="empty" style="padding:40px 20px">登录状态已过期，请刷新页面重新登录</div>';
     return;
   }
+  // 有草稿就用草稿，没有才用云端/本机里已保存的值
+  const uv = (k) => esc(profileDraft ? (profileDraft[k] ?? '') : (u[k] || ''));
   main.innerHTML = pageHead('个人信息', '改完点右上角保存', '<button class="btn primary sm" id="p-save">保存</button>') + `
     <div class="card card-pad" style="margin-bottom:14px">
       <div class="profile-av-row">
-        <button id="p-avatar" class="profile-av-btn">${avatarHTML(u, 68)}<span class="pa-tip">${icon('camera', 13)} 换头像</span></button>
+        <button id="p-avatar" class="profile-av-btn">${avatarHTML(u, 68, '', true)}<span class="pa-tip">${icon('camera', 13)} 换头像</span></button>
         <div class="tiny muted" style="flex:1">头像支持 JPG / PNG，2MB 以内，会自动裁成正方形。</div>
       </div>
     </div>
     <div class="card card-pad">
       <div class="field"><label class="field-label">昵称</label>
-        <input class="input" id="f-nickname" maxlength="20" value="${esc(u.nickname || '')}" placeholder="怎么称呼你"></div>
+        <input class="input" id="f-nickname" maxlength="20" value="${uv('nickname')}" placeholder="怎么称呼你"></div>
       <div class="field"><label class="field-label">学校</label>
-        <input class="input" id="f-school" maxlength="40" value="${esc(u.school || '')}" placeholder="如：市第二中学"></div>
+        <input class="input" id="f-school" maxlength="40" value="${uv('school')}" placeholder="如：市第二中学"></div>
       <div class="form-grid">
         <div class="field"><label class="field-label">学科</label>
-          <input class="input" id="f-subject" maxlength="20" value="${esc(u.subject || '')}" placeholder="如：语文"></div>
+          <input class="input" id="f-subject" maxlength="20" value="${uv('subject')}" placeholder="如：语文"></div>
         <div class="field"><label class="field-label">职务</label>
-          <input class="input" id="f-title" maxlength="20" value="${esc(u.title || '')}" placeholder="如：班主任"></div>
+          <input class="input" id="f-title" maxlength="20" value="${uv('title')}" placeholder="如：班主任"></div>
       </div>
-      <div class="field"><label class="field-label">手机号</label>
-        <div class="row" style="gap:8px"><input class="input" value="${esc(maskPhone(u.phone))}" disabled>
-          <button class="btn ghost sm" id="p-bind" style="flex:0 0 auto">换绑</button></div></div>
-      <div class="tiny muted" style="margin-top:4px">手机号是登录凭证，换绑需要短信验证。</div>
+      <div class="field"><label class="field-label">登录账号</label>
+        <div class="row" style="gap:8px"><input class="input" value="${esc(u.account || '')}" disabled>
+          <button class="btn ghost sm" id="p-bind" style="flex:0 0 auto">改密码</button></div></div>
+      <div class="tiny muted" style="margin-top:4px">账号 + 密码是本机唯一的登录凭证，账号不可改，密码可随时修改。</div>
     </div>`;
 
-  main.querySelector('#p-avatar').onclick = () => avatarSheet();
+  /* 边打字边存草稿。留着这个引用，页面被换掉之后节点已脱离文档，
+     事件自然不会再触发，不需要手动解绑。 */
+  for (const k of PROFILE_FIELDS) {
+    const inp = main.querySelector('#f-' + k);
+    if (!inp) continue;
+    inp.addEventListener('input', () => {
+      if (!profileDraft) profileDraft = {};
+      profileDraft[k] = inp.value;
+    });
+  }
+
+  const av = main.querySelector('#p-avatar');
+  /* 点头像前先抓一次快照。
+     用 mousedown/touchstart 而不是 click：click 的时机是手指抬起之后，
+     万一将来有人在 click 里塞了别的东西，快照可能已经晚了。 */
+  const snap = () => captureProfileDraft();
+  av.addEventListener('mousedown', snap);
+  av.addEventListener('touchstart', snap, { passive: true });
+  av.onclick = () => {
+    snap();
+    avatarSheet();
+  };
   main.querySelector('#p-bind').onclick = async () => {
-    const sessions = await api.get('/me/sessions').catch(() => []);
-    bindManager(sessions);
+    /* 这里原来的按钮是「换绑手机号」，现在只做改密码 ——
+       拉 /me/sessions 没有意义（那套「登录设备」是服务端会话，静态版恒为空）。 */
+    captureProfileDraft();           // 去改密码再回来，字还在
+    accountPwdSheet(null);
   };
   main.querySelector('#p-save').onclick = async (e) => {
     const btn = e.currentTarget;
+    /* 【昵称不能存成空】
+       只填了学校/科目就把昵称删光点保存，库里 nickname 变成 ''，
+       左上角、头像、"我的"页面全变成「未设置昵称」，别人也没法在成员列表里认出你。
+       （头像首字还会退化成「师」，看起来像是账号出了问题。）
+       昵称是唯一的口头称呼来源，必须留着。 */
+    const nick = main.querySelector('#f-nickname').value.trim();
+    if (!nick) {
+      toast('昵称不能为空，留个称呼吧', 'warn');
+      main.querySelector('#f-nickname').focus();
+      return;
+    }
     btn.disabled = true; btn.textContent = '保存中…';
     try {
       const r = await api.patch('/me', {
-        nickname: main.querySelector('#f-nickname').value.trim(),
+        nickname: nick,
         school: main.querySelector('#f-school').value.trim(),
         subject: main.querySelector('#f-subject').value.trim(),
         title: main.querySelector('#f-title').value.trim(),
       });
       state.user = r.user;
+      profileDraft = null;           // 已经落盘，草稿使命结束
       toast('已保存');
       render();
     } catch (err) {
       toast(err.message || '保存失败', 'err');
     } finally {
+      // 注意：render() 之后 btn 已脱离文档，但改它不会报错，也不影响新页面
       btn.disabled = false; btn.textContent = '保存';
     }
   };
 }
 
-/* ================= 账号安全 ================= */
-function securitySheet() {
+/* ================= 账号安全（本机 PIN 锁） =================
+   【这一屏以前是死的】
+   静态版没有服务端，`POST /me/password` 永远返回 400「静态版没有服务端密码」，
+   用户点进来、认认真真输两次新密码、点保存，得到的是一句「不需要修改」——
+   这不是提示，这是耍人。
+   现在换成一个在这里真能用的东西：本机 PIN 锁。
+   设完之后，每次重新打开工作台要先输 4~6 位数字才能看到内容。
+   它保护的是「别人顺手拿起我的手机/电脑翻一翻」，不是硬盘级加密 ——
+   文案里就这么写，不夸大。 */
+async function securitySheet() {
+  let info = { enabled: false };
+  try { info = await api.get('/me/pin'); } catch { }
   const b = el(`<div class="sheet-body">
-    <div class="small bold" style="margin-bottom:8px">重置登录密码</div>
-    <div class="field"><label class="field-label">原密码（还没设过可留空）</label>
-      <input class="input" type="password" id="o" autocomplete="current-password" placeholder="当前密码"></div>
-    <div class="field"><label class="field-label">新密码</label>
-      <input class="input" type="password" id="n" autocomplete="new-password" placeholder="至少 6 位"></div>
-    <div class="field"><label class="field-label">再输一次</label>
-      <input class="input" type="password" id="n2" autocomplete="new-password" placeholder="确认新密码"></div>
-    <div class="tiny muted" style="margin:2px 0 10px">改完密码，其他设备上的登录会继续有效，需要的话在下面一键踢掉。</div>
-    <div class="confirm-actions"><button class="btn ghost" id="x">取消</button><button class="btn primary" id="k">保存新密码</button></div></div>`);
+    <div class="pin-state ${info.enabled ? 'on' : ''}" id="pin-state">
+      ${icon(info.enabled ? 'shield' : 'alert', 16)}
+      <span>${info.enabled ? `本机 PIN 已开启${info.at ? '（' + fmtDateTime(info.at) + ' 设置）' : ''}` : '本机 PIN 还没设置'}</span>
+    </div>
+    <div class="tiny muted" style="margin:6px 0 14px">
+      这个 PIN 只保护<b>这台设备上</b>的工作台数据：重新打开页面要先输一次。
+      它防的是别人顺手拿你手机、电脑翻看，<b>不是</b>硬盘加密 —— 懂技术的人打开浏览器开发者工具仍然能看到数据。
+      换设备、清浏览器数据之后 PIN 就没了，需要重新设。
+    </div>
+    <div id="pin-form"></div>
+  </div>`);
   const sh = sheet({ title: '账号安全', body: b });
-  b.querySelector('#x').onclick = sh.close;
-  b.querySelector('#k').onclick = async (e) => {
-    const o = b.querySelector('#o').value;
-    const n = b.querySelector('#n').value;
-    const n2 = b.querySelector('#n2').value;
-    if (n.length < 6) return toast('新密码至少 6 位', 'warn');
-    if (n !== n2) return toast('两次输入的新密码不一样', 'warn');
-    const btn = e.currentTarget;
-    btn.disabled = true; btn.textContent = '保存中…';
-    try {
-      await api.post('/me/password', { oldPassword: o, newPassword: n });
-      btn.disabled = false; btn.textContent = '保存新密码';
-      /* 改完就关面板是个真问题：用户松手之后不知道刚才到底成没成，
-         尤其这里还有个「原密码填错」的失败路径长得一样。
-         所以改成留在原地，把结果写进面板里，按钮也换掉。
-         顺便把「要不要踢掉其他设备」摆在这里——改密码的人十有八九就是担心这个。 */
-      const wrap = b.querySelector('.confirm-actions');
-      const note = document.createElement('div');
-      note.className = 'pwd-done';
-      note.innerHTML = `<div class="pd-ok">${icon('check', 15)} 密码已更新</div>
-        <div class="tiny muted" style="margin-top:6px">其他设备上的登录还在。如果这个账号可能被别人用过，建议一并退出。</div>
-        <div class="confirm-actions" style="margin-top:10px">
-          <button class="btn ghost" id="pwd-close">知道了</button>
-          <button class="btn soft" id="pwd-kick">退出其他设备</button>
+
+  const form = b.querySelector('#pin-form');
+  const paint = () => {
+    if (info.enabled) {
+      form.innerHTML = `
+        <div class="field"><label class="field-label">当前 PIN</label>
+          <input class="input" type="password" inputmode="numeric" maxlength="6" id="p-old" autocomplete="off" placeholder="用于修改或关闭"></div>
+        <div class="hr"></div>
+        <div class="field"><label class="field-label">新 PIN（4~6 位数字）</label>
+          <input class="input" type="password" inputmode="numeric" maxlength="6" id="p-new" autocomplete="off" placeholder="换一个"></div>
+        <div class="field"><label class="field-label">再输一次</label>
+          <input class="input" type="password" inputmode="numeric" maxlength="6" id="p-new2" autocomplete="off" placeholder="确认新 PIN"></div>
+        <div class="confirm-actions">
+          <button class="btn ghost" id="p-off" style="color:var(--red);margin-right:auto">关闭 PIN</button>
+          <button class="btn ghost" id="p-cancel">取消</button>
+          <button class="btn primary" id="p-save">修改 PIN</button>
         </div>`;
-      wrap.replaceWith(note);
-      note.querySelector('#pwd-close').onclick = sh.close;
-      note.querySelector('#pwd-kick').onclick = async (ev) => {
-        ev.currentTarget.disabled = true;
-        try {
-          await api.post('/me/sessions/revoke');
-          toast('其他设备已退出');
-          sh.close();
-        } catch (err) { toast(err.message, 'err'); ev.currentTarget.disabled = false; }
-      };
-    } catch (err) {
-      toast(err.message || '改密码失败', 'err', 4000);
-      btn.disabled = false; btn.textContent = '保存新密码';
-      /* 原密码错的时候把光标放回去，省得用户还要自己找是哪一格填错了 */
-      if (/原密码/.test(err.message || '')) { b.querySelector('#o').focus(); b.querySelector('#o').select(); }
+    } else {
+      form.innerHTML = `
+        <div class="field"><label class="field-label">设置 PIN（4~6 位数字）</label>
+          <input class="input" type="password" inputmode="numeric" maxlength="6" id="p-new" autocomplete="off" placeholder="比如 5820"></div>
+        <div class="field"><label class="field-label">再输一次</label>
+          <input class="input" type="password" inputmode="numeric" maxlength="6" id="p-new2" autocomplete="off" placeholder="确认"></div>
+        <div class="confirm-actions">
+          <button class="btn ghost" id="p-cancel">取消</button>
+          <button class="btn primary" id="p-save">开启本机 PIN</button>
+        </div>`;
+    }
+    const q = (x) => form.querySelector(x);
+    q('#p-cancel').onclick = sh.close;
+    q('#p-save').onclick = async (e) => {
+      const nv = q('#p-new').value.trim();
+      const nv2 = q('#p-new2').value.trim();
+      if (!/^\d{4,6}$/.test(nv)) return toast('PIN 请设 4~6 位数字', 'warn');
+      if (nv !== nv2) return toast('两次输入不一样', 'warn');
+      const btn = e.currentTarget;
+      btn.disabled = true; btn.textContent = '保存中…';
+      try {
+        if (info.enabled) await api.post('/me/pin', { oldPin: q('#p-old').value.trim(), pin: nv });
+        else await api.post('/me/pin', { pin: nv });
+        toast(info.enabled ? 'PIN 已修改' : '本机 PIN 已开启，下次打开要输一次');
+        info = await api.get('/me/pin');
+        const st = b.querySelector('#pin-state');
+        st.classList.add('on');
+        st.innerHTML = `${icon('shield', 16)}<span>本机 PIN 已开启</span>`;
+        paint();
+      } catch (err) {
+        btn.disabled = false; btn.textContent = info.enabled ? '修改 PIN' : '开启本机 PIN';
+        toast(err.message || '保存失败', 'err', 4000);
+      }
+    };
+    const off = form.querySelector('#p-off');
+    if (off) off.onclick = async (e) => {
+      const pin = form.querySelector('#p-old').value.trim();
+      if (!pin) return toast('先在上面填当前 PIN', 'warn');
+      if (!await confirmDialog('关闭本机 PIN？\n\n关闭后这台设备重新打开工作台不再需要输 PIN，谁拿到都能直接看。')) return;
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        await api.post('/me/pin/disable', { pin });
+        toast('本机 PIN 已关闭');
+        info = { enabled: false };
+        const st = b.querySelector('#pin-state');
+        st.classList.remove('on');
+        st.innerHTML = `${icon('alert', 16)}<span>本机 PIN 已关闭</span>`;
+        paint();
+      } catch (err) { btn.disabled = false; toast(err.message || '关闭失败', 'err', 4000); }
+    };
+  };
+  paint();
+}
+
+/* ================= 锁屏 =================
+   页面启动时如果设了 PIN 且本会话还没解锁过，就盖一层这个。
+   它只是「挡住视线」，不销毁数据 —— 所以下面那行小字是实话，不是免责声明。 */
+export function lockScreen(onOk) {
+  document.querySelector('.pin-lock')?.remove();
+  const w = el(`<div class="pin-lock">
+    <div class="pin-card">
+      <div class="pin-icon">${icon('shield', 26)}</div>
+      <div class="pin-title">工作台已锁定</div>
+      <div class="pin-sub">输入本机 PIN 继续</div>
+      <input class="pin-input" id="pin-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
+      <div class="pin-err" id="pin-err"></div>
+      <button class="btn primary pin-ok" id="pin-go">解锁</button>
+      <div class="tiny muted pin-tip">忘了 PIN？在浏览器设置里清掉本站数据即可重置，但工作台里的数据也会一起清空 —— 建议平时在「数据导出与备份」里定期导出。</div>
+    </div>
+  </div>`);
+  document.body.appendChild(w);
+  const inp = w.querySelector('#pin-in');
+  const err = w.querySelector('#pin-err');
+  const go = w.querySelector('#pin-go');
+  setTimeout(() => inp.focus(), 60);
+  const submit = async () => {
+    const v = inp.value.trim();
+    if (!v) return;
+    go.disabled = true; go.textContent = '核对中…';
+    try {
+      await api.post('/me/pin/verify', { pin: v });
+      w.classList.add('out');
+      setTimeout(() => w.remove(), 220);
+      onOk?.();
+    } catch (e) {
+      err.textContent = e.message || 'PIN 不对';
+      inp.value = ''; inp.focus();
+      w.querySelector('.pin-card').classList.add('shake');
+      setTimeout(() => w.querySelector('.pin-card')?.classList.remove('shake'), 420);
+      go.disabled = false; go.textContent = '解锁';
     }
   };
+  go.onclick = submit;
+  inp.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
 }
 
 /* ================= 账号与绑定 ================= */
-function bindManager(sessions) {
-  const u = state.user;
-  const b = u.bindings || {};
+/* 账号面板：只剩「账号 + 改密码」。
+   微信 / QQ / WorkBuddy 三行原来一直在，但静态版没有任何授权通道，
+   点「去绑定」只会弹一句「未开通」——留着就是三个假按钮。
+   手机号那一行同理：它的意义是「换绑后用手机号登录」，而登录已经不要手机号了。
+   与其摆一排点了没用的东西，不如只留真正能用的那一个。 */
+function bindManager() {
+  const u = state.user || {};
   const body = el(`<div class="sheet-body">
-    ${bindRow('phone', `${icon('user', 15)} 手机号`, u.phone ? maskPhone(u.phone) : '未绑定', !!u.phone)}
-    ${bindRow('wechat', '微信', b.wechat ? (u.wx_nick || '已绑定') : '未绑定', !!b.wechat)}
-    ${bindRow('qq', 'QQ', b.qq ? (u.qq_nick || '已绑定') : '未绑定', !!b.qq)}
-    ${bindRow('workbuddy', `${icon('zap', 15)} WorkBuddy 账号`, b.workbuddy ? '已绑定' : '未绑定', !!b.workbuddy)}
-    <div class="hr"></div>
-    <div class="small bold" style="margin-bottom:6px">登录设备</div>
-    ${(sessions || []).map((s) => `<div class="row small" style="padding:5px 0">
-      <span>${esc(s.device)}</span><span class="tiny muted" style="margin-left:8px">${esc(s.ip || '')}</span>
-      <span style="flex:1"></span><span class="tiny muted">${s.current ? '本设备' : fmtDateTime(s.last_seen)}</span></div>`).join('')}
-    <button class="btn ghost sm block" id="revoke" style="margin-top:8px">退出其他所有设备</button>
+    ${bindRow('account', `${icon('user', 15)} 登录账号`, u.account || '未设置', !!u.account, false, '改密码')}
+    <div class="tiny muted" style="margin-top:12px;line-height:1.7">
+      登录账号由 Supabase 管理。修改密码时需要验证当前密码；忘记密码请联系管理员重置。
+    </div>
   </div>`);
-  const sh = sheet({ title: '账号与绑定', body });
-  body.querySelector('#revoke').onclick = async () => {
-    await api.post('/me/sessions/revoke'); toast('其他设备已退出'); sh.close();
-  };
+  const sh = sheet({ title: '账号', body });
   body.querySelectorAll('[data-bind]').forEach((btn) => {
-    btn.onclick = async () => {
-      const type = btn.dataset.bind;
-      if (btn.dataset.act === 'unbind') {
-        try { await api.post('/auth/unbind', { type }); toast('已解绑'); sh.close(); const m = await import('./ui.js'); await m.loadMe(); render(); }
-        catch (e) { toast(e.message, 'err'); }
-        return;
-      }
-      if (type === 'phone') { phoneBindSheet(sh); return; }
-      if (type === 'workbuddy') {
-        /* WorkBuddy 绑定走整页跳转授权，回来由回调接口把 wb_uid 挂到当前登录的账号上。
-           所以必须先关掉这个面板——不然跳走再回来，面板状态早没了。 */
-        sh.close();
-        const m = await import('./ui.js');
-        m.startWorkBuddyLogin('bind');
-        return;
-      }
-      /* 微信 / QQ 走扫码授权。原来这里无论有没有接开放平台，都会弹一个「二维码」，
-         而那个码是伪随机画的假图案——扫了没反应，点「模拟确认」还会真的写上一个
-         假 openid（`wechat_demo_1` 这种）。用户因此以为自己绑好了，
-         实际上那条绑定是假的，而假绑定又能用来解绑手机号，账号会被搞坏。
-
-         现在的规矩：没接开放平台就直接说没开通，一个假码都不给。
-         和登录页那边「不再兜假二维码」是同一条原则。
-         这一段不再调用任何弹窗，只负责把话说清楚。 */
-      sh.close();
-      toast(`${type === 'wechat' ? '微信' : 'QQ'}绑定尚未开通：本站没接入开放平台，拿不到能验证身份的授权`, 'warn', 5000);
-    };
+    btn.onclick = () => { if (btn.dataset.bind === 'account') accountPwdSheet(sh); };
   });
 }
 
-function bindRow(type, label, val, bound, disabled = false) {
+/* 【第 3 / 31 条】原来已绑定时只给一个「解绑」按钮，
+   想换号必须先解绑成空号再绑——中间那一秒账号是没有手机号的，
+   而且解绑后 bindManager 拿的还是旧的 state.user，界面不刷新，
+   看起来就是「点了没反应」/「输入框根本输不进手机号」。
+   现在已绑定时给两个按钮：「换绑」直接进换号流程，「解绑」留在右边。 */
+function bindRow(type, label, val, bound, disabled = false, onAct = '') {
+  /* 账号这一行不是「绑 / 解绑」，而是「改密码」——一个按钮就够，不给解绑入口
+     （解绑账号等于把自己锁在门外，没有服务端也没法再登回来）。 */
+  if (onAct) {
+    return `<div class="row" style="padding:9px 0;border-bottom:1px solid var(--line)">
+      <div style="flex:1"><div class="small bold">${label}</div><div class="tiny muted">${esc(val)}</div></div>
+      <button class="btn ghost sm" data-bind="${type}" data-act="rebind">${onAct}</button></div>`;
+  }
+  const acts = bound
+    ? `<button class="btn ghost sm" data-bind="${type}" data-act="rebind">换绑</button>
+       <button class="btn ghost sm" data-bind="${type}" data-act="unbind" style="margin-left:6px;color:var(--text-3)">解绑</button>`
+    : `<button class="btn soft sm" data-bind="${type}" data-act="bind" ${disabled ? 'disabled' : ''}>去绑定</button>`;
   return `<div class="row" style="padding:9px 0;border-bottom:1px solid var(--line)">
     <div style="flex:1"><div class="small bold">${label}</div><div class="tiny muted">${esc(val)}</div></div>
-    <button class="btn ${bound ? 'ghost' : 'soft'} sm" data-bind="${type}" data-act="${bound ? 'unbind' : 'bind'}" ${disabled && !bound ? 'disabled' : ''}>${bound ? '解绑' : '去绑定'}</button></div>`;
+    ${acts}</div>`;
 }
 
-function phoneBindSheet(parent) {
+/* 修改 Supabase 手机号账号的密码，并先重新验证当前密码。 */
+function accountPwdSheet(parent) {
   const b = el(`<div class="sheet-body">
-    <div class="tiny muted" style="margin-bottom:10px">当前手机号 <b>${esc(maskPhone(state.user?.phone))}</b>，换绑后用它登录。</div>
-    <div class="field"><label class="field-label">新手机号</label>
-      <input class="input" id="p" placeholder="11 位手机号" maxlength="11" inputmode="numeric" autocomplete="tel"></div>
-    <div class="field"><label class="field-label">验证码</label>
-      <div class="row" style="gap:8px">
-        <input class="input" id="c" placeholder="6 位验证码" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
-        <button class="btn soft" id="send" style="flex:0 0 auto;min-width:104px">获取验证码</button></div></div>
-    <div class="confirm-actions"><button class="btn ghost" id="x">取消</button><button class="btn primary" id="k">确认换绑</button></div></div>`);
-  const s = sheet({ title: '换绑手机号', body: b });
-  const $p = b.querySelector('#p');
-  const $c = b.querySelector('#c');
-  const $send = b.querySelector('#send');
-  let left = 0, timer = null;
-
-  const tick = () => {
-    if (left <= 0) {
-      clearInterval(timer); timer = null;
-      $send.disabled = false;
-      $send.textContent = '获取验证码';
-      return;
-    }
-    $send.disabled = true;
-    $send.textContent = `${left}s 后重发`;
-    left -= 1;
-  };
-
-  $send.onclick = async () => {
-    const phone = $p.value.trim();
-    /* 前端先挡一道：不带手机号直接点，服务端只会回一个 400，
-       用户看到的是「没反应」。现在点之前就把问题指出来。 */
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入 11 位手机号', 'warn');
-    $send.disabled = true;
-    $send.textContent = '发送中…';
+    <div class="tiny muted" style="margin-bottom:10px;line-height:1.7">
+      当前账号 <b>${esc(state.user?.account || '')}</b>。修改后请使用新密码登录其他设备。
+    </div>
+    <div class="field"><label class="field-label">原密码</label>
+      <input class="input" id="op" type="password" autocomplete="current-password" maxlength="72" placeholder="当前密码"></div>
+    <div class="field"><label class="field-label">新密码</label>
+      <input class="input" id="np" type="password" autocomplete="new-password" maxlength="72" placeholder="至少 8 位"></div>
+    <div class="field"><label class="field-label">再输一遍</label>
+      <input class="input" id="np2" type="password" autocomplete="new-password" maxlength="72" placeholder="确认新密码"></div>
+    <button class="btn primary block" id="pw-save" style="margin-top:6px">保存新密码</button>
+  </div>`);
+  const sh = sheet({ title: '修改密码', body: b });
+  b.querySelector('#pw-save').onclick = async () => {
+    const op = b.querySelector('#op').value;
+    const np = b.querySelector('#np').value;
+    const np2 = b.querySelector('#np2').value;
+    if (!op) return toast('请填写原密码', 'warn');
+    if (np.length < 8) return toast('新密码至少 8 位', 'warn');
+    if (np !== np2) return toast('两次输入的新密码不一致', 'warn');
+    const btn = b.querySelector('#pw-save');
+    btn.disabled = true; btn.textContent = '保存中…';
     try {
-      const r = await api.post('/auth/otp', { phone, purpose: 'bind' });
-      /* 【原来只认 devCode（演示模式），漏了 testCode】
-         本站没配短信通道，走的是「测试通行证」那条路，服务端回的是 testCode。
-         只判 devCode 的话，这里既不会自动填码、也不会有任何提示，
-         用户看到的就是「点了获取验证码没反应」——第 3 条报的就是这个。
-         两个都要认，提示文案区分开：testCode 要明说这是测试码。 */
-      if (r?.testCode) {
-        $c.value = r.testCode;
-        toast(`测试码 ${r.testCode} 已填入（短信通道未配置，走测试通道）`, 'ok', 5500);
-      } else if (r?.devCode) {
-        $c.value = r.devCode;
-        toast(`演示环境验证码：${r.devCode}（已自动填入）`);
-      } else {
-        toast(`验证码已发到 ${phone.slice(0, 3)}****${phone.slice(-4)}`);
-      }
-      left = 60; tick();
-      timer = setInterval(tick, 1000);
-      $c.focus();
+      await cloud.updatePhonePassword(op, np);
+      toast('密码已改，下次登录用新密码');
+      sh.close();
     } catch (e) {
-      $send.disabled = false;
-      $send.textContent = '获取验证码';
-      /* 未配置短信通道是最常见的原因（服务端回 501 + smsNotConfigured），
-         这时候别让用户一直点，直接把话说明白。 */
-      if (e?.extra?.smsNotConfigured) {
-        toast('本站没配短信服务，收不到验证码。请在服务器上配置短信通道，或先用微信/QQ 登录', 'err', 6000);
-      } else {
-        toast(e.message || '验证码发送失败', 'err');
-      }
-    }
-  };
-
-  b.querySelector('#x').onclick = () => { clearInterval(timer); s.close(); };
-  b.querySelector('#k').onclick = async (e) => {
-    const phone = $p.value.trim();
-    const code = $c.value.trim();
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入 11 位手机号', 'warn');
-    if (!/^\d{6}$/.test(code)) return toast('请输入 6 位验证码', 'warn');
-    const btn = e.currentTarget;
-    btn.disabled = true; btn.textContent = '换绑中…';
-    try {
-      const r = await api.post('/auth/bind', { type: 'phone', phone, code });
-      clearInterval(timer);
-      s.close(); parent?.close();
-      const m = await import('./ui.js'); await m.loadMe();
-      /* 服务端换完会把其他设备踢掉（保留本机）。这句要说出来，
-         不然用户在别的设备上莫名其妙被登出，会以为是 bug。 */
-      toast(r?.kicked ? '手机号已换绑，其他设备已退出登录' : '手机号已换绑');
-      render();
-    } catch (err) {
-      btn.disabled = false; btn.textContent = '确认换绑';
-      toast(err.message || '换绑失败', 'err');
+      btn.disabled = false; btn.textContent = '保存新密码';
+      toast(e.message || '修改失败', 'err');
     }
   };
 }
+
 
 /* ================= 备份 ================= */
+/* 云同步入口的状态小标签。
+   【A 方案改了这里的语义】以前状态只有一个来源：旧的手动同步配置
+   （wb_cloud_cfg）。现在多了一个「已登录 Supabase」的通道，
+   而且登录才是我们想引导用户去用的那一种，所以优先显示登录状态。
+   旧通道没下线，仍然保留，只是排在后面 —— 免得已经绑了旧密钥的
+   用户看到「未开启」，以为自己的配置丢了。 */
+function syncBadge() {
+  if (cloudOn()) {
+    return '<span class="chip" style="background:#DCFCE7;color:#166534">已登录</span>';
+  }
+  /* 【注册时云端那一步没成的，在这里如实说】
+     以前这种情况会在注册成功后弹一条 9 秒的警告，人已经进了工作台，
+     右上角却挂着一句"云端开关还关着"，看起来像注册失败。
+     现在不弹了，改成在这里标一下 —— 想知道的人点进「云同步」能看明白，
+     不想管的人完全不会被打扰。 */
+  let st = '';
+  try { st = localStorage.getItem('wb_signup_cloud_state') || ''; } catch { }
+  if (st === 'off') {
+    return '<span class="chip" style="background:#FEF3C7;color:#92400E">云端注册未开</span>';
+  }
+  if (st === 'need_confirm') {
+    return '<span class="chip" style="background:#FEF3C7;color:#92400E">待邮箱确认</span>';
+  }
+  try {
+    const c = JSON.parse(localStorage.getItem('wb_cloud_cfg') || 'null');
+    if (!c) return '<span class="chip" style="background:#FEF3C7;color:#92400E">未登录</span>';
+    const m = JSON.parse(localStorage.getItem('wb_cloud_meta') || '{}');
+    if (m.conflict) return '<span class="chip" style="background:#FEE2E2;color:#991B1B">有冲突</span>';
+    /* 【绑了但一次都没传成功，要说出来】
+       以前只要 localStorage 里有配置就一律显示「已开启」。
+       可「绑上了」和「数据真的在云上」是两件事 ——
+       绑定时上传失败会被静默吞掉（见 bindSheet 的注释），
+       界面却照样报成功、标签照样变绿，用户以为万事大吉，
+       换设备时才发现云端是空的。
+       这里把「已经传过」和「还没传成」分开显示。 */
+    if (!m.lastPush) {
+      return '<span class="chip" style="background:#FEF3C7;color:#92400E">已绑定·未上传</span>';
+    }
+    return '<span class="chip" style="background:#DCFCE7;color:#166534">已开启</span>';
+  } catch { return ''; }
+}
+
+/* 搬到另一台设备：把库压成一条链接，微信发给自己、手机点开即导入。
+   不起服务器、不注册账号，比备份文件少一步「传到手机」的操作。 */
+async function shareSheet() {
+  const s = sheet({ title: '搬到另一台设备', body: '<div class="small muted" style="padding:8px 0">正在打包数据…</div>' });
+  const box = document.body.querySelector('.sheet-mask:last-of-type .sheet-body');
+  try {
+    const { link, bytes, packedBytes } = await makeShareLink();
+    const tooLong = link.length > 32000;
+    box.innerHTML = `
+      <div class="small" style="margin-bottom:10px">
+        把下面这条链接发到手机上（微信文件传输助手就行），<b>手机点开就自动导入</b>。
+      </div>
+      <div class="card card-pad tiny" style="margin-bottom:10px;line-height:1.7">
+        原始数据 ${(bytes / 1024).toFixed(1)} KB → 压缩后 ${(packedBytes / 1024).toFixed(1)} KB<br>
+        ${tooLong
+          ? '<span style="color:var(--red,#dc2626)">⚠ 数据太大，链接超长，微信可能发不出去。请改用「数据导出与备份」的 JSON 文件。</span>'
+          : '<span class="muted">链接长度正常，微信、短信都发得出去。链接里带了你的全部数据，别发到群里。</span>'}
+      </div>
+      <textarea readonly id="sh-link" style="width:100%;height:100px;font-size:11px;word-break:break-all">${esc(link)}</textarea>
+      <button class="btn primary block" id="sh-copy" style="margin-top:8px">复制链接</button>
+      <button class="btn ghost block" id="sh-open" style="margin-top:8px">在本机直接打开试试</button>
+      <div class="tiny muted" style="margin-top:10px">
+        点开链接时手机上已有的数据会先备份一份，导入后想找回还能捞。
+        导入是<b>覆盖式</b>的——手机上先改过的东西会被这条链接里的数据替换掉。
+      </div>`;
+    box.querySelector('#sh-copy').onclick = () => {
+      const t = box.querySelector('#sh-link');
+      navigator.clipboard?.writeText(link).then(
+        () => toast('链接已复制，去微信粘贴发给自己', 'ok'),
+        () => { t.select(); toast('已全选，按 Ctrl+C 复制', 'ok'); },
+      );
+    };
+    box.querySelector('#sh-open').onclick = () => { location.href = link; };
+  } catch (e) {
+    box.innerHTML = `<div class="small" style="color:var(--red,#dc2626);padding:8px 0">生成失败：${esc(e.message)}</div>`;
+  }
+}
+
 function backupSheet() {
   const b = el(`<div class="sheet-body">
     <div class="small muted" style="margin-bottom:10px">备份包含事项、便签、上课、考勤、监考、出差、笔记、学习记录，可以在其他设备恢复。</div>
@@ -510,14 +796,47 @@ function backupSheet() {
     <label class="btn ghost block" style="cursor:pointer">${icon('upload', 15)} 从备份文件恢复<input type="file" id="imp" accept=".json" hidden></label>
     <div class="tiny muted" style="margin-top:10px">恢复为「追加」模式：不会覆盖现有数据，重复内容可手动清理。</div></div>`);
   const s = sheet({ title: '数据备份与恢复', body: b });
-  b.querySelector('#exp').onclick = () => { download('/api/backup', 'backup.json'); s.close(); toast('备份已开始下载'); };
+  /* 早先这里是 download('/api/backup')：静态版没有 /api 这个端点，
+     GitHub Pages 直接 404，但函数不看结果，紧跟着就 toast「备份已开始下载」——
+     用户以为备份过了，其实一个字节都没存下来。
+     改为走 localapi 里本来就有的 GET /backup，前端生成 Blob 下载，
+     成功与否都能如实反馈。 */
+  b.querySelector('#exp').onclick = async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const r = await api.get('/backup');
+      const raw = r?.data ?? r;
+      const text = JSON.stringify(raw, null, 2);
+      const n = Object.values(raw || {}).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0);
+      const stamp = ymd(new Date()).replace(/-/g, '');
+      saveBlob(new Blob([text], { type: 'application/json;charset=utf-8' }), `工作台备份-${stamp}.json`);
+      toast(`已导出 ${n} 条记录`, 'ok');
+    } catch (err) {
+      toast('导出失败：' + (err.message || '未知错误'), 'err');
+    } finally { btn.disabled = false; }
+  };
   b.querySelector('#imp').onchange = async (e) => {
     const f = e.target.files?.[0]; if (!f) return;
+    /* 恢复前必须让用户看清要发生什么：
+       以前选完文件立刻就 POST，一个点错就动到了全库。
+       而且文件不对（选成了别的 json）也会直接把错结构塞进库里。 */
     try {
-      const json = JSON.parse(await f.text());
+      const raw = await f.text();
+      let json;
+      try { json = JSON.parse(raw); } catch { return toast('这个文件不是备份文件（读不出 JSON）', 'err', 5000); }
+      const body = json?.data && typeof json.data === 'object' ? json.data : json;
+      const keys = Object.keys(body || {}).filter((k) => Array.isArray(body[k]));
+      if (!keys.length) return toast('这个备份里没找到任何记录，可能选错文件了', 'err', 5000);
+      const cnt = keys.reduce((s2, k) => s2 + body[k].length, 0);
+      if (!await confirmDialog(
+        `这个备份包含 ${cnt} 条记录（${keys.slice(0, 6).join('、')}${keys.length > 6 ? ' 等' : ''}）。\n\n` +
+        '恢复是「追加」模式：现有数据不会删除，同名重复的会被跳过，其余新增。\n\n继续恢复吗？'
+      )) { e.target.value = ''; return; }
       const r = await api.post('/backup/restore', json);
       s.close(); toast(`已恢复 ${r.imported} 条记录`); render();
-    } catch (err) { toast(err.message || '恢复失败', 'err'); }
+    } catch (err) { toast(err.message || '恢复失败', 'err', 5000); }
+    finally { e.target.value = ''; }
   };
 }
 

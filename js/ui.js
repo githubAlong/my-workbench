@@ -1,5 +1,6 @@
 import { api, el, esc, toast, ls, sheet } from './core.js';
 import { decodeQR as qrDecode } from './qrdecode.js';
+import { setActiveAccount } from './localdb.js';
 
 /* ---------------- 图标 ---------------- */
 const I = {
@@ -8,6 +9,9 @@ const I = {
   daily: '<rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4"/>',
   study: '<path d="M4 5.5A2 2 0 0 1 6 3.5h13v15H6a2 2 0 0 0-2 2z"/><path d="M4 20.5V5.5"/>',
   me: '<circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
+  /* 「我的」页里单独出现的「账号」图标。I 表原本只有 me，icon('user') 会
+     落到兜底的 clock，页面上显示成一只时钟，看着像加载中。 */
+  user: '<circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
   trash: '<path d="M4 7h16M9.5 7V5.2a1.2 1.2 0 0 1 1.2-1.2h2.6a1.2 1.2 0 0 1 1.2 1.2V7M6.5 7l.8 12.1a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9L17.5 7"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
   bell: '<path d="M18 15.5V11a6 6 0 1 0-12 0v4.5L4.5 18h15z"/><path d="M10 21h4"/>',
@@ -60,9 +64,15 @@ const I = {
   book: '<path d="M4 5.5A2 2 0 0 1 6 3.5h6v17H6a2 2 0 0 0-2 2z"/><path d="M20 5.5a2 2 0 0 0-2-2h-6v17h6a2 2 0 0 1 2 2z"/>',
   expand: '<path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  /* 云端相关：登录、换设备、云端存储 —— 加在同一张表里，避免再出现「图标名写错变成时钟」 */
+  cloud: '<path d="M7 18a4.5 4.5 0 0 1 .7-8.9 6 6 0 0 1 11.6 1.4A3.8 3.8 0 0 1 17.7 18z"/>',
+  phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 5.5h3"/><circle cx="12" cy="18" r="1" fill="currentColor" stroke="none"/>',
+  link: '<path d="M10 13.5a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.4 1.4"/><path d="M14 10.5a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.4-1.4"/>',
   grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
   gift: '<rect x="4" y="10" width="16" height="10.5" rx="2"/><path d="M3 10h18v3.5H3z"/><path d="M12 10v10.5"/><path d="M12 10c-1.2 0-4-1-4-3a2 2 0 0 1 4 0c0 2-2.8 3-4 3z"/><path d="M12 10c1.2 0 4-1 4-3a2 2 0 0 0-4 0c0 2 2.8 3 4 3z"/>',
   dice: '<rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="15" r="1.3" fill="currentColor" stroke="none"/>',
+  /* 在现有的图标里加上这一行 */
+  star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2-6.2 3.2 1.2-6.8-5-4.9 6.9-1z"/>',
 };
 export function icon(name, size = 20, cls = '') {
   const p = I[name] || I.clock;
@@ -83,35 +93,96 @@ export const state = {
   geoMode: ls.get('geoMode', 'manual'),
 };
 
+/* 【一级 / 二级 / 三级导航】
+   以前除了「工作」和「日常」，其余模块都各自占一格一级导航：
+   首页、工作、自习、维修、日常、学习、回收站、我的 —— 八格。
+   问题是「自习」和「维修」在业务上都属于工作，却和「工作」平级；
+   手机底部导航被挤到每项只剩 46px，「回收站」三个字要折行。
+
+   现在收成三层：
+     一级 6 格：首页 / 工作 / 日常 / 学习 / 回收站 / 我的
+     二级挂在「工作」下：上课、课表、备课、维修、考勤、监考、出差、课件、笔记
+     三级挂在「课件」下（也就是学生看到的那个页面）：自习、教材、抽人、盲盒
+
+   为什么自习在课件下面而不是在「工作」的二级里：
+     它记录的是给学生的那个页面（student.html）里的模块，和电子教材、抽人、
+     盲盒放在同一个出口，用户才找得到「我给学生看的页面上到底有什么」。
+     记自己看哪个班的自习的入口没丢，在「课件 → 自习」页里单独一块。 */
 export const NAV = [
   { id: 'home', label: '首页', icon: 'home' },
-  { id: 'work', label: '工作', icon: 'work' },
-  /* 【第 22 / 23 条】自习、抽人、盲盒、教材归到「小助手」这个一级目录下。
-     它们发生频率和周次都不一样（自习几乎每天、维修偶尔、抽人 / 盲盒 / 教材随堂），
-     单独做成一个工具箱入口，既避免一级导航越来越长，又让这些轻量功能有统一落脚点。
-     小助手本身是个工具箱首页（#/assistant），点进去再选具体功能，各自仍是独立子页面。 */
-  { id: 'assistant', label: '小助手', icon: 'grid' },
-  { id: 'repairs', label: '维修', icon: 'wrench' },
+  {
+    id: 'work', label: '工作', icon: 'work',
+    sub: [
+      { id: 'lessons', label: '上课', icon: 'zap' },
+      /* 上课之后紧跟课表：先知道今天上什么，再记上没上。 */
+      { id: 'timetable', label: '课表', icon: 'cal' },
+      /* 备课紧接课表：课前看图、课后备课，动线是连着的。 */
+      { id: 'prep', label: '备课', icon: 'book' },
+      { id: 'repairs', label: '维修', icon: 'wrench' },
+      { id: 'attendance', label: '考勤', icon: 'users' },
+      { id: 'invigilation', label: '监考', icon: 'shield' },
+      { id: 'trips', label: '出差', icon: 'car' },
+      {
+        id: 'materials', label: '课件', icon: 'folder',
+        sub: [
+          { id: 'selfstudy', label: '自习', icon: 'clock' },
+          { id: 'textbook', label: '教材', icon: 'book' },
+          { id: 'pick', label: '抽人', icon: 'dice' },
+          { id: 'mystery', label: '盲盒', icon: 'gift' },
+        ],
+      },
+      { id: 'notes', label: '笔记', icon: 'edit' },
+    ],
+  },
   { id: 'daily', label: '日常', icon: 'daily' },
   { id: 'study', label: '学习', icon: 'study' },
   { id: 'recycle', label: '回收站', icon: 'trash' },
   { id: 'me', label: '我的', icon: 'me' },
 ];
-export const WORK_TABS = [
-  { id: 'lessons', label: '上课' },
-  /* 备课放第二位：它和上课是一回事的两头（课前备、课上讲），
-     排在一起用户才会形成「先备再上」的习惯。 */
-  { id: 'prep', label: '备课' },
-  { id: 'timetable', label: '课表' },
-  { id: 'attendance', label: '考勤' },
-  { id: 'invigilation', label: '监考' },
-  { id: 'trips', label: '出差' },
-  { id: 'notes', label: '笔记' },
-];
+
+/* 旧的「工作页页签」列表由上面的 NAV 派生，不再单独维护一份，
+   否则改一处漏一处（以前 WORK_TABS 和页面里的 if 链就是两份清单）。 */
+export const WORK_TABS = (NAV.find((n) => n.id === 'work')?.sub || []).map((t) => ({ id: t.id, label: t.label }));
 export const DAILY_TABS = [
   { id: 'notes', label: '便签' },
   { id: 'homework', label: '作业' },
 ];
+
+/* ---------------- 导航层级工具 ----------------
+   parentOf('work','materials') → 'work'
+   parentOf('work','lessons')   → 'work'
+   parentOf('home')             → null
+   路由形如 work/materials/textbook，第三段是「课件」内部的视图 key。 */
+const SUB_OF = {};
+for (const n of NAV) for (const s of (n.sub || [])) SUB_OF[s.id] = n.id;
+const THIRD_OF = {};
+for (const n of NAV) for (const s of (n.sub || [])) for (const t of (s.sub || [])) THIRD_OF[t.id] = s.id;
+
+export function navNode(id) {
+  for (const n of NAV) {
+    if (n.id === id) return n;
+    for (const s of (n.sub || [])) {
+      if (s.id === id) return s;
+      for (const t of (s.sub || [])) if (t.id === id) return t;
+    }
+  }
+  return null;
+}
+/* 某个一级导航当前展开的二级项（用于侧栏高亮与缩进列表） */
+export function subCurrentOf(rootId, route) {
+  const [seg, tab, third] = String(route || '').split('/');
+  if (seg !== rootId) return null;
+  if (rootId === 'work') {
+    /* 旧地址 #/selfstudy、#/repairs 已经不存在了，但收藏夹里可能还有；
+       它们的二级归属仍然报出来，让侧栏高亮落在正确的位置。 */
+    if (!tab) return 'lessons';
+    if (THIRD_OF[tab]) return THIRD_OF[tab];
+    if (SUB_OF[tab] === 'work') return tab;
+    return 'lessons';
+  }
+  if (rootId === 'daily') return tab || 'notes';
+  return tab || null;
+}
 
 /* ---------------- 主题 ---------------- */
 /* 每套主题的元信息 + 色卡预览用到的真实颜色（与 css 中 html[data-theme=x] 保持一致） */
@@ -219,16 +290,38 @@ const views = {};
 function navHTML(n, cls) {
   const active = isActive(n.id) ? 'active' : '';
   const badge = n.id === 'me' && state.unread ? `<span class="badge-dot">${state.unread > 99 ? '99+' : state.unread}</span>` : '';
+  const caret = (n.sub && cls === 'nav-item') ? `<span class="nav-caret">${icon(isOpen(n.id) ? 'down' : 'right', 13)}</span>` : '';
   return `<button class="${cls} ${active}" data-nav="${n.id}">
     ${cls === 'bn-item' ? icon(n.icon, 22) : `<span class="ni">${icon(n.icon, 20)}</span>`}
-    <span>${n.label}</span>${badge}</button>`;
+    <span class="nav-label">${n.label}</span>${caret}${badge}</button>`;
+}
+/* 有二级的子菜单：展开状态跟随当前路由，不在当前模块时默认收起。
+   用 data-open 而不是每次折叠都重绘整页，滚动位置不会丢。 */
+function isOpen(rootId) {
+  return String(state.route || '').split('/')[0] === rootId;
+}
+function subNavHTML(n) {
+  if (!n.sub) return '';
+  const cur = subCurrentOf(n.id, state.route);
+  const open = isOpen(n.id);
+  return `<div class="nav-sub${open ? ' open' : ''}" data-sub-of="${n.id}"${open ? '' : ' hidden'}>
+    ${n.sub.map((s) => {
+    const on = cur === s.id ? 'on' : '';
+    /* 课件下面还有第三级：在侧栏里缩进显示，不用点进去才知道有自习/教材/抽人/盲盒 */
+    const hasThird = !!s.sub;
+    return `<button class="nav-subitem ${on}" data-nav="${n.id}/${s.id}">
+        ${icon(s.icon, 15)}<span class="nav-label">${s.label}</span>${hasThird ? `<span class="nav-caret">${icon(cur === s.id ? 'down' : 'right', 12)}</span>` : ''}
+      </button>
+      ${hasThird && cur === s.id ? `<div class="nav-sub3">${s.sub.map((t) => `
+        <button class="nav-subitem lv3 ${String(state.route || '').endsWith('/' + t.id) ? 'on' : ''}" data-nav="${n.id}/${s.id}/${t.id}">
+          ${icon(t.icon, 14)}<span class="nav-label">${t.label}</span></button>`).join('')}</div>` : ''}`;
+  }).join('')}
+  </div>`;
 }
 function isActive(id) {
   const r = state.route;
   if (id === 'home') return r === 'home' || r === '';
-  /* 小助手这一组：工具箱首页自身，以及它收纳的四个子页面，都要高亮小助手 */
-  if (id === 'assistant') return r === 'assistant' || r === 'selfstudy' || r === 'roll' || r === 'blindbox' || r === 'materials';
-  if (id === 'work') return r.startsWith('work');
+  if (id === 'work') return r.startsWith('work') || r === 'selfstudy' || r === 'repairs';
   if (id === 'daily') return r.startsWith('daily');
   if (id === 'study') return r.startsWith('study');
   if (id === 'me') return r === 'me' || r === 'messages' || r === 'profile';
@@ -238,6 +331,33 @@ function isActive(id) {
 
 function bindShell() {
   document.querySelectorAll('[data-nav]').forEach((b) => { b.onclick = () => go(b.dataset.nav); });
+  /* 点一级导航时展开它的二级菜单（不跳页），再点一次收起。
+     没有这一步的话「工作」永远是直接跳到上课，用户看不到下面还有什么。 */
+  document.querySelectorAll('.sidebar [data-nav]').forEach((b) => {
+    const id = b.dataset.nav;
+    if (id.includes('/')) return;
+    const node = NAV.find((n) => n.id === id);
+    if (!node?.sub) return;
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      const box = document.querySelector(`[data-sub-of="${id}"]`);
+      if (!box) return;
+      const willOpen = box.hidden || !box.classList.contains('open');
+      document.querySelectorAll('.nav-sub').forEach((x) => {
+        if (x === box) return;
+        x.classList.remove('open');
+        x.hidden = true;
+      });
+      box.classList.toggle('open', willOpen);
+      box.hidden = !willOpen;
+      b.classList.toggle('active', willOpen);
+      const c = b.querySelector('.nav-caret');
+      if (c) c.innerHTML = icon(willOpen ? 'down' : 'right', 13);
+      if (willOpen && String(state.route || '').split('/')[0] !== id) {
+        go(id + '/' + node.sub[0].id);
+      }
+    });
+  });
   const st = document.getElementById('side-theme');
   if (st) st.onclick = () => openThemeSheet();
   const su = document.getElementById('side-user');
@@ -306,25 +426,68 @@ export async function render() {
   if (!state.user) { renderAuth(); return; }
   const mySeq = ++renderSeq;
   if (viewCleanup) { try { viewCleanup(); } catch {} viewCleanup = null; }
-  const { path, query } = parseHash();
+  let { path, query } = parseHash();
   state.route = path;
-  const [seg, tab] = path.split('/');
+  let [seg, tab, third] = path.split('/');
+
+  /* 【旧地址兼容】
+     #/selfstudy、#/repairs 以前是一级导航，收藏夹、群里的链接都可能是这个。
+     直接 404 到首页太粗暴，原地 translate 成新地址，看起来只是「跳了一下」。 */
+  if (seg === 'selfstudy') { path = 'work/materials/selfstudy'; location.replace('#/' + path); return render(); }
+  if (seg === 'repairs') { path = 'work/repairs'; location.replace('#/' + path); return render(); }
+  /* #/work 没有第二段时补一个默认二级，否则侧栏高亮会落空 */
+  if (seg === 'work' && !tab) { path = 'work/lessons'; location.replace('#/' + path); return render(); }
+  /* 其他一级导航补默认二级（#/daily → #/daily/notes），
+     否则侧栏高亮只匹配到一级，「日常」下面的「便签」没有选中态。 */
+  if (seg === 'daily' && !tab) { path = 'daily/notes'; location.replace('#/' + path); return render(); }
+  /* 旧的三级简写 #/work/selfstudy（没有 materials 这一段）也接住 */
+  if (seg === 'work' && (tab === 'selfstudy' || tab === 'textbook' || tab === 'pick' || tab === 'mystery')) {
+    path = 'work/materials/' + tab; location.replace('#/' + path); return render(); }
+  /* 【#/timetable、#/attendance 这类「二级直接当一级用」的老地址】
+     改造前「工作」的二级页是 #/work/lessons 这种形式，但用户手工改地址、
+     或者从旧页面里复制出来的链接很可能是 #/timetable ——
+     那时候 render() 只按第一段找视图，找不到就退首页，至少还能打开。
+     现在第一段必须是 NAV 里的 id，找不到会直接白屏（用户反馈「课表没变」，
+     很可能就是停在了一个空白页上）。这里统一把已知的二级 id 补回 work/ 前面。
+     判断依据直接读 NAV，新加二级项时不用再来改这段。 */
+  if (!tab && WORK_TABS.some((x) => x.id === seg)) {
+    path = 'work/' + seg; location.replace('#/' + path); return render();
+  }
+  [seg, tab, third] = path.split('/');
+
   let viewName = seg;
   if (seg === 'work') viewName = 'work';
   if (seg === 'daily') viewName = 'daily';
   if (seg === 'study') viewName = 'study';
   if (seg === 'messages' || seg === 'profile') viewName = 'me';
-  const fn = views[viewName] || views.home;
+  /* 【兜底：认不出的地址不再静默退首页】
+     以前 views[viewName] 找不到就直接 render 首页 —— 地址栏还写着 #/timetable，
+     屏幕上却是首页，看起来像「页面没变」。现在先试一级 id，再试二级 id，
+     都不认识才落首页，并且用一次性的 toast 说明，而不是默默换页。 */
+  if (!views[viewName]) {
+    const hit = navNode(seg);
+    if (hit) {
+      const root = SUB_OF[seg];
+      path = root ? `${root}/${seg}` : seg;
+      location.replace('#/' + path); return render();
+    }
+    viewName = 'home';
+    if (!render.__fallbackHinted) {
+      render.__fallbackHinted = true;
+      setTimeout(() => toast('这个地址打不开，已回到首页', 'warn', 4000), 400);
+    }
+  }
+  const fn = views[viewName];
   const app = document.getElementById('app');
   const pageShell = `<div class="app">
     <aside class="sidebar">
       <div class="brand"><div class="brand-logo">台</div><div><div class="brand-name">我的工作台</div><div class="brand-sub">Workbench</div></div></div>
-      ${NAV.map((n) => navHTML(n, 'nav-item')).join('')}
+      <div class="side-nav">${NAV.map((n) => navHTML(n, 'nav-item') + subNavHTML(n)).join('')}</div>
       <div class="sidebar-foot">
         <button class="nav-item" id="side-theme" title="切换主题外观"><span class="theme-dot" style="background:${(THEME_MAP[state.theme] || THEMES[0]).sw.pri}"></span><span>主题外观</span><span class="theme-now">${esc(themeName(state.theme))}</span></button>
         <button class="nav-item" id="side-wide" title="让正文铺满整个屏幕宽度"><span class="ni">${icon('expand', 18)}</span><span>平铺整页</span><span class="theme-now" id="wide-now">关</span></button>
         <button class="nav-item" id="side-layout" title="把首页卡片恢复到默认位置"><span class="ni">${icon('grid', 18)}</span><span>重置首页布局</span></button>
-        <button class="nav-item" id="side-user"><span class="ni" style="border-radius:50%;background:var(--primary-weak);color:var(--primary);font-weight:700;font-size:12px">${esc((state.user?.nickname || '师').slice(0, 1))}</span><span>${esc(state.user?.nickname || '我的')}</span></button>
+        <button class="nav-item" id="side-user" data-nav="me"><span class="ni" style="border-radius:50%;background:var(--primary-weak);color:var(--primary);font-weight:700;font-size:12px">${esc((state.user?.nickname || '师').slice(0, 1))}</span><span>${esc(state.user?.nickname || '我的')}</span></button>
       </div>
     </aside>
     <main class="main" id="main"></main>
@@ -333,8 +496,66 @@ export async function render() {
   app.innerHTML = pageShell;
   bindShell();
   const main = document.getElementById('main');
+  /* 手机端顶部二级条：底部导航只有 6 格一级，二级必须另给一个入口，
+     否则手机上根本点不到「维修」「考勤」这些。只在 ≤1100px 显示（CSS 控制）。 */
+  const rootId = String(state.route || '').split('/')[0];
+  const rootNode = NAV.find((n) => n.id === rootId);
+  if (rootNode?.sub) {
+    const cur = subCurrentOf(rootId, state.route);
+    /* 这条 bar 是 #app 的直接孩子，不在 .main 里。
+       .app 是 display:flex，直接塞进去会变成 flex item 横着排在侧栏右边；
+       手机上侧栏是抽屉（position:fixed），它就会被撑到「屏幕宽度 + 抽屉宽度」，
+       整页横向溢出。所以外层包一个 width:100% 的壳，里面再 position:fixed。 */
+    const bar = el(`<div class="sub-nav-wrap"><div class="sub-nav-bar">
+      <div class="snb-title">${icon(rootNode.icon, 15)} ${esc(rootNode.label)}</div>
+      <div class="snb-list">${rootNode.sub.map((s) => `<button class="snb-item${cur === s.id ? ' on' : ''}" data-nav="${rootId}/${s.id}">${esc(s.label)}</button>`).join('')}</div>
+    </div></div>`);
+    bar.querySelectorAll('[data-nav]').forEach((b) => { b.onclick = () => go(b.dataset.nav); });
+    /* 【滑到头就收掉渐隐】
+       每个二级项都是 nowrap，一屏放不下就横向滚动。滚动条已经藏掉，
+       所以右边必须留个"还能滑"的视觉暗示（CSS 的 ::after 渐隐）。
+       但滑到最后一项时，渐隐还在 → 看起来永远有内容没露出来，很别扭。
+       这里按 scrollLeft 实时加/去类名，三种状态：
+         · 完全不需要滚动 → no-scroll（两边都不渐隐）
+         · 在最左边       → 只右边渐隐
+         · 在中间         → 两边都渐隐
+         · 在最右边       → 只左边渐隐（at-end）
+       用户一进工作页时，同步滚动到当前选中项，避免"选中的那个在屏幕外"。 */
+    const barEl = bar.querySelector('.sub-nav-bar');
+    const listEl = bar.querySelector('.snb-list');
+    const syncEdge = () => {
+      const max = listEl.scrollWidth - listEl.clientWidth;
+      const x = listEl.scrollLeft;
+      barEl.classList.toggle('no-scroll', max <= 2);
+      barEl.classList.toggle('at-end', max > 2 && x >= max - 2);
+      barEl.classList.toggle('at-start-off', max > 2 && x > 2 && x < max - 2);
+    };
+    listEl.addEventListener('scroll', syncEdge, { passive: true });
+    // 字体/图标加载完宽度会变，resize 时重算
+    window.addEventListener('resize', syncEdge, { passive: true });
+    /* 【滚到当前选中项 + 算边缘状态，都要等挂进 DOM 之后】
+       未挂载的元素 clientWidth / scrollWidth 恒为 0，
+       在这里算会把「其实要滚」判成「不用滚」（no-scroll），右侧渐隐反而被关掉 ——
+       手机上右边明明还有 5 个二级看不见，边缘却一点暗示都没有。
+       所以统一放到插入之后做，再补一帧等字体/图标把宽度撑开。 */
+    const initEdge = () => {
+      const onItem = listEl.querySelector('.snb-item.on');
+      if (onItem && listEl.scrollWidth > listEl.clientWidth) {
+        // 用 scrollLeft 手算而不是 scrollIntoView：后者会把整页一起滚下去
+        const want = onItem.offsetLeft - listEl.clientWidth / 2 + onItem.offsetWidth / 2;
+        listEl.scrollLeft = Math.max(0, Math.min(want, listEl.scrollWidth - listEl.clientWidth));
+      }
+      syncEdge();
+    };
+    /* app 里此时只有 .app 一个孩子，main 是 .app 里更深一层的节点，
+       所以必须插到 .app 的第一个子节点前面，不能直接拿 main 当参照
+       （insertBefore 的参照点必须是 app 的直接子节点）。 */
+    app.firstElementChild.insertBefore(bar, app.firstElementChild.firstChild);
+    initEdge();
+    requestAnimationFrame(initEdge);
+  }
   try {
-    await fn(main, { tab: tab || defaultTab(seg), query });
+    await fn(main, { tab: tab || defaultTab(seg), third: third || '', query });
     // 期间又发生了一次 render：本次结果作废（DOM 已被新一次接管）
     if (mySeq !== renderSeq) return;
   } catch (e) {
@@ -365,7 +586,10 @@ const QQ_G = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor
      siteQrLogin —— 本站自己的扫码登录（自己的二维码 + 手机确认）。
    以前只有一个 qrEnabled，看到 false 就以为「扫码登录不能用」，
    于是界面上真能用的扫码 tab 被一行「未开通」误导了很久。 */
-export const AUTH_CFG = { allowRegister: false, demoMode: false, smsEnabled: false, qrEnabled: false, siteQrLogin: true, wbEnabled: false, testPasscode: false };
+/* 登录页在「手机号登录」和「手机号注册」之间切换。 */
+let authMode = 'login';
+
+export const AUTH_CFG = { allowRegister: true, demoMode: false, smsEnabled: false, qrEnabled: false, siteQrLogin: true, wbEnabled: false, testPasscode: false };
 
 export async function loadAuthConfig() {
   try {
@@ -375,37 +599,20 @@ export async function loadAuthConfig() {
   return AUTH_CFG;
 }
 
+/* Phone/password is the single app-wide Supabase Auth flow. Registration does
+   not verify ownership of the supplied phone number because SMS is disabled. */
+const ALLOW_SIGNUP = true;
+
 function authTabsHTML() {
-  const tabs = [];
-  /* 验证码登录排在第一位当默认项——这是用户要的「不用注册，输手机号收码就进」。
-     以前它排第一只是因为 smsEnabled 时 push 顺序，现在改成明确的优先级，
-     并且当 allowRegister 打开时，标签直接叫「验证码登录」而不用额外解释。 */
-  const smsOn = AUTH_CFG.smsEnabled || AUTH_CFG.demoMode;
-  /* 短信通道没配时，验证码标签页仍然显示，但要挂角标——以前是直接整个标签不渲染，
-     用户找不到「收码就进」的入口，还以为功能没做。
-     角标文案要分清两种情况，不能一律写「未开通」：
-       · 有测试码（testPasscode）→ 这页真的能用，只是码不是短信发来的，写「测试模式」；
-       · 什么都没有            → 那才是真打不开，写「未开通」。
-     原来不分青红皂白挂「未开通」，结果一个点了就能登录的 tab 看上去像坏的。 */
-  const testOn = !!AUTH_CFG.testPasscode;
-  /* 【第 18 条：注册登录做成微信登录那样】
-     微信登录的心智是「一个动作搞定，不分注册还是登录」。
-     原来这里叫「验证码登录」，旁边还挂一个独立的「注册」按钮，等于把
-     「我该点哪个」这道题留给了用户。现在第一个页签直接写「手机号一键进入」，
-     没账号也能进，注册这件事在界面上不存在了。 */
-  const enterLabel = AUTH_CFG.allowRegister ? '手机号一键进入' : '验证码登录';
-  if (smsOn) tabs.push(['otp', enterLabel]);
-  else if (testOn) tabs.push(['otp', enterLabel, '测试模式']);
-  else tabs.push(['otp', enterLabel, '未开通']);
-  tabs.push(['password', '密码登录']);
-  tabs.push(['qr', '扫码登录']);
-  const def = tabs[0][0];
+  const mode = authMode === 'register' ? '注册新账号' : '登录';
+  const other = authMode === 'register' ? '已有账号？去登录' : '还没有账号？注册一个';
   return {
-    html: tabs.map(([k, l, flag]) => `<button class="${[k === def ? 'on' : '', flag ? 'is-soon' : ''].filter(Boolean).join(' ')}" data-m="${k}">${l}${flag ? `<em class="tab-soon">${flag}</em>` : ''}</button>`).join(''),
-    def,
+    html: `<button class="on">${mode}</button>` +
+      (ALLOW_SIGNUP ? `
+      <button class="auth-switch" id="auth-switch">${other}</button>` : ''),
+    def: null,
   };
 }
-
 
 /* 从扫码确认页跳去登录的用户，登录完要回到那一次确认。
    只在「确实有未完成的扫码请求」时才回跳，否则正常登录还是进首页——
@@ -428,7 +635,7 @@ function renderAuth() {
       </div>
       <div class="auth-hero">
         <h1>把每天的上课、<br>课时、考勤，都放进一个地方。</h1>
-        <p>首页看时间与天气，工作里管课时考勤，日常随手记事，学习留下积累。手机、iPad、电脑打开即是同一份数据。</p>
+        <p>首页看时间与天气，工作里管课时考勤，日常随手记事，学习留下积累。账号由手机号统一管理；目前只有已接入云同步的内容会跨设备同步。</p>
         <div class="auth-feats">
           <div class="auth-feat"><i>${icon('clock', 18)}</i>时间天气一眼看清，出门前就知道穿什么</div>
           <div class="auth-feat"><i>${icon('book', 18)}</i>课时与代课自动汇总，月底对账不吃亏</div>
@@ -444,19 +651,20 @@ function renderAuth() {
   authLogin();
 }
 
-/* 登录/注册已按要求做成最简形态：手机号 + 密码，无验证码、无第三方入口。
-   验证码注册/扫码登录的代码仍保留（authOtp/authQr），只是界面不再露出。 */
 function authLogin() {
   const card = document.getElementById('auth-card');
+  const tabInfo = authTabsHTML();
   card.innerHTML = `
+    <div class="auth-tabs">${tabInfo.html}</div>
     <div id="auth-body"></div>
     <div class="auth-legal">
       <label><input type="checkbox" id="agree" checked><span>我已阅读并同意《服务协议》与《隐私政策》。登录即表示你同意我们按隐私政策处理你的数据。</span></label>
     </div>`;
+  document.getElementById('auth-switch')?.addEventListener('click', () => {
+    authMode = authMode === 'register' ? 'login' : 'register';
+    authLogin();
+  });
   authPassword();
-
-  /* 扫码确认页（#/qr?id=…）仍会调 renderAuth 后走 authLogin；
-     如果带着未完成的扫码回跳参数，保持原有行为：登录后回到确认页。 */
 }
 
 function checkAgree() {
@@ -498,337 +706,117 @@ function sheetRaw(title, bodyEl) {
   };
   document.addEventListener('keydown', onKey);
   mask.querySelector('.sheet-close').onclick = close;
-  mask.addEventListener('click', (e) => { if (e.target === mask) close(); });
+  /* 【点遮罩关闭 —— 必须「按下和松开都在遮罩上」才算】
+     原来的写法只判断 click 的 e.target === mask，有两个致命副作用：
+       1) 在输入框里拖选文字，鼠标/手指滑出弹层再松开，浏览器把这次点击归到
+          mask 上（按下和松开不在同一元素时，click 派发到共同祖先），弹层直接关掉。
+          用户视角就是「我点科目想全选/想改字，页面自己关了，白填了」。
+       2) 手机上手指稍微滑出弹层就被关，比电脑更容易误触。
+     现在记录 pointerdown 的落点，只有落点也在遮罩空白处才关，
+     从输入框里拖出去的松手一律不关。 */
+  let downOnMask = false;
+  mask.addEventListener('pointerdown', (e) => { downOnMask = e.target === mask; });
+  mask.addEventListener('click', (e) => {
+    if (e.target === mask && downOnMask) close();
+    downOnMask = false;
+  });
   return { mask, close, set onClose(fn) { h.onClose = fn; } };
 }
 
-function authOtp() {
-  const body = document.getElementById('auth-body');
-  const smsOn = AUTH_CFG.smsEnabled || AUTH_CFG.demoMode;
-  /* 三种状态，界面上必须长得不一样：
-       1) 有短信通道       —— 正常可用
-       2) 没通道 + 有测试码 —— 可用，但要说清「这不是真短信，是给自测用的固定码」
-       3) 没通道 + 没测试码 —— 不可用，按钮禁用，指路去密码登录
-
-     第 2 种是这一轮加的：用户要「自己注册账号测试」，而注册完全依赖验证码。
-     与其让他对着一片点不动的按钮，不如给一条明确标注过的测试通道，
-     走的是真实注册流程（建号、灌数据、下发会话），只是码不发短信而已。 */
-  const testOn = AUTH_CFG.testPasscode;
-  body.innerHTML = `
-    ${smsOn ? '' : testOn
-      ? `<div class="auth-note test">
-          <b>📱 短信通道未配置，已开启测试通道</b>
-          <span>点「获取验证码」后，测试码会自动填进输入框。走的是真实注册流程，账号和数据都是真的。</span>
-        </div>`
-      : `<div class="auth-note">
-          <b>验证码登录暂未开通</b>
-          <span>站点还没配短信通道，验证码发不出去。请先用下面的「密码登录」进入，一切功能都不受影响。</span>
-        </div>`}
-    <div class="auth-input"><input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入手机号"></div>
-    <div class="auth-input"><input id="otp" type="tel" inputmode="numeric" maxlength="6" placeholder="6 位验证码"><button class="otp-btn" id="send-otp" ${smsOn || testOn ? '' : 'disabled'}>获取验证码</button></div>
-    <button class="auth-btn" id="do-login" style="margin-top:6px" ${smsOn || testOn ? '' : 'disabled'}>${AUTH_CFG.allowRegister ? '进入工作台' : '登录'}</button>
-    <div class="small muted auth-one-tip" style="margin-top:10px;line-height:1.6">${!smsOn && !testOn
-      ? '配好短信通道后，这里就能「输手机号收码直接进」，不需要注册。'
-      : AUTH_CFG.allowRegister
-        ? '没有账号也行——验证码通过就自动帮你建一个，不用单独注册'
-        : '手机号 + 验证码登录，账号只有你自己在用。'}</div>`;
-  let left = 0; let t = null;
-  const btn = document.getElementById('send-otp');
-  const phoneEl = document.getElementById('phone');
-  btn.onclick = async () => {
-    const phone = phoneEl.value.trim();
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
-    try {
-      const r = await api.post('/auth/otp', { phone });
-      left = 60; btn.disabled = true;
-      const tick = () => { btn.textContent = left > 0 ? `${left}s 后重发` : '获取验证码'; if (left <= 0) { btn.disabled = false; clearInterval(t); return; } left--; };
-      tick(); t = setInterval(tick, 1000);
-      if (r.testCode) {
-        document.getElementById('otp').value = r.testCode;
-        toast(`测试码 ${r.testCode} 已填入（短信通道未配置，走测试通道）`, 'ok', 5000);
-      } else if (r.devCode) {
-        document.getElementById('otp').value = r.devCode;
-        toast(`演示环境验证码：${r.devCode}（已自动填入）`);
-      } else toast('验证码已发送，请留意手机短信');
-    } catch (e) {
-      if (e.extra?.smsNotConfigured) {
-        toast('该站点未开通短信服务，已为你切换到密码登录', 'warn');
-        const tabs = document.getElementById('auth-card')?.querySelectorAll('.auth-tabs button');
-        tabs?.forEach((x) => x.classList.toggle('on', x.dataset.m === 'password'));
-        authPassword();
-        return;
-      }
-      toast(e.message, 'err');
-    }
-  };
-  document.getElementById('do-login').onclick = async () => {
-    if (!checkAgree()) return;
-    const phone = phoneEl.value.trim(); const code = document.getElementById('otp').value.trim();
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
-    if (!/^\d{6}$/.test(code)) return toast('请输入 6 位验证码', 'warn');
-    const btnL = document.getElementById('do-login');
-    btnL.disabled = true; btnL.textContent = '登录中…';
-    try {
-      const r = await api.post('/auth/login', { phone, code, mode: 'otp' });
-      state.user = r.user; await loadMe(); { const back = takeQrReturn(); location.hash = back ? `#/qr?id=${back}` : '#/home'; } render();
-      /* created 是后端新建账号时回传的标记。分开提示很重要：
-         新用户看到「欢迎回来」会困惑（我明明第一次来），老用户看到「已为你创建」也会以为数据丢了。 */
-      toast(r.created ? '账号已自动创建，开始使用吧' : '欢迎回来');
-    } catch (e) {
-      btnL.disabled = false; btnL.textContent = '登录';
-      if (e.extra?.needRegister) {
-        /* 只有站点关掉自助注册时才会走到这里。以前写的是「可联系管理员开通」，
-           像在推卸；现在直接把「怎么开」和「现在怎么进」都说清楚。 */
-        toast('这个手机号还没有账号，且本站已关闭自助注册。'
-          + (AUTH_CFG.allowRegister ? '' : '可以先用「密码登录」，或让站点所有者把 ALLOW_REGISTER 打开。'), 'warn', 6000);
-      } else toast(e.message, 'err');
-    }
-  };
-}
-
+/* One form handles phone/password sign-in and public registration. */
 function authPassword() {
+  const isReg = authMode === 'register';
   const body = document.getElementById('auth-body');
   body.innerHTML = `
-    <div class="auth-input"><input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入手机号"></div>
-    <div class="auth-input"><input id="pwd" type="password" placeholder="请输入密码"></div>
-    <button class="auth-btn" id="do-login" style="margin-top:6px">登录</button>
-    <div class="small muted" style="margin-top:14px;display:flex;justify-content:space-between">
-      <a href="javascript:void 0" id="goto-reg">没有账号？注册新账号</a>
-      <a href="javascript:void 0" id="forgot-pwd">忘记密码？</a>
+    <div class="auth-input"><input id="acct" type="tel" inputmode="numeric" autocomplete="tel"
+      placeholder="手机号" maxlength="11"></div>
+    <div class="auth-input"><input id="pwd" type="password" autocomplete="${isReg ? 'new-password' : 'current-password'}"
+      placeholder="${isReg ? '设置密码（至少 8 位）' : '密码'}" maxlength="72"></div>
+    ${isReg ? '<div class="auth-input"><input id="pwd2" type="password" autocomplete="new-password" placeholder="再输一遍密码" maxlength="32"></div>' : ''}
+    <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册并登录' : '登录'}</button>
+    <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6"></div>
+    <div class="small muted" style="margin-top:6px;line-height:1.6">
+      ${isReg
+      ? '手机号作为账号，注册后即可登录。本版本不验证手机号归属，请使用你本人持有的号码。'
+      : '使用手机号和密码登录。忘记密码请联系管理员重置；本机数据按账号隔离。'}
     </div>`;
-  document.getElementById('do-login').onclick = async () => {
+
+  const hint = document.getElementById('auth-hint');
+  const say = (t) => { if (hint) hint.textContent = t || ''; };
+
+  const submit = async () => {
     if (!checkAgree()) return;
+    const phone = document.getElementById('acct').value.trim();
+    const pwd = document.getElementById('pwd').value;
+    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的 11 位手机号', 'warn');
+    if (!pwd || (isReg && pwd.length < 8)) return toast(isReg ? '密码至少 8 位' : '请填写密码', 'warn');
+    if (isReg) {
+      const pwd2 = document.getElementById('pwd2').value;
+      if (pwd !== pwd2) return toast('两次输入的密码不一致', 'warn');
+    }
     const btn = document.getElementById('do-login');
-    btn.disabled = true; btn.textContent = '登录中…';
+    btn.disabled = true; btn.textContent = isReg ? '注册中…' : '登录中…';
+
     try {
-      const r = await api.post('/auth/login', { phone: document.getElementById('phone').value.trim(), password: document.getElementById('pwd').value, mode: 'password' });
-      state.user = r.user; await loadMe(); { const back = takeQrReturn(); location.hash = back ? `#/qr?id=${back}` : '#/home'; } render(); toast('欢迎回来');
+      const cloud = await import('./cloud.js');
+      const session = isReg
+        ? await cloud.signUpPhone(phone, pwd)
+        : await cloud.loginPhone(phone, pwd);
+      if (!session?.uid) throw new Error('Supabase 未返回有效账号，请检查手机号认证配置');
+      setActiveAccount(session.uid);
+      if (location.hash.includes('#import=')) {
+        try {
+          const transfer = await import('./cloudsync.js');
+          await transfer.tryImportFromHash();
+        } catch (e) {
+          toast(e.message || '导入链接处理失败', 'err', 6000);
+        }
+      }
+      const local = await api.post('/auth/login-cloud', {
+        phone: session.phone || cloud.normalizePhone(phone),
+        uid: session.uid,
+        email: session.email || '',
+      }, { silent: true });
+      try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
+      await done(local.user, isReg);
     } catch (e) {
-      btn.disabled = false; btn.textContent = '登录';
-      /* 密码不对但有可能是老账号（验证码时代建的号没有密码）：引导去补设密码 */
-      if (e.message && /密码/.test(e.message)) toast(e.message + '。若是老账号没设过密码，可用「注册新账号」补设', 'warn', 6000);
-      else toast(e.message, 'err');
+      try {
+        const cloud = await import('./cloud.js');
+        await cloud.logout();
+      } catch { }
+      setActiveAccount('');
+      btn.disabled = false; btn.textContent = isReg ? '注册并登录' : '登录';
+      let message = e.message || (isReg ? '注册失败，请稍后重试。' : '登录失败，请稍后重试。');
+      if (isReg) {
+        console.warn('[auth] 手机号注册失败', e);
+        try {
+          const cloud = await import('./cloud.js');
+          message = cloud.registrationError(e);
+        } catch {
+          message = '注册未能完成，请检查网络和 Supabase 配置后重试。';
+        }
+      }
+      say(message);
+      toast(message, 'err');
     }
   };
-  document.getElementById('goto-reg').onclick = () => authRegister(document.getElementById('phone')?.value.trim() || '');
-  const fp = document.getElementById('forgot-pwd');
-  if (fp) fp.onclick = () => forgotSheet(document.getElementById('phone')?.value.trim() || '');
-}
 
-/* ================= 忘记密码 =================
-   场景是「没配短信 + 密码想不起来」，这时候一切靠短信的自助流程都是死路。
-   所以做一个不依赖短信、也不需要用户碰终端的中间态：
-
-     1. 用户填手机号 → 服务端生成一个 8 位取件码（30 分钟有效，用完即焚）
-     2. 页面上把取件码和一条现成的命令一起亮出来，点一下就能复制
-     3. 有服务器权限的人（我）执行那条命令，密码就重置了
-     4. 用户点「我已重置，去登录」
-
-   为什么不做成「填码就改密码」：取件码本来就显示在这个页面上，
-   谁能看到这行字谁就能改密码，等于没有验证。只有「得有人去服务器上执行」
-   才构成一道真实的门——而这道门恰好是用户本来就有的（他找我就行）。
-   ——如果哪天配了短信通道，这套流程会自动退化成短信自助重置，不需要改这里。 */
-function forgotSheet(prefillPhone = '') {
-  /* 两条路按站点能力自动选择：
-     - 短信通道已接（或联调期测试通行证开着）→ 走「验证码自助重置」：
-       发码（purpose:'reset'）→ 填码 + 新密码 → 一次完成，全程不依赖任何人；
-     - 都没有 → 退回原「取件码 + 命令」兜底（历史行为，原文保留）。 */
-  const smsReset = !!(AUTH_CFG.smsEnabled || AUTH_CFG.testPasscode || AUTH_CFG.demoMode);
-  const box = smsReset
-    ? el(`<div class="fp-box">
-        <div class="small muted" style="line-height:1.7;margin-bottom:14px">用注册手机号收验证码，验证通过后直接设置新密码。</div>
-        <div class="auth-input"><input id="fp-phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
-        <div class="auth-input" style="display:flex;gap:8px;margin-top:8px">
-          <input id="fp-code" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码" style="flex:1">
-          <button class="btn-sm" id="fp-send" style="white-space:nowrap">获取验证码</button>
-        </div>
-        <div class="auth-input" style="margin-top:8px"><input id="fp-pwd" type="password" minlength="6" placeholder="新密码（至少 6 位）"></div>
-        <button class="auth-btn" id="fp-go" style="margin-top:12px">重置密码</button>
-        <div id="fp-out"></div>
-      </div>`)
-    : el(`<div class="fp-box">
-        <div class="small muted" style="line-height:1.7;margin-bottom:14px">
-          本站没配短信，收不到验证码。这里给你一个限时取件码：把它（或者下面那条命令）发给能进服务器的人，执行一下密码就重置了。
-        </div>
-        <div class="auth-input"><input id="fp-phone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入注册手机号" value="${esc(prefillPhone)}"></div>
-        <button class="auth-btn" id="fp-gen" style="margin-top:4px">生成取件码</button>
-        <div id="fp-out"></div>
-      </div>`);
-  const s = sheet({ title: '找回密码', body: box });
-  const out = box.querySelector('#fp-out');
-
-  if (smsReset) {
-    const sendBtn = box.querySelector('#fp-send');
-    const codeInput = box.querySelector('#fp-code');
-    sendBtn.onclick = async () => {
-      const phone = box.querySelector('#fp-phone').value.trim();
-      if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
-      sendBtn.disabled = true; sendBtn.textContent = '发送中…';
-      try {
-        const r = await api.post('/auth/otp', { phone, purpose: 'reset' });
-        sendBtn.textContent = '已发送';
-        if (r.testCode) { codeInput.value = r.testCode; toast('联调测试码已自动填入（配置真短信后此通道自动关闭）', 'warn', 5000); }
-        else toast('验证码已发送，请查收短信');
-        let left = 60;
-        const t = setInterval(() => {
-          left -= 1;
-          if (left <= 0) { clearInterval(t); sendBtn.disabled = false; sendBtn.textContent = '重新发送'; }
-          else sendBtn.textContent = `${left}s`;
-        }, 1000);
-      } catch (e) {
-        sendBtn.disabled = false; sendBtn.textContent = '获取验证码';
-        toast(e.message, 'err', 4000);
-      }
-    };
-    box.querySelector('#fp-go').onclick = async () => {
-      const phone = box.querySelector('#fp-phone').value.trim();
-      const code = codeInput.value.trim();
-      const pwd = box.querySelector('#fp-pwd').value;
-      if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
-      if (!/^\d{4,8}$/.test(code)) return toast('请输入短信里的验证码', 'warn');
-      if (pwd.length < 6) return toast('密码至少 6 位', 'warn');
-      const btn = box.querySelector('#fp-go');
-      btn.disabled = true; btn.textContent = '提交中…';
-      try {
-        await api.post('/auth/forgot/confirm', { phone, code, new_password: pwd });
-        out.innerHTML = '<div class="small" style="color:var(--ok,#16a34a);margin-top:10px">✅ 密码已重置，旧登录已全部失效。</div>';
-        toast('密码已重置');
-        setTimeout(() => s.close(), 900);
-      } catch (e) {
-        btn.disabled = false; btn.textContent = '重置密码';
-        toast(e.message, 'err', 4000);
-      }
-    };
-    return;
+  /* 登录/注册成功后的共同收尾：写 state、跳页面、给提示 */
+  async function done(user, isReg) {
+    state.user = user;
+    try { await loadMe(); } catch { }
+    const back = takeQrReturn();
+    location.hash = back ? `#/qr?id=${back}` : '#/home';
+    render();
+    toast(isReg ? '账号已创建，开始使用吧' : '欢迎回来', 'ok');
   }
 
-  const btn = box.querySelector('#fp-gen');
-  btn.onclick = async () => {
-    const phone = box.querySelector('#fp-phone').value.trim();
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的手机号', 'warn');
-    btn.disabled = true; btn.textContent = '生成中…';
-    try {
-      const r = await api.post('/auth/forgot', { phone });
-      btn.hidden = true;
-      out.innerHTML = `
-        <div class="fp-code-wrap">
-          <div class="fp-code-label">取件码（30 分钟内有效）</div>
-          <div class="fp-code" id="fp-code">${esc(r.code)}</div>
-          <div class="fp-line">
-            <input class="input" id="fp-cmd" readonly value="${esc(r.command)}">
-            <button class="btn-sm" id="fp-copy">复制</button>
-          </div>
-        </div>
-        <div class="small muted" style="margin-top:12px;line-height:1.7">
-          ${r.hasServerAccess
-            ? '你也可以自己执行：把上面那条命令粘到服务器终端里回车，然后重新登录即可。'
-            : '把上面这条命令发给管理员（或这台服务器的主人），他执行完你就能用新密码登录了。'}
-        </div>
-        <button class="auth-btn" id="fp-done" style="margin-top:14px">我已重置，去登录</button>`;
-      const copy = async (text) => {
-        try {
-          await navigator.clipboard.writeText(text);
-          toast('已复制');
-        } catch {
-          /* https 下 clipboard 一般都可用；万一被策略拦了，选中让用户自己复制，
-             总比只弹一句「复制失败」强。 */
-          const i = document.getElementById('fp-cmd'); i?.select();
-          toast('已选中，按 Ctrl/⌘+C 复制', 'warn', 4000);
-        }
-      };
-      out.querySelector('#fp-copy').onclick = () => copy(out.querySelector('#fp-cmd').value);
-      out.querySelector('#fp-done').onclick = () => s.close();
-    } catch (e) {
-      btn.disabled = false; btn.textContent = '生成取件码';
-      toast(e.message, 'err', 4000);
-    }
-  };
-}
-
-/* 扫码登录。
-   两件事都得说清楚：
-     1) 这里的二维码是**真能扫的**（服务端用 server/qr.mjs 编码，内容是一条 /#/qr?id=xxx 链接）；
-        早先是前端 drawQR() 用伪随机数画的图案，扫上去没有任何反应。
-     2) 扫码不是「扫了就进」——它会打开你手机上已登录的工作台，由你本人点「确认登录」。
-        没登录的手机扫了会先让你登录自己。这是安全边界，不是多此一举。
-
-   微信/QQ 扫码仍走不通：那需要企业资质接入开放平台，代码侧已经留好位置（qrEnabled）。 */
-function authQr() {
-  const body = document.getElementById('auth-body');
-  body.innerHTML = `<div class="qr-box">
-    <div class="qr-frame"><div id="qr-svg" class="qr-real">正在生成二维码…</div></div>
-    <div class="small muted" id="qr-tip">用手机扫一扫，在手机上点「确认登录」</div>
-    <div id="qr-scan-slot" class="qr-scan-slot"></div>
-    <button class="btn ghost sm" id="qr-refresh">换一张</button>
-    <div class="small muted" id="qr-hint" style="margin-top:10px;line-height:1.6"></div>
-  </div>`;
-
-  let timer = null;
-  let exchangeTried = false;
-
-  const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
-  onViewLeave(stop);
-
-  const start = async () => {
-    stop();
-    exchangeTried = false;
-    const svgBox = document.getElementById('qr-svg');
-    const tip = document.getElementById('qr-tip');
-    const hint = document.getElementById('qr-hint');
-    if (svgBox) svgBox.textContent = '正在生成二维码…';
-    /* 扫一扫入口和「这张码生成成没成功」无关，先填上。
-       放在后面的话，接口一报错就提前 return，手机上连入口都看不到——
-       而那时候用户恰恰更需要它（改用扫别人的码）。 */
-    fillScanSlot();
-    let d;
-    try {
-      d = await api.post('/auth/qr', { purpose: 'login' });
-    } catch (e) {
-      if (svgBox) svgBox.textContent = '二维码生成失败';
-      if (tip) tip.textContent = e.message || '请稍后重试';
-      return;
-    }
-    if (!document.getElementById('qr-svg')) return;   // 期间已经切走
-    document.getElementById('qr-svg').innerHTML = d.svg;
-    tip.textContent = '用手机扫一扫，在手机上点「确认登录」';
-    hint.innerHTML = '二维码 3 分钟内有效，用一次就作废。<br>手机上要先登录过这个工作台。';
-
-    timer = setInterval(async () => {
-      let st;
-      try {
-        st = await api.get(`/auth/qr/${d.id}`, null, { silent: true });
-      } catch { return; }
-
-      if (st.status === 'confirmed' && st.token && !exchangeTried) {
-        exchangeTried = true;
-        stop();
-        /* 轮询拿到的是「票据」，要换成 Cookie 才算这台设备登录。
-           换失败就提示重扫，不能假装登录成功。 */
-        try {
-          const r = await api.post('/auth/qr/exchange', { token: st.token });
-          state.user = r.user;
-          await loadMe();
-          location.hash = '#/home';
-          render();
-          toast('扫码登录成功');
-        } catch (e) {
-          toast(e.message || '登录没能完成，请重新扫码', 'err');
-          start();
-        }
-      } else if (st.status === 'expired') {
-        stop();
-        const t2 = document.getElementById('qr-tip');
-        if (t2) t2.textContent = '二维码已过期，点「换一张」';
-      } else if (st.status === 'rejected') {
-        stop();
-        const t2 = document.getElementById('qr-tip');
-        if (t2) t2.textContent = '这次登录被拒绝了，点「换一张」重新扫';
-      }
-    }, 2000);
-  };
-
-  start();
-  document.getElementById('qr-refresh').onclick = start;
+  document.getElementById('do-login').onclick = submit;
+  /* 回车直接提交，不用去点按钮 */
+  body.querySelectorAll('input').forEach((el) => {
+    el.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
+  });
+  document.getElementById('acct').focus();
 }
 
 /* ================= 扫一扫（移动端入口 + 摄像头解码） =================
@@ -1255,43 +1243,6 @@ function renderQrConfirm(id) {
   })();
 }
 
-function authRegister(phone = '') {
-  const card = document.getElementById('auth-card');
-  /* 最简注册：手机号 + 密码，无验证码（用户明确要求去掉手机号验证）。
-     防滥用由后端频控（每号每天 5 次）兜底。老账号（验证码时代建的无密码号）
-     在这里填密码 = 补设密码，不会走进死胡同。 */
-  card.innerHTML = `
-    <div class="auth-tabs"><button class="on">注册新账号</button></div>
-    <div class="auth-input"><input id="phone" type="tel" inputmode="numeric" maxlength="11" placeholder="手机号" value="${esc(phone)}"></div>
-    <div class="auth-input"><input id="pwd" type="password" placeholder="设置密码（至少 6 位）"></div>
-    <div class="auth-input"><input id="pwd2" type="password" placeholder="再输一遍密码"></div>
-    <div class="auth-input"><input id="nick" placeholder="称呼（选填，如：王老师）"></div>
-    <button class="auth-btn" id="do-reg" style="margin-top:6px">注册并登录</button>
-    <div class="small muted" style="margin-top:14px;text-align:center"><a href="javascript:void 0" id="back-login">已有账号，返回登录</a></div>`;
-  document.getElementById('back-login').onclick = () => authLogin();
-  document.getElementById('do-reg').onclick = async () => {
-    if (!checkAgree()) return;
-    const p = document.getElementById('phone').value.trim();
-    const pw = document.getElementById('pwd').value;
-    const pw2 = document.getElementById('pwd2').value;
-    if (!/^1[3-9]\d{9}$/.test(p)) return toast('请输入正确的手机号', 'warn');
-    if (pw.length < 6) return toast('密码至少 6 位', 'warn');
-    if (pw !== pw2) return toast('两次输入的密码不一样', 'warn');
-    const btnReg = document.getElementById('do-reg');
-    btnReg.disabled = true; btnReg.textContent = '注册中…';
-    try {
-      const r = await api.post('/auth/register', {
-        phone: p, password: pw, nickname: document.getElementById('nick').value.trim(),
-      });
-      state.user = r.user; await loadMe(); { const back = takeQrReturn(); location.hash = back ? `#/qr?id=${back}` : '#/home'; } render();
-      toast(r.created ? '注册成功，已为你准备好示例数据' : '密码已设置，欢迎回来');
-    } catch (e) {
-      btnReg.disabled = false; btnReg.textContent = '注册并登录';
-      toast(e.message, 'err', 4000);
-    }
-  };
-}
-
 /* ---------------- 用户态 ---------------- */
 export async function loadMe() {
   try {
@@ -1317,9 +1268,27 @@ export async function refreshUnread() {
    之前只处理了「有→无」（隐藏）这一半，所以「点全部已读角标不消失」和
    「来了新消息角标不出现」是两个方向同一个 bug。
    现在两种方向都兜住：没有节点就建一个，有了就改文字，归零就隐藏。 */
+/* 未读红点。
+   【第 1 条：点「全部已读」后左侧导航红点不消失】
+   真因是侧栏底部的用户按钮（#side-user）早先没有 data-nav="me"，
+   而这里只认 [data-nav=me] —— 于是「我的」那一项的红点永远刷不到，
+   点完已读它还挂在那儿。现在补上属性，同时把「只创建不更新」的写法改掉：
+   数字变了要跟着变，不然从 3 变成 1 还显示 3。 */
 export function paintUnread() {
   const n = Number(state.unread) || 0;
   document.querySelectorAll('[data-nav=me]').forEach((nav) => {
+    let dot = nav.querySelector('.badge-dot');
+    if (n <= 0) { if (dot) dot.hidden = true; return; }
+    if (!dot) {
+      dot = document.createElement('span');
+      dot.className = 'badge-dot';
+      nav.appendChild(dot);
+    }
+    dot.textContent = n > 99 ? '99+' : String(n);
+    dot.hidden = false;
+  });
+  /* 底部导航的手机端也要同步：手机上根本没有侧栏 */
+  document.querySelectorAll('.bn-item[data-nav=me]').forEach((nav) => {
     let dot = nav.querySelector('.badge-dot');
     if (n <= 0) { if (dot) dot.hidden = true; return; }
     if (!dot) {

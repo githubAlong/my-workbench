@@ -14,6 +14,25 @@ const SS_META = {
   done: { label: '已修好', chip: 'green' },
   canceled: { label: '已取消', chip: 'grey' },
 };
+
+/* 【状态为什么不能随便选】
+   以前下拉里四项全开，于是可以把一条「已修好」的记录改回「待处理」，
+   保存时下面那行 `if (payload.status !== 'done') payload.fixed_at = ''` 顺手把
+   修好日期清空 —— 谁修的、什么时候修好的、花了多少钱那段时间线就没了，
+   事后想查都查不回来。
+   现在的规则：
+     - 没修好的可以往前走（待处理 → 处理中 → 已修好），也可以取消；
+     - 已经修好的只允许在「已修好 / 已取消」之间纠错，不给退回未完成；
+     - 取消掉的想重新开工，从「待处理」重来，但修好日期照样保留原值不再乱清。 */
+const SS_ORDER = ['pending', 'doing', 'done'];
+function statusOptions(cur) {
+  const c = cur || 'pending';
+  if (c === 'done') return ['done', 'canceled'];
+  if (c === 'canceled') return ['canceled', 'pending', 'doing'];
+  // 未完成：只能在本节点及之后推进，加一个「已取消」出口
+  const i = Math.max(0, SS_ORDER.indexOf(c));
+  return [...SS_ORDER.slice(i), 'canceled'];
+}
 const URG = {
   low: { label: '不急', chip: 'grey' },
   normal: { label: '一般', chip: 'blue' },
@@ -25,11 +44,16 @@ const FILTERS = [
   ['done', '已修好'],
 ];
 
+/* 老链接 #/repairs 兜底（render() 里会先 translate 成 work/repairs） */
 registerView(async function repairs(main) {
-  main.innerHTML = pageHead('维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底',
-    `<button class="btn primary sm" id="rp-new">${icon('plus', 15)} 报修</button>`)
-    + '<div id="rp-body"></div>';
-  const box = main.querySelector('#rp-body');
+  main.innerHTML = pageHead('维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底');
+  const box = document.createElement('div');
+  main.appendChild(box);
+  return renderRepairsBody(box);
+});
+
+/* 二级导航「工作 → 维修」直接调这里，正文挂到传入的容器上 */
+export async function renderRepairsBody(box) {
 
   let rows = [];
   let filter = 'open';
@@ -162,7 +186,7 @@ registerView(async function repairs(main) {
       <div class="form-grid">
         <div class="field"><label class="field-label">状态</label>
           <select class="input" id="s">
-            ${Object.entries(SS_META).map(([k, v]) => `<option value="${k}" ${(row?.status || 'pending') === k ? 'selected' : ''}>${v.label}</option>`).join('')}
+            ${statusOptions(row?.status).map((k) => `<option value="${k}" ${(row?.status || 'pending') === k ? 'selected' : ''}>${SS_META[k].label}</option>`).join('')}
           </select></div>
         <div class="field"><label class="field-label">费用（元）</label>
           <input class="input" id="co" type="number" min="0" step="0.01" value="${esc(row?.cost || '')}" placeholder="0"></div>
@@ -198,9 +222,11 @@ registerView(async function repairs(main) {
         remark: $('rm').value.trim(),
       };
       if (!payload.fault) return toast('写一下坏在哪、什么现象', 'warn');
-      // 状态改成已修好但没填修好日期时，自动补今天
+      /* 修好日期只加不清：
+         以前 status 一旦不是 done 就把 fixed_at 抹成空串，等于把「这台投影仪
+         10 月 3 号修过」这件事直接删掉。改成「改成已修好时补今天，其余情况保留原值」，
+         历史不会被一次误操作抹掉。 */
       if (payload.status === 'done' && !row?.fixed_at) payload.fixed_at = today;
-      if (payload.status !== 'done') payload.fixed_at = '';
       const btn = $('ok'); btn.disabled = true; btn.textContent = '保存中…';
       try {
         if (isNew) await api.post('/repairs', payload);
@@ -213,6 +239,12 @@ registerView(async function repairs(main) {
     };
   }
 
-  main.querySelector('#rp-new').onclick = () => editor(null);
+  /* 「报修」按钮原在页头上，现在页头由 work.js 画，按钮挪进正文 */
+  const bar = document.createElement('div');
+  bar.className = 'row wrap';
+  bar.style.cssText = 'gap:8px;margin:0 0 12px';
+  bar.innerHTML = `<button class="btn primary sm" id="rp-new">${icon('plus', 15)} 报修</button>`;
+  box.parentElement.insertBefore(bar, box);
+  bar.querySelector('#rp-new').onclick = () => editor(null);
   await load();
-});
+}

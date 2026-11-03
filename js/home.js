@@ -1,5 +1,5 @@
 import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_CN, WD_SHORT, fmtTime, fmtDateTime, relDay, parseDT, countdown, speak, stopSpeak, colorOf, ls, exportUrl, download, addToSystemCalendar } from './core.js';
-import { registerView, state, icon, go, render, refreshUnread, onViewLeave } from './ui.js';
+import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
 import { readLayout, saveLayout, resetLayout, enableDragSort, syncDay, DAY_SYNC, HOME_CARDS } from './homelayout.js';
 
 /* ================= 欢迎语 =================
@@ -87,14 +87,27 @@ let weatherTimer = null;
 async function loadWeather(force = false) {
   const c = state.city;
   const cache = ls.get('weather', null);
-  if (!force && cache && cache.city === c.name && Date.now() - cache.at < 20 * 60000) { state.weather = cache; return cache; }
+  /* 【缓存判断必须是「现在 - 抓取时刻 < 20 分钟」】
+     早先写成 `cache.at < 20 * 60000`，at 是 Date.now() 的绝对时间戳（几十亿），
+     这个条件恒为真 —— 缓存永不过期。于是切换城市后，只要新城市的名字和缓存里的
+     对不上……其实也对不上，但真正让用户看到「城市换了温度没变」的是下面的兜底：
+     请求失败时直接把 cache 塞进 state.weather，标题读的是新城市、数字是旧城市的。
+     现在：时间判断改对，兜底也只在同城时用。 */
+  const fresh = cache && cache.at && (Date.now() - Number(cache.at) < 20 * 60000);
+  if (!force && cache && fresh && cache.city === c.name) { state.weather = cache; return cache; }
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
     + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m,wind_direction_10m'
     + '&hourly=temperature_2m,weather_code,precipitation_probability'
     + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max'
     + '&timezone=auto&forecast_days=7';
-  const r = await fetch(url).then((x) => x.json()).catch(() => null);
-  if (!r || !r.current) { if (cache) { state.weather = cache; return cache; } throw new Error('天气获取失败'); }
+  /* 加超时：没有 signal 时弱网/被墙会一直挂着，首页停在「正在准备今天的工作台」。 */
+  const r = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    .then((x) => (x.ok ? x.json() : null)).catch(() => null);
+  if (!r || !r.current) {
+    /* 只有同一座城市才允许拿旧数据顶一下；换城市了宁可显示「获取失败 + 重试按钮」 */
+    if (cache && cache.city === c.name) { state.weather = cache; return cache; }
+    throw new Error('天气获取失败');
+  }
   const w = { city: c.name, at: Date.now(), raw: r };
   state.weather = w; ls.set('weather', w);
   return w;
@@ -139,10 +152,11 @@ async function reverseGeocode(lat, lon) {
     const prov = trim(r?.principalSubdivision);
     if (prov) return prov;
 
-    // 连行政区都没查到时，至少把坐标标出来，别谎报一个城市名
-    return `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+    // 连行政区都没查到时，别把「39.90, 116.41」这种坐标串当成城市名存进设置：
+    // 首页标题会显示成一串数字，而且会被当成「用户选的城市」长期留着。
+    return '';
   } catch {
-    return `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+    return '';
   }
 }
 async function locate() {
@@ -150,10 +164,11 @@ async function locate() {
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const { latitude, longitude } = pos.coords;
-      const name = await reverseGeocode(latitude, longitude);
+      const name = (await reverseGeocode(latitude, longitude)) || '当前位置';
       /* 定位用 GPS 原始坐标，不往任何城市表上吸附。
          天气接口本身按坐标算，GPS 落点比「市中心」还准。 */
       state.city = { name, lat: latitude, lon: longitude };
+      state.weather = null;
       ls.set('city', state.city);
       pushRecentCity(state.city);
       resolve(state.city);
@@ -174,6 +189,63 @@ async function locate() {
    3. 会混进「鄂尔多斯伊金霍洛机场」这类设施——把 AIRP/ADM 等过滤掉。
 
    返回统一结构 { name, lat, lon, admin }，admin 用来在列表里区分同名城市。 */
+/* 内置常用城市表（第 8 条的兜底）。
+   geocodeCity 走的是 open-meteo 的外网地名库，断网、被墙、接口抽风时
+   一行都搜不出来 —— 用户的表现就是「切换城市没反应，天气永远是北京」。
+   本地放一份地级市表，搜不到时至少能匹配上，不至于连城都换不了。
+   只存名字 + 经纬度，约 300 个，压缩前 20KB 左右，比一张图还小。 */
+const CITY_SEED = [
+  ['北京',39.90,116.41],['上海',31.23,121.47],['天津',39.13,117.20],['重庆',29.56,106.55],
+  ['广州',23.13,113.26],['深圳',22.54,114.06],['杭州',30.27,120.16],['南京',32.06,118.80],
+  ['武汉',30.59,114.31],['成都',30.57,104.07],['西安',34.34,108.94],['郑州',34.75,113.63],
+  ['长沙',28.23,112.94],['合肥',31.82,117.23],['南昌',28.68,115.86],['福州',26.07,119.30],
+  ['厦门',24.48,118.09],['济南',36.65,117.12],['青岛',36.07,120.38],['石家庄',38.04,114.51],
+  ['太原',37.87,112.55],['呼和浩特',40.84,111.75],['沈阳',41.81,123.43],['大连',38.91,121.61],
+  ['长春',43.82,125.32],['哈尔滨',45.80,126.53],['昆明',25.04,102.71],['贵阳',26.65,106.63],
+  ['南宁',22.82,108.37],['海口',20.04,110.20],['三亚',18.25,109.51],['兰州',36.06,103.83],
+  ['西宁',36.62,101.78],['银川',38.49,106.23],['乌鲁木齐',43.83,87.62],['拉萨',29.65,91.14],
+  ['苏州',31.30,120.58],['无锡',31.49,120.31],['常州',31.81,119.97],['南通',31.98,120.89],
+  ['徐州',34.26,117.19],['扬州',32.39,119.41],['镇江',32.19,119.42],['盐城',33.35,120.16],
+  ['泰州',32.46,119.92],['连云港',34.60,119.22],['淮安',33.61,119.02],['宿迁',33.96,118.28],
+  ['宁波',29.87,121.55],['温州',28.00,120.70],['嘉兴',30.75,120.76],['绍兴',30.00,120.58],
+  ['金华',29.08,119.65],['台州',28.66,121.42],['湖州',30.89,120.09],['丽水',28.45,119.92],
+  ['衢州',28.94,118.87],['舟山',29.99,122.21],['芜湖',31.33,118.38],['蚌埠',32.92,117.39],
+  ['阜阳',32.89,115.81],['安庆',30.53,117.05],['马鞍山',31.67,118.51],['泉州',24.87,118.68],
+  ['漳州',24.51,117.65],['莆田',25.45,119.01],['三明',26.26,117.64],['龙岩',25.08,117.03],
+  ['赣州',25.83,114.93],['九江',29.71,116.00],['上饶',28.45,117.94],['宜春',27.81,114.42],
+  ['吉安',27.11,114.99],['淄博',36.81,118.05],['烟台',37.46,121.45],['潍坊',36.71,119.16],
+  ['临沂',35.10,118.36],['济宁',35.41,116.59],['泰安',36.20,117.09],['威海',37.51,122.12],
+  ['日照',35.42,119.53],['德州',37.44,116.36],['聊城',36.46,115.99],['菏泽',35.23,115.48],
+  ['洛阳',34.62,112.45],['新乡',35.30,113.93],['南阳',32.99,112.53],['开封',34.80,114.31],
+  ['许昌',34.04,113.85],['周口',33.63,114.70],['信阳',32.15,114.09],['商丘',34.41,115.66],
+  ['驻马店',33.01,114.02],['安阳',36.10,114.39],['平顶山',33.77,113.19],['焦作',35.22,113.24],
+  ['襄阳',32.01,112.12],['宜昌',30.69,111.29],['荆州',30.33,112.24],['黄冈',30.45,114.87],
+  ['孝感',30.92,113.92],['十堰',32.63,110.80],['荆门',31.04,112.20],['黄石',30.20,115.04],
+  ['咸宁',29.84,114.32],['随州',31.69,113.38],['恩施',30.27,109.49],['株洲',27.83,113.13],
+  ['湘潭',27.83,112.94],['衡阳',26.89,112.57],['岳阳',29.36,113.13],['常德',29.03,111.70],
+  ['郴州',25.77,113.01],['邵阳',27.24,111.47],['益阳',28.55,112.36],['娄底',27.70,112.00],
+  ['怀化',27.55,110.00],['永州',26.42,111.61],['东莞',23.02,113.75],['佛山',23.02,113.12],
+  ['珠海',22.27,113.58],['中山',22.52,113.39],['惠州',23.11,114.42],['江门',22.58,113.08],
+  ['汕头',23.35,116.68],['湛江',21.27,110.36],['茂名',21.66,110.93],['肇庆',23.05,112.47],
+  ['梅州',24.29,116.12],['清远',23.68,113.06],['韶关',24.81,113.60],['揭阳',23.55,116.37],
+  ['柳州',24.31,109.41],['桂林',25.27,110.29],['玉林',22.63,110.15],['北海',21.48,109.12],
+  ['绵阳',31.47,104.68],['德阳',31.13,104.40],['宜宾',28.77,104.62],['南充',30.84,106.11],
+  ['泸州',28.87,105.44],['乐山',29.55,103.77],['自贡',29.35,104.78],['达州',31.21,107.50],
+  ['遵义',27.73,106.93],['曲靖',25.49,103.80],['大理',25.60,100.27],['丽江',26.86,100.23],
+  ['宝鸡',34.36,107.14],['咸阳',34.33,108.71],['渭南',34.50,109.51],['汉中',33.07,107.02],
+  ['榆林',38.29,109.73],['天水',34.58,105.72],['酒泉',39.73,98.51],['克拉玛依',45.58,84.89],
+  ['喀什',39.47,75.99],['伊宁',43.91,81.32],['包头',40.66,109.84],['鄂尔多斯',39.61,109.78],
+  ['赤峰',42.26,118.89],['大同',40.08,113.30],['临汾',36.09,111.52],['运城',35.03,111.01],
+  ['长治',36.20,113.12],['晋中',37.69,112.75],['锦州',41.10,121.13],['鞍山',41.11,122.99],
+  ['抚顺',41.88,123.96],['吉林',43.84,126.55],['齐齐哈尔',47.35,123.92],['大庆',46.59,125.10],
+  ['牡丹江',44.58,129.63],['保定',38.87,115.46],['唐山',39.63,118.18],['廊坊',39.54,116.68],
+  ['秦皇岛',39.94,119.60],['邯郸',36.63,114.54],['邢台',37.07,114.50],['沧州',38.30,116.84],
+  ['张家口',40.77,114.89],['承德',40.95,117.96],['衡水',37.74,115.67],['安庆市',30.53,117.05],
+  ['香港',22.32,114.17],['澳门',22.20,113.55],['台北',25.03,121.57],['高雄',22.63,120.30],
+];
+/* 转成对象数组，字段名对齐 open-meteo 的返回，后面走同一套 sort / 去重 */
+const SEED_CITIES = CITY_SEED.map(([name, lat, lon]) => ({ name, lat, lon }));
+
 async function geocodeCity(kw) {
   const kw2 = String(kw || '').trim();
   if (!kw2) return [];
@@ -190,6 +262,13 @@ async function geocodeCity(kw) {
   // 「荆州」→ 再试一次「荆州市」；已经带「市」就不重复加
   let rows = await grab(kw2);
   if (!/市$/.test(kw2)) rows = rows.concat(await grab(kw2 + '市'));
+
+  /* 本地城市表兜底：在线库查不到（断网 / 接口挂了 / 生僻写法）时，
+     从内置表里按包含关系找。命中的排在最前面，弱化「没找到」的死路。 */
+  const seedHit = SEED_CITIES.filter((c) => c.name.includes(kw2) || kw2.includes(c.name))
+    .slice(0, 4)
+    .map((c) => ({ name: c.name, latitude: c.lat, longitude: c.lon, feature_code: 'PPLA2', admin1: '本地常用', population: 9e9 }));
+  if (seedHit.length) rows = seedHit.concat(rows);
 
   const BAD = new Set(['AIRP', 'ADM1', 'ADM2', 'ADM3', 'ADM4', 'PPLX', 'HSP', 'STM']);
   const rank = (r) => {
@@ -259,6 +338,9 @@ function pickCity() {
      不整页 refreshHome()，是因为整页重绘会把展开的天气预报折叠回去。 */
   const commit = (c) => {
     state.city = { name: c.name, lat: c.lat, lon: c.lon };
+    /* 换城市先把旧天气清掉：不清的话，新一次请求还没回来之前，
+       卡片上是「新城市名 + 旧温度」，已经错了一次，不能再让它显形。 */
+    state.weather = null;
     ls.set('city', state.city);
     pushRecentCity(state.city);
     s.close();
@@ -336,8 +418,18 @@ function pickCity() {
 function weatherBriefHTML() {
   const w = state.weather?.raw;
   const c = state.city;
-  if (!w) return `<div class="wxb-city">${icon('loc', 12)} ${esc(c.name)}</div>
-    <div class="wxb-main"><div class="wxb-temp">--<span class="deg">°</span></div><div class="wxb-side">天气加载中…</div></div>`;
+  /* 降级分支也必须带「选城市」和「刷新」。
+     早先这里只输出城市名，一旦天气拉不到（断网 / 接口被墙），
+     整个天气卡就只剩一行字，连切城市和重试的按钮都没有 ——
+     用户就被卡死在「北京 天气加载中」，怎么点都没用（第 8 条）。 */
+  if (!w) return `<div class="wxb-city">${icon('loc', 12)} ${esc(c.name)}
+      <button class="loc-btn" data-pick-city title="选择所在城市">${icon('loc', 10)} 选城市</button>
+      <span style="flex:1"></span>
+      <button class="icon-btn sm" data-wx-refresh title="重新加载天气">${icon('refresh', 14)}</button>
+    </div>
+    <div class="wxb-main"><div class="wxb-temp">--<span class="deg">°</span></div>
+      <div class="wxb-side"><div class="wxb-desc">天气没加载出来</div>
+        <div class="wxb-range">点右上角刷新，或换个城市试试</div></div></div>`;
   const cur = w.current; const [emo, desc] = wxInfo(cur.weather_code);
   const day = w.daily;
   const rainToday = (day.precipitation_probability_max?.[0] || 0) > 40 || cur.precipitation > 0;
@@ -362,7 +454,9 @@ function weatherHTML() {
   const c = state.city;
   if (!w) return `<div class="wx-top"><div style="flex:1">
       <div class="wx-city">${esc(c.name)} <button class="loc-btn" data-pick-city title="选择所在城市">${icon('loc', 11)} 选城市</button></div>
-      <div class="wx-desc" style="margin-top:6px">天气加载中…</div></div></div>`;
+      <div class="wx-desc" style="margin-top:6px">天气没加载出来，点右上角刷新或换个城市</div></div>
+      <span style="flex:1"></span>
+      <button class="icon-btn" data-wx-refresh title="重新加载天气">${icon('refresh', 15)}</button></div>`;
   const cur = w.current; const [emo, desc] = wxInfo(cur.weather_code);
   const day = w.daily;
   return `
@@ -489,16 +583,28 @@ function renderHome() {
   const todayCourses = d.courses.filter((c) => c.date === d.date);
 
   main.innerHTML = `
-  <div class="searchbar" id="searchbar">
+  <div class="teacher-toolbar"><div class="searchbar" id="searchbar">
     <span class="sb-ico">${icon('search', 17)}</span>
     <input id="gsearch" placeholder="搜索事项、任务、上课、出差、笔记…" autocomplete="off" enterkeyhint="search">
     <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close', 15)}</button>
     <button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search', 15)}</button>
   </div>
+  <button class="btn soft" id="teacher-layout">调整布局</button></div>
   <div class="sr-scrim" id="search-scrim" hidden></div>
   <div class="sr-panel" id="search-result" hidden></div>
 
-  <section class="card card-pad quote quote-top">
+
+  <div class="topbar">
+    <section class="card clk-card">
+      <div class="clk-hello">
+        ${homeAvatarHTML(52)}
+        <div class="clk-hello-t">
+          <div class="clk-greet" id="greet-line">${esc(g1)}</div>
+          <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
+        </div>
+        <button class="icon-btn sm" id="theme-btn" title="主题外观">${icon('sun', 17)}</button>
+      </div>
+  <section class="quote quote-top">
     <div class="qt-head">
       <div class="card-title" style="margin-bottom:0">${icon('sun', 15)} 每日一句</div>
       <span style="flex:1"></span>
@@ -515,16 +621,6 @@ function renderHome() {
     </div>
   </section>
 
-  <div class="topbar">
-    <section class="card clk-card">
-      <div class="clk-hello">
-        ${homeAvatarHTML(52)}
-        <div class="clk-hello-t">
-          <div class="clk-greet" id="greet-line">${esc(g1)}</div>
-          <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
-        </div>
-        <button class="icon-btn sm" id="theme-btn" title="主题外观">${icon('sun', 17)}</button>
-      </div>
       <div class="clock-row">
         <div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div>
         <button class="icon-btn msg-bell" data-msg title="消息中心" aria-label="消息中心">${icon('bell', 19)}
@@ -619,6 +715,10 @@ function renderHome() {
   </div>`;
 
   bindHome();
+  document.getElementById('teacher-layout').onclick = () => {
+    document.getElementById('home-grid').classList.toggle('teacher-layout-edit');
+    toast('按住卡片标题旁的拖动柄，可调整位置');
+  };
   applyLayout();
   // 每次重建 DOM 后，"上次渲染过什么"的记忆必须清掉，
   // 否则 refreshHome() 之后新节点会因为 key 没变而一直空着（周数行曾因此整行空白）
@@ -1052,6 +1152,10 @@ async function loadHomeMsgs() {
   if (!r) return;
   const n = Number(r.unread) || 0;
   state.unread = n;
+  /* 底部导航的红点由 paintUnread 统一画。以前这里只改了首页铃铛，
+     手机上「我的」那一项的红点不会跟着变——首页看到有 3 条未读，
+     点进「我的」角标却是旧的，两个数对不上。 */
+  paintUnread();
   if (!bell) return;
   let dot = bell.querySelector('.msg-bell-dot');
   if (n <= 0) { if (dot) dot.remove(); return; }
@@ -1333,7 +1437,13 @@ export function alarmEditor(rem = null, preset = null) {
     try {
       const r = await api.post('/reminders', { title, due_at: dueV, advance_min: adv, repeat: body.querySelector('#a-repeat').value, ring: body.querySelector('#a-ring').value });
       if (body.querySelector('#a-notify').checked && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-      s.close(); toast('提醒已设置'); refreshHome();
+      /* 设完立刻重排闹钟（第 38 条）：不然要等 60 秒兜底轮询才生效，
+         用户当场测「一分钟后提醒我」，看着没反应就以为坏了。 */
+      import('./alarm.js').then((m) => m.alarmAfterCreate?.()).catch(() => {});
+      s.close();
+      /* 提示里带上传定的时间：用户能立刻核对「是不是设成了明天」 */
+      toast(`提醒已设置：${fmtDateTime(dueV)}${adv ? ` 提前 ${adv} 分钟提醒` : ''}`, 'ok', 4000);
+      refreshHome();
     } catch (e) { toast(e.message, 'err'); }
   };
 }
