@@ -52,8 +52,13 @@ const nowHM = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2
 function homeAvatarHTML(size = 52) {
   const u = state.user || {};
   const first = esc((u.nickname || '师').slice(0, 1));
+  const apiBase = String(window.WB_API_BASE || location.origin);
+  const avatar = u.avatar ? new URL(u.avatar, apiBase) : null;
+  if (avatar && window.WB_API_SHARECODE && avatar.origin === new URL(apiBase, location.href).origin) {
+    avatar.searchParams.set('sharecode', window.WB_API_SHARECODE);
+  }
   const inner = u.avatar
-    ? `<img src="${esc(u.avatar)}" alt="头像" loading="lazy">`
+    ? `<img src="${esc(avatar.href)}" alt="头像" loading="eager">`
     : `<span class="ah-fallback" style="font-size:${Math.round(size * 0.4)}px">${first}</span>`;
   return `<button class="ah-btn" data-goto="me" title="个人中心" aria-label="个人中心"
     style="width:${size}px;height:${size}px">${inner}</button>`;
