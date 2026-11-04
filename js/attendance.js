@@ -233,12 +233,10 @@ function groupsHTML(list, grade) {
   const slot = (type) => {
     const ts = list.filter((t) => (t.sheet_type || t.kind) === type)
       .sort((a, b) => String(b.sheet_date || '').localeCompare(String(a.sheet_date || '')));
-    return `<div class="att-group">
-      <div class="asg-head">
-        <span class="asg-t">${TYPE_LABEL[type]}</span>
-        <span class="asg-n">${ts.length ? ts.length + ' 张' : ''}</span>
-        <span style="flex:1"></span>
-        <button class="btn ghost xs" data-newtype="${type}">${icon('plus', 13)} 新建</button>
+    return `<section class="att-group-panel" data-type-panel="${type}" ${type === 'seat' ? '' : 'hidden'}>
+      <div class="att-panel-intro">
+        <div><b>${TYPE_LABEL[type]}</b><span>${type === 'seat' ? '记录教师坐班、上课、听课、教研与请假情况' : type === 'research' ? '按学科筛选教师，记录教研出席与请假情况' : '记录教师到堂情况，支持临时借调教师'}</span></div>
+        <button class="btn primary sm" data-newtype="${type}">${icon('plus', 14)} 新建${TYPE_SHORT[type]}</button>
       </div>
       ${ts.length
         ? `<div class="asg-list">${ts.map((t) => tableCard(t)).join('')}</div>`
@@ -246,13 +244,25 @@ function groupsHTML(list, grade) {
              <div class="as-plus">${icon('plus', 20)}</div>
              <div class="as-t">还没有${TYPE_SHORT[type]}</div>
              <div class="as-s">${type === 'class'
-               ? '铺好名单，到教室门口逐个勾「按时上课」'
-               : '铺好名册名单，对着照片逐行勾'}</div>
+               ? '新建上课表，铺好名单并逐位记录到堂情况'
+               : type === 'research' ? '选择学科，筛选该学科教师并记录教研签到' : '根据花名册生成名单，开始记录教师坐班情况'}</div>
            </button>`}
-      ${ts.length ? `<button class="att-slot-mini" data-newtype="${type}">${icon('plus', 13)} 再建一张${TYPE_SHORT[type]}</button>` : ''}
-    </div>`;
+    </section>`;
   };
-  return TYPE_ORDER.map((t) => `<div class="att-group-wrap">${slot(t)}</div>`).join('');
+  const types = [
+    { key: 'seat', label: '坐班表', count: list.filter((t) => (t.sheet_type || t.kind) === 'seat').length, icon: 'building-2' },
+    { key: 'research', label: '教研表', count: list.filter((t) => (t.sheet_type || t.kind) === 'research').length, icon: 'users' },
+    { key: 'class', label: '上课表', count: list.filter((t) => (t.sheet_type || t.kind) === 'class').length, icon: 'book-open' },
+  ];
+  return `<div class="att-groups-shell">
+    <div class="att-section-heading"><div><h3>考勤记录</h3><p>三张表独立编辑、独立确认、独立导出</p></div><span class="att-grade-caption">${esc(grade)} · ${list.length} 张记录</span></div>
+    <div class="att-type-tabs" role="tablist" aria-label="考勤表类型">
+      ${types.map((t) => `<button class="att-type-tab ${t.key === 'seat' ? 'on' : ''}" role="tab" aria-selected="${t.key === 'seat' ? 'true' : 'false'}" data-type-tab="${t.key}">
+        <span class="att-type-icon">${icon(t.icon, 17)}</span><span>${t.label}</span><b>${t.count}</b>
+      </button>`).join('')}
+    </div>
+    ${types.map((t) => slot(t.key)).join('')}
+  </div>`;
 }
 
 function tableCard(t) {
@@ -296,6 +306,21 @@ function bindGroups(root, load, grade) {
      以前读 sessionStorage，切 tab 时如果没写进去（或者进了别的页面再回来），
      就会出现「看着是高二，新建出来却是高一」的表。 */
   const cur = grade || sessionStorage.getItem('wb_att_grade') || '高一';
+  root.querySelectorAll('[data-type-tab]').forEach((b) => {
+    b.onclick = () => {
+      const shell = b.closest('.att-groups-shell');
+      if (!shell) return;
+      const type = b.dataset.typeTab;
+      shell.querySelectorAll('[data-type-tab]').forEach((tab) => {
+        const active = tab === b;
+        tab.classList.toggle('on', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      shell.querySelectorAll('[data-type-panel]').forEach((panel) => {
+        panel.hidden = panel.dataset.typePanel !== type;
+      });
+    };
+  });
   root.querySelectorAll('[data-card]').forEach((c) => {
     c.onclick = (e) => {
       if (e.target.closest('button')) return;
