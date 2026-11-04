@@ -98,7 +98,7 @@ export async function renderGradeList(box) {
       <div class="agl-stat"><span class="agl-stat-icon blue">${icon('layers', 18)}</span><div><b>${tabs.length}</b><small>管理年级</small></div></div>
       <div class="agl-stat"><span class="agl-stat-icon violet">${icon('users', 18)}</span><div><b>${totalTeachers}</b><small>教师总人数</small></div></div>
       <div class="agl-stat"><span class="agl-stat-icon green">${icon('check-circle', 18)}</span><div><b>${confirmedSlots}</b><small>今日已确认表</small></div></div>
-      <div class="agl-stat"><span class="agl-stat-icon amber">${icon('clock', 18)}</span><div><b>${pendingSlots}</b><small>待确认表</small></div></div>
+      <div class="agl-stat"><span class="agl-stat-icon amber">${icon('clock', 18)}</span><div><b>${pendingSlots}</b><small>未完成表</small></div></div>
     </div>
 
     <div class="agl-section-head">
