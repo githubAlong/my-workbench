@@ -81,6 +81,24 @@ function keeper(list) {
   })[0];
 }
 
+/* ---------- 今日进度（列表页用，只要数字） ----------
+   列表页每个年级卡片上就一个「今天查了几个」，不需要整块看板。
+   判定逻辑跟看板完全一样（同一套 wantedSlots / keeper），
+   否则会出现「列表说 3/3、进去看是 2/3」这种自己打自己脸的情况。 */
+export function dayProgress({ date, grade, tables }) {
+  const slots = wantedSlots(readSeatPeriods());
+  const { byKey } = slotOf(tables, date, grade);
+  let done = 0; let built = 0; let dup = 0;
+  for (const s of slots) {
+    const list = byKey.get(dayKeyOf(date, grade, s.type, s.period)) || [];
+    if (list.length) built++;
+    if (list.length > 1) dup += list.length - 1;
+    const t = list.length ? keeper(list) : null;
+    if (t && (t.confirm_state || 'none') === 'confirmed') done++;
+  }
+  return { done, built, total: slots.length, dup };
+}
+
 /* ---------- 看板 HTML ---------- */
 export function dayBoardHTML({ date, grade, tables }) {
   const periods = readSeatPeriods();

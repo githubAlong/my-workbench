@@ -3061,8 +3061,20 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 
 /* ============ 考勤 2026-10 改版：两个 tab + Excel 优先 ============ */
 /* 年级 tab：更大、只放高一高二，切换就是换一整套表 */
-.att-head { margin-bottom: 12px; }
-.att-tabs { display: flex; gap: 8px; align-items: stretch; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+/* 详情页头部（PRD 第 4 节两级）：返回 + 当前年级 + 年级管理。
+   年级本身的操作（新建/改名/删除）在列表页，这里只留一个便捷入口。 */
+.att-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.att-back {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px;
+  height: 42px; padding: 0 12px 0 7px; border-radius: 13px;
+  background: var(--card); border: 1px solid var(--line);
+  color: var(--text-2); font-size: 13px; font-weight: 650; transition: .16s;
+}
+.att-back:hover { color: var(--primary); border-color: var(--primary); }
+.att-cur { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.att-cur b { font-size: 19px; font-weight: 750; color: var(--text); line-height: 1.2; }
+.att-cur span { font-size: 11.5px; color: var(--text-3); }
+.att-tabs { display: flex; flex: 1 1 auto; min-width: 0; gap: 8px; align-items: stretch; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .att-tabs::-webkit-scrollbar { display: none; }
 .att-tab {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
@@ -3077,6 +3089,76 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .att-tab.on .at-meta { color: rgba(255,255,255,.82); }
 .att-tab-add { width: 42px; border-radius: 14px; display: grid; place-items: center; color: var(--text-3); border: 1px dashed var(--line-2); flex: 0 0 auto; }
 .att-tab-add:hover { color: var(--primary); border-color: var(--primary); }
+.att-grade-mgr {
+  align-self: stretch; flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 6px; padding: 0 15px;
+  border-radius: 14px; background: var(--card); border: 1px solid var(--line);
+  color: var(--text-2); font-size: 13px; font-weight: 650; white-space: nowrap;
+  transition: .16s;
+}
+.att-grade-mgr:hover { color: var(--primary); border-color: var(--primary); }
+@media (max-width: 640px) {
+  .att-head { gap: 6px; }
+  .att-grade-mgr { padding: 0; width: 44px; justify-content: center; }
+  .att-grade-mgr span { display: none; }
+}
+
+/* ---------- 考勤：年级列表页（PRD 第 4 节第一层） ----------
+   一屏看完全部年级：多少人、今天查齐了没有。点卡片进详情。 */
+.agl { display: flex; flex-direction: column; gap: 14px; }
+.agl-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.agl-hint { flex: 1 1 220px; font-size: 12.5px; color: var(--text-3); line-height: 1.55; }
+/* auto-fit（不是 auto-fill）：年级只有两三个时，卡片撑开铺满，
+   不会在右边留一大片空白；年级多了自动换行。 */
+.agl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(228px, 1fr)); gap: 12px; max-width: 980px; }
+.agl-card {
+  text-align: left; font: inherit; display: flex; flex-direction: column; gap: 9px;
+  padding: 14px 15px 12px; border-radius: 16px;
+  background: var(--card); border: 1px solid var(--line);
+  transition: .16s; cursor: pointer;
+}
+.agl-card:hover { border-color: var(--primary); box-shadow: var(--shadow-m); }
+.agl-card:active { transform: scale(.995); }
+.agl-c-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agl-c-name { font-size: 17px; font-weight: 750; color: var(--text); }
+.agl-c-top .att-badge { margin-left: auto; flex: 0 0 auto; }
+.agl-c-meta { font-size: 12px; color: var(--text-2); }
+.agl-dup { color: var(--red); }
+.agl-c-bar { height: 4px; border-radius: 3px; background: var(--bg-sunken); overflow: hidden; }
+.agl-c-bar i { display: block; height: 100%; border-radius: 3px; background: var(--primary); transition: width .3s; }
+.agl-card.empty .agl-c-bar i { background: var(--line-2); }
+.agl-c-foot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-3); }
+.agl-c-go { margin-left: auto; display: inline-flex; align-items: center; gap: 1px; color: var(--primary); font-weight: 650; }
+.agl-new {
+  align-items: center; justify-content: center; gap: 3px;
+  border-style: dashed; color: var(--text-3); min-height: 122px;
+}
+.agl-new:hover { color: var(--primary); background: var(--primary-weak); }
+.agl-new:hover .agl-new-s { color: var(--primary); }
+.agl-new .agl-plus { display: grid; place-items: center; color: inherit; }
+.agl-new-t { font-size: 13.5px; font-weight: 650; }
+.agl-new-s { font-size: 11px; color: var(--text-3); }
+.agl-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 2px 2px 0; }
+.agl-danger { color: var(--red); }
+.agl-foot-note { font-size: 11px; color: var(--text-3); }
+@media (max-width: 560px) {
+  .agl-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .agl-card { padding: 12px 12px 10px; }
+  .agl-c-name { font-size: 15.5px; }
+  /* 新建年级单独占一行：两列里只放一张会半个空着，看着像没加载完 */
+  .agl-new { grid-column: 1 / -1; min-height: 88px; }
+}
+
+/* 清空数据弹层 */
+.rst-box {
+  display: flex; flex-direction: column; gap: 7px; padding: 12px 14px;
+  border-radius: 12px; background: var(--card-2); border: 1px solid var(--line);
+}
+.rst-line { font-size: 13px; color: var(--text-2); }
+.rst-line b { color: var(--red); font-size: 15px; margin-right: 2px; }
+.rst-opt { display: flex; align-items: flex-start; gap: 9px; margin: 13px 0 4px; font-size: 13px; color: var(--text); cursor: pointer; }
+.rst-opt input { margin-top: 2px; flex: 0 0 auto; }
+.rst-opt em { display: block; font-style: normal; font-size: 11.5px; color: var(--text-3); margin-top: 2px; line-height: 1.5; }
 
 .att-ops { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 

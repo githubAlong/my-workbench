@@ -106,7 +106,7 @@ registerView(async function work(main, { tab, third }) {
     timetable: ['课表', '这周几节课、哪个班、哪间教室'],
     prep: ['备课', '课前备什么、讲到哪了、下次接着讲什么'],
     repairs: ['维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底'],
-    attendance: ['考勤', '教师坐班表与学生到课，拍照就能认'],
+    attendance: ['考勤', '按年级分开管：花名册、每日三张表、统计'],
     invigilation: ['监考', '监考场次、时间、补贴，一场不漏'],
     trips: ['出差', '行程、报销、补贴，按天自动算'],
     materials: ['课件', '发给学生的那个页面：自习、教材、抽人、盲盒都在这里配'],
@@ -136,7 +136,13 @@ registerView(async function work(main, { tab, third }) {
   if (t === 'lessons') return renderLessons(body);
   if (t === 'prep') return renderPreps(body);
   if (t === 'timetable') return renderTimetable(body);
-  if (t === 'attendance') return renderAttendance(body);
+  if (t === 'attendance') {
+    /* PRD 第 4 节：两级。第三段是年级（#/work/attendance/高一），
+       没有第三段就是年级列表页。中文要解码，URL 里是 %E9%AB%98%E4%B8%80。 */
+    const grade = third ? decodeURIComponent(third) : '';
+    if (grade) headEl.innerHTML = pageHead(`考勤 · ${grade}`, '今日三张表：坐班 / 教研 / 上课，补齐后确认才生效');
+    return renderAttendance(body, { grade });
+  }
   if (t === 'invigilation') return renderInvigilation(body);
   if (t === 'trips') return renderTrips(body);
   if (t === 'repairs') {

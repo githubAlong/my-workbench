@@ -712,6 +712,39 @@ export async function deleteRow(table, id) {
   return { ok: true };
 }
 
+/* ---------------- 批量清空（考勤重置） ----------------
+
+   为什么不用 deleteRow 逐条删：
+   一年 365 × 3 张表 = 1000+ 张，逐条就要 1000+ 个请求，手机等到天亮。
+   这里按批 PATCH（PostgREST 的 limit 可以限制单次影响行数），
+   每批 500 行，直到查不到未删除的行。
+
+   为什么不真删：与前端一致，打 deleted_at。真删一旦点错就没有回头路，
+   软删至少一个月内还能从库里捞回来。 */
+async function purgeTable(table, batch = 500) {
+  const stamp = JSON.stringify({ deleted_at: new Date().toISOString() });
+  let total = 0;
+  for (let i = 0; i < 100; i++) {
+    const rows = await rest(`${table}?deleted_at=is.null&select=id&limit=${batch}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: stamp,
+    });
+    const n = Array.isArray(rows) ? rows.length : 0;
+    total += n;
+    if (n < batch) break;
+  }
+  return total;
+}
+
+/* 清空当前账号下的考勤表与明细。
+   名册（teachers）不在这张云表里，它在整库快照里，由调用方清本地后推空库。 */
+export async function purgeAttendanceCloud() {
+  const rows = await purgeTable('attendance_rows');
+  const tables = await purgeTable('attendance_tables');
+  return { rows, tables };
+}
+
 /* ---------------- 附件：原表 / 现场照片 / 课件 / 发票 ----------------
    【为什么单独写函数，而不直接用 createRow】
    三个原因，每个都踩过一次：

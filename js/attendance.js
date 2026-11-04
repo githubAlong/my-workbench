@@ -24,10 +24,12 @@
 
 import { api, el, esc, toast, sheet, saving, confirmDialog, doExport, saveBlob } from './core.js';
 import { printAttendance } from './pdfprint.js';
-import { state, icon } from './ui.js';
+import { state, icon, go } from './ui.js';
 import { readXlsx, readDelimited } from './xlsx-lite.js';
 import { parseAttendanceSheet, SUBJECT_ORDER, subjectRank, attRowState, stateLabel } from './att-parse.js';
 import { voiceSheet } from './attvoice.js';
+import { addGradeDialog, gradeManageDialog, MAIN_GRADES, gradeTabs } from './attgrade.js';
+import { renderGradeList } from './attindex.js';
 import { statsSheet } from './attstats.js';
 import { registerLiveHook } from './live.js';
 import { dayBoardHTML, bindDayBoard, ensureDay, dayKeyOf, ymd as dayStr } from './attday.js';
@@ -47,8 +49,8 @@ const TYPE_ORDER = ['seat', 'research', 'class'];
 /* 有节次概念的表类型（教研签到是按场次，没有第几节） */
 const hasPeriod = (t) => t !== 'research';
 
-/* 两个主 tab。学校的考勤只管高一高二；要加年级走「+」那个按钮。 */
-const MAIN_GRADES = ['高一', '高二'];
+/* 两个主 tab。学校的考勤只管高一高二；要加年级走「＋」那个按钮。
+   常量与排序规则在 attgrade.js，列表页和详情页共用一份。 */
 
 /* 学科固定顺序见 att-parse.js（照「高二老师坐班表」上的排法，历史在政治前面）。
    这里只保留一个转发，免得两处各写一份迟早对不上。 */
@@ -121,14 +123,24 @@ function dateChip(t) {
     <b>${esc(txt)}</b>${wd ? `<span class="apc-wd">${esc(wd)}</span>` : ''}</button>`;
 }
 
-/* ================= 入口 ================= */
-export async function renderAttendance(box) {
-  let gradesData = { grades: MAIN_GRADES.slice(), builtin: MAIN_GRADES.slice(), counts: {} };
+/* ================= 入口 =================
+ *
+ * PRD 第 4 节：年级列表页 → 年级详情页，两级。
+ * 路由第三段有年级（#/work/attendance/高一）就进详情页，没有就是年级列表。
+ *
+ * 【为什么不再用一行 tab 切年级】
+ *   以前所有年级挤在页顶一条，加第三个年级还行，加到第四个就开始横向滚动，
+ *   而且「新建 / 改名 / 删除」这些年级本身的操作没地方放，只能混在考勤操作按钮里。
+ *   现在年级的事归列表页管，进来点谁就只看谁，页面顶上是面包屑而不是 tab。
+ */
+export async function renderAttendance(box, opts = {}) {
+  const want = String(opts.grade || '').trim();
+  if (!want) return renderGradeList(box);
+
+  let activeGrade = want;
+  sessionStorage.setItem('wb_att_grade', activeGrade);
+  let gradesData = { grades: MAIN_GRADES.slice(), builtin: MAIN_GRADES.slice(), counts: {}, tabs: MAIN_GRADES.slice() };
   let tables = [];
-  /* 【为什么记忆在 sessionStorage】
-     每天查两三个年级，来回切。切走再回来能停在原来那个 tab 上，
-     不用每次重新点一遍。但关掉浏览器就回到第一个（一般是从高一查起）。 */
-  let activeGrade = sessionStorage.getItem('wb_att_grade') || '';
   /* 看板看的是哪一天。默认今天，点日期能翻到别的日子补录。 */
   let viewDate = sessionStorage.getItem('wb_att_date') || dayStr();
 
@@ -138,10 +150,13 @@ export async function renderAttendance(box) {
       api.get('/grades').catch(() => gradesData),
       api.get('/attendance'),
     ]);
-    /* 主 tab 一定是高一高二；额外的年级（万一以后有高三）排后面 */
-    const extra = (gradesData.grades || []).filter((g) => !MAIN_GRADES.includes(g));
-    gradesData.tabs = [...MAIN_GRADES, ...extra];
-    if (!activeGrade || !gradesData.tabs.includes(activeGrade)) activeGrade = gradesData.tabs[0];
+    gradesData.tabs = gradeTabs(gradesData);
+    /* 手输了一个不存在的年级：别渲染一个空壳，直接回列表 */
+    if (!gradesData.tabs.includes(activeGrade)) {
+      toast(`没有「${activeGrade}」这个年级`, 'warn');
+      go('work/attendance');
+      return;
+    }
     paint();
   };
 
@@ -161,25 +176,20 @@ export async function renderAttendance(box) {
   };
 
   const paint = () => {
-    const gradeList = gradesData.tabs;
     const gradeTables = (g) => tables.filter((t) => (t.grade || '高一') === g);
     const roster = gradesData.counts || {};
+    const mine = gradeTables(activeGrade);
 
     box.innerHTML = `
       <div class="att-head">
-        <div class="att-tabs" role="tablist">
-          ${gradeList.map((g) => {
-            const ts = gradeTables(g);
-            const on = g === activeGrade;
-            const nSeat = ts.filter((t) => t.sheet_type === 'seat').length;
-            const nRes = ts.filter((t) => t.sheet_type === 'research').length;
-            return `<button class="att-tab${on ? ' on' : ''}" data-grade="${esc(g)}" role="tab">
-              <span class="at-name">${esc(g)}</span>
-              <span class="at-meta">${roster[g] ? roster[g] + ' 位老师' : '名册未录入'} · ${nSeat + nRes} 张表</span>
-            </button>`;
-          }).join('')}
-          <button class="att-tab-add" id="att-add-grade" title="添加年级">${icon('plus', 15)}</button>
+        <button class="att-back" id="att-back" title="返回年级列表">${icon('left', 16)}<span>年级</span></button>
+        <div class="att-cur">
+          <b>${esc(activeGrade)}</b>
+          <span>${roster[activeGrade] ? roster[activeGrade] + ' 位老师' : '名册未录入'} · ${mine.length} 张表</span>
         </div>
+        <button class="att-grade-mgr" id="att-grade-mgr" title="年级管理：新建、改名、删除">
+          ${icon('grid', 15)}<span>年级管理</span>
+        </button>
       </div>
 
       ${dayBoardHTML({ date: viewDate, grade: activeGrade, tables: gradeTables(activeGrade) })}
@@ -189,7 +199,6 @@ export async function renderAttendance(box) {
         <button class="btn ghost sm" id="att-new">${icon('plus', 15)} 手填新建</button>
         <button class="btn ghost sm" id="att-roster">${icon('users', 15)} ${esc(activeGrade)}老师名册</button>
         <button class="btn ghost sm" id="att-stats">${icon('chart', 15)} 统计表</button>
-        <button class="btn ghost sm" id="att-grade-mgr">${icon('grid', 15)} 年级管理</button>
         <button class="btn ghost sm" id="att-expset" title="导出水印设置">${icon('edit', 15)} 导出设置</button>
         <span style="flex:1"></span>
         <span class="tiny muted hide-sm">录入：铺名单勾 / 传 Excel / 语音 / 纸表照片</span>
@@ -197,21 +206,13 @@ export async function renderAttendance(box) {
 
       <div class="att-groups" id="att-groups">${groupsHTML(gradeTables(activeGrade), activeGrade)}</div>`;
 
+    box.querySelector('#att-back').onclick = () => go('work/attendance');
     box.querySelector('#att-upload').onclick = () => uploadDialog(activeGrade, load);
     box.querySelector('#att-new').onclick = () => newSheetDialog(activeGrade, load);
     box.querySelector('#att-roster').onclick = () => rosterSheet(activeGrade, load);
     box.querySelector('#att-stats').onclick = () => statsSheet(activeGrade);
     box.querySelector('#att-grade-mgr').onclick = () => gradeManageDialog(load, load);
     box.querySelector('#att-expset').onclick = () => exportSettingDialog();
-    box.querySelector('#att-add-grade').onclick = () => addGradeDialog(load);
-    box.querySelectorAll('[data-grade]').forEach((b) => {
-      b.onclick = () => {
-        activeGrade = b.dataset.grade;
-        sessionStorage.setItem('wb_att_grade', activeGrade);
-        paint();
-        autoEnsure();
-      };
-    });
     bindGroups(box, load, activeGrade);
     bindDayBoard(box, {
       date: viewDate,
@@ -323,89 +324,6 @@ function bindGroups(root, load, grade) {
       }
     };
   });
-}
-
-function addGradeDialog(reload) {
-  const body = el(`<div class="sheet-body">
-    <div class="field"><label class="field-label">年级名称</label>
-      <input class="input" id="gname">
-      <div class="field-hint">内置「高一」「高二」，需要别的年级（比如高三）时在这里加。</div></div>
-    <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">添加</button></div>
-  </div>`);
-  const s = sheet({ title: '添加年级', body });
-  body.querySelector('#c').onclick = s.close;
-  body.querySelector('#k').onclick = async () => {
-    const name = body.querySelector('#gname').value.trim();
-    if (!name) return toast('请填写年级名', 'warn');
-    try { await api.post('/grades', { name }); s.close(); toast('已添加'); reload(); }
-    catch (e) { toast(e.message, 'err'); }
-  };
-}
-
-/* 年级管理（FR-GRADE-2/3）：改名、删除。
-   每个年级是独立数据空间，改名会把名册和考勤表一起迁过去；
-   删除是软删（进回收站），提示里要说清楚会影响什么。 */
-async function gradeManageDialog(reload, onChanged) {
-  let data = await api.get('/grades').catch(() => ({ grades: [], counts: {} }));
-  const body = el(`<div class="sheet-body" id="gm-body"></div>`);
-  const s = sheet({ title: '年级管理', body, wide: true });
-  const paint = () => {
-    const list = data.grades || [];
-    body.innerHTML = `<div class="gm-list">
-      ${list.map((g) => `<div class="gm-row" data-g="${esc(g)}">
-        <input class="input gm-name" value="${esc(g)}" aria-label="年级名称">
-        <span class="gm-meta">${data.counts?.[g] ?? 0} 位老师</span>
-        <button class="btn ghost sm" data-rename="${esc(g)}">改名</button>
-        <button class="btn ghost sm danger" data-del="${esc(g)}">删除</button>
-      </div>`).join('')}
-    </div>
-    <div class="att-tip-note" style="margin-top:12px">
-      每个年级的花名册、三张考勤表、统计表都是独立的。改名会把该年级的名册和考勤表一起改过去；删除会连带删掉这些数据（进回收站，可从回收站找回）。
-    </div>
-    <div class="confirm-actions">
-      <button class="btn ghost" id="gm-add">＋ 新建年级</button>
-      <button class="btn primary" id="gm-close">关闭</button>
-    </div>`;
-    body.querySelectorAll('[data-rename]').forEach((b) => {
-      b.onclick = async () => {
-        const old = b.dataset.rename;
-        const row = b.closest('.gm-row');
-        const name = String(row.querySelector('.gm-name').value || '').trim();
-        if (!name) return toast('年级名不能为空', 'warn');
-        if (name === old) return toast('名字没变', 'warn');
-        try {
-          const r = await api.patch('/grades/' + encodeURIComponent(old), { name });
-          toast(`已改名为「${name}」，${r?.migrated?.teachers ?? 0} 位老师、${r?.migrated?.tables ?? 0} 张表一起迁过去了`, 'ok', 4200);
-          await refresh();
-          onChanged?.();
-        } catch (e) { toast(e.message || '改名失败', 'err'); }
-      };
-    });
-    body.querySelectorAll('[data-del]').forEach((b) => {
-      b.onclick = async () => {
-        const g = b.dataset.del;
-        const n = data.counts?.[g] ?? 0;
-        const ok = await confirmDialog(
-          `删除「${g}」？该年级下的 ${n} 位老师、所有考勤表与统计数据会一并删除（可从回收站找回）。`,
-          { title: '删除年级', okText: '删除', danger: true },
-        );
-        if (!ok) return;
-        try {
-          const r = await api.del('/grades/' + encodeURIComponent(g));
-          toast(`已删除「${g}」：${r?.deleted?.teachers ?? 0} 位老师、${r?.deleted?.tables ?? 0} 张表`, 'ok', 4200);
-          await refresh();
-          onChanged?.();
-        } catch (e) { toast(e.message || '删除失败', 'err'); }
-      };
-    });
-    body.querySelector('#gm-add').onclick = () => { s.close(); addGradeDialog(() => { reload?.(); onChanged?.(); }); };
-    body.querySelector('#gm-close').onclick = s.close;
-  };
-  const refresh = async () => {
-    data = await api.get('/grades').catch(() => data);
-    paint();
-  };
-  paint();
 }
 
 
