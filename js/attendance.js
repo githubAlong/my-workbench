@@ -396,8 +396,7 @@ export async function renderAttendance(box, opts = {}) {
         <div class="att-work-meta-controls">
           <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
           <label>时间段 <select class="input" id="att-work-time-range"><option value="全天">全天</option><option value="上午">上午</option><option value="下午">下午</option></select></label>
-          ${activeTab === 'research' || isRoster ? '' : `<label>节次 <select class="input" id="att-work-period">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" ${String(p) === selectedPeriod ? 'selected' : ''}>第 ${p} 节</option>`).join('')}</select></label>
-          <label class="att-work-period-manual">手动输入 <input class="input" id="att-work-period-manual" type="number" min="1" max="9" step="1" value="${selectedPeriod}" inputmode="numeric"></label>`}
+          ${activeTab === 'research' || isRoster ? '' : `<label>节次 <input class="input" id="att-work-period" type="number" min="1" max="9" step="1" list="att-work-period-options" value="${esc(selectedPeriod)}" inputmode="numeric" aria-label="选择或输入节次"><datalist id="att-work-period-options">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" label="第 ${p} 节"></option>`).join('')}</datalist></label>`}
           <span class="att-work-meta-hint">日期、时间段和节次可手动调整</span>
         </div>
         <nav class="att-work-tabs">
@@ -435,17 +434,22 @@ export async function renderAttendance(box, opts = {}) {
     rangeSelect?.addEventListener('change', (e) => { timeRange = e.target.value; sessionStorage.setItem('wb_att_time_range', timeRange); if (detail) { detail.meta = { ...(detail.meta || {}), time_range: timeRange }; dirty = true; } });
     const changePeriod = async (value) => {
       const n = Number(value);
-      if (!Number.isInteger(n) || n < 1 || n > 9) { toast('节次请输入 1～9 的整数', 'warn'); const manual = box.querySelector('#att-work-period-manual'); if (manual) manual.value = selectedPeriod; return; }
-      selectedPeriod = String(n); sessionStorage.setItem('wb_att_period', selectedPeriod);
-      const sel = box.querySelector('#att-work-period'), manual = box.querySelector('#att-work-period-manual');
-      if (sel) sel.value = selectedPeriod; if (manual) manual.value = selectedPeriod;
+      if (!Number.isInteger(n) || n < 1 || n > 9) {
+        toast('节次请输入 1～9 的整数', 'warn');
+        const periodInput = box.querySelector('#att-work-period');
+        if (periodInput) periodInput.value = selectedPeriod;
+        return;
+      }
+      selectedPeriod = String(n);
+      sessionStorage.setItem('wb_att_period', selectedPeriod);
+      const periodInput = box.querySelector('#att-work-period');
+      if (periodInput) periodInput.value = selectedPeriod;
       if (activeTab === 'seat' || activeTab === 'class') {
         try { await load({ makeToday:false }); }
         catch (err) { toast(err.message || '切换节次失败', 'err'); }
       }
     };
     box.querySelector('#att-work-period')?.addEventListener('change', e => changePeriod(e.target.value));
-    box.querySelector('#att-work-period-manual')?.addEventListener('change', e => changePeriod(e.target.value));
     const shiftDate = (n) => { const d = new Date(`${viewDate}T00:00:00`); d.setDate(d.getDate() + n); viewDate = ymd(d); load({ makeToday: viewDate === dayStr() }); };
     box.querySelector('#att-work-prev').onclick = () => shiftDate(-1);
     box.querySelector('#att-work-next').onclick = () => shiftDate(1);
