@@ -2,6 +2,22 @@
 
 静态 Web 工作台，当前部署于 GitHub Pages。登录使用 Supabase Auth 手机号 + 密码。可选的腾讯云短信 Auth Hook 配置见下文。
 
+## 开发与发布
+
+- `dev`：日常开发分支，所有提交先落在这里并推送。
+- `master`：生产分支，GitHub Pages 从它的根目录发布；只接受从 `dev` 合并进来的代码。
+- 因此在 `dev` 上怎么推都不会影响线上，自测通过后再发布。
+
+```bash
+git checkout dev                  # 开发
+git commit -am "..." && git push  # 推 dev，线上不变
+
+./scripts/release.sh -n           # 先看这次要发布哪些提交（dry-run）
+./scripts/release.sh              # 合并 dev → master 并推送，自动切回 dev
+```
+
+`scripts/install-hooks.sh` 会启用 `scripts/git-hooks/pre-commit`（通过 `core.hooksPath`，不复制文件）：在 `master` 上直接提交会被拦下，改了 `js/` 却没动 `sw.js` 缓存版本会给提醒。新克隆仓库后执行一次即可。
+
 ## 手机号登录配置
 
 在 Supabase Dashboard 的 Authentication 设置中：
