@@ -740,7 +740,6 @@ function authPassword() {
       placeholder="手机号" maxlength="11"></div>
     <div class="auth-input"><input id="pwd" type="password" autocomplete="${isReg ? 'new-password' : 'current-password'}"
       placeholder="${isReg ? '设置密码（至少 8 位）' : '密码'}" maxlength="72"></div>
-    ${isReg ? '<div class="auth-input"><input id="pwd2" type="password" autocomplete="new-password" placeholder="再输一遍密码" maxlength="32"></div>' : ''}
     <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册并登录' : '登录'}</button>
     <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6"></div>
     <div class="small muted" style="margin-top:6px;line-height:1.6">
@@ -758,10 +757,6 @@ function authPassword() {
     const pwd = document.getElementById('pwd').value;
     if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的 11 位手机号', 'warn');
     if (!pwd || (isReg && pwd.length < 8)) return toast(isReg ? '密码至少 8 位' : '请填写密码', 'warn');
-    if (isReg) {
-      const pwd2 = document.getElementById('pwd2').value;
-      if (pwd !== pwd2) return toast('两次输入的密码不一致', 'warn');
-    }
     const btn = document.getElementById('do-login');
     btn.disabled = true; btn.textContent = isReg ? '注册中…' : '登录中…';
 
