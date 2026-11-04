@@ -255,27 +255,27 @@ export async function renderAttendance(box, opts = {}) {
     const pcols = periodCols();
     const rows = visibleRows();
     const rosterRows = visibleRoster();
-    const rosterHTML = \`<div class="att-work-table-scroll"><table class="att-work-table aw-roster-table">
+    const rosterHTML = `<div class="att-work-table-scroll"><table class="att-work-table aw-roster-table">
       <thead><tr><th>序号</th><th>姓名</th><th>学科</th></tr></thead>
-      <tbody>\${rosterRows.map((r, i) => \`<tr><td>\${i + 1}</td><td class="aw-name">\${esc(r.name || '')}</td><td>\${esc(r.subject || '未填学科')}</td></tr>\`).join('')}</tbody>
-    </table></div>\${rosterRows.length ? '' : \`<div class="att-work-empty"><b>暂无教师名单</b><p>请先导入或维护本年级花名册。</p></div>\`}\`;
+      <tbody>${rosterRows.map((r, i) => `<tr><td>${i + 1}</td><td class="aw-name">${esc(r.name || '')}</td><td>${esc(r.subject || '未填学科')}</td></tr>`).join('')}</tbody>
+    </table></div>${rosterRows.length ? '' : `<div class="att-work-empty"><b>暂无教师名单</b><p>请先导入或维护本年级花名册。</p></div>`}`;
     const lockedSeat = activeTab === 'seat' && !classConfirmedToday && !detail;
-    const tableHTML = isRoster ? rosterHTML : detail ? \`
+    const tableHTML = isRoster ? rosterHTML : detail ? `
       <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table">
-        <thead><tr><th>序号</th><th>姓名</th><th>学科</th>\${(detail.columns || []).map((col) => \`<th>\${esc(col.label)}</th>\`).join('')}</tr></thead>
-        <tbody>\${rows.map((r) => {
+        <thead><tr><th>序号</th><th>姓名</th><th>学科</th>${(detail.columns || []).map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map((r) => {
           const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id));
-          return \`<tr data-row="\${ix}"><td>\${ix + 1}</td><td class="aw-name">\${esc(r.teacher || '')}\${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>\${esc(r.subject || '—')}</td>
-            \${(detail.columns || []).map((col) => col.type === 'check'
-              ? \`<td class="aw-check-cell"><button class="aw-mark aw-big-mark \${r.data?.[col.key] === '1' ? 'on' : ''}" data-row="\${ix}" data-key="\${esc(col.key)}" aria-label="\${esc(col.label)}">\${r.data?.[col.key] === '1' ? '✓' : ''}</button></td>\`
-              : \`<td><input class="aw-cell-input" data-cell-input data-row="\${ix}" data-key="\${esc(col.key)}" value="\${esc(r.data?.[col.key] || '')}" placeholder="—"></td>\`).join('')}
-          </tr>\`;
+          return `<tr data-row="${ix}"><td>${ix + 1}</td><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>${esc(r.subject || '—')}</td>
+            ${(detail.columns || []).map((col) => col.type === 'check'
+              ? `<td class="aw-check-cell"><button class="aw-mark aw-big-mark ${r.data?.[col.key] === '1' ? 'on' : ''}" data-row="${ix}" data-key="${esc(col.key)}" aria-label="${esc(col.label)}">${r.data?.[col.key] === '1' ? '✓' : ''}</button></td>`
+              : `<td><input class="aw-cell-input" data-cell-input data-row="${ix}" data-key="${esc(col.key)}" value="${esc(r.data?.[col.key] || '')}" placeholder="—"></td>`).join('')}
+          </tr>`;
         }).join('')}</tbody>
-      </table></div>\` : lockedSeat ? \`
+      </table></div>` : lockedSeat ? `
       <div class="att-work-locked-note">请先在「上课表」完成勾选并点击「确认生成」。确认后，系统才会生成正式坐班表。</div>
-      <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table"><thead><tr><th>序号</th><th>姓名</th><th>学科</th>\${seatCols().map((col) => \`<th>\${esc(col.label)}</th>\`).join('')}</tr></thead>
-      <tbody>\${roster.filter((r) => r.active).map((r, i) => \`<tr><td>\${i + 1}</td><td class="aw-name">\${esc(r.name || '')}</td><td>\${esc(r.subject || '—')}</td>\${seatCols().map(() => '<td class="aw-check-cell"><button class="aw-mark aw-big-mark" disabled></button></td>').join('')}</tr>\`).join('')}</tbody></table></div>\` : \`
-      <div class="att-work-empty"><b>当前表格暂时无法显示</b><p>请检查本年级花名册，或重新加载数据。</p><button class="btn primary sm" id="att-work-create">生成草稿表</button></div>\`;
+      <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table"><thead><tr><th>序号</th><th>姓名</th><th>学科</th>${seatCols().map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>
+      <tbody>${roster.filter((r) => r.active).map((r, i) => `<tr><td>${i + 1}</td><td class="aw-name">${esc(r.name || '')}</td><td>${esc(r.subject || '—')}</td>${seatCols().map(() => '<td class="aw-check-cell"><button class="aw-mark aw-big-mark" disabled></button></td>').join('')}</tr>`).join('')}</tbody></table></div>` : `
+      <div class="att-work-empty"><b>当前表格暂时无法显示</b><p>请检查本年级花名册，或重新加载数据。</p><button class="btn primary sm" id="att-work-create">生成草稿表</button></div>`;
 
     box.innerHTML = `
       <div class="att-work-shell">
