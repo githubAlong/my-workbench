@@ -340,3 +340,21 @@
  .att-work-toolbar .aw-search{width:min(190px,48vw)}
  .att-work-tabs{gap:22px}
 }
+
+
+/* 日期、时间段与 1-9 节次：直接在表格上方选择，不再进入编辑弹窗 */
+.att-work-meta-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:-3px 0 14px;padding:10px 12px;border:1px solid #e0e9f6;border-radius:11px;background:linear-gradient(100deg,#f7faff,#fff)}
+.att-work-meta-controls label{display:flex;align-items:center;gap:7px;color:#40516d;font-size:12px;font-weight:650;white-space:nowrap}
+.att-work-meta-controls .input{height:34px;min-width:94px;padding:0 10px;border:1px solid #d8e2f0;border-radius:8px;background:#fff;color:#1f304d;font-size:12px}
+.att-work-meta-controls #att-work-period{min-width:108px}
+.att-work-meta-controls .att-work-period-manual input{width:78px;min-width:78px}
+.att-work-meta-hint{margin-left:auto;color:#8795aa;font-size:11px}
+.aw-period-group{background:#e8f2ff!important;color:#174d9c!important;font-weight:800}
+.aw-period-head{background:#f3f7fd!important;font-size:12px!important;white-space:nowrap}
+.att-work-sheet-table th[rowspan="2"]{vertical-align:middle}
+@media(max-width:680px){
+ .att-work-meta-controls{gap:8px;padding:9px}
+ .att-work-meta-controls label{font-size:11px}
+ .att-work-meta-hint{width:100%;margin-left:0}
+ .att-work-meta-controls .input{min-width:82px}
+}
