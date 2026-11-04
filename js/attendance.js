@@ -140,7 +140,7 @@ export async function renderAttendance(box, opts = {}) {
   let activeGrade = want;
   sessionStorage.setItem('wb_att_grade', activeGrade);
   let viewDate = sessionStorage.getItem('wb_att_date') || dayStr();
-  let activeTab = ['seat', 'research', 'class'].includes(sessionStorage.getItem('wb_att_tab')) ? sessionStorage.getItem('wb_att_tab') : 'class';
+  let activeTab = ['roster', 'seat', 'research', 'class'].includes(sessionStorage.getItem('wb_att_tab')) ? sessionStorage.getItem('wb_att_tab') : 'roster';
   let gradesData = { grades: [], counts: {}, tabs: MAIN_GRADES.slice() };
   let tables = [];
   let roster = [];
@@ -219,6 +219,11 @@ export async function renderAttendance(box, opts = {}) {
     return (!q || `${r.teacher} ${r.subject || ''}`.toLowerCase().includes(q))
       && (!subjectFilter || (r.subject || '未填学科') === subjectFilter);
   });
+  const visibleRoster = () => roster.filter((r) => {
+    const q = searchText.trim().toLowerCase();
+    return (!q || `${r.name || ''} ${r.subject || ''}`.toLowerCase().includes(q))
+      && (!subjectFilter || (r.subject || '未填学科') === subjectFilter);
+  });
   const rowLeaveText = (r) => {
     const lv = r.data?.__leave;
     if (lv) {
@@ -240,6 +245,7 @@ export async function renderAttendance(box, opts = {}) {
 
   const paint = () => {
     const st = stats();
+    const isRoster = activeTab === 'roster';
     const subjects = [...new Set(roster.filter((r) => r.active).map((r) => r.subject || '未填学科'))].sort((a, b) => subjectRank(a) - subjectRank(b));
     const type = typeForTab[activeTab];
     const todays = listFor(type);
@@ -247,7 +253,12 @@ export async function renderAttendance(box, opts = {}) {
     const isClass = activeTab === 'class';
     const pcols = periodCols();
     const rows = visibleRows();
-    const tableHTML = detail && isClass ? `
+    const rosterRows = visibleRoster();
+    const rosterHTML = `<div class="att-work-table-scroll"><table class="att-work-table aw-roster-table">
+      <thead><tr><th>序号</th><th>姓名</th><th>学科</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>${rosterRows.map((r, i) => `<tr><td>${i + 1}</td><td class="aw-name">${esc(r.name || '')}</td><td><span class="aw-subject-chip">${esc(r.subject || '未填学科')}</span></td><td><span class="aw-status ${r.active ? 'on' : 'off'}">${r.active ? '在册' : '已调出'}</span></td><td><button class="btn ghost xs" data-roster-manage="${esc(r.id)}">管理</button></td></tr>`).join('')}</tbody>
+    </table></div>${rosterRows.length ? '' : `<div class="att-work-empty"><b>没有找到教师</b><p>请调整搜索内容或学科筛选条件。</p></div>`}`;
+    const tableHTML = isRoster ? rosterHTML : detail && isClass ? `
       <div class="att-work-table-scroll"><table class="att-work-table">
         <thead><tr><th>姓名</th><th>学科</th>${pcols.map((c) => `<th>${esc(c.label)}</th>`).join('')}<th>请假信息</th><th>操作</th></tr></thead>
         <tbody>${rows.map((r) => {
@@ -281,9 +292,9 @@ export async function renderAttendance(box, opts = {}) {
           <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
         </div>
         <nav class="att-work-tabs">
-          <button data-tab="roster">花名册</button><button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button><button data-tab="stats">统计表</button>
+          <button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button><button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button><button data-tab="stats">统计表</button>
         </nav>
-        <div class="att-work-stats">
+        ${isRoster ? '' : `<div class="att-work-stats">
           <div class="aw-stat"><span>应到教师</span><b>${st.total || roster.filter((x) => x.active).length}</b><small>人</small></div>
           <div class="aw-stat blue"><span>已上课</span><b>${st.checked}</b><small>人</small></div>
           <div class="aw-stat amber"><span>请假</span><b>${st.leave}</b><small>人</small></div>
@@ -307,7 +318,6 @@ export async function renderAttendance(box, opts = {}) {
 
     box.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => {
       const tab = b.dataset.tab;
-      if (tab === 'roster') return rosterSheet(activeGrade, () => load());
       if (tab === 'stats') return statsSheet(activeGrade);
       activeTab = tab; sessionStorage.setItem('wb_att_tab', tab); searchText = ''; subjectFilter = ''; load({ makeToday: false });
     });
@@ -319,10 +329,11 @@ export async function renderAttendance(box, opts = {}) {
     box.querySelector('#att-work-today').onclick = () => { viewDate = dayStr(); load(); };
     box.querySelector('#att-work-subject').onchange = (e) => { subjectFilter = e.target.value; paint(); };
     box.querySelector('#att-work-search').oninput = (e) => { searchText = e.target.value; const pos = e.target.selectionStart; paint(); const q = box.querySelector('#att-work-search'); q.focus(); q.setSelectionRange(pos, pos); };
-    box.querySelector('#att-work-photo').onclick = () => uploadDialog(activeGrade, () => load());
-    box.querySelector('#att-work-voice').onclick = () => detail ? openTable(detail.id, () => load()) : toast('请先生成当天考勤表', 'warn');
-    box.querySelector('#att-work-add').onclick = () => detail ? openTable(detail.id, () => load()) : toast('请先生成当天考勤表', 'warn');
-    box.querySelector('#att-work-export').onclick = () => { const m = box.querySelector('#att-work-export-menu'); m.hidden = !m.hidden; };
+    box.querySelector('#att-work-photo').onclick = () => isRoster ? rosterPhotoDialog(activeGrade, () => load()) : uploadDialog(activeGrade, () => load());
+    box.querySelector('#att-work-voice')?.addEventListener('click', () => detail ? openTable(detail.id, () => load()) : toast('请先生成当天考勤表', 'warn'));
+    box.querySelector('#att-work-add').onclick = () => isRoster ? rosterSheet(activeGrade, () => load()) : detail ? openTable(detail.id, () => load()) : toast('请先生成当天考勤表', 'warn');
+    box.querySelectorAll('[data-roster-manage]').forEach((b) => b.onclick = () => rosterSheet(activeGrade, () => load()));
+    box.querySelector('#att-work-export')?.addEventListener('click', () => { const m = box.querySelector('#att-work-export-menu'); if (m) m.hidden = !m.hidden; });
     const watermarkToggle = box.querySelector('#att-work-watermark');
     if (watermarkToggle) {
       watermarkToggle.checked = attExportSetting().on;
