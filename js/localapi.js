@@ -852,7 +852,7 @@ function defaultCols(kind) {
   }
   if (kind === 'class') {
     return [
-      { key: 'k_准时', label: '按时上课', type: 'check', w: 96 },
+      ...Array.from({ length: 4 }, (_, i) => ({ key: `k_p${i + 1}`, label: `第${i + 1}节`, type: 'check', w: 66 })),
       { key: 'k_请假', label: '请假', type: 'check', w: 62 },
       { key: 'k_remark', label: '备注', type: 'text', w: 150 },
     ];
@@ -2434,7 +2434,7 @@ on('PATCH', '/attendance/:id', ({ params, body }) => {
   if (body?.columns) t.columns = JSON.stringify(body.columns);
   if (body?.meta) t.meta = JSON.stringify(body.meta);
   /* 确认过又改了表头（日期/节次/列），状态回「已修改·待确认」 */
-  if (t.confirmed_at) {
+  if (t.confirmed_at && !body?.migration) {
     const same = (k) => {
       if (k === 'columns') return JSON.stringify(attCols(before)) === JSON.stringify(attCols(t));
       return String(before[k] ?? '') === String(t[k] ?? '');
@@ -4485,12 +4485,14 @@ async function cloudRoute(method, clean, query, body) {
          前端每次保存都会顺手 PATCH 一次 {columns}（列定义随保存一起落库），
          按"传了就算改"判断的话，确认完随便点个保存就变成待重新确认了。 */
       const prev = await m.getRow('attendance_tables', decodeURIComponent(second));
+      const migration = patch.migration === true;
+      delete patch.migration;
       if (prev) {
         const pm = safeJSON(prev.meta, {});
         const norm = (k, v) => (k === 'columns' ? JSON.stringify(attCols({ columns: v })) : String(v ?? ''));
         const touchedKeys = ['columns', 'sheet_date', 'weekday', 'periods', 'grade', 'name']
           .filter((k) => k in patch && norm(k, patch[k]) !== norm(k, prev[k]));
-        if (pm.confirmed_at && touchedKeys.length) {
+        if (!migration && pm.confirmed_at && touchedKeys.length) {
           patch.meta = { ...pm, confirm_dirty: 1 };
         }
       }

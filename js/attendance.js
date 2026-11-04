@@ -32,7 +32,7 @@ import { addGradeDialog, gradeManageDialog, MAIN_GRADES, gradeTabs } from './att
 import { renderGradeList } from './attindex.js';
 import { statsSheet } from './attstats.js';
 import { registerLiveHook } from './live.js';
-import { dayBoardHTML, bindDayBoard, ensureDay, dayKeyOf, ymd as dayStr } from './attday.js';
+import { dayBoardHTML, bindDayBoard, ensureDay, createSlot, dayKeyOf, ymd as dayStr } from './attday.js';
 
 const WD = ['日', '一', '二', '三', '四', '五', '六'];
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -79,7 +79,7 @@ function researchCols() {
 /* 查上课：按时上课 + 请假 + 备注 */
 function classCols() {
   return [
-    { key: 'k_准时', label: '按时上课', type: 'check', w: 96 },
+    ...Array.from({ length: 4 }, (_, i) => ({ key: `k_p${i + 1}`, label: `第${i + 1}节`, type: 'check', w: 66 })),
     { key: 'k_请假', label: '请假', type: 'check', w: 62 },
     { key: 'k_remark', label: '备注', type: 'text', w: 150 },
   ];
@@ -134,96 +134,268 @@ function dateChip(t) {
  *   现在年级的事归列表页管，进来点谁就只看谁，页面顶上是面包屑而不是 tab。
  */
 export async function renderAttendance(box, opts = {}) {
-  const want = String(opts.grade || '').trim();
-  if (!want) return renderGradeList(box);
-
-  let activeGrade = want;
-  sessionStorage.setItem('wb_att_grade', activeGrade);
-  let gradesData = { grades: MAIN_GRADES.slice(), builtin: MAIN_GRADES.slice(), counts: {}, tabs: MAIN_GRADES.slice() };
-  let tables = [];
-  /* 看板看的是哪一天。默认今天，点日期能翻到别的日子补录。 */
+  let activeGrade = String(opts.grade || sessionStorage.getItem('wb_att_grade') || '高一').trim();
   let viewDate = sessionStorage.getItem('wb_att_date') || dayStr();
+  let activeTab = ['seat', 'research', 'class'].includes(sessionStorage.getItem('wb_att_tab')) ? sessionStorage.getItem('wb_att_tab') : 'class';
+  let gradesData = { grades: [], counts: {}, tabs: MAIN_GRADES.slice() };
+  let tables = [];
+  let roster = [];
+  let detail = null;
+  let dirty = false;
+  let searchText = '';
+  let subjectFilter = '';
+  let busy = false;
 
-  const load = async (d) => {
-    if (d) { viewDate = d; sessionStorage.setItem('wb_att_date', d); }
-    [gradesData, tables] = await Promise.all([
-      api.get('/grades').catch(() => gradesData),
-      api.get('/attendance'),
-    ]);
-    gradesData.tabs = gradeTabs(gradesData);
-    /* 手输了一个不存在的年级：别渲染一个空壳，直接回列表 */
-    if (!gradesData.tabs.includes(activeGrade)) {
-      toast(`没有「${activeGrade}」这个年级`, 'warn');
-      go('work/attendance');
-      return;
-    }
-    paint();
+  const typeForTab = { seat: 'seat', research: 'research', class: 'class' };
+  const tabTitle = { seat: '坐班考勤表', research: '教研考勤表', class: '上课考勤表' };
+  const dateLabel = (v) => {
+    const d = new Date(`${v}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? v : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  };
+  const listFor = (type) => tables.filter((t) => (t.grade || '高一') === activeGrade
+    && String(t.sheet_date || '') === viewDate && (t.sheet_type || t.kind) === type && !t.deleted_at);
+  const getPeriodCols = (t) => {
+    const cols = (t?.columns || []).filter((c) => c.type === 'check' && /^第\s*\d+\s*节/.test(c.label || ''));
+    if (cols.length) return cols.sort((a, b) => Number((a.label.match(/\d+/) || [0])[0]) - Number((b.label.match(/\d+/) || [0])[0]));
+    const legacy = (t?.columns || []).find((c) => c.key === 'k_准时' || /按时上课/.test(c.label || ''));
+    return legacy ? [{ ...legacy, label: '第1节' }] : [];
   };
 
-  /* 惰性生成（PRD FR-DAY-1）：进页面时看今天这组在不在，不在就补。
-     一个浏览器一天只自动补一次，剩下的靠看板上那个「补齐这组」，
-     免得每次切 tab 都发一轮请求。失败不打扰用户 —— 看板上会显示「未生成」。 */
-  const autoEnsure = async () => {
-    const key = `wb_att_ensured_${viewDate}_${activeGrade}`;
-    if (viewDate !== dayStr() || sessionStorage.getItem(key)) return;
-    /* 名册空的年级不自动建表：建出来也是三张空表，不如让老师先去录名册 */
-    if (!(gradesData.counts?.[activeGrade] > 0)) return;
-    sessionStorage.setItem(key, '1');
+  const ensureClassColumns = async (t) => {
+    if (!t || (t.sheet_type || t.kind) !== 'class') return t;
+    const old = t.columns || [];
+    const periods = getPeriodCols(t);
+    if (periods.length >= 4) return t;
+    const legacy = old.find((c) => c.key === 'k_准时' || /按时上课/.test(c.label || ''));
+    const next = old.filter((c) => c.key !== 'k_准时' && !/^第\s*\d+\s*节/.test(c.label || ''));
+    const periodDefs = Array.from({ length: 4 }, (_, i) => {
+      if (i === 0 && legacy) return { ...legacy, label: '第1节', w: 66 };
+      return { key: `k_p${i + 1}`, label: `第${i + 1}节`, type: 'check', w: 66 };
+    });
+    const leave = old.find((c) => /请假/.test(c.label || '')) || { key: 'k_请假', label: '请假', type: 'check', w: 62 };
+    const remark = old.find((c) => c.type !== 'check') || { key: 'k_remark', label: '备注', type: 'text', w: 150 };
+    const merged = [...periodDefs, leave, remark];
+    await api.patch(`/attendance/${t.id}`, { columns: merged, migration: true });
+    return { ...t, columns: merged };
+  };
+
+  const load = async ({ makeToday = true } = {}) => {
+    if (busy) return;
+    busy = true;
     try {
-      const n = await ensureDay({ date: viewDate, grade: activeGrade });
-      if (n) { toast(`今天 ${activeGrade} 的 ${n} 张表已铺好名单`, 'ok', 3600); await load(); }
-    } catch { /* 离线/没配云：什么都不做，用户点「补齐」会看到具体错误 */ }
+      [gradesData, tables] = await Promise.all([
+        api.get('/grades').catch(() => ({ grades: [], counts: {} })),
+        api.get('/attendance'),
+      ]);
+      gradesData.tabs = gradeTabs(gradesData);
+      if (!gradesData.tabs.includes(activeGrade)) activeGrade = gradesData.tabs[0] || '高一';
+      sessionStorage.setItem('wb_att_grade', activeGrade);
+      sessionStorage.setItem('wb_att_date', viewDate);
+      if (makeToday && viewDate === dayStr() && (gradesData.counts?.[activeGrade] || 0) > 0) {
+        await ensureDay({ date: viewDate, grade: activeGrade });
+        tables = await api.get('/attendance');
+      }
+      roster = (await api.get('/teachers', { grade: activeGrade, active: 'all' }).catch(() => ({ list: [] }))).list || [];
+      const type = typeForTab[activeTab];
+      const matches = listFor(type);
+      detail = matches.length ? await api.get(`/attendance/${matches.sort((a, b) => Number(b.id) - Number(a.id))[0].id}`) : null;
+      if (detail && activeTab === 'class') detail = await ensureClassColumns(detail);
+      dirty = false;
+      paint();
+    } catch (e) {
+      box.innerHTML = `<div class="att-work-error">${esc(e.message || '考勤数据加载失败')}<button class="btn primary sm" id="att-work-retry">重新加载</button></div>`;
+      box.querySelector('#att-work-retry')?.addEventListener('click', () => load());
+    } finally { busy = false; }
+  };
+
+  const periodCols = () => getPeriodCols(detail);
+  const getRows = () => (detail?.rows || []).map((r) => ({ ...r, data: { ...(r.data || {}) } }));
+  const visibleRows = () => getRows().filter((r) => {
+    const q = searchText.toLowerCase();
+    return (!q || `${r.teacher} ${r.subject || ''}`.toLowerCase().includes(q))
+      && (!subjectFilter || (r.subject || '未填学科') === subjectFilter);
+  });
+  const rowLeaveText = (r) => {
+    const lv = r.data?.__leave;
+    if (lv) {
+      const days = Number(lv.duration ?? (lv.period === '上午' || lv.period === '下午' ? 0.5 : 1));
+      const hours = Math.round((Number.isFinite(days) ? days : 1) * 8);
+      return `${lv.type || '请假'} · ${lv.period || '全天'} · ${hours}小时`;
+    }
+    const c = (detail?.columns || []).find((x) => /请假/.test(x.label || ''));
+    return c && r.data?.[c.key] === '1' ? '请假' : '';
+  };
+  const stats = () => {
+    const rows = getRows();
+    const pcols = periodCols();
+    const checked = rows.filter((r) => pcols.some((c) => r.data?.[c.key] === '1')).length;
+    const leave = rows.filter((r) => rowLeaveText(r)).length;
+    const pending = Math.max(0, rows.length - checked - leave);
+    return { total: rows.length, checked, leave, pending };
   };
 
   const paint = () => {
-    const gradeTables = (g) => tables.filter((t) => (t.grade || '高一') === g);
-    const roster = gradesData.counts || {};
-    const mine = gradeTables(activeGrade);
+    const st = stats();
+    const subjects = [...new Set(roster.filter((r) => r.active).map((r) => r.subject || '未填学科'))].sort((a, b) => subjectRank(a) - subjectRank(b));
+    const type = typeForTab[activeTab];
+    const todays = listFor(type);
+    const stateText = detail?.confirm_state === 'confirmed' ? '已确认' : detail?.confirm_state === 'modified' ? '已修改待确认' : '待确认';
+    const isClass = activeTab === 'class';
+    const pcols = periodCols();
+    const rows = visibleRows();
+    const tableHTML = detail && isClass ? `
+      <div class="att-work-table-scroll"><table class="att-work-table">
+        <thead><tr><th>姓名</th><th>学科</th>${pcols.map((c) => `<th>${esc(c.label)}</th>`).join('')}<th>请假信息</th><th>操作</th></tr></thead>
+        <tbody>${rows.map((r) => {
+          const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id));
+          const lv = rowLeaveText(r);
+          return `<tr data-row="${ix}"><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>${esc(r.subject || '—')}</td>
+            ${pcols.map((c) => `<td><button class="aw-mark ${r.data?.[c.key] === '1' ? 'on' : ''}" data-row="${ix}" data-key="${esc(c.key)}">${r.data?.[c.key] === '1' ? '上课' : '—'}</button></td>`).join('')}
+            <td>${lv ? `<span class="aw-leave">${esc(lv)}</span>` : '<span class="aw-dash">—</span>'}</td>
+            <td><button class="btn ghost xs" data-edit-row="${ix}">编辑</button></td></tr>`;
+        }).join('')}</tbody>
+      </table></div>
+      <div class="att-work-mobile-list">${rows.map((r) => {
+        const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id));
+        const lv = rowLeaveText(r);
+        return `<article class="aw-mobile-card"><div class="aw-mobile-person"><b>${esc(r.teacher || '')}</b><span>${esc(r.subject || '未填学科')}</span>${r.data?.__temp ? '<em>临时</em>' : ''}</div>
+          <div class="aw-mobile-periods">${pcols.map((c) => `<button class="aw-mark ${r.data?.[c.key] === '1' ? 'on' : ''}" data-row="${ix}" data-key="${esc(c.key)}"><small>${esc(c.label)}</small>${r.data?.[c.key] === '1' ? '上课' : '—'}</button>`).join('')}</div>
+          ${lv ? `<div class="aw-mobile-leave">${icon('calendar', 13)} 请假：${esc(lv)}</div>` : ''}
+          <button class="aw-mobile-edit" data-edit-row="${ix}">编辑教师记录</button></article>`;
+      }).join('')}</div>` : detail ? `
+      <div class="att-work-table-scroll"><table class="att-work-table"><thead><tr><th>姓名</th><th>学科</th><th>考勤状态</th><th>请假信息 / 备注</th><th>操作</th></tr></thead><tbody>
+      ${rows.map((r) => { const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id)); const c = (detail.columns || []).find((x) => x.type === 'check'); const v = c ? r.data?.[c.key] : ''; return `<tr><td class="aw-name">${esc(r.teacher || '')}</td><td>${esc(r.subject || '—')}</td><td><span class="aw-status ${v === '1' ? 'on' : v === '0' ? 'off' : ''}">${v === '1' ? (activeTab === 'research' ? '已签到' : '在岗') : v === '0' ? '未到' : '待录入'}</span></td><td>${esc(r.data?.k_remark || '')}</td><td><button class="btn ghost xs" data-edit-row="${ix}">打开编辑</button></td></tr>`; }).join('')}
+      </tbody></table></div>` : `
+      <div class="att-work-empty"><div class="awe-icon">${icon('clipboard-list', 24)}</div><b>今天还没有${tabTitle[activeTab]}</b><p>先导入教师名册，再生成当天考勤表。</p><button class="btn primary sm" id="att-work-create">生成${tabTitle[activeTab]}</button></div>`;
 
     box.innerHTML = `
-      <div class="att-head">
-        <button class="att-back" id="att-back" title="返回年级列表">${icon('left', 16)}<span>年级</span></button>
-        <div class="att-cur">
-          <b>${esc(activeGrade)}</b>
-          <span>${roster[activeGrade] ? roster[activeGrade] + ' 位老师' : '名册未录入'} · ${mine.length} 张表</span>
+      <div class="att-work-shell">
+        <div class="att-work-crumb">工作模块 <span>/</span> 考勤 <span>/</span> ${esc(activeGrade)}</div>
+        <div class="att-work-head">
+          <div><h2>${esc(activeGrade)}考勤</h2><div class="att-work-sync"><i></i> 数据已加载</div></div>
+          <select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
+          <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
         </div>
-        <button class="att-grade-mgr" id="att-grade-mgr" title="年级管理：新建、改名、删除">
-          ${icon('grid', 15)}<span>年级管理</span>
-        </button>
-      </div>
+        <nav class="att-work-tabs">
+          <button data-tab="roster">花名册</button><button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button><button data-tab="stats">统计表</button>
+        </nav>
+        <div class="att-work-stats">
+          <div class="aw-stat"><span>应到教师</span><b>${st.total || roster.filter((x) => x.active).length}</b><small>人</small></div>
+          <div class="aw-stat blue"><span>已上课</span><b>${st.checked}</b><small>人</small></div>
+          <div class="aw-stat amber"><span>请假</span><b>${st.leave}</b><small>人</small></div>
+          <div class="aw-stat gray"><span>待录入</span><b>${st.pending}</b><small>人</small></div>
+        </div>
+        <section class="att-work-panel">
+          <div class="att-work-toolbar">
+            <select class="input" id="att-work-subject"><option value="">全部学科</option>${subjects.map((x) => `<option value="${esc(x)}" ${subjectFilter === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+            <input class="input aw-search" id="att-work-search" placeholder="⌕ 搜索教师姓名" value="${esc(searchText)}">
+            <button class="btn ghost sm" id="att-work-photo">${icon('camera', 14)} 拍照导入</button>
+            <button class="btn primary sm" id="att-work-voice">${icon('mic', 14)} 语音录入</button>
+            <button class="btn ghost sm" id="att-work-add">＋ 新增临时老师</button>
+            <span class="att-work-spacer"></span>
+            <div class="att-work-export-wrap"><button class="btn ghost sm" id="att-work-export">${icon('download', 14)} 导出 ▾</button><div class="att-work-export-menu" id="att-work-export-menu" hidden><button data-export="pdf">导出 PDF</button><button data-export="png">导出 PNG</button><button data-export="xlsx">导出 Excel</button><label><input type="checkbox" id="att-work-watermark" checked> 添加水印</label></div></div>
+          </div>
+          <div class="att-work-table-title"><div><h3>${tabTitle[activeTab] || '上课考勤表'}</h3><span>${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${detail?.rows?.length || 0} 位教师</span></div><span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span></div>
+          ${tableHTML}
+          <div class="att-work-foot"><span>ⓘ 临时老师仅在当天显示，课时计入统计</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? '重新确认生成' : '确认生成'}</button></div></div>
+        </section>
+      </div>`;
 
-      ${dayBoardHTML({ date: viewDate, grade: activeGrade, tables: gradeTables(activeGrade) })}
-
-      <div class="att-ops">
-        <button class="btn primary sm" id="att-upload">${icon('upload', 15)} 上传 Excel 表格</button>
-        <button class="btn ghost sm" id="att-new">${icon('plus', 15)} 手填新建</button>
-        <button class="btn ghost sm" id="att-roster">${icon('users', 15)} ${esc(activeGrade)}老师名册</button>
-        <button class="btn ghost sm" id="att-stats">${icon('chart', 15)} 统计表</button>
-        <button class="btn ghost sm" id="att-expset" title="导出水印设置">${icon('edit', 15)} 导出设置</button>
-        <span style="flex:1"></span>
-        <span class="tiny muted hide-sm">录入：铺名单勾 / 传 Excel / 语音 / 纸表照片</span>
-      </div>
-
-      <div class="att-groups" id="att-groups">${groupsHTML(gradeTables(activeGrade), activeGrade)}</div>`;
-
-    box.querySelector('#att-back').onclick = () => go('work/attendance');
-    box.querySelector('#att-upload').onclick = () => uploadDialog(activeGrade, load);
-    box.querySelector('#att-new').onclick = () => newSheetDialog(activeGrade, load);
-    box.querySelector('#att-roster').onclick = () => rosterSheet(activeGrade, load);
-    box.querySelector('#att-stats').onclick = () => statsSheet(activeGrade);
-    box.querySelector('#att-grade-mgr').onclick = () => gradeManageDialog(load, load);
-    box.querySelector('#att-expset').onclick = () => exportSettingDialog();
-    bindGroups(box, load, activeGrade);
-    bindDayBoard(box, {
-      date: viewDate,
-      grade: activeGrade,
-      load,
-      openTable: (id) => openTable(id, load),
+    box.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => {
+      const tab = b.dataset.tab;
+      if (tab === 'roster') return rosterSheet(activeGrade, () => load());
+      if (tab === 'stats') return statsSheet(activeGrade);
+      activeTab = tab; sessionStorage.setItem('wb_att_tab', tab); searchText = ''; subjectFilter = ''; load({ makeToday: false });
     });
+    box.querySelector('#att-work-grade').onchange = (e) => { activeGrade = e.target.value; sessionStorage.setItem('wb_att_grade', activeGrade); load(); };
+    box.querySelector('#att-work-date').onchange = (e) => { if (e.target.value) { viewDate = e.target.value; load({ makeToday: viewDate === dayStr() }); } };
+    const shiftDate = (n) => { const d = new Date(`${viewDate}T00:00:00`); d.setDate(d.getDate() + n); viewDate = ymd(d); load({ makeToday: viewDate === dayStr() }); };
+    box.querySelector('#att-work-prev').onclick = () => shiftDate(-1);
+    box.querySelector('#att-work-next').onclick = () => shiftDate(1);
+    box.querySelector('#att-work-today').onclick = () => { viewDate = dayStr(); load(); };
+    box.querySelector('#att-work-subject').onchange = (e) => { subjectFilter = e.target.value; paint(); };
+    box.querySelector('#att-work-search').oninput = (e) => { searchText = e.target.value; const pos = e.target.selectionStart; paint(); const q = box.querySelector('#att-work-search'); q.focus(); q.setSelectionRange(pos, pos); };
+    box.querySelector('#att-work-photo').onclick = () => uploadDialog(activeGrade, () => load());
+    box.querySelector('#att-work-voice').onclick = () => detail ? openTable(detail.id, () => load()) : toast('请先生成当天考勤表', 'warn');
+    box.querySelector('#att-work-add').onclick = () => detail ? openTable(detail.id, () => load()) : toast('请先生成当天考勤表', 'warn');
+    box.querySelector('#att-work-export').onclick = () => { const m = box.querySelector('#att-work-export-menu'); m.hidden = !m.hidden; };
+    const watermarkToggle = box.querySelector('#att-work-watermark');
+    if (watermarkToggle) {
+      watermarkToggle.checked = attExportSetting().on;
+      watermarkToggle.onchange = async () => {
+        const old = attExportSetting();
+        const text = old.text || `${activeGrade} ${viewDate}`;
+        const settings = { ...(state.user?.settings || {}), attExport: { on: watermarkToggle.checked, text } };
+        try {
+          const result = await api.patch('/me', { settings });
+          if (result?.user) state.user = result.user;
+          toast(watermarkToggle.checked ? '导出水印已开启' : '导出水印已关闭', 'ok');
+        } catch (e) { watermarkToggle.checked = !watermarkToggle.checked; toast(e.message || '水印设置保存失败', 'err'); }
+      };
+    }
+    box.querySelectorAll('[data-export]').forEach((b) => b.onclick = async () => {
+      if (!detail) return toast('没有可导出的考勤表', 'warn');
+      const rowsNow = getRows();
+      const title = `${activeGrade}${tabTitle[activeTab]}_${viewDate}`;
+      if (b.dataset.export === 'pdf') return saveThenPdf(detail, rowsNow);
+      if (b.dataset.export === 'png') return shotTable(detail.id);
+      const p = periodCols();
+      const grid = [['序号', '姓名', '学科', ...p.map((c) => c.label), '请假信息'], ...rowsNow.map((r, i) => [i + 1, r.teacher, r.subject || '', ...p.map((c) => r.data?.[c.key] === '1' ? '上课' : '—'), rowLeaveText(r)])];
+      saveBlob(makeXlsx({ title, grid }), `${title}.xlsx`);
+    });
+    box.querySelector('#att-work-create')?.addEventListener('click', async () => {
+      try { await createSlot({ date: viewDate, grade: activeGrade, type, period: type === 'seat' ? '1' : '' }); await load({ makeToday: false }); }
+      catch (e) { toast(e.message || '生成失败', 'err'); }
+    });
+    box.querySelectorAll('[data-mark]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
+    box.querySelectorAll('.aw-mark[data-row]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
+    box.querySelectorAll('[data-edit-row]').forEach((b) => b.onclick = () => detail && openTable(detail.id, () => load()));
+    box.querySelector('#att-work-save')?.addEventListener('click', () => persistWorkspace(false));
+    box.querySelector('#att-work-confirm')?.addEventListener('click', () => persistWorkspace(true));
+  };
+
+  const toggleMark = (rowIndex, key) => {
+    if (!detail?.rows?.[rowIndex]) return;
+    const row = detail.rows[rowIndex];
+    row.data = { ...(row.data || {}) };
+    row.data[key] = row.data[key] === '1' ? '' : '1';
+    if (key === 'k_请假' && row.data[key] === '1') {
+      periodCols().forEach((c) => { row.data[c.key] = ''; });
+      row.data.__leave = row.data.__leave || { type: '未注明', period: '全天', duration: 1 };
+    } else if (key === 'k_请假' && row.data[key] !== '1') {
+      delete row.data.__leave;
+    } else if (key !== 'k_请假' && row.data[key] === '1') {
+      const leave = (detail.columns || []).find((c) => /请假/.test(c.label || ''));
+      if (leave) row.data[leave.key] = '';
+      delete row.data.__leave;
+    }
+    dirty = true;
+    paint();
+  };
+
+  const persistWorkspace = async (confirm) => {
+    if (!detail) return toast('没有可保存的考勤表', 'warn');
+    if (confirm) {
+      const ok = await confirmDialog('确认生成这张考勤表？确认后当前记录将作为正式版本，后续修改需要重新确认。');
+      if (!ok) return;
+    }
+    const saveBtn = box.querySelector(confirm ? '#att-work-confirm' : '#att-work-save');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = confirm ? '确认中…' : '保存中…'; }
+    try {
+      const payload = detail.rows.map((r) => ({ id: r.id, teacher: r.teacher, subject: r.subject, data: r.data || {} }));
+      const res = await api.post(`/attendance/${detail.id}/rows`, { rows: payload, dirty });
+      adoptIds(res?.ids, detail.rows);
+      if (confirm) {
+        await api.post(`/attendance/${detail.id}/confirm`);
+        toast('考勤已确认生成', 'ok');
+      } else toast('草稿已保存', 'ok');
+      dirty = false;
+      await load({ makeToday: false });
+    } catch (e) { toast(e.message || '保存失败', 'err'); }
+    finally { if (saveBtn?.isConnected) saveBtn.disabled = false; }
   };
 
   await load();
-  autoEnsure();
 }
 
 /* 三栏：坐班表 / 教研签到表 / 上课检查表。
@@ -611,7 +783,7 @@ function attExportSetting() {
 /* 取这一次导出该用的水印文字（关掉就返回空串） */
 function exportWatermark(t, dateText) {
   const cfg = attExportSetting();
-  if (!cfg.text) return '';
+  if (!cfg.on || !cfg.text) return '';
   return cfg.text
     .replace(/\{grade\}/g, t?.grade || '')
     .replace(/\{date\}/g, t?.sheet_date || ymd())
@@ -1585,13 +1757,21 @@ function openSeat(t, reload) {
            统计里这人一天就上了两节课又坐了一天班。
            打 × 时不清别人：× 的意思是「这一项没做」，它本来就是跟别的格并存的判断。 */
         if (next === '1') {
+          const lessonCol = (x) => /^第\s*\d+\s*节/.test(x.label || '') || x.key === 'k_准时' || /按时上课/.test(x.label || '');
           for (const c of checkCols) {
             if (c.key === k || !rows[ri].data[c.key]) continue;
+            /* 上课表允许同一老师勾多节；请假与任意上课节次互斥。 */
+            if (isClass && lessonCol(col || {}) && lessonCol(c)) continue;
+            if (isClass && lessonCol(col || {}) && /请假/.test(c.label || '')) {
+              delete rows[ri].data[c.key]; paintTick(ri, c.key); paintLeaveTag(ri, c.key); continue;
+            }
+            if (isClass && /请假/.test(col?.label || '') && lessonCol(c)) {
+              delete rows[ri].data[c.key]; paintTick(ri, c.key); continue;
+            }
             delete rows[ri].data[c.key];
             paintTick(ri, c.key);
             if (/请假/.test(c.label)) paintLeaveTag(ri, c.key);
           }
-          /* 换成别的状态了，之前填的假别/时段/时长也要一起收掉 */
           if (!/请假/.test(col?.label || '')) delete rows[ri].data.__leave;
         }
         paintTick(ri, k);
