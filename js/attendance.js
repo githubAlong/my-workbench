@@ -249,6 +249,7 @@ export async function renderAttendance(box, opts = {}) {
     const subjects = [...new Set(roster.filter((r) => r.active).map((r) => r.subject || '未填学科'))].sort((a, b) => subjectRank(a) - subjectRank(b));
     const type = typeForTab[activeTab];
     const todays = listFor(type);
+    const classConfirmedToday = listFor('class').some((t) => t.confirm_state === 'confirmed');
     const stateText = detail?.confirm_state === 'confirmed' ? '已确认' : detail?.confirm_state === 'modified' ? '已修改待确认' : '待确认';
     const isClass = activeTab === 'class';
     const pcols = periodCols();
@@ -281,7 +282,7 @@ export async function renderAttendance(box, opts = {}) {
       <div class="att-work-table-scroll"><table class="att-work-table"><thead><tr><th>姓名</th><th>学科</th><th>考勤状态</th><th>请假信息 / 备注</th><th>操作</th></tr></thead><tbody>
       ${rows.map((r) => { const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id)); const c = (detail.columns || []).find((x) => x.type === 'check'); const v = c ? r.data?.[c.key] : ''; return `<tr><td class="aw-name">${esc(r.teacher || '')}</td><td>${esc(r.subject || '—')}</td><td><span class="aw-status ${v === '1' ? 'on' : v === '0' ? 'off' : ''}">${v === '1' ? (activeTab === 'research' ? '已签到' : '在岗') : v === '0' ? '未到' : '待录入'}</span></td><td>${esc(r.data?.k_remark || '')}</td><td><button class="btn ghost xs" data-edit-row="${ix}">打开编辑</button></td></tr>`; }).join('')}
       </tbody></table></div>` : `
-      <div class="att-work-empty"><div class="awe-icon">${icon('clipboard-list', 24)}</div><b>今天还没有${tabTitle[activeTab]}</b><p>先导入教师名册，再生成当天考勤表。</p><button class="btn primary sm" id="att-work-create">生成${tabTitle[activeTab]}</button></div>`;
+      <div class="att-work-empty"><div class="awe-icon">${icon('clipboard-list', 24)}</div><b>今天还没有${tabTitle[activeTab]}</b><p>${activeTab === 'seat' && !classConfirmedToday ? '请先完成当天上课表的勾选，并点击「确认生成」；确认后才能生成正式坐班表。' : '先导入教师名册，再生成当天考勤表。'}</p><button class="btn primary sm" id="att-work-create" ${activeTab === 'seat' && !classConfirmedToday ? 'disabled' : ''}>${activeTab === 'seat' && !classConfirmedToday ? '等待上课表确认' : `生成${tabTitle[activeTab]}`}</button></div>`;
 
     box.innerHTML = `
       <div class="att-work-shell">
