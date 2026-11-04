@@ -252,7 +252,28 @@ export async function renderAttendance(box, opts = {}) {
         matches = listForSelected('seat');
       }
       detail = matches.length ? await api.get(`/attendance/${matches.sort((a, b) => Number(b.id) - Number(a.id))[0].id}`) : null;
-      if (detail && (activeTab === 'seat' || activeTab === 'class')) detail = await ensureSeatColumns(detail);
+      if (detail && (activeTab === 'seat' || activeTab === 'class')) {
+        detail = await ensureSeatColumns(detail);
+        // 坐班表是完整考勤底表；上课表从同一底表展示全体在册教师，
+        // 不能再只筛选已经勾选上课/听课的教师。
+        const activeTeachers = roster.filter((teacher) => teacher.active);
+        const existingNames = new Set((detail.rows || []).map((row) => String(row.teacher || '').trim()).filter(Boolean));
+        for (const teacher of activeTeachers) {
+          const name = String(teacher.name || '').trim();
+          if (!name || existingNames.has(name)) continue;
+          detail.rows.push({
+            teacher: name,
+            subject: teacher.subject || '',
+            data: {},
+            _uiKey: `roster:${String(teacher.id || name)}`,
+          });
+          existingNames.add(name);
+        }
+        // 给旧数据/新补入的无 ID 行一个仅供本次页面定位的键，不写入接口字段。
+        detail.rows.forEach((row, index) => {
+          if (!row.id && !row._uiKey) row._uiKey = `existing:${index}:${String(row.teacher || '').trim()}`;
+        });
+      }
       if (detail && activeTab === 'research') detail = await ensureResearchColumns(detail);
       dirty = false;
       paint();
@@ -276,8 +297,7 @@ export async function renderAttendance(box, opts = {}) {
   });
   const keyByLabel = (label, fallback) => (detail?.columns || []).find((c) => c.key === fallback || (c.label || '') === label)?.key || fallback;
   // 上课表只显示总表里勾选了「上课」或「听课」的教师；请假人员不进入筛选结果。
-  const isClassRow = (r) => r.data?.[keyByLabel('请假', 'k_请假')] !== '1'
-    && (r.data?.[keyByLabel('上课', 'k_上课')] === '1' || r.data?.[keyByLabel('听课', 'k_听课')] === '1');
+  // 上课表展示本年级全部在册教师；是否上课/听课由用户在表格中逐人勾选。
 
   const rowLeaveText = (r) => {
     const lv = r.data?.__leave;
@@ -290,15 +310,14 @@ export async function renderAttendance(box, opts = {}) {
     return c && r.data?.[c.key] === '1' ? '请假' : '';
   };
   const stats = () => {
-    const allRows = getRows();
-    const rows = activeTab === 'class' ? allRows.filter(isClassRow) : allRows;
+    const rows = getRows();
     const count = (key) => rows.filter((r) => r.data?.[key] === '1').length;
     const listenKey = keyByLabel('听课', 'k_听课');
     const leave = rows.filter((r) => rowLeaveText(r)).length;
-    const total = rows.length;
+    const total = activeTab === 'class' ? roster.filter((teacher) => teacher.active).length : rows.length;
     if (activeTab === 'class') return { total, items: [
-      { label: '上课/听课教师', value: total, tone: '' },
-      { label: '上课', value: count(keyByLabel('上课', 'k_上课')), tone: 'blue' },
+      { label: '应到教师', value: total, tone: '' },
+      { label: '已上课', value: count(keyByLabel('上课', 'k_上课')), tone: 'blue' },
       { label: '听课', value: count(listenKey), tone: 'violet' },
     ] };
     if (activeTab === 'seat') {
@@ -337,7 +356,7 @@ export async function renderAttendance(box, opts = {}) {
     const stateText = detail?.confirm_state === 'confirmed' ? '已确认' : detail?.confirm_state === 'modified' ? '已修改待确认' : '待确认';
     const isClass = activeTab === 'class';
     const pcols = periodCols();
-    const rows = activeTab === 'class' ? visibleRows().filter(isClassRow) : visibleRows();
+    const rows = visibleRows();
     const displayColumns = activeTab === 'class' ? [
       { key: keyByLabel('上课', 'k_上课'), label: '上课', type: 'check', w: 76 },
       { key: keyByLabel('听课', 'k_听课'), label: '听课', type: 'check', w: 76 },
@@ -347,19 +366,19 @@ export async function renderAttendance(box, opts = {}) {
       <thead><tr><th>序号</th><th>姓名</th><th>学科</th></tr></thead>
       <tbody>${rosterRows.map((r, i) => `<tr><td>${i + 1}</td><td class="aw-name">${esc(r.name || '')}</td><td>${esc(r.subject || '未填学科')}</td></tr>`).join('')}</tbody>
     </table></div>${rosterRows.length ? '' : `<div class="att-work-empty"><b>暂无教师名单</b><p>请先导入或维护本年级花名册。</p></div>`}`;
-    const classViewNote = isClass ? `<div class="att-work-locked-note">上课表由坐班总表自动筛选，只显示勾选了「上课」或「听课」的教师；在此修改勾选会同步更新坐班总表。</div>` : '';
+    const classViewNote = isClass ? `<div class="att-work-locked-note">已显示本年级全部在册教师。请逐人勾选「上课」或「听课」；本表只记录这两项，修改会同步保存到坐班总表。</div>` : '';
     const tableHTML = isRoster ? rosterHTML : detail ? `
       ${classViewNote}
       <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table">
         <thead><tr><th>序号</th><th>姓名</th><th>学科</th>${displayColumns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>
         <tbody>${rows.length ? rows.map((r) => {
-          const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id));
+          const ix = detail.rows.findIndex((x) => (r.id && String(x.id) === String(r.id)) || (r._uiKey && x._uiKey === r._uiKey) || (!r.id && !r._uiKey && !x.id && String(x.teacher || '').trim() === String(r.teacher || '').trim()));
           return `<tr data-row="${ix}"><td>${ix + 1}</td><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>${esc(r.subject || '—')}</td>
             ${displayColumns.map((col) => col.type === 'check'
               ? `<td class="aw-check-cell"><button class="aw-mark aw-big-mark ${r.data?.[col.key] === '1' ? 'on' : ''}" data-row="${ix}" data-key="${esc(col.key)}" aria-label="${esc(col.label)}">${r.data?.[col.key] === '1' ? '✓' : ''}</button></td>`
               : `<td><input class="aw-cell-input" data-cell-input data-row="${ix}" data-key="${esc(col.key)}" value="${esc(r.data?.[col.key] || '')}" placeholder="—"></td>`).join('')}
           </tr>`;
-        }).join('') : `<tr><td colspan="${3 + displayColumns.length}" class="muted" style="text-align:center;padding:24px">${isClass ? '暂无上课或听课教师，请先在坐班总表勾选对应状态。' : '暂无教师记录。'}</td></tr>`}</tbody>
+        }).join('') : `<tr><td colspan="${3 + displayColumns.length}" class="muted" style="text-align:center;padding:24px">${isClass ? '当前年级暂无在册教师，请先维护花名册。' : '暂无教师记录。'}</td></tr>`}</tbody>
       </table></div>` : `
       <div class="att-work-empty"><b>${isClass ? '坐班总表尚未生成' : '当前表格暂时无法显示'}</b><p>${isClass ? '上课表会自动筛选坐班总表中上课或听课的教师。' : '请检查本年级花名册，或重新加载数据。'}</p><button class="btn primary sm" id="att-work-create">生成总表草稿</button></div>`;
 
