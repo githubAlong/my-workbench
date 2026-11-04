@@ -116,12 +116,14 @@ export function dayBoardHTML({ date, grade, tables }) {
     if (list.length > 1) dup += list.length - 1;
     const cst = t ? (t.confirm_state || 'none') : '';
     if (cst === 'confirmed') done++;
+    const classConfirmed = byKey.get(dayKeyOf(date, grade, 'class', ''))?.some((x) => x.confirm_state === 'confirmed') || false;
+    const seatLocked = s.type === 'seat' && !t && !classConfirmed;
     const label = `${TYPE_SHORT[s.type]}${s.period ? ' · 第' + s.period + '节' : ''}`;
-    const st = !t ? 'none' : cst === 'confirmed' ? 'ok' : cst === 'modified' ? 'warn' : 'wait';
-    const stText = !t ? '未生成' : cst === 'confirmed' ? '已确认' : cst === 'modified' ? '已改待确认' : '未确认';
-    chips.push(`<button class="ad-slot ${st}" ${t ? `data-open="${t.id}"` : `data-gen="${s.type}:${s.period}"`}
-      title="${t ? esc(t.name || '') : '点一下就建这张'}">
-      <i>${esc(label)}</i><b>${t ? stText : '＋ 生成'}</b></button>`);
+    const st = seatLocked ? 'locked' : !t ? 'none' : cst === 'confirmed' ? 'ok' : cst === 'modified' ? 'warn' : 'wait';
+    const stText = seatLocked ? '待上课表确认' : !t ? '未生成' : cst === 'confirmed' ? '已确认' : cst === 'modified' ? '已改待确认' : '未确认';
+    chips.push(`<button class="ad-slot ${st}" ${t ? `data-open="${t.id}"` : seatLocked ? 'disabled' : `data-gen="${s.type}:${s.period}"`}
+      title="${t ? esc(t.name || '') : seatLocked ? '先确认当天上课表，才能生成坐班表' : '点一下就建这张'}">
+      <i>${esc(label)}</i><b>${t ? stText : seatLocked ? stText : '＋ 生成'}</b></button>`);
   }
 
   return `<div class="att-day" data-date="${esc(date)}">
@@ -160,6 +162,14 @@ export async function createSlot({ date, grade, type, period = '' }) {
     && (t.sheet_type || t.kind) === type
     && (multiPeriod(type) ? String(t.periods || '') === String(period || '') : true));
   if (list.length) return keeper(list);
+  if (type === 'seat') {
+    const classConfirmed = fresh.some((t) => (t.grade || '高一') === grade
+      && String(t.sheet_date || '') === date
+      && (t.sheet_type || t.kind) === 'class'
+      && t.confirm_state === 'confirmed'
+      && !t.deleted_at);
+    if (!classConfirmed) throw new Error('请先完成当天上课表的勾选，并点击「确认生成」，之后才能生成正式坐班表。');
+  }
 
   const d = new Date(date + 'T00:00:00');
   const name = `${date.slice(0, 4)}年${grade}${TYPE_LABEL[type]}${multiPeriod(type) && period ? ` · 第${period}节` : ''}`;
@@ -190,9 +200,25 @@ export async function ensureDay({ date, grade }) {
   const fresh = await api.get('/attendance');
   const { byKey } = slotOf(fresh, date, grade);
   let made = 0;
-  for (const s of wantedSlots(readSeatPeriods())) {
+  // 先准备教研表和上课表；坐班表必须等上课表人工确认后才允许生成。
+  for (const s of wantedSlots(readSeatPeriods()).filter((x) => x.type !== 'seat')) {
     const key = dayKeyOf(date, grade, s.type, s.period);
     if ((byKey.get(key) || []).length) continue;
+    await createSlot({ date, grade, type: s.type, period: s.period });
+    made++;
+  }
+  const afterPrep = await api.get('/attendance');
+  const classKey = dayKeyOf(date, grade, 'class', '');
+  const classRows = afterPrep.filter((t) => (t.grade || '高一') === grade
+    && String(t.sheet_date || '') === date
+    && (t.sheet_type || t.kind) === 'class'
+    && !t.deleted_at);
+  const classConfirmed = classRows.some((t) => t.confirm_state === 'confirmed');
+  if (!classConfirmed) return made;
+  const afterMap = slotOf(afterPrep, date, grade).byKey;
+  for (const s of wantedSlots(readSeatPeriods()).filter((x) => x.type === 'seat')) {
+    const key = dayKeyOf(date, grade, s.type, s.period);
+    if ((afterMap.get(key) || []).length) continue;
     await createSlot({ date, grade, type: s.type, period: s.period });
     made++;
   }
