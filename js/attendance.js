@@ -414,7 +414,7 @@ export async function renderAttendance(box, opts = {}) {
           </div>
           <div class="att-work-table-title"><div><h3>${isRoster ? '教师花名册' : (tabTitle[activeTab] || '上课考勤表')}</h3><span>${isRoster ? `${esc(activeGrade)} · ${roster.filter((r) => r.active).length} 位教师 · ${subjects.length} 个学科` : `${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${rows.length} 位教师`}</span></div>${isRoster ? `<span class="att-work-confirm ok">名单已加载</span>` : `<span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span>`}</div>
           ${tableHTML}
-          ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；修改名单后，后续生成的考勤表将使用最新名单。</span></div>` : `<div class="att-work-foot"><span>${isClass ? 'ⓘ 上课表是坐班总表的筛选视图；只显示上课、听课教师，数据与总表实时同步。' : activeTab === 'seat' ? 'ⓘ 坐班总表记录本年级全部教师状态；确认后自动生成上课筛选表。' : 'ⓘ 教研表独立记录教研签到及请假情况。'}</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? (activeTab === 'research' ? '重新确认教研表' : '重新确认并更新上课表') : (activeTab === 'research' ? '确认生成教研表' : '确认并生成上课表')}</button></div></div>`}
+          ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；修改名单后，后续生成的考勤表将使用最新名单。</span></div>` : `<div class="att-work-foot"><span>${isClass ? 'ⓘ 上课表展示本年级全部在册教师，只记录上课和听课；保存后与坐班总表同步。' : activeTab === 'seat' ? 'ⓘ 坐班总表记录本年级全部教师状态；上课表与总表共享教师名单。' : 'ⓘ 教研表独立记录教研签到及请假情况。'}</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? (activeTab === 'research' ? '重新确认教研表' : '重新确认并更新上课表') : (activeTab === 'research' ? '确认生成教研表' : '确认并生成上课表')}</button></div></div>`}
         </section>
       </div>`;
 
@@ -531,7 +531,9 @@ export async function renderAttendance(box, opts = {}) {
     if (confirm) {
       const prompt = activeTab === 'research'
         ? '确认生成这张教研考勤表？确认后当前记录将作为正式版本，后续修改需要重新确认。'
-        : '确认坐班总表？确认后系统会自动筛选出上课或听课教师，生成上课表视图。';
+        : activeTab === 'class'
+          ? '确认保存上课和听课记录？确认后将同步更新坐班总表。'
+          : '确认坐班总表？确认后上课表将同步显示本年级全部教师。';
       const ok = await confirmDialog(prompt);
       if (!ok) return;
     }
@@ -544,7 +546,7 @@ export async function renderAttendance(box, opts = {}) {
       adoptIds(res?.ids, detail.rows);
       if (confirm) {
         await api.post(`/attendance/${detail.id}/confirm`);
-        toast(activeTab === 'research' ? '教研表已确认生成' : '坐班总表已确认，上课表已自动更新', 'ok');
+        toast(activeTab === 'research' ? '教研表已确认生成' : activeTab === 'class' ? '上课记录已确认并同步坐班总表' : '坐班总表已确认，上课表已同步更新', 'ok');
       } else toast('草稿已保存', 'ok');
       dirty = false;
       await load({ makeToday: false });
