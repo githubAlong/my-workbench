@@ -58,12 +58,11 @@ const hasPeriod = (t) => t !== 'research';
 /* 坐班表的戳记列（跟纸表一致：上课 坐班 听课 教研 请假 备注） */
 function seatCols() {
   return [
-    { key: 'k_上课', label: '上课', type: 'check', w: 62 },
-    { key: 'k_坐班', label: '坐班', type: 'check', w: 62 },
-    { key: 'k_听课', label: '听课', type: 'check', w: 62 },
-    { key: 'k_教研', label: '教研', type: 'check', w: 62 },
-    { key: 'k_请假', label: '请假', type: 'check', w: 62 },
-    { key: 'k_remark', label: '备注', type: 'text', w: 130 },
+    { key: 'k_坐班', label: '坐班', type: 'check', w: 76 },
+    { key: 'k_上课', label: '上课', type: 'check', w: 76 },
+    { key: 'k_请假', label: '请假', type: 'check', w: 76 },
+    { key: 'k_教研', label: '教研', type: 'check', w: 76 },
+    { key: 'k_remark', label: '备注', type: 'text', w: 180 },
   ];
 }
 /* 教研签到表：纸表就四列「序号 姓名 学科 签到 备注」，没有「请假」。
@@ -79,7 +78,7 @@ function researchCols() {
 /* 查上课：按时上课 + 请假 + 备注 */
 function classCols() {
   return [
-    ...Array.from({ length: 4 }, (_, i) => ({ key: `k_p${i + 1}`, label: `第${i + 1}节`, type: 'check', w: 66 })),
+    ...Array.from({ length: 9 }, (_, i) => ({ key: `k_p${i + 1}`, label: `第${i + 1}节`, type: 'check', w: 66 })),
     { key: 'k_请假', label: '请假', type: 'check', w: 62 },
     { key: 'k_remark', label: '备注', type: 'text', w: 150 },
   ];
@@ -140,6 +139,8 @@ export async function renderAttendance(box, opts = {}) {
   let activeGrade = want;
   sessionStorage.setItem('wb_att_grade', activeGrade);
   let viewDate = sessionStorage.getItem('wb_att_date') || dayStr();
+  let selectedPeriod = String(sessionStorage.getItem('wb_att_period') || '1');
+  let timeRange = sessionStorage.getItem('wb_att_time_range') || '全天';
   // 每次进入年级工作台都从花名册开始；切换其他表只在本次工作台会话内生效。
   let activeTab = 'roster';
   sessionStorage.setItem('wb_att_tab', activeTab);
@@ -156,10 +157,11 @@ export async function renderAttendance(box, opts = {}) {
   const tabTitle = { seat: '坐班考勤表', research: '教研考勤表', class: '上课考勤表' };
   const dateLabel = (v) => {
     const d = new Date(`${v}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? v : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+    return Number.isNaN(d.getTime()) ? v : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（星期${WD[d.getDay()]}）`;
   };
   const listFor = (type) => tables.filter((t) => (t.grade || '高一') === activeGrade
     && String(t.sheet_date || '') === viewDate && (t.sheet_type || t.kind) === type && !t.deleted_at);
+  const listForSelected = (type) => listFor(type).filter((t) => type !== 'seat' || String(t.periods || '') === String(selectedPeriod));
   const getPeriodCols = (t) => {
     const cols = (t?.columns || []).filter((c) => c.type === 'check' && /^第\s*\d+\s*节/.test(c.label || ''));
     if (cols.length) return cols.sort((a, b) => Number((a.label.match(/\d+/) || [0])[0]) - Number((b.label.match(/\d+/) || [0])[0]));
@@ -167,14 +169,23 @@ export async function renderAttendance(box, opts = {}) {
     return legacy ? [{ ...legacy, label: '第1节' }] : [];
   };
 
+  const ensureSeatColumns = async (t) => {
+    if (!t || (t.sheet_type || t.kind) !== 'seat') return t;
+    const expected = seatCols(), current = t.columns || [];
+    const same = expected.length === current.length && expected.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label);
+    if (same) return t;
+    await api.patch(`/attendance/${t.id}`, { columns: expected, migration: true });
+    return { ...t, columns: expected };
+  };
+
   const ensureClassColumns = async (t) => {
     if (!t || (t.sheet_type || t.kind) !== 'class') return t;
     const old = t.columns || [];
     const periods = getPeriodCols(t);
-    if (periods.length >= 4) return t;
+    if (periods.length >= 9) return t;
     const legacy = old.find((c) => c.key === 'k_准时' || /按时上课/.test(c.label || ''));
     const next = old.filter((c) => c.key !== 'k_准时' && !/^第\s*\d+\s*节/.test(c.label || ''));
-    const periodDefs = Array.from({ length: 4 }, (_, i) => {
+    const periodDefs = Array.from({ length: 9 }, (_, i) => {
       if (i === 0 && legacy) return { ...legacy, label: '第1节', w: 66 };
       return { key: `k_p${i + 1}`, label: `第${i + 1}节`, type: 'check', w: 66 };
     });
@@ -201,9 +212,10 @@ export async function renderAttendance(box, opts = {}) {
       // 当天表格应由用户明确操作生成，并在人工确认后成为正式记录。
       roster = (await api.get('/teachers', { grade: activeGrade, active: 'all' }).catch(() => ({ list: [] }))).list || [];
       const type = typeForTab[activeTab];
-      const matches = listFor(type);
+      const matches = listForSelected(type);
       detail = matches.length ? await api.get(`/attendance/${matches.sort((a, b) => Number(b.id) - Number(a.id))[0].id}`) : null;
       if (detail && activeTab === 'class') detail = await ensureClassColumns(detail);
+      if (detail && activeTab === 'seat') detail = await ensureSeatColumns(detail);
       dirty = false;
       paint();
     } catch (e) {
@@ -236,7 +248,7 @@ export async function renderAttendance(box, opts = {}) {
   };
   const stats = () => {
     const rows = getRows();
-    const pcols = periodCols();
+    const pcols = activeTab === 'seat' ? (detail?.columns || []).filter((c) => c.type === 'check' && c.key !== 'k_请假') : periodCols();
     const checked = rows.filter((r) => pcols.some((c) => r.data?.[c.key] === '1')).length;
     const leave = rows.filter((r) => rowLeaveText(r)).length;
     const pending = Math.max(0, rows.length - checked - leave);
@@ -262,7 +274,7 @@ export async function renderAttendance(box, opts = {}) {
     const lockedSeat = activeTab === 'seat' && !classConfirmedToday && !detail;
     const tableHTML = isRoster ? rosterHTML : detail ? `
       <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table">
-        <thead><tr><th>序号</th><th>姓名</th><th>学科</th>${(detail.columns || []).map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>
+        ${activeTab === 'class' ? `<thead><tr><th rowspan="2">序号</th><th rowspan="2">姓名</th><th rowspan="2">学科</th><th colspan="6" class="aw-period-group">上午</th><th colspan="3" class="aw-period-group">下午</th><th rowspan="2">请假</th><th rowspan="2">备注</th></tr><tr>${Array.from({length:9},(_,i)=>`<th class="aw-period-head">第${i+1}节</th>`).join('')}</tr></thead>` : `<thead><tr><th>序号</th><th>姓名</th><th>学科</th>${(detail.columns || []).map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>`}
         <tbody>${rows.map((r) => {
           const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id));
           return `<tr data-row="${ix}"><td>${ix + 1}</td><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>${esc(r.subject || '—')}</td>
@@ -284,6 +296,12 @@ export async function renderAttendance(box, opts = {}) {
           <div><h2>${esc(activeGrade)}考勤</h2><div class="att-work-sync"><i></i> 数据已加载</div></div>
           <select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
           <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
+        </div>
+        <div class="att-work-meta-controls">
+          <label>时间段 <select class="input" id="att-work-time-range"><option value="全天">全天</option><option value="上午">上午</option><option value="下午">下午</option></select></label>
+          ${activeTab === 'research' || isRoster ? '' : `<label>节次 <select class="input" id="att-work-period">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" ${String(p) === selectedPeriod ? 'selected' : ''}>第 ${p} 节</option>`).join('')}</select></label>
+          <label class="att-work-period-manual">手动输入 <input class="input" id="att-work-period-manual" type="number" min="1" max="9" step="1" value="${selectedPeriod}" inputmode="numeric"></label>`}
+          <span class="att-work-meta-hint">日期、时间段和节次可手动调整</span>
         </div>
         <nav class="att-work-tabs">
           <button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button><button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button>
@@ -315,7 +333,7 @@ export async function renderAttendance(box, opts = {}) {
         try {
           if (tab === 'class' || tab === 'research') {
             if (!listFor(tab).length) await createSlot({ date: viewDate, grade: activeGrade, type: tab, period: '' });
-          } else if (tab === 'seat' && classConfirmedToday && !listFor('seat').length) {
+          } else if (tab === 'seat' && classConfirmedToday && !listForSelected('seat').length) {
             await createSlot({ date: viewDate, grade: activeGrade, type: 'seat', period: '1' });
           }
           await load({ makeToday: false });
@@ -324,6 +342,24 @@ export async function renderAttendance(box, opts = {}) {
     });
     box.querySelector('#att-work-grade').onchange = (e) => { activeGrade = e.target.value; sessionStorage.setItem('wb_att_grade', activeGrade); load(); };
     box.querySelector('#att-work-date').onchange = (e) => { if (e.target.value) { viewDate = e.target.value; load({ makeToday: viewDate === dayStr() }); } };
+    const rangeSelect = box.querySelector('#att-work-time-range');
+    if (rangeSelect) rangeSelect.value = timeRange;
+    rangeSelect?.addEventListener('change', (e) => { timeRange = e.target.value; sessionStorage.setItem('wb_att_time_range', timeRange); if (detail) { detail.meta = { ...(detail.meta || {}), time_range: timeRange }; dirty = true; } });
+    const changePeriod = async (value) => {
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 1 || n > 9) { toast('节次请输入 1～9 的整数', 'warn'); const manual = box.querySelector('#att-work-period-manual'); if (manual) manual.value = selectedPeriod; return; }
+      selectedPeriod = String(n); sessionStorage.setItem('wb_att_period', selectedPeriod);
+      const sel = box.querySelector('#att-work-period'), manual = box.querySelector('#att-work-period-manual');
+      if (sel) sel.value = selectedPeriod; if (manual) manual.value = selectedPeriod;
+      if (activeTab === 'seat') {
+        try {
+          if (classConfirmedToday && !listForSelected('seat').length) await createSlot({ date:viewDate, grade:activeGrade, type:'seat', period:selectedPeriod });
+          await load({ makeToday:false });
+        } catch (err) { toast(err.message || '切换节次失败', 'err'); }
+      }
+    };
+    box.querySelector('#att-work-period')?.addEventListener('change', e => changePeriod(e.target.value));
+    box.querySelector('#att-work-period-manual')?.addEventListener('change', e => changePeriod(e.target.value));
     const shiftDate = (n) => { const d = new Date(`${viewDate}T00:00:00`); d.setDate(d.getDate() + n); viewDate = ymd(d); load({ makeToday: viewDate === dayStr() }); };
     box.querySelector('#att-work-prev').onclick = () => shiftDate(-1);
     box.querySelector('#att-work-next').onclick = () => shiftDate(1);
@@ -331,8 +367,20 @@ export async function renderAttendance(box, opts = {}) {
     box.querySelector('#att-work-subject').onchange = (e) => { subjectFilter = e.target.value; paint(); };
     box.querySelector('#att-work-search').oninput = (e) => { searchText = e.target.value; const pos = e.target.selectionStart; paint(); const q = box.querySelector('#att-work-search'); q.focus(); q.setSelectionRange(pos, pos); };
     box.querySelector('#att-work-photo').onclick = () => isRoster ? rosterPhotoDialog(activeGrade, () => load()) : uploadDialog(activeGrade, () => load());
-    box.querySelector('#att-work-voice')?.addEventListener('click', () => detail ? openTable(detail.id, () => load()) : toast('请先生成当天考勤表', 'warn'));
-    box.querySelector('#att-work-add').onclick = () => isRoster ? rosterSheet(activeGrade, () => load()) : detail ? openTable(detail.id, () => load()) : toast('请先生成当天考勤表', 'warn');
+    box.querySelector('#att-work-add').onclick = () => {
+      if (isRoster) return rosterSheet(activeGrade, () => load());
+      if (!detail) return toast('请先生成当天考勤表', 'warn');
+      tempTeacherDialog(detail, detail.columns || [], (it) => {
+        let target = detail.rows.find((x) => String(x.teacher || '').trim() === it.name);
+        if (!target) { target = { teacher: it.name, subject: it.subject, data: {} }; detail.rows.push(target); }
+        target.subject = it.subject || target.subject || '';
+        target.data = { ...(target.data || {}), __temp: 1 };
+        if (it.borrowGrade) target.data.borrow_grade = it.borrowGrade;
+        if (it.statusKey) target.data[it.statusKey] = '1';
+        if (it.remarkKey && it.remark) target.data[it.remarkKey] = it.remark;
+        dirty = true; paint();
+      });
+    };
     box.querySelectorAll('[data-roster-manage]').forEach((b) => b.onclick = () => rosterSheet(activeGrade, () => load()));
     box.querySelector('#att-work-export')?.addEventListener('click', () => { const m = box.querySelector('#att-work-export-menu'); if (m) m.hidden = !m.hidden; });
     const watermarkToggle = box.querySelector('#att-work-watermark');
@@ -360,7 +408,7 @@ export async function renderAttendance(box, opts = {}) {
       saveBlob(makeXlsx({ title, grid }), `${title}.xlsx`);
     });
     box.querySelector('#att-work-create')?.addEventListener('click', async () => {
-      try { await createSlot({ date: viewDate, grade: activeGrade, type, period: type === 'seat' ? '1' : '' }); await load({ makeToday: false }); }
+      try { await createSlot({ date: viewDate, grade: activeGrade, type, period: type === 'seat' || type === 'class' ? selectedPeriod : '' }); await load({ makeToday: false }); }
       catch (e) { toast(e.message || '生成失败', 'err'); }
     });
     box.querySelectorAll('[data-mark]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
@@ -377,7 +425,8 @@ export async function renderAttendance(box, opts = {}) {
     row.data = { ...(row.data || {}) };
     row.data[key] = row.data[key] === '1' ? '' : '1';
     if (key === 'k_请假' && row.data[key] === '1') {
-      periodCols().forEach((c) => { row.data[c.key] = ''; });
+      const clearCols = activeTab === 'seat' ? (detail.columns || []).filter((c) => c.type === 'check' && c.key !== 'k_请假') : periodCols();
+      clearCols.forEach((c) => { row.data[c.key] = ''; });
       row.data.__leave = row.data.__leave || { type: '未注明', period: '全天', duration: 1 };
     } else if (key === 'k_请假' && row.data[key] !== '1') {
       delete row.data.__leave;
@@ -392,6 +441,7 @@ export async function renderAttendance(box, opts = {}) {
 
   const persistWorkspace = async (confirm) => {
     if (!detail) return toast('没有可保存的考勤表', 'warn');
+    if (confirm && activeTab === 'seat' && !listFor('class').some((t) => t.confirm_state === 'confirmed')) return toast('请先完成并人工确认上课表，才能生成正式坐班表', 'warn');
     if (confirm) {
       const ok = await confirmDialog('确认生成这张考勤表？确认后当前记录将作为正式版本，后续修改需要重新确认。');
       if (!ok) return;
@@ -399,6 +449,7 @@ export async function renderAttendance(box, opts = {}) {
     const saveBtn = box.querySelector(confirm ? '#att-work-confirm' : '#att-work-save');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = confirm ? '确认中…' : '保存中…'; }
     try {
+      await api.patch(`/attendance/${detail.id}`, { meta: { ...(detail.meta || {}), time_range: timeRange }, periods: activeTab === 'seat' ? selectedPeriod : detail.periods });
       const payload = detail.rows.map((r) => ({ id: r.id, teacher: r.teacher, subject: r.subject, data: r.data || {} }));
       const res = await api.post(`/attendance/${detail.id}/rows`, { rows: payload, dirty });
       adoptIds(res?.ids, detail.rows);
