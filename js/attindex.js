@@ -5,14 +5,14 @@ import { icon, go } from './ui.js';
 import { dayProgress, ymd, readSeatPeriods } from './attday.js';
 import { addGradeDialog, gradeManageDialog, gradeTabs } from './attgrade.js';
 
-const GRADE_URL = (g) => \`work/attendance/\${encodeURIComponent(g)}\`;
+const GRADE_URL = (g) => `work/attendance/${encodeURIComponent(g)}`;
 const TYPE_LABEL = { seat: '坐班表', research: '教研表', class: '上课表' };
 
 function dateText(date) {
-  const d = new Date(\`\${date}T00:00:00\`);
+  const d = new Date(`${date}T00:00:00`);
   if (Number.isNaN(d.getTime())) return date;
   const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
-  return \`\${d.getFullYear()}-\${String(d.getMonth() + 1).padStart(2, '0')}-\${String(d.getDate()).padStart(2, '0')}（周\${week}）\`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}（周${week}）`;
 }
 
 function tableState(tables, grade, type, periods, classConfirmed) {
@@ -74,55 +74,55 @@ export async function renderGradeList(box) {
         : progress.built ? { label: '今日进行中', tone: 'wait' }
           : { label: '今日待开始', tone: 'idle' };
 
-    return \`<button class="agd-grade-card" data-g="\${esc(grade)}" title="进入 \${esc(grade)} 考勤工作台">
+    return `<button class="agd-grade-card" data-g="${esc(grade)}" title="进入 ${esc(grade)} 考勤工作台">
       <span class="agd-grade-banner">
-        <span class="agd-grade-name"><i>\${icon('users', 20)}</i>\${esc(grade)}</span>
-        <span class="agd-overall \${overall.tone}"><i></i>\${overall.label}</span>
+        <span class="agd-grade-name"><i>${icon('users', 20)}</i>${esc(grade)}</span>
+        <span class="agd-overall ${overall.tone}"><i></i>${overall.label}</span>
       </span>
       <span class="agd-grade-content">
-        <span class="agd-grade-meta"><b>\${count}</b> 位教师 <span>·</span> 今日已确认 <strong>\${progress.done}/\${progress.total}</strong></span>
-        <span class="agd-progress"><i style="width:\${pct}%"></i></span>
-        <span class="agd-progress-label"><span>今日确认进度</span><b>\${pct}%</b></span>
+        <span class="agd-grade-meta"><b>${count}</b> 位教师 <span>·</span> 今日已确认 <strong>${progress.done}/${progress.total}</strong></span>
+        <span class="agd-progress"><i style="width:${pct}%"></i></span>
+        <span class="agd-progress-label"><span>今日确认进度</span><b>${pct}%</b></span>
         <span class="agd-sheet-grid">
-          \${states.map(({ type, state }) => \`<span class="agd-sheet \${state.tone}">
-            <i>\${type === 'seat' ? '▦' : type === 'research' ? '▤' : '▣'}</i>
-            <b>\${TYPE_LABEL[type]}</b><em>\${state.label}</em>
-          </span>\`).join('')}
+          ${states.map(({ type, state }) => `<span class="agd-sheet ${state.tone}">
+            <i>${type === 'seat' ? '▦' : type === 'research' ? '▤' : '▣'}</i>
+            <b>${TYPE_LABEL[type]}</b><em>${state.label}</em>
+          </span>`).join('')}
         </span>
-        <span class="agd-grade-foot"><span>按年级独立管理花名册与考勤数据</span><b>进入考勤工作台 \${icon('right', 14)}</b></span>
+        <span class="agd-grade-foot"><span>按年级独立管理花名册与考勤数据</span><b>进入考勤工作台 ${icon('right', 14)}</b></span>
       </span>
-    </button>\`;
+    </button>`;
   };
 
-  box.innerHTML = \`<div class="agl agd-dashboard">
+  box.innerHTML = `<div class="agl agd-dashboard">
     <header class="agd-header">
       <div class="agd-heading">
-        <span class="agd-heading-icon">\${icon('cal', 27)}</span>
+        <span class="agd-heading-icon">${icon('cal', 27)}</span>
         <div><h2>考勤管理</h2><p>按年级管理花名册、每日三张考勤表与教师考勤统计</p></div>
       </div>
       <div class="agd-actions">
         <span class="agd-live"><i></i>数据实时状态</span>
-        <button class="btn ghost agd-manage" id="agl-mgr">\${icon('grid', 15)} 年级管理</button>
-        <button class="btn primary agd-add" id="agl-add">\${icon('plus', 16)} 新建年级</button>
+        <button class="btn ghost agd-manage" id="agl-mgr">${icon('grid', 15)} 年级管理</button>
+        <button class="btn primary agd-add" id="agl-add">${icon('plus', 16)} 新建年级</button>
       </div>
     </header>
 
     <section class="agd-stats" aria-label="考勤数据概览">
-      <div class="agd-stat blue"><i>▱</i><div><b>\${tabs.length}</b><span>管理年级</span></div></div>
-      <div class="agd-stat purple"><i>♙</i><div><b>\${teacherTotal}</b><span>教师总人数</span></div></div>
-      <div class="agd-stat green"><i>✓</i><div><b>\${confirmedTotal}</b><span>今日已确认表</span></div></div>
-      <div class="agd-stat orange"><i>◷</i><div><b>\${incompleteTotal}</b><span>未完成表</span></div></div>
+      <div class="agd-stat blue"><i>▱</i><div><b>${tabs.length}</b><span>管理年级</span></div></div>
+      <div class="agd-stat purple"><i>♙</i><div><b>${teacherTotal}</b><span>教师总人数</span></div></div>
+      <div class="agd-stat green"><i>✓</i><div><b>${confirmedTotal}</b><span>今日已确认表</span></div></div>
+      <div class="agd-stat orange"><i>◷</i><div><b>${incompleteTotal}</b><span>未完成表</span></div></div>
     </section>
 
     <section class="agd-workspace">
       <div class="agd-section-head">
-        <div><h3>\${icon('grid', 19)} 年级考勤工作区</h3><p>选择年级进入独立工作台，查看当天考勤与历史记录</p></div>
-        <span class="agd-date">\${dateText(today)}</span>
+        <div><h3>${icon('grid', 19)} 年级考勤工作区</h3><p>选择年级进入独立工作台，查看当天考勤与历史记录</p></div>
+        <span class="agd-date">${dateText(today)}</span>
       </div>
       <div class="agd-grade-grid">
-        \${progressList.map(card).join('')}
+        ${progressList.map(card).join('')}
         <button class="agd-new-card" id="agl-add-card">
-          <span class="agd-new-plus">\${icon('plus', 25)}</span>
+          <span class="agd-new-plus">${icon('plus', 25)}</span>
           <b>新建年级</b><span>添加新的年级考勤管理</span>
           <i class="agd-school-scene" aria-hidden="true">⌂</i>
         </button>
@@ -135,7 +135,7 @@ export async function renderGradeList(box) {
         <button class="link-btn agl-danger" id="agl-reset">清空考勤数据…</button>
       </div>
     </details>
-  </div>\`;
+  </div>`;
 
   box.querySelectorAll('[data-g]').forEach((button) => {
     button.onclick = () => go(GRADE_URL(button.dataset.g));
