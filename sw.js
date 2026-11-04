@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v96-attendance-dashboard';
+const CACHE = 'wb-v97-auth-login';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -44,6 +44,7 @@ const ASSETS = [
   './css/app.css',
   './css/teacher-ui.css',
   './css/attendance-workspace.css',
+  './css/auth-redesign.css',
   './assets/teacher-ui/hero-scene.webp',
   './assets/teacher-ui/brand-avatar.png',
   /* 入口与它直接依赖的三个 */
@@ -158,7 +159,7 @@ self.addEventListener('activate', (e) => {
    页面上给一个「重试」按钮，点一下重新走一遍导航。 */
 const OFFLINE_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>我的工作台</title>
+<title>教师个人工作台</title>
 <style>
   html,body{height:100%;margin:0}
   body{display:flex;align-items:center;justify-content:center;min-height:100vh;
