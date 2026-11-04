@@ -659,7 +659,7 @@ function authLogin() {
   const card = document.getElementById('auth-card');
   const tabInfo = authTabsHTML();
   card.innerHTML = `
-    <div class="auth-tabs">${tabInfo.html}</div>
+    <div class="auth-tabs">${tabInfo}</div>
     <div id="auth-body"></div>
     <div class="auth-legal">
       <label><input type="checkbox" id="agree" checked><span>我已阅读并同意《服务协议》与《隐私政策》。登录即表示你同意我们按隐私政策处理你的数据。</span></label>
