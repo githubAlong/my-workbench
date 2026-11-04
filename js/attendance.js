@@ -140,7 +140,9 @@ export async function renderAttendance(box, opts = {}) {
   let activeGrade = want;
   sessionStorage.setItem('wb_att_grade', activeGrade);
   let viewDate = sessionStorage.getItem('wb_att_date') || dayStr();
-  let activeTab = ['roster', 'seat', 'research', 'class'].includes(sessionStorage.getItem('wb_att_tab')) ? sessionStorage.getItem('wb_att_tab') : 'roster';
+  // 每次进入年级工作台都从花名册开始；切换其他表只在本次工作台会话内生效。
+  let activeTab = 'roster';
+  sessionStorage.setItem('wb_att_tab', activeTab);
   let gradesData = { grades: [], counts: {}, tabs: MAIN_GRADES.slice() };
   let tables = [];
   let roster = [];
@@ -195,10 +197,8 @@ export async function renderAttendance(box, opts = {}) {
       if (!gradesData.tabs.includes(activeGrade)) activeGrade = gradesData.tabs[0] || '高一';
       sessionStorage.setItem('wb_att_grade', activeGrade);
       sessionStorage.setItem('wb_att_date', viewDate);
-      if (makeToday && viewDate === dayStr() && (gradesData.counts?.[activeGrade] || 0) > 0) {
-        await ensureDay({ date: viewDate, grade: activeGrade });
-        tables = await api.get('/attendance');
-      }
+      // 进入工作台或切换日期时只读取已有记录，不自动创建正式/草稿考勤表。
+      // 当天表格应由用户明确操作生成，并在人工确认后成为正式记录。
       roster = (await api.get('/teachers', { grade: activeGrade, active: 'all' }).catch(() => ({ list: [] }))).list || [];
       const type = typeForTab[activeTab];
       const matches = listFor(type);
