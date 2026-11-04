@@ -25,6 +25,15 @@ done
 say()  { printf '%s\n' "$*"; }
 fail() { printf 'x %s\n' "$*" >&2; exit 1; }
 
+# 本机环境变量里常有指向死代理的 HTTPS_PROXY，直连 GitHub 反而是通的：
+# 先用当前环境试，失败后清掉代理再试一次。
+net_git() {
+  git "$@" && return 0
+  say "  （首次失败，清空代理重试）"
+  env -u HTTPS_PROXY -u HTTP_PROXY -u ALL_PROXY -u https_proxy -u http_proxy -u all_proxy \
+    git -c http.proxy= -c https.proxy= "$@"
+}
+
 # ---------- 1. 前置检查 ----------
 cur="$(git rev-parse --abbrev-ref HEAD)"
 [ "$cur" = "$DEV_BRANCH" ] || fail "当前在 $cur 分支，请先 git checkout $DEV_BRANCH"
@@ -35,7 +44,7 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
 fi
 
 say "== 同步远端 =="
-git fetch origin --quiet || fail "git fetch 失败（代理？试试 HTTPS_PROXY= git ...）"
+net_git fetch origin --quiet || fail "git fetch 失败"
 
 behind="$(git rev-list --count "$DEV_BRANCH".."origin/$DEV_BRANCH" 2>/dev/null || echo 0)"
 if [ "$behind" -gt 0 ]; then
@@ -93,7 +102,7 @@ if ! git merge --no-ff "$DEV_BRANCH" -m "$msg" --quiet; then
 fi
 
 say "== 推送 $PROD_BRANCH =="
-git push origin "$PROD_BRANCH" || fail "push 失败，本地已合并，重试：git push origin $PROD_BRANCH"
+net_git push origin "$PROD_BRANCH" || fail "push 失败，本地已合并，重试：git push origin $PROD_BRANCH"
 
 # dev 停在原处：master 只多了一个合并提交，下次发布继续从 dev 出发即可
 git checkout "$DEV_BRANCH" --quiet
