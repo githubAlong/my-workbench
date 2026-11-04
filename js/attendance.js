@@ -256,19 +256,23 @@ export async function renderAttendance(box, opts = {}) {
         detail = await ensureSeatColumns(detail);
         // 坐班表是完整考勤底表；上课表从同一底表展示全体在册教师，
         // 不能再只筛选已经勾选上课/听课的教师。
-        const activeTeachers = roster.filter((teacher) => teacher.active);
-        const existingNames = new Set((detail.rows || []).map((row) => String(row.teacher || '').trim()).filter(Boolean));
-        for (const teacher of activeTeachers) {
-          const name = String(teacher.name || '').trim();
-          if (!name || existingNames.has(name)) continue;
-          detail.rows.push({
+        const activeTeachers = roster.filter((teacher) => teacher.active && String(teacher.name || '').trim());
+        const existingRows = detail.rows || [];
+        const rowByName = new Map(existingRows.map((row) => [String(row.teacher || '').trim(), row]));
+        const rosterNames = new Set(activeTeachers.map((teacher) => String(teacher.name).trim()));
+        // 按花名册顺序排列全体在册教师；已存在的行沿用原数据，新教师补空白行。
+        const orderedRosterRows = activeTeachers.map((teacher) => {
+          const name = String(teacher.name).trim();
+          return rowByName.get(name) || {
             teacher: name,
             subject: teacher.subject || '',
             data: {},
             _uiKey: `roster:${String(teacher.id || name)}`,
-          });
-          existingNames.add(name);
-        }
+          };
+        });
+        // 临时教师及不在当前有效名册中的历史行保留在末尾，避免丢失历史记录。
+        const otherRows = existingRows.filter((row) => !rosterNames.has(String(row.teacher || '').trim()));
+        detail.rows = [...orderedRosterRows, ...otherRows];
         // 给旧数据/新补入的无 ID 行一个仅供本次页面定位的键，不写入接口字段。
         detail.rows.forEach((row, index) => {
           if (!row.id && !row._uiKey) row._uiKey = `existing:${index}:${String(row.teacher || '').trim()}`;
