@@ -255,34 +255,27 @@ export async function renderAttendance(box, opts = {}) {
     const pcols = periodCols();
     const rows = visibleRows();
     const rosterRows = visibleRoster();
-    const rosterHTML = `<div class="att-work-table-scroll"><table class="att-work-table aw-roster-table">
-      <thead><tr><th>序号</th><th>姓名</th><th>学科</th><th>状态</th><th>操作</th></tr></thead>
-      <tbody>${rosterRows.map((r, i) => `<tr><td>${i + 1}</td><td class="aw-name">${esc(r.name || '')}</td><td><span class="aw-subject-chip">${esc(r.subject || '未填学科')}</span></td><td><span class="aw-status ${r.active ? 'on' : 'off'}">${r.active ? '在册' : '已调出'}</span></td><td><button class="btn ghost xs" data-roster-manage="${esc(r.id)}">管理</button></td></tr>`).join('')}</tbody>
-    </table></div>${rosterRows.length ? '' : `<div class="att-work-empty"><b>没有找到教师</b><p>请调整搜索内容或学科筛选条件。</p></div>`}`;
-    const tableHTML = isRoster ? rosterHTML : detail && isClass ? `
-      <div class="att-work-table-scroll"><table class="att-work-table">
-        <thead><tr><th>姓名</th><th>学科</th>${pcols.map((c) => `<th>${esc(c.label)}</th>`).join('')}<th>请假信息</th><th>操作</th></tr></thead>
-        <tbody>${rows.map((r) => {
+    const rosterHTML = \`<div class="att-work-table-scroll"><table class="att-work-table aw-roster-table">
+      <thead><tr><th>序号</th><th>姓名</th><th>学科</th></tr></thead>
+      <tbody>\${rosterRows.map((r, i) => \`<tr><td>\${i + 1}</td><td class="aw-name">\${esc(r.name || '')}</td><td>\${esc(r.subject || '未填学科')}</td></tr>\`).join('')}</tbody>
+    </table></div>\${rosterRows.length ? '' : \`<div class="att-work-empty"><b>暂无教师名单</b><p>请先导入或维护本年级花名册。</p></div>\`}\`;
+    const lockedSeat = activeTab === 'seat' && !classConfirmedToday && !detail;
+    const tableHTML = isRoster ? rosterHTML : detail ? \`
+      <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table">
+        <thead><tr><th>序号</th><th>姓名</th><th>学科</th>\${(detail.columns || []).map((col) => \`<th>\${esc(col.label)}</th>\`).join('')}</tr></thead>
+        <tbody>\${rows.map((r) => {
           const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id));
-          const lv = rowLeaveText(r);
-          return `<tr data-row="${ix}"><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>${esc(r.subject || '—')}</td>
-            ${pcols.map((c) => `<td><button class="aw-mark ${r.data?.[c.key] === '1' ? 'on' : ''}" data-row="${ix}" data-key="${esc(c.key)}">${r.data?.[c.key] === '1' ? '上课' : '—'}</button></td>`).join('')}
-            <td>${lv ? `<span class="aw-leave">${esc(lv)}</span>` : '<span class="aw-dash">—</span>'}</td>
-            <td><button class="btn ghost xs" data-edit-row="${ix}">编辑</button></td></tr>`;
+          return \`<tr data-row="\${ix}"><td>\${ix + 1}</td><td class="aw-name">\${esc(r.teacher || '')}\${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>\${esc(r.subject || '—')}</td>
+            \${(detail.columns || []).map((col) => col.type === 'check'
+              ? \`<td class="aw-check-cell"><button class="aw-mark aw-big-mark \${r.data?.[col.key] === '1' ? 'on' : ''}" data-row="\${ix}" data-key="\${esc(col.key)}" aria-label="\${esc(col.label)}">\${r.data?.[col.key] === '1' ? '✓' : ''}</button></td>\`
+              : \`<td><input class="aw-cell-input" data-cell-input data-row="\${ix}" data-key="\${esc(col.key)}" value="\${esc(r.data?.[col.key] || '')}" placeholder="—"></td>\`).join('')}
+          </tr>\`;
         }).join('')}</tbody>
-      </table></div>
-      <div class="att-work-mobile-list">${rows.map((r) => {
-        const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id));
-        const lv = rowLeaveText(r);
-        return `<article class="aw-mobile-card"><div class="aw-mobile-person"><b>${esc(r.teacher || '')}</b><span>${esc(r.subject || '未填学科')}</span>${r.data?.__temp ? '<em>临时</em>' : ''}</div>
-          <div class="aw-mobile-periods">${pcols.map((c) => `<button class="aw-mark ${r.data?.[c.key] === '1' ? 'on' : ''}" data-row="${ix}" data-key="${esc(c.key)}"><small>${esc(c.label)}</small>${r.data?.[c.key] === '1' ? '上课' : '—'}</button>`).join('')}</div>
-          ${lv ? `<div class="aw-mobile-leave">${icon('calendar', 13)} 请假：${esc(lv)}</div>` : ''}
-          <button class="aw-mobile-edit" data-edit-row="${ix}">编辑教师记录</button></article>`;
-      }).join('')}</div>` : detail ? `
-      <div class="att-work-table-scroll"><table class="att-work-table"><thead><tr><th>姓名</th><th>学科</th><th>考勤状态</th><th>请假信息 / 备注</th><th>操作</th></tr></thead><tbody>
-      ${rows.map((r) => { const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id)); const c = (detail.columns || []).find((x) => x.type === 'check'); const v = c ? r.data?.[c.key] : ''; return `<tr><td class="aw-name">${esc(r.teacher || '')}</td><td>${esc(r.subject || '—')}</td><td><span class="aw-status ${v === '1' ? 'on' : v === '0' ? 'off' : ''}">${v === '1' ? (activeTab === 'research' ? '已签到' : '在岗') : v === '0' ? '未到' : '待录入'}</span></td><td>${esc(r.data?.k_remark || '')}</td><td><button class="btn ghost xs" data-edit-row="${ix}">打开编辑</button></td></tr>`; }).join('')}
-      </tbody></table></div>` : `
-      <div class="att-work-empty"><div class="awe-icon">${icon('clipboard-list', 24)}</div><b>今天还没有${tabTitle[activeTab]}</b><p>${activeTab === 'seat' && !classConfirmedToday ? '请先完成当天上课表的勾选，并点击「确认生成」；确认后才能生成正式坐班表。' : '先导入教师名册，再生成当天考勤表。'}</p><button class="btn primary sm" id="att-work-create" ${activeTab === 'seat' && !classConfirmedToday ? 'disabled' : ''}>${activeTab === 'seat' && !classConfirmedToday ? '等待上课表确认' : `生成${tabTitle[activeTab]}`}</button></div>`;
+      </table></div>\` : lockedSeat ? \`
+      <div class="att-work-locked-note">请先在「上课表」完成勾选并点击「确认生成」。确认后，系统才会生成正式坐班表。</div>
+      <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table"><thead><tr><th>序号</th><th>姓名</th><th>学科</th>\${seatCols().map((col) => \`<th>\${esc(col.label)}</th>\`).join('')}</tr></thead>
+      <tbody>\${roster.filter((r) => r.active).map((r, i) => \`<tr><td>\${i + 1}</td><td class="aw-name">\${esc(r.name || '')}</td><td>\${esc(r.subject || '—')}</td>\${seatCols().map(() => '<td class="aw-check-cell"><button class="aw-mark aw-big-mark" disabled></button></td>').join('')}</tr>\`).join('')}</tbody></table></div>\` : \`
+      <div class="att-work-empty"><b>当前表格暂时无法显示</b><p>请检查本年级花名册，或重新加载数据。</p><button class="btn primary sm" id="att-work-create">生成草稿表</button></div>\`;
 
     box.innerHTML = `
       <div class="att-work-shell">
@@ -293,7 +286,7 @@ export async function renderAttendance(box, opts = {}) {
           <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
         </div>
         <nav class="att-work-tabs">
-          <button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button><button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button><button data-tab="stats">统计表</button>
+          <button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button><button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button>
         </nav>
         ${isRoster ? '' : `<div class="att-work-stats">
           <div class="aw-stat"><span>应到教师</span><b>${st.total || roster.filter((x) => x.active).length}</b><small>人</small></div>
@@ -317,8 +310,17 @@ export async function renderAttendance(box, opts = {}) {
 
     box.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => {
       const tab = b.dataset.tab;
-      if (tab === 'stats') return statsSheet(activeGrade);
-      activeTab = tab; sessionStorage.setItem('wb_att_tab', tab); searchText = ''; subjectFilter = ''; load({ makeToday: false });
+      activeTab = tab; sessionStorage.setItem('wb_att_tab', tab); searchText = ''; subjectFilter = '';
+      (async () => {
+        try {
+          if (tab === 'class' || tab === 'research') {
+            if (!listFor(tab).length) await createSlot({ date: viewDate, grade: activeGrade, type: tab, period: '' });
+          } else if (tab === 'seat' && classConfirmedToday && !listFor('seat').length) {
+            await createSlot({ date: viewDate, grade: activeGrade, type: 'seat', period: '1' });
+          }
+          await load({ makeToday: false });
+        } catch (e) { toast(e.message || '表格加载失败', 'err'); await load({ makeToday: false }); }
+      })();
     });
     box.querySelector('#att-work-grade').onchange = (e) => { activeGrade = e.target.value; sessionStorage.setItem('wb_att_grade', activeGrade); load(); };
     box.querySelector('#att-work-date').onchange = (e) => { if (e.target.value) { viewDate = e.target.value; load({ makeToday: viewDate === dayStr() }); } };
@@ -362,6 +364,7 @@ export async function renderAttendance(box, opts = {}) {
       catch (e) { toast(e.message || '生成失败', 'err'); }
     });
     box.querySelectorAll('[data-mark]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
+    box.querySelectorAll('[data-cell-input]').forEach((input) => input.onchange = () => { const row = detail?.rows?.[Number(input.dataset.row)]; if (!row) return; row.data = { ...(row.data || {}), [input.dataset.key]: input.value }; dirty = true; });
     box.querySelectorAll('.aw-mark[data-row]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
     box.querySelectorAll('[data-edit-row]').forEach((b) => b.onclick = () => detail && openTable(detail.id, () => load()));
     box.querySelector('#att-work-save')?.addEventListener('click', () => persistWorkspace(false));
