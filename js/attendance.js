@@ -157,7 +157,7 @@ export async function renderAttendance(box, opts = {}) {
   const tabTitle = { seat: '坐班考勤表', research: '教研考勤表', class: '上课考勤表' };
   const dateLabel = (v) => {
     const d = new Date(`${v}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? v : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+    return Number.isNaN(d.getTime()) ? v : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（星期${WD[d.getDay()]}）`;
   };
   const listFor = (type) => tables.filter((t) => (t.grade || '高一') === activeGrade
     && String(t.sheet_date || '') === viewDate && (t.sheet_type || t.kind) === type && !t.deleted_at);
@@ -248,7 +248,7 @@ export async function renderAttendance(box, opts = {}) {
   };
   const stats = () => {
     const rows = getRows();
-    const pcols = periodCols();
+    const pcols = activeTab === 'seat' ? (detail?.columns || []).filter((c) => c.type === 'check' && c.key !== 'k_请假') : periodCols();
     const checked = rows.filter((r) => pcols.some((c) => r.data?.[c.key] === '1')).length;
     const leave = rows.filter((r) => rowLeaveText(r)).length;
     const pending = Math.max(0, rows.length - checked - leave);
@@ -347,7 +347,7 @@ export async function renderAttendance(box, opts = {}) {
     rangeSelect?.addEventListener('change', (e) => { timeRange = e.target.value; sessionStorage.setItem('wb_att_time_range', timeRange); });
     const changePeriod = async (value) => {
       const n = Number(value);
-      if (!Number.isInteger(n) || n < 1 || n > 9) { toast('节次请输入 1～9 的整数', 'warn'); return; }
+      if (!Number.isInteger(n) || n < 1 || n > 9) { toast('节次请输入 1～9 的整数', 'warn'); const manual = box.querySelector('#att-work-period-manual'); if (manual) manual.value = selectedPeriod; return; }
       selectedPeriod = String(n); sessionStorage.setItem('wb_att_period', selectedPeriod);
       const sel = box.querySelector('#att-work-period'), manual = box.querySelector('#att-work-period-manual');
       if (sel) sel.value = selectedPeriod; if (manual) manual.value = selectedPeriod;
@@ -430,7 +430,8 @@ export async function renderAttendance(box, opts = {}) {
     row.data = { ...(row.data || {}) };
     row.data[key] = row.data[key] === '1' ? '' : '1';
     if (key === 'k_请假' && row.data[key] === '1') {
-      periodCols().forEach((c) => { row.data[c.key] = ''; });
+      const clearCols = activeTab === 'seat' ? (detail.columns || []).filter((c) => c.type === 'check' && c.key !== 'k_请假') : periodCols();
+      clearCols.forEach((c) => { row.data[c.key] = ''; });
       row.data.__leave = row.data.__leave || { type: '未注明', period: '全天', duration: 1 };
     } else if (key === 'k_请假' && row.data[key] !== '1') {
       delete row.data.__leave;
