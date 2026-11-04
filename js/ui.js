@@ -606,14 +606,8 @@ export async function loadAuthConfig() {
 const ALLOW_SIGNUP = true;
 
 function authTabsHTML() {
-  const mode = authMode === 'register' ? '注册新账号' : '登录';
-  const other = authMode === 'register' ? '已有账号？去登录' : '还没有账号？注册一个';
-  return {
-    html: `<button class="on">${mode}</button>` +
-      (ALLOW_SIGNUP ? `
-      <button class="auth-switch" id="auth-switch">${other}</button>` : ''),
-    def: null,
-  };
+  return `<button type="button" class="${authMode === 'login' ? 'on' : ''}" data-auth-mode="login">登录</button>` +
+    (ALLOW_SIGNUP ? `<button type="button" class="${authMode === 'register' ? 'on' : ''}" data-auth-mode="register">注册</button>` : '');
 }
 
 /* 从扫码确认页跳去登录的用户，登录完要回到那一次确认。
@@ -630,25 +624,33 @@ function takeQrReturn() {
 function renderAuth() {
   const app = document.getElementById('app');
   app.innerHTML = `<div class="auth">
-    <div class="auth-side">
-      <div class="brand" style="padding:0">
-        <div class="brand-logo" style="background:rgba(255,255,255,.18)">台</div>
-        <div><div class="brand-name" style="color:#fff">我的工作台</div><div class="brand-sub" style="color:rgba(255,255,255,.6)">教师个人工作台</div></div>
+    <section class="auth-side" aria-label="教师个人工作台介绍">
+      <div class="auth-brand">
+        <div class="auth-brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48" role="img">
+            <path d="M4 18.2 24 8l20 10.2L24 28.5 4 18.2Z" fill="currentColor"/>
+            <path d="M12 23.1v9.2c6.7 6.3 17.3 6.3 24 0v-9.2L24 29.2 12 23.1Z" fill="currentColor" opacity=".92"/>
+            <path d="M43 19v13" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+            <circle cx="43" cy="34.5" r="2.2" fill="currentColor"/>
+          </svg>
+        </div>
+        <div class="auth-brand-name">教师个人工作台</div>
       </div>
       <div class="auth-hero">
-        <h1>把每天的上课、<br>课时、考勤，都放进一个地方。</h1>
-        <p>首页看时间与天气，工作里管课时考勤，日常随手记事，学习留下积累。账号由手机号统一管理；目前只有已接入云同步的内容会跨设备同步。</p>
+        <h1>一站式教师工作平台</h1>
+        <p class="auth-slogan">备课 · 授课 · 考勤 · 教研 · 任务 · 数据</p>
         <div class="auth-feats">
-          <div class="auth-feat"><i>${icon('clock', 18)}</i>时间天气一眼看清，出门前就知道穿什么</div>
-          <div class="auth-feat"><i>${icon('book', 18)}</i>课时与代课自动汇总，月底对账不吃亏</div>
-          <div class="auth-feat"><i>${icon('bell', 18)}</i>到点提醒，手机、平板一起响</div>
+          <div class="auth-feat"><i>${icon('calendar-days', 20)}</i><span>课时管理</span></div>
+          <div class="auth-feat"><i>${icon('check-circle', 20)}</i><span>考勤统计</span></div>
+          <div class="auth-feat"><i>${icon('book-open', 20)}</i><span>教学记录</span></div>
+          <div class="auth-feat"><i>${icon('chart-no-axes-column-increasing', 20)}</i><span>数据报表</span></div>
         </div>
       </div>
-      <div style="font-size:12px;color:rgba(255,255,255,.55)">© ${new Date().getFullYear()} 我的工作台</div>
-    </div>
-    <div class="auth-main">
+      <div class="auth-copy">© ${new Date().getFullYear()} 教师个人工作台</div>
+    </section>
+    <main class="auth-main">
       <div class="auth-card" id="auth-card"></div>
-    </div>
+    </main>
   </div>`;
   authLogin();
 }
@@ -662,9 +664,13 @@ function authLogin() {
     <div class="auth-legal">
       <label><input type="checkbox" id="agree" checked><span>我已阅读并同意《服务协议》与《隐私政策》。登录即表示你同意我们按隐私政策处理你的数据。</span></label>
     </div>`;
-  document.getElementById('auth-switch')?.addEventListener('click', () => {
-    authMode = authMode === 'register' ? 'login' : 'register';
-    authLogin();
+  card.querySelectorAll('[data-auth-mode]').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const nextMode = tab.dataset.authMode;
+      if (nextMode !== 'login' && nextMode !== 'register') return;
+      authMode = nextMode;
+      authLogin();
+    });
   });
   authPassword();
 }
