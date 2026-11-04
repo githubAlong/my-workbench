@@ -2648,8 +2648,8 @@ async function subjectManageDialog(grade, onChanged) {
       ${(data.list || []).map((s) => `<div class="gm-row" data-n="${esc(s.name)}">
         <input class="input gm-name" value="${esc(s.name)}">
         <span class="gm-meta">${s.count} 人</span>
-        <button class="btn ghost sm" data-rn="${esc(s.name)}">改名</button>
-        <button class="btn ghost sm danger" data-dl="${esc(s.name)}">删除</button>
+        <button class="btn ghost sm gm-act" data-rn="${esc(s.name)}">改名</button>
+        <button class="btn ghost sm gm-act gm-del" data-dl="${esc(s.name)}">删除</button>
       </div>`).join('') || '<div class="att-empty">这个年级还没人填学科</div>'}
     </div>
     <div class="confirm-actions"><button class="btn ghost" id="sm-c">关闭</button></div>
