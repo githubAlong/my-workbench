@@ -58,11 +58,11 @@ const hasPeriod = (t) => t !== 'research';
 /* 坐班表的戳记列（跟纸表一致：上课 坐班 听课 教研 请假 备注） */
 function seatCols() {
   return [
-    { key: 'k_坐班', label: '坐班', type: 'check', w: 76 },
     { key: 'k_上课', label: '上课', type: 'check', w: 76 },
+    { key: 'k_坐班', label: '坐班', type: 'check', w: 76 },
     { key: 'k_听课', label: '听课', type: 'check', w: 76 },
-    { key: 'k_请假', label: '请假', type: 'check', w: 76 },
     { key: 'k_教研', label: '教研', type: 'check', w: 76 },
+    { key: 'k_请假', label: '请假', type: 'check', w: 76 },
     { key: 'k_remark', label: '备注', type: 'text', w: 180 },
   ];
 }
@@ -73,6 +73,7 @@ function seatCols() {
 function researchCols() {
   return [
     { key: 'k_签到', label: '签到', type: 'check', w: 72 },
+    { key: 'k_请假', label: '请假', type: 'check', w: 76 },
     { key: 'k_remark', label: '备注', type: 'text', w: 150 },
   ];
 }
@@ -80,8 +81,11 @@ function researchCols() {
 function classCols() {
   return [
     ...Array.from({ length: 9 }, (_, i) => ({ key: `k_p${i + 1}`, label: `第${i + 1}节`, type: 'check', w: 66 })),
-    { key: 'k_请假', label: '请假', type: 'check', w: 62 },
-    { key: 'k_remark', label: '备注', type: 'text', w: 150 },
+    { key: 'k_坐班', label: '坐班', type: 'check', w: 76 },
+    { key: 'k_听课', label: '听课', type: 'check', w: 76 },
+    { key: 'k_教研', label: '教研', type: 'check', w: 76 },
+    { key: 'k_请假', label: '请假', type: 'check', w: 76 },
+    { key: 'k_remark', label: '备注', type: 'text', w: 180 },
   ];
 }
 const colsOf = (type) => (type === 'research' ? researchCols() : type === 'class' ? classCols() : seatCols());
@@ -196,13 +200,28 @@ export async function renderAttendance(box, opts = {}) {
       if (i === 0 && legacy) return { ...legacy, label: '第1节', type: 'check', w: 66 };
       return { key: `k_p${i + 1}`, label: `第${i + 1}节`, type: 'check', w: 66 };
     });
-    const listen = old.find((c) => /听课/.test(c.label || '') || c.key === 'k_听课') || { key: 'k_听课', label: '听课', type: 'check', w: 76 };
-    const leave = old.find((c) => /请假/.test(c.label || '')) || { key: 'k_请假', label: '请假', type: 'check', w: 62 };
-    const remark = old.find((c) => c.type !== 'check') || { key: 'k_remark', label: '备注', type: 'text', w: 150 };
-    const standardKeys = new Set([...periodDefs, listen, leave, remark].map((c) => c.key));
-    const extras = old.filter((c) => !standardKeys.has(c.key) && !periodOld.some((p) => p.key === c.key));
-    const merged = [...periodDefs, listen, leave, remark, ...extras];
+    const get = (key, label, type = 'check', w = 76) => old.find((c) => c.key === key || c.label === label) || { key, label, type, w };
+    const common = [
+      get('k_坐班', '坐班'), get('k_听课', '听课'), get('k_教研', '教研'),
+      get('k_请假', '请假'), get('k_remark', '备注', 'text', 180),
+    ];
+    const known = new Set([...periodDefs, ...common].map((c) => c.key));
+    const extras = old.filter((c) => !known.has(c.key) && !periodOld.some((p) => p.key === c.key));
+    const merged = [...periodDefs, ...common, ...extras];
     const same = merged.length === old.length && merged.every((c, i) => c.key === old[i]?.key && c.label === old[i]?.label && c.type === old[i]?.type);
+    if (same) return t;
+    await api.patch(`/attendance/${t.id}`, { columns: merged, migration: true });
+    return { ...t, columns: merged };
+  };
+
+  const ensureResearchColumns = async (t) => {
+    if (!t || (t.sheet_type || t.kind) !== 'research') return t;
+    const current = t.columns || [];
+    const get = (key, label, type = 'check', w = 76) => current.find((c) => c.key === key || c.label === label) || { key, label, type, w };
+    const next = [get('k_签到', '签到', 'check', 72), get('k_请假', '请假'), get('k_remark', '备注', 'text', 150)];
+    const extras = current.filter((c) => !next.some((x) => x.key === c.key));
+    const merged = [...next, ...extras];
+    const same = merged.length === current.length && merged.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label && c.type === current[i]?.type);
     if (same) return t;
     await api.patch(`/attendance/${t.id}`, { columns: merged, migration: true });
     return { ...t, columns: merged };
@@ -228,6 +247,7 @@ export async function renderAttendance(box, opts = {}) {
       detail = matches.length ? await api.get(`/attendance/${matches.sort((a, b) => Number(b.id) - Number(a.id))[0].id}`) : null;
       if (detail && activeTab === 'class') detail = await ensureClassColumns(detail);
       if (detail && activeTab === 'seat') detail = await ensureSeatColumns(detail);
+      if (detail && activeTab === 'research') detail = await ensureResearchColumns(detail);
       dirty = false;
       paint();
     } catch (e) {
@@ -283,7 +303,7 @@ export async function renderAttendance(box, opts = {}) {
         { label: '请假', value: leave, tone: 'amber' },
       ] };
     }
-    const taught = rows.filter((r) => periodCols().some((c) => r.data?.[c.key] === '1')).length;
+    const taught = rows.filter((r) => r.data?.[`k_p${selectedPeriod}`] === '1').length;
     return { total, items: [
       { label: '应到教师', value: total, tone: '' },
       { label: '已上课', value: taught, tone: 'blue' },
@@ -303,6 +323,14 @@ export async function renderAttendance(box, opts = {}) {
     const isClass = activeTab === 'class';
     const pcols = periodCols();
     const rows = visibleRows();
+    const displayColumns = activeTab === 'class' ? [
+      { key: `k_p${selectedPeriod}`, label: '上课', type: 'check' },
+      { key: 'k_坐班', label: '坐班', type: 'check' },
+      { key: 'k_听课', label: '听课', type: 'check' },
+      { key: 'k_教研', label: '教研', type: 'check' },
+      { key: 'k_请假', label: '请假', type: 'check' },
+      { key: 'k_remark', label: '备注', type: 'text' },
+    ] : (detail?.columns || []);
     const rosterRows = visibleRoster();
     const rosterHTML = `<div class="att-work-table-scroll"><table class="att-work-table aw-roster-table">
       <thead><tr><th>序号</th><th>姓名</th><th>学科</th></tr></thead>
@@ -311,11 +339,11 @@ export async function renderAttendance(box, opts = {}) {
     const lockedSeat = activeTab === 'seat' && !classConfirmedToday && !detail;
     const tableHTML = isRoster ? rosterHTML : detail ? `
       <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table">
-        ${activeTab === 'class' ? `<thead><tr><th rowspan="2">序号</th><th rowspan="2">姓名</th><th rowspan="2">学科</th><th colspan="6" class="aw-period-group">上午</th><th colspan="3" class="aw-period-group">下午</th><th rowspan="2">听课</th><th rowspan="2">请假</th><th rowspan="2">备注</th></tr><tr>${Array.from({length:9},(_,i)=>`<th class="aw-period-head">第${i+1}节</th>`).join('')}</tr></thead>` : `<thead><tr><th>序号</th><th>姓名</th><th>学科</th>${(detail.columns || []).map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>`}
+<thead><tr><th>序号</th><th>姓名</th><th>学科</th>${displayColumns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>
         <tbody>${rows.map((r) => {
           const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id));
           return `<tr data-row="${ix}"><td>${ix + 1}</td><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>${esc(r.subject || '—')}</td>
-            ${(detail.columns || []).map((col) => col.type === 'check'
+            ${displayColumns.map((col) => col.type === 'check'
               ? `<td class="aw-check-cell"><button class="aw-mark aw-big-mark ${r.data?.[col.key] === '1' ? 'on' : ''}" data-row="${ix}" data-key="${esc(col.key)}" aria-label="${esc(col.label)}">${r.data?.[col.key] === '1' ? '✓' : ''}</button></td>`
               : `<td><input class="aw-cell-input" data-cell-input data-row="${ix}" data-key="${esc(col.key)}" value="${esc(r.data?.[col.key] || '')}" placeholder="—"></td>`).join('')}
           </tr>`;
@@ -330,7 +358,7 @@ export async function renderAttendance(box, opts = {}) {
       <div class="att-work-shell">
         <div class="att-work-crumb">工作模块 <span>/</span> 考勤 <span>/</span> ${esc(activeGrade)}</div>
         <div class="att-work-head">
-          <div><h2>${esc(activeGrade)}考勤</h2><div class="att-work-sync"><i></i> 数据已加载</div></div>
+          <div><h2>${esc(activeGrade)} · 考勤</h2><div class="att-work-sync"><i></i> 数据已加载</div></div>
           <select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
         </div>
         <div class="att-work-meta-controls">
@@ -388,6 +416,8 @@ export async function renderAttendance(box, opts = {}) {
           if (classConfirmedToday && !listForSelected('seat').length) await createSlot({ date:viewDate, grade:activeGrade, type:'seat', period:selectedPeriod });
           await load({ makeToday:false });
         } catch (err) { toast(err.message || '切换节次失败', 'err'); }
+      } else if (activeTab === 'class') {
+        paint();
       }
     };
     box.querySelector('#att-work-period')?.addEventListener('change', e => changePeriod(e.target.value));
@@ -457,7 +487,7 @@ export async function renderAttendance(box, opts = {}) {
     row.data = { ...(row.data || {}) };
     row.data[key] = row.data[key] === '1' ? '' : '1';
     if (key === 'k_请假' && row.data[key] === '1') {
-      const clearCols = activeTab === 'seat' ? (detail.columns || []).filter((c) => c.type === 'check' && c.key !== 'k_请假') : periodCols();
+      const clearCols = (detail.columns || []).filter((c) => c.type === 'check' && c.key !== 'k_请假');
       clearCols.forEach((c) => { row.data[c.key] = ''; });
       row.data.__leave = row.data.__leave || { type: '未注明', period: '全天', duration: 1 };
     } else if (key === 'k_请假' && row.data[key] !== '1') {
