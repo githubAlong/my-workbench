@@ -299,20 +299,18 @@ export async function renderAttendance(box, opts = {}) {
           <div class="aw-stat blue"><span>已上课</span><b>${st.checked}</b><small>人</small></div>
           <div class="aw-stat amber"><span>请假</span><b>${st.leave}</b><small>人</small></div>
           <div class="aw-stat gray"><span>待录入</span><b>${st.pending}</b><small>人</small></div>
-        </div>
+        </div>`}
         <section class="att-work-panel">
           <div class="att-work-toolbar">
             <select class="input" id="att-work-subject"><option value="">全部学科</option>${subjects.map((x) => `<option value="${esc(x)}" ${subjectFilter === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
             <input class="input aw-search" id="att-work-search" placeholder="⌕ 搜索教师姓名" value="${esc(searchText)}">
-            <button class="btn ghost sm" id="att-work-photo">${icon('camera', 14)} 拍照导入</button>
-            <button class="btn primary sm" id="att-work-voice">${icon('mic', 14)} 语音录入</button>
-            <button class="btn ghost sm" id="att-work-add">＋ 新增临时老师</button>
+            ${isRoster ? `<button class="btn primary sm" id="att-work-add">＋ 管理花名册</button><button class="btn ghost sm" id="att-work-photo">${icon('camera', 14)} 拍照建册</button>` : `<button class="btn ghost sm" id="att-work-photo">${icon('camera', 14)} 拍照导入</button><button class="btn primary sm" id="att-work-voice">${icon('mic', 14)} 语音录入</button><button class="btn ghost sm" id="att-work-add">＋ 新增临时老师</button>`}
             <span class="att-work-spacer"></span>
-            <div class="att-work-export-wrap"><button class="btn ghost sm" id="att-work-export">${icon('download', 14)} 导出 ▾</button><div class="att-work-export-menu" id="att-work-export-menu" hidden><button data-export="pdf">导出 PDF</button><button data-export="png">导出 PNG</button><button data-export="xlsx">导出 Excel</button><label><input type="checkbox" id="att-work-watermark" checked> 添加水印</label></div></div>
+            ${isRoster ? `<span class="att-roster-count">${roster.filter((r) => r.active).length} 位在册教师</span>` : `<div class="att-work-export-wrap"><button class="btn ghost sm" id="att-work-export">${icon('download', 14)} 导出 ▾</button><div class="att-work-export-menu" id="att-work-export-menu" hidden><button data-export="pdf">导出 PDF</button><button data-export="png">导出 PNG</button><button data-export="xlsx">导出 Excel</button><label><input type="checkbox" id="att-work-watermark" checked> 添加水印</label></div></div>`}
           </div>
-          <div class="att-work-table-title"><div><h3>${tabTitle[activeTab] || '上课考勤表'}</h3><span>${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${detail?.rows?.length || 0} 位教师</span></div><span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span></div>
+          <div class="att-work-table-title"><div><h3>${isRoster ? '教师花名册' : (tabTitle[activeTab] || '上课考勤表')}</h3><span>${isRoster ? `${esc(activeGrade)} · ${roster.filter((r) => r.active).length} 位教师 · ${subjects.length} 个学科` : `${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${detail?.rows?.length || 0} 位教师`}</span></div>${isRoster ? `<span class="att-work-confirm ok">名单已加载</span>` : `<span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span>`}</div>
           ${tableHTML}
-          <div class="att-work-foot"><span>ⓘ 临时老师仅在当天显示，课时计入统计</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? '重新确认生成' : '确认生成'}</button></div></div>
+          ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；修改名单后，后续生成的考勤表将使用最新名单。</span></div>` : `<div class="att-work-foot"><span>ⓘ 临时老师仅在当天显示，课时计入统计</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? '重新确认生成' : '确认生成'}</button></div></div>`}
         </section>
       </div>`;
 
