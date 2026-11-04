@@ -60,6 +60,7 @@ function seatCols() {
   return [
     { key: 'k_坐班', label: '坐班', type: 'check', w: 76 },
     { key: 'k_上课', label: '上课', type: 'check', w: 76 },
+    { key: 'k_听课', label: '听课', type: 'check', w: 76 },
     { key: 'k_请假', label: '请假', type: 'check', w: 76 },
     { key: 'k_教研', label: '教研', type: 'check', w: 76 },
     { key: 'k_remark', label: '备注', type: 'text', w: 180 },
@@ -171,27 +172,38 @@ export async function renderAttendance(box, opts = {}) {
 
   const ensureSeatColumns = async (t) => {
     if (!t || (t.sheet_type || t.kind) !== 'seat') return t;
-    const expected = seatCols(), current = t.columns || [];
-    const same = expected.length === current.length && expected.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label);
+    const expected = seatCols(), current = t.columns || [], used = new Set();
+    const merged = expected.map((col) => {
+      const found = current.find((old) => !used.has(old.key) && (old.key === col.key || old.label === col.label));
+      if (found) used.add(found.key);
+      return found ? { ...col, ...found, label: col.label, type: col.type } : col;
+    });
+    current.filter((col) => !used.has(col.key) && !merged.some((x) => x.key === col.key)).forEach((col) => merged.push(col));
+    const same = merged.length === current.length && merged.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label && c.type === current[i]?.type);
     if (same) return t;
-    await api.patch(`/attendance/${t.id}`, { columns: expected, migration: true });
-    return { ...t, columns: expected };
+    await api.patch(`/attendance/${t.id}`, { columns: merged, migration: true });
+    return { ...t, columns: merged };
   };
 
   const ensureClassColumns = async (t) => {
     if (!t || (t.sheet_type || t.kind) !== 'class') return t;
     const old = t.columns || [];
-    const periods = getPeriodCols(t);
-    if (periods.length >= 9) return t;
     const legacy = old.find((c) => c.key === 'k_准时' || /按时上课/.test(c.label || ''));
-    const next = old.filter((c) => c.key !== 'k_准时' && !/^第\s*\d+\s*节/.test(c.label || ''));
+    const periodOld = getPeriodCols(t);
     const periodDefs = Array.from({ length: 9 }, (_, i) => {
-      if (i === 0 && legacy) return { ...legacy, label: '第1节', w: 66 };
+      const found = periodOld.find((c) => Number((c.label.match(/\\d+/) || [0])[0]) === i + 1);
+      if (found) return { ...found, label: `第${i + 1}节`, type: 'check', w: 66 };
+      if (i === 0 && legacy) return { ...legacy, label: '第1节', type: 'check', w: 66 };
       return { key: `k_p${i + 1}`, label: `第${i + 1}节`, type: 'check', w: 66 };
     });
+    const listen = old.find((c) => /听课/.test(c.label || '') || c.key === 'k_听课') || { key: 'k_听课', label: '听课', type: 'check', w: 76 };
     const leave = old.find((c) => /请假/.test(c.label || '')) || { key: 'k_请假', label: '请假', type: 'check', w: 62 };
     const remark = old.find((c) => c.type !== 'check') || { key: 'k_remark', label: '备注', type: 'text', w: 150 };
-    const merged = [...periodDefs, leave, remark];
+    const standardKeys = new Set([...periodDefs, listen, leave, remark].map((c) => c.key));
+    const extras = old.filter((c) => !standardKeys.has(c.key) && !periodOld.some((p) => p.key === c.key));
+    const merged = [...periodDefs, listen, leave, remark, ...extras];
+    const same = merged.length === old.length && merged.every((c, i) => c.key === old[i]?.key && c.label === old[i]?.label && c.type === old[i]?.type);
+    if (same) return t;
     await api.patch(`/attendance/${t.id}`, { columns: merged, migration: true });
     return { ...t, columns: merged };
   };
@@ -248,11 +260,36 @@ export async function renderAttendance(box, opts = {}) {
   };
   const stats = () => {
     const rows = getRows();
-    const pcols = activeTab === 'seat' ? (detail?.columns || []).filter((c) => c.type === 'check' && c.key !== 'k_请假') : periodCols();
-    const checked = rows.filter((r) => pcols.some((c) => r.data?.[c.key] === '1')).length;
+    const count = (key) => rows.filter((r) => r.data?.[key] === '1').length;
+    const keyByLabel = (label, fallback) => (detail?.columns || []).find((c) => c.key === fallback || (c.label || '').includes(label))?.key || fallback;
+    const listenKey = keyByLabel('听课', 'k_听课');
     const leave = rows.filter((r) => rowLeaveText(r)).length;
-    const pending = Math.max(0, rows.length - checked - leave);
-    return { total: rows.length, checked, leave, pending };
+    const total = rows.length;
+    if (activeTab === 'seat') {
+      return { total, items: [
+        { label: '应到教师', value: total, tone: '' },
+        { label: '已坐班', value: count(keyByLabel('坐班', 'k_坐班')), tone: 'blue' },
+        { label: '已上课', value: count(keyByLabel('上课', 'k_上课')), tone: 'blue' },
+        { label: '听课', value: count(listenKey), tone: 'violet' },
+        { label: '请假', value: leave, tone: 'amber' },
+      ] };
+    }
+    if (activeTab === 'research') {
+      const researched = count(keyByLabel('签到', 'k_签到'));
+      return { total, items: [
+        { label: '应到教师', value: total, tone: '' },
+        { label: '已教研', value: researched, tone: 'blue' },
+        { label: '未教研', value: Math.max(0, total - researched - leave), tone: 'gray' },
+        { label: '请假', value: leave, tone: 'amber' },
+      ] };
+    }
+    const taught = rows.filter((r) => periodCols().some((c) => r.data?.[c.key] === '1')).length;
+    return { total, items: [
+      { label: '应到教师', value: total, tone: '' },
+      { label: '已上课', value: taught, tone: 'blue' },
+      { label: '听课', value: count(listenKey), tone: 'violet' },
+      { label: '请假', value: leave, tone: 'amber' },
+    ] };
   };
 
   const paint = () => {
@@ -274,7 +311,7 @@ export async function renderAttendance(box, opts = {}) {
     const lockedSeat = activeTab === 'seat' && !classConfirmedToday && !detail;
     const tableHTML = isRoster ? rosterHTML : detail ? `
       <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table">
-        ${activeTab === 'class' ? `<thead><tr><th rowspan="2">序号</th><th rowspan="2">姓名</th><th rowspan="2">学科</th><th colspan="6" class="aw-period-group">上午</th><th colspan="3" class="aw-period-group">下午</th><th rowspan="2">请假</th><th rowspan="2">备注</th></tr><tr>${Array.from({length:9},(_,i)=>`<th class="aw-period-head">第${i+1}节</th>`).join('')}</tr></thead>` : `<thead><tr><th>序号</th><th>姓名</th><th>学科</th>${(detail.columns || []).map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>`}
+        ${activeTab === 'class' ? `<thead><tr><th rowspan="2">序号</th><th rowspan="2">姓名</th><th rowspan="2">学科</th><th colspan="6" class="aw-period-group">上午</th><th colspan="3" class="aw-period-group">下午</th><th rowspan="2">听课</th><th rowspan="2">请假</th><th rowspan="2">备注</th></tr><tr>${Array.from({length:9},(_,i)=>`<th class="aw-period-head">第${i+1}节</th>`).join('')}</tr></thead>` : `<thead><tr><th>序号</th><th>姓名</th><th>学科</th>${(detail.columns || []).map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>`}
         <tbody>${rows.map((r) => {
           const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id));
           return `<tr data-row="${ix}"><td>${ix + 1}</td><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>${esc(r.subject || '—')}</td>
@@ -295,9 +332,9 @@ export async function renderAttendance(box, opts = {}) {
         <div class="att-work-head">
           <div><h2>${esc(activeGrade)}考勤</h2><div class="att-work-sync"><i></i> 数据已加载</div></div>
           <select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
-          <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
         </div>
         <div class="att-work-meta-controls">
+          <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
           <label>时间段 <select class="input" id="att-work-time-range"><option value="全天">全天</option><option value="上午">上午</option><option value="下午">下午</option></select></label>
           ${activeTab === 'research' || isRoster ? '' : `<label>节次 <select class="input" id="att-work-period">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" ${String(p) === selectedPeriod ? 'selected' : ''}>第 ${p} 节</option>`).join('')}</select></label>
           <label class="att-work-period-manual">手动输入 <input class="input" id="att-work-period-manual" type="number" min="1" max="9" step="1" value="${selectedPeriod}" inputmode="numeric"></label>`}
@@ -306,12 +343,7 @@ export async function renderAttendance(box, opts = {}) {
         <nav class="att-work-tabs">
           <button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button><button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button>
         </nav>
-        ${isRoster ? '' : `<div class="att-work-stats">
-          <div class="aw-stat"><span>应到教师</span><b>${st.total || roster.filter((x) => x.active).length}</b><small>人</small></div>
-          <div class="aw-stat blue"><span>已上课</span><b>${st.checked}</b><small>人</small></div>
-          <div class="aw-stat amber"><span>请假</span><b>${st.leave}</b><small>人</small></div>
-          <div class="aw-stat gray"><span>待录入</span><b>${st.pending}</b><small>人</small></div>
-        </div>`}
+        ${isRoster ? '' : `<div class="att-work-stats">${(st.items || []).map((item) => `<div class="aw-stat ${item.tone || ''}"><span>${item.label}</span><b>${item.value}</b><small>人</small></div>`).join('')}</div>`}
         <section class="att-work-panel">
           <div class="att-work-toolbar">
             <select class="input" id="att-work-subject"><option value="">全部学科</option>${subjects.map((x) => `<option value="${esc(x)}" ${subjectFilter === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>

@@ -357,3 +357,23 @@
  .att-work-meta-hint{width:100%;margin-left:0}
  .att-work-meta-controls .input{min-width:82px}
 }
+
+
+/* 考勤页细节调整：日期与节次同排；不同表类型显示各自统计项 */
+.att-work-date{margin-left:0;flex:0 0 auto}
+.att-work-meta-controls{justify-content:flex-start;gap:12px}
+.att-work-meta-controls .att-work-date label{font-weight:500}
+.att-work-meta-controls .att-work-date label input{width:18px;max-width:18px}
+.att-work-stats{grid-template-columns:repeat(5,minmax(0,1fr))}
+.aw-stat.violet{background:linear-gradient(110deg,#f1edff,#f8f5ff)}
+.aw-stat.violet:before{content:"◉";color:#7653d6;border-color:#d8cdfc}
+@media(max-width:1100px){
+ .att-work-stats{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+}
+@media(max-width:760px){
+ .att-work-meta-controls .att-work-date{width:100%;margin:0}
+ .att-work-meta-controls .att-work-date label{flex:1;min-width:0}
+ .att-work-meta-controls .att-work-date label span{overflow:hidden;text-overflow:ellipsis}
+ .att-work-meta-controls .att-work-date label input{flex:0 0 18px}
+ .att-work-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
