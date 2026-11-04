@@ -45,7 +45,7 @@ const ymd = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${
 const TYPE_LABEL = { seat: '教师坐班表', research: '教师教研签到表', class: '教师上课检查表' };
 const TYPE_SHORT = { seat: '坐班表', research: '教研签到表', class: '上课检查表' };
 /* 表类型排序：坐班、教研是每天必查；上课检查按个人习惯，放第三 */
-const TYPE_ORDER = ['seat', 'research', 'class'];
+const TYPE_ORDER = ['seat', 'research'];
 /* 有节次概念的表类型（教研签到是按场次，没有第几节） */
 const hasPeriod = (t) => t !== 'research';
 
@@ -158,7 +158,7 @@ export async function renderAttendance(box, opts = {}) {
   let subjectFilter = '';
   let busy = false;
 
-  const typeForTab = { seat: 'seat', research: 'research', class: 'class' };
+  const typeForTab = { seat: 'seat', research: 'research', class: 'seat' };
   const tabTitle = { seat: '坐班考勤表', research: '教研考勤表', class: '上课考勤表' };
   const dateLabel = (v) => {
     const d = new Date(`${v}T00:00:00`);
@@ -243,10 +243,16 @@ export async function renderAttendance(box, opts = {}) {
       // 当天表格应由用户明确操作生成，并在人工确认后成为正式记录。
       roster = (await api.get('/teachers', { grade: activeGrade, active: 'all' }).catch(() => ({ list: [] }))).list || [];
       const type = typeForTab[activeTab];
-      const matches = listForSelected(type);
+      let matches = listForSelected(type);
+      // 上课表不是独立数据表，而是坐班总表的筛选视图；切换日期/节次时
+      // 若总表尚不存在，先生成一张草稿总表，再让两个 tab 共用它。
+      if ((activeTab === 'seat' || activeTab === 'class') && !matches.length) {
+        await createSlot({ date: viewDate, grade: activeGrade, type: 'seat', period: selectedPeriod });
+        tables = await api.get('/attendance');
+        matches = listForSelected('seat');
+      }
       detail = matches.length ? await api.get(`/attendance/${matches.sort((a, b) => Number(b.id) - Number(a.id))[0].id}`) : null;
-      if (detail && activeTab === 'class') detail = await ensureClassColumns(detail);
-      if (detail && activeTab === 'seat') detail = await ensureSeatColumns(detail);
+      if (detail && (activeTab === 'seat' || activeTab === 'class')) detail = await ensureSeatColumns(detail);
       if (detail && activeTab === 'research') detail = await ensureResearchColumns(detail);
       dirty = false;
       paint();
@@ -268,6 +274,11 @@ export async function renderAttendance(box, opts = {}) {
     return (!q || `${r.name || ''} ${r.subject || ''}`.toLowerCase().includes(q))
       && (!subjectFilter || (r.subject || '未填学科') === subjectFilter);
   });
+  const keyByLabel = (label, fallback) => (detail?.columns || []).find((c) => c.key === fallback || (c.label || '') === label)?.key || fallback;
+  // 上课表只显示总表里勾选了「上课」或「听课」的教师；请假人员不进入筛选结果。
+  const isClassRow = (r) => r.data?.[keyByLabel('请假', 'k_请假')] !== '1'
+    && (r.data?.[keyByLabel('上课', 'k_上课')] === '1' || r.data?.[keyByLabel('听课', 'k_听课')] === '1');
+
   const rowLeaveText = (r) => {
     const lv = r.data?.__leave;
     if (lv) {
@@ -279,12 +290,17 @@ export async function renderAttendance(box, opts = {}) {
     return c && r.data?.[c.key] === '1' ? '请假' : '';
   };
   const stats = () => {
-    const rows = getRows();
+    const allRows = getRows();
+    const rows = activeTab === 'class' ? allRows.filter(isClassRow) : allRows;
     const count = (key) => rows.filter((r) => r.data?.[key] === '1').length;
-    const keyByLabel = (label, fallback) => (detail?.columns || []).find((c) => c.key === fallback || (c.label || '').includes(label))?.key || fallback;
     const listenKey = keyByLabel('听课', 'k_听课');
     const leave = rows.filter((r) => rowLeaveText(r)).length;
     const total = rows.length;
+    if (activeTab === 'class') return { total, items: [
+      { label: '上课/听课教师', value: total, tone: '' },
+      { label: '上课', value: count(keyByLabel('上课', 'k_上课')), tone: 'blue' },
+      { label: '听课', value: count(listenKey), tone: 'violet' },
+    ] };
     if (activeTab === 'seat') {
       return { total, items: [
         { label: '应到教师', value: total, tone: '' },
@@ -318,41 +334,34 @@ export async function renderAttendance(box, opts = {}) {
     const subjects = [...new Set(roster.filter((r) => r.active).map((r) => r.subject || '未填学科'))].sort((a, b) => subjectRank(a) - subjectRank(b));
     const type = typeForTab[activeTab];
     const todays = listFor(type);
-    const classConfirmedToday = listFor('class').some((t) => t.confirm_state === 'confirmed');
     const stateText = detail?.confirm_state === 'confirmed' ? '已确认' : detail?.confirm_state === 'modified' ? '已修改待确认' : '待确认';
     const isClass = activeTab === 'class';
     const pcols = periodCols();
-    const rows = visibleRows();
+    const rows = activeTab === 'class' ? visibleRows().filter(isClassRow) : visibleRows();
     const displayColumns = activeTab === 'class' ? [
-      { key: `k_p${selectedPeriod}`, label: '上课', type: 'check' },
-      { key: 'k_坐班', label: '坐班', type: 'check' },
-      { key: 'k_听课', label: '听课', type: 'check' },
-      { key: 'k_教研', label: '教研', type: 'check' },
-      { key: 'k_请假', label: '请假', type: 'check' },
-      { key: 'k_remark', label: '备注', type: 'text' },
+      { key: keyByLabel('上课', 'k_上课'), label: '上课', type: 'check', w: 76 },
+      { key: keyByLabel('听课', 'k_听课'), label: '听课', type: 'check', w: 76 },
     ] : (detail?.columns || []);
     const rosterRows = visibleRoster();
     const rosterHTML = `<div class="att-work-table-scroll"><table class="att-work-table aw-roster-table">
       <thead><tr><th>序号</th><th>姓名</th><th>学科</th></tr></thead>
       <tbody>${rosterRows.map((r, i) => `<tr><td>${i + 1}</td><td class="aw-name">${esc(r.name || '')}</td><td>${esc(r.subject || '未填学科')}</td></tr>`).join('')}</tbody>
     </table></div>${rosterRows.length ? '' : `<div class="att-work-empty"><b>暂无教师名单</b><p>请先导入或维护本年级花名册。</p></div>`}`;
-    const lockedSeat = activeTab === 'seat' && !classConfirmedToday && !detail;
+    const classViewNote = isClass ? `<div class="att-work-locked-note">上课表由坐班总表自动筛选，只显示勾选了「上课」或「听课」的教师；在此修改勾选会同步更新坐班总表。</div>` : '';
     const tableHTML = isRoster ? rosterHTML : detail ? `
+      ${classViewNote}
       <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table">
-<thead><tr><th>序号</th><th>姓名</th><th>学科</th>${displayColumns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map((r) => {
+        <thead><tr><th>序号</th><th>姓名</th><th>学科</th>${displayColumns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.length ? rows.map((r) => {
           const ix = detail.rows.findIndex((x) => String(x.id) === String(r.id));
           return `<tr data-row="${ix}"><td>${ix + 1}</td><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>${esc(r.subject || '—')}</td>
             ${displayColumns.map((col) => col.type === 'check'
               ? `<td class="aw-check-cell"><button class="aw-mark aw-big-mark ${r.data?.[col.key] === '1' ? 'on' : ''}" data-row="${ix}" data-key="${esc(col.key)}" aria-label="${esc(col.label)}">${r.data?.[col.key] === '1' ? '✓' : ''}</button></td>`
               : `<td><input class="aw-cell-input" data-cell-input data-row="${ix}" data-key="${esc(col.key)}" value="${esc(r.data?.[col.key] || '')}" placeholder="—"></td>`).join('')}
           </tr>`;
-        }).join('')}</tbody>
-      </table></div>` : lockedSeat ? `
-      <div class="att-work-locked-note">请先在「上课表」完成勾选并点击「确认生成」。确认后，系统才会生成正式坐班表。</div>
-      <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table"><thead><tr><th>序号</th><th>姓名</th><th>学科</th>${seatCols().map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>
-      <tbody>${roster.filter((r) => r.active).map((r, i) => `<tr><td>${i + 1}</td><td class="aw-name">${esc(r.name || '')}</td><td>${esc(r.subject || '—')}</td>${seatCols().map(() => '<td class="aw-check-cell"><button class="aw-mark aw-big-mark" disabled></button></td>').join('')}</tr>`).join('')}</tbody></table></div>` : `
-      <div class="att-work-empty"><b>当前表格暂时无法显示</b><p>请检查本年级花名册，或重新加载数据。</p><button class="btn primary sm" id="att-work-create">生成草稿表</button></div>`;
+        }).join('') : `<tr><td colspan="${3 + displayColumns.length}" class="muted" style="text-align:center;padding:24px">${isClass ? '暂无上课或听课教师，请先在坐班总表勾选对应状态。' : '暂无教师记录。'}</td></tr>`}</tbody>
+      </table></div>` : `
+      <div class="att-work-empty"><b>${isClass ? '坐班总表尚未生成' : '当前表格暂时无法显示'}</b><p>${isClass ? '上课表会自动筛选坐班总表中上课或听课的教师。' : '请检查本年级花名册，或重新加载数据。'}</p><button class="btn primary sm" id="att-work-create">生成总表草稿</button></div>`;
 
     box.innerHTML = `
       <div class="att-work-shell">
@@ -380,9 +389,9 @@ export async function renderAttendance(box, opts = {}) {
             <span class="att-work-spacer"></span>
             ${isRoster ? `<span class="att-roster-count">${roster.filter((r) => r.active).length} 位在册教师</span>` : `<div class="att-work-export-wrap"><button class="btn ghost sm" id="att-work-export">${icon('download', 14)} 导出 ▾</button><div class="att-work-export-menu" id="att-work-export-menu" hidden><button data-export="pdf">导出 PDF</button><button data-export="png">导出 PNG</button><button data-export="xlsx">导出 Excel</button><label><input type="checkbox" id="att-work-watermark" checked> 添加水印</label></div></div>`}
           </div>
-          <div class="att-work-table-title"><div><h3>${isRoster ? '教师花名册' : (tabTitle[activeTab] || '上课考勤表')}</h3><span>${isRoster ? `${esc(activeGrade)} · ${roster.filter((r) => r.active).length} 位教师 · ${subjects.length} 个学科` : `${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${detail?.rows?.length || 0} 位教师`}</span></div>${isRoster ? `<span class="att-work-confirm ok">名单已加载</span>` : `<span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span>`}</div>
+          <div class="att-work-table-title"><div><h3>${isRoster ? '教师花名册' : (tabTitle[activeTab] || '上课考勤表')}</h3><span>${isRoster ? `${esc(activeGrade)} · ${roster.filter((r) => r.active).length} 位教师 · ${subjects.length} 个学科` : `${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${rows.length} 位教师`}</span></div>${isRoster ? `<span class="att-work-confirm ok">名单已加载</span>` : `<span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span>`}</div>
           ${tableHTML}
-          ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；修改名单后，后续生成的考勤表将使用最新名单。</span></div>` : `<div class="att-work-foot"><span>ⓘ 临时老师仅在当天显示，课时计入统计</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? '重新确认生成' : '确认生成'}</button></div></div>`}
+          ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；修改名单后，后续生成的考勤表将使用最新名单。</span></div>` : `<div class="att-work-foot"><span>${isClass ? 'ⓘ 上课表是坐班总表的筛选视图；只显示上课、听课教师，数据与总表实时同步。' : activeTab === 'seat' ? 'ⓘ 坐班总表记录本年级全部教师状态；确认后自动生成上课筛选表。' : 'ⓘ 教研表独立记录教研签到及请假情况。'}</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? (activeTab === 'research' ? '重新确认教研表' : '重新确认并更新上课表') : (activeTab === 'research' ? '确认生成教研表' : '确认并生成上课表')}</button></div></div>`}
         </section>
       </div>`;
 
@@ -391,11 +400,7 @@ export async function renderAttendance(box, opts = {}) {
       activeTab = tab; sessionStorage.setItem('wb_att_tab', tab); searchText = ''; subjectFilter = '';
       (async () => {
         try {
-          if (tab === 'class' || tab === 'research') {
-            if (!listFor(tab).length) await createSlot({ date: viewDate, grade: activeGrade, type: tab, period: '' });
-          } else if (tab === 'seat' && classConfirmedToday && !listForSelected('seat').length) {
-            await createSlot({ date: viewDate, grade: activeGrade, type: 'seat', period: '1' });
-          }
+          if (tab === 'research' && !listFor('research').length) await createSlot({ date: viewDate, grade: activeGrade, type: 'research', period: '' });
           await load({ makeToday: false });
         } catch (e) { toast(e.message || '表格加载失败', 'err'); await load({ makeToday: false }); }
       })();
@@ -411,13 +416,9 @@ export async function renderAttendance(box, opts = {}) {
       selectedPeriod = String(n); sessionStorage.setItem('wb_att_period', selectedPeriod);
       const sel = box.querySelector('#att-work-period'), manual = box.querySelector('#att-work-period-manual');
       if (sel) sel.value = selectedPeriod; if (manual) manual.value = selectedPeriod;
-      if (activeTab === 'seat') {
-        try {
-          if (classConfirmedToday && !listForSelected('seat').length) await createSlot({ date:viewDate, grade:activeGrade, type:'seat', period:selectedPeriod });
-          await load({ makeToday:false });
-        } catch (err) { toast(err.message || '切换节次失败', 'err'); }
-      } else if (activeTab === 'class') {
-        paint();
+      if (activeTab === 'seat' || activeTab === 'class') {
+        try { await load({ makeToday:false }); }
+        catch (err) { toast(err.message || '切换节次失败', 'err'); }
       }
     };
     box.querySelector('#att-work-period')?.addEventListener('change', e => changePeriod(e.target.value));
@@ -461,12 +462,13 @@ export async function renderAttendance(box, opts = {}) {
     }
     box.querySelectorAll('[data-export]').forEach((b) => b.onclick = async () => {
       if (!detail) return toast('没有可导出的考勤表', 'warn');
-      const rowsNow = getRows();
+      const rowsNow = activeTab === 'class' ? getRows().filter(isClassRow) : getRows();
       const title = `${activeGrade}${tabTitle[activeTab]}_${viewDate}`;
-      if (b.dataset.export === 'pdf') return saveThenPdf(detail, rowsNow);
-      if (b.dataset.export === 'png') return shotTable(detail.id);
-      const p = periodCols();
-      const grid = [['序号', '姓名', '学科', ...p.map((c) => c.label), '请假信息'], ...rowsNow.map((r, i) => [i + 1, r.teacher, r.subject || '', ...p.map((c) => r.data?.[c.key] === '1' ? '上课' : '—'), rowLeaveText(r)])];
+      const view = activeTab === 'class' ? { rows: rowsNow, columns: displayColumns, title } : null;
+      if (b.dataset.export === 'pdf') return activeTab === 'class' ? saveThenPdf(detail, null, view) : saveThenPdf(detail, rowsNow);
+      if (b.dataset.export === 'png') return activeTab === 'class' ? shotTable(detail.id, view) : shotTable(detail.id);
+      const exportCols = displayColumns;
+      const grid = [['序号', '姓名', '学科', ...exportCols.map((c) => c.label)], ...rowsNow.map((r, i) => [i + 1, r.teacher, r.subject || '', ...exportCols.map((c) => c.type === 'check' ? (r.data?.[c.key] === '1' ? '✓' : r.data?.[c.key] === '0' ? '×' : '') : String(r.data?.[c.key] || ''))])];
       saveBlob(makeXlsx({ title, grid }), `${title}.xlsx`);
     });
     box.querySelector('#att-work-create')?.addEventListener('click', async () => {
@@ -503,21 +505,23 @@ export async function renderAttendance(box, opts = {}) {
 
   const persistWorkspace = async (confirm) => {
     if (!detail) return toast('没有可保存的考勤表', 'warn');
-    if (confirm && activeTab === 'seat' && !listFor('class').some((t) => t.confirm_state === 'confirmed')) return toast('请先完成并人工确认上课表，才能生成正式坐班表', 'warn');
     if (confirm) {
-      const ok = await confirmDialog('确认生成这张考勤表？确认后当前记录将作为正式版本，后续修改需要重新确认。');
+      const prompt = activeTab === 'research'
+        ? '确认生成这张教研考勤表？确认后当前记录将作为正式版本，后续修改需要重新确认。'
+        : '确认坐班总表？确认后系统会自动筛选出上课或听课教师，生成上课表视图。';
+      const ok = await confirmDialog(prompt);
       if (!ok) return;
     }
     const saveBtn = box.querySelector(confirm ? '#att-work-confirm' : '#att-work-save');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = confirm ? '确认中…' : '保存中…'; }
     try {
-      await api.patch(`/attendance/${detail.id}`, { meta: { ...(detail.meta || {}), time_range: timeRange }, periods: activeTab === 'seat' ? selectedPeriod : detail.periods });
+      await api.patch(`/attendance/${detail.id}`, { meta: { ...(detail.meta || {}), time_range: timeRange }, periods: (activeTab === 'seat' || activeTab === 'class') ? selectedPeriod : detail.periods });
       const payload = detail.rows.map((r) => ({ id: r.id, teacher: r.teacher, subject: r.subject, data: r.data || {} }));
       const res = await api.post(`/attendance/${detail.id}/rows`, { rows: payload, dirty });
       adoptIds(res?.ids, detail.rows);
       if (confirm) {
         await api.post(`/attendance/${detail.id}/confirm`);
-        toast('考勤已确认生成', 'ok');
+        toast(activeTab === 'research' ? '教研表已确认生成' : '坐班总表已确认，上课表已自动更新', 'ok');
       } else toast('草稿已保存', 'ok');
       dirty = false;
       await load({ makeToday: false });
@@ -839,7 +843,7 @@ function headerBar(t) {
 }
 
 /* ---------- 导出 PDF：先保存，再下载 ---------- */
-async function saveThenPdf(t, rows) {
+async function saveThenPdf(t, rows, view = null) {
   const btn = document.querySelector('#att-pdf');
   const old = btn ? btn.innerHTML : '';
   if (btn) {
@@ -849,13 +853,14 @@ async function saveThenPdf(t, rows) {
   }
   toast('正在生成 PDF…');
   try {
-    if (rows) {
+    if (rows && !view) {
       await api.post(`/attendance/${t.id}/rows`, {
         rows: rows.map((r) => ({ id: r.id, teacher: r.teacher, subject: r.subject, data: r.data })),
       });
     }
     const detail = await api.get('/attendance/' + t.id);
-    const cols = detail.columns || [];
+    const sourceRows = view?.rows || detail.rows || [];
+    const cols = view?.columns || detail.columns || [];
     const checkCols = cols.filter((c) => c.type === 'check');
     const otherCols = cols.filter((c) => c.type !== 'check');
     const d = detail.sheet_date ? new Date(detail.sheet_date + 'T00:00:00') : null;
@@ -864,21 +869,21 @@ async function saveThenPdf(t, rows) {
     /* 库里存的是 '1'/'0'，纸表和 PDF 上要看的是 ✓/×。
        直接打 '1' 出去，家长和财务会问这列数字是什么意思。 */
     const markOf = (v) => (String(v ?? '') === '1' ? '✓' : String(v ?? '') === '0' ? '×' : '');
-    const outRows = (detail.rows || []).map((r, i) => {
+    const outRows = sourceRows.map((r, i) => {
       const marks = checkCols.map((c) => markOf(r.data?.[c.key]));
       otherCols.forEach((c) => marks.push(String(r.data?.[c.key] ?? '')));
       return { no: i + 1, name: r.teacher, subject: r.subject || '', marks };
     });
     const summary = checkCols.map((c) => ({
       label: c.label,
-      value: String((detail.rows || []).filter((r) => r.data?.[c.key] === '1').length),
+      value: String(sourceRows.filter((r) => r.data?.[c.key] === '1').length),
     }));
-    const vacant = (detail.rows || []).filter((r) => checkCols.every((c) => !r.data?.[c.key])).length;
+    const vacant = sourceRows.filter((r) => checkCols.every((c) => !r.data?.[c.key])).length;
     if (vacant) summary.push({ label: '一项未填', value: String(vacant) });
-    summary.unshift({ label: '教师', value: String((detail.rows || []).length) });
+    summary.unshift({ label: '教师', value: String(sourceRows.length) });
     if (!outRows.length) throw new Error('这张表还没有数据');
     printAttendance({
-      title: detail.name || `${detail.grade || ''}考勤表`,
+      title: view?.title || detail.name || `${detail.grade || ''}考勤表`,
       grade: detail.grade || '',
       date_text: dateText,
       weekday: d && !Number.isNaN(d.getTime()) ? '星期' + WD[d.getDay()] : (detail.weekday ? '星期' + detail.weekday : ''),
@@ -3175,9 +3180,10 @@ async function showStats(id) {
    现在的做法：**不用 DOM，直接拿 canvas 画表格**。
    位置全部按列宽/行高手算，文字用 fillText，勾叉用路径。
    好处是画布始终同源、一定能导出。 */
-async function shotTable(id) {
+async function shotTable(id, view = null) {
   const t = await api.get('/attendance/' + id);
-  const cols = (t.columns || []).filter((c) => c.type === 'check');
+  const cols = view?.columns || (t.columns || []).filter((c) => c.type === 'check');
+  const rows = view?.rows || t.rows || [];
   const isSeat = (t.sheet_type || t.kind) === 'seat';
   const d = t.sheet_date ? new Date(t.sheet_date + 'T00:00:00') : null;
   const dateLine = d && !Number.isNaN(d.getTime())
@@ -3186,7 +3192,7 @@ async function shotTable(id) {
 
   try {
     const blob = await renderSheetPng({
-      title: t.name, dateLine, rows: t.rows || [], cols, isSeat,
+      title: view?.title || t.name, dateLine, rows, cols, isSeat,
       wm: exportWatermark(t, dateLine),
     });
     const stamp = String(t.sheet_date || ymd()).replace(/-/g, '');
