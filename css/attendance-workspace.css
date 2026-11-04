@@ -121,3 +121,19 @@
  .att-work-foot .btn{height:38px;padding:0 11px}
 }
 @media(max-width:360px){.att-work-date label span{display:none}.att-work-tabs button{font-size:11px}.aw-mobile-periods{gap:4px}}
+
+/* 花名册主页面：与坐班/教研记录共用工作台容器 */
+.att-work-shell .aw-roster-table th:first-child,
+.att-work-shell .aw-roster-table td:first-child{width:76px;text-align:center}
+.att-work-shell .aw-roster-table th:last-child,
+.att-work-shell .aw-roster-table td:last-child{width:130px;text-align:center}
+.att-work-shell .aw-roster-table td{height:42px}
+.att-work-shell .aw-subject-chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;background:#edf4ff;color:#245da9;font-size:12px;font-weight:650}
+.att-work-shell .att-roster-count{font-size:12px;color:#62738d;white-space:nowrap}
+.att-work-shell .aw-roster-table .aw-status{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:11px}
+.att-work-shell .aw-roster-table .aw-status.on{background:#e9f8ee;color:#168448}
+.att-work-shell .aw-roster-table .aw-status.off{background:#f0f2f6;color:#7d8797}
+@media(max-width:680px){
+ .att-work-shell .aw-roster-table{min-width:520px}
+ .att-work-shell .aw-roster-table td{height:40px}
+}
