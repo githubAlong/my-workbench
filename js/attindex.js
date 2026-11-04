@@ -16,11 +16,17 @@ function dateText(date) {
 }
 
 function tableState(tables, grade, type, periods, classConfirmed) {
-  const matches = (periods || ['']).map((period) => tables.find((t) =>
-    (t.grade || '高一') === grade
-    && (t.sheet_type || t.kind) === type
-    && (type !== 'seat' || String(t.periods || '') === String(period || ''))
-    && !t.deleted_at));
+  const matches = (periods || ['']).map((period) => {
+    const candidates = tables.filter((t) =>
+      (t.grade || '高一') === grade
+      && (t.sheet_type || t.kind) === type
+      && (type !== 'seat' || String(t.periods || '') === String(period || ''))
+      && !t.deleted_at);
+    return candidates.find((t) => t.confirm_state === 'confirmed')
+      || candidates.find((t) => t.confirm_state === 'modified')
+      || candidates[0]
+      || null;
+  });
   const existing = matches.filter(Boolean);
   if (!existing.length) {
     if (type === 'seat' && !classConfirmed) return { label: '待上课表确认', tone: 'locked' };
@@ -70,7 +76,7 @@ export async function renderGradeList(box) {
 
     return \`<button class="agd-grade-card" data-g="\${esc(grade)}" title="进入 \${esc(grade)} 考勤工作台">
       <span class="agd-grade-banner">
-        <span class="agd-grade-name"><i>\${icon('graduation-cap', 20)}</i>\${esc(grade)}</span>
+        <span class="agd-grade-name"><i>\${icon('users', 20)}</i>\${esc(grade)}</span>
         <span class="agd-overall \${overall.tone}"><i></i>\${overall.label}</span>
       </span>
       <span class="agd-grade-content">
@@ -91,7 +97,7 @@ export async function renderGradeList(box) {
   box.innerHTML = \`<div class="agl agd-dashboard">
     <header class="agd-header">
       <div class="agd-heading">
-        <span class="agd-heading-icon">\${icon('calendar-check', 27)}</span>
+        <span class="agd-heading-icon">\${icon('cal', 27)}</span>
         <div><h2>考勤管理</h2><p>按年级管理花名册、每日三张考勤表与教师考勤统计</p></div>
       </div>
       <div class="agd-actions">
@@ -110,7 +116,7 @@ export async function renderGradeList(box) {
 
     <section class="agd-workspace">
       <div class="agd-section-head">
-        <div><h3>\${icon('layers', 19)} 年级考勤工作区</h3><p>选择年级进入独立工作台，查看当天考勤与历史记录</p></div>
+        <div><h3>\${icon('grid', 19)} 年级考勤工作区</h3><p>选择年级进入独立工作台，查看当天考勤与历史记录</p></div>
         <span class="agd-date">\${dateText(today)}</span>
       </div>
       <div class="agd-grade-grid">
