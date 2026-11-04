@@ -137,3 +137,7 @@
  .att-work-shell .aw-roster-table{min-width:520px}
  .att-work-shell .aw-roster-table td{height:40px}
 }
+
+/* 未确认上课表前，坐班表入口保持禁用，避免提前生成正式坐班记录 */
+.ad-slot.locked{opacity:.62;cursor:not-allowed;border-style:dashed;filter:saturate(.65)}
+.ad-slot.locked b{color:#8b95a6}
