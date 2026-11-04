@@ -607,6 +607,36 @@ function buildLessonSummary(rows, pricePerHour = 30) {
   return out;
 }
 
+/* 课时页需要的整包数据（汇总卡片 + 排课进度 + 当前月已过天数）。
+   本地版和云端版共用同一份计算：云端只是把 rows 换成 Supabase 里的行，
+   金额口径必须完全一致，否则同一批记录在两台设备上会算出不同的数。 */
+function lessonSummaryPayload(month, rows) {
+  const st = currentUser().settings || {};
+  const price = Number(st?.lesson?.pricePerHour) || 30;
+  const summary = buildLessonSummary(rows, price);
+
+  const [y, m] = month.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  let scheduled = 0;
+  for (const c of rowsOf('courses')) {
+    for (let d = 1; d <= lastDay; d += 1) {
+      const dt = new Date(y, m - 1, d);
+      if (dt.getDay() !== Number(c.weekday)) continue;
+      const ds = `${y}-${pad2(m)}-${pad2(d)}`;
+      if (c.start_date && ds < c.start_date) continue;
+      if (c.end_date && ds > c.end_date) continue;
+      scheduled += 1;
+    }
+  }
+  const today = new Date();
+  const isCurrentMonth = month === `${today.getFullYear()}-${pad2(today.getMonth() + 1)}`;
+  return {
+    month, summary, price_per_hour: price,
+    partial: isCurrentMonth ? { passed: today.getDate(), total: lastDay } : null,
+    scheduled: { total: scheduled, actual: summary.total_hours, substitute_out: summary.sub_in.hours },
+  };
+}
+
 /* ============================ 监考汇总 ============================ */
 const DEFAULT_INVIG_RULES = {
   mode: '场次',
@@ -2823,30 +2853,7 @@ on('GET', '/lessons/summary', ({ query }) => {
   const rows = rowsOf('lessons')
     .filter((r) => String(r.date || '').startsWith(month))
     .sort((a, b) => String(a.date).localeCompare(String(b.date)) || num(a.period_no) - num(b.period_no));
-  const st = currentUser().settings || {};
-  const price = Number(st?.lesson?.pricePerHour) || 30;
-  const summary = buildLessonSummary(rows, price);
-
-  const [y, m] = month.split('-').map(Number);
-  const lastDay = new Date(y, m, 0).getDate();
-  let scheduled = 0;
-  for (const c of rowsOf('courses')) {
-    for (let d = 1; d <= lastDay; d += 1) {
-      const dt = new Date(y, m - 1, d);
-      if (dt.getDay() !== Number(c.weekday)) continue;
-      const ds = `${y}-${pad2(m)}-${pad2(d)}`;
-      if (c.start_date && ds < c.start_date) continue;
-      if (c.end_date && ds > c.end_date) continue;
-      scheduled += 1;
-    }
-  }
-  const today = new Date();
-  const isCurrentMonth = month === `${today.getFullYear()}-${pad2(today.getMonth() + 1)}`;
-  return {
-    month, summary, price_per_hour: price,
-    partial: isCurrentMonth ? { passed: today.getDate(), total: lastDay } : null,
-    scheduled: { total: scheduled, actual: summary.total_hours, substitute_out: summary.sub_in.hours },
-  };
+  return lessonSummaryPayload(month, rows);
 });
 on('POST', '/lessons/settle', ({ body }) => {
   const month = String(body?.month || '');
@@ -4550,6 +4557,55 @@ async function cloudRoute(method, clean, query, body) {
     /* ---- 原件照片：走上面 /attendance/:id/photos 分支，这里不再 return null ---- */
 
     throw new Error(`云端暂不支持：${method} ${clean}`);
+  }
+
+  /* ================= 课时：汇总 / 对账单 / 结算 =================
+     【为什么必须单独一段】
+     这几条路径的第二段是 summary / statement / settle / unsettle，
+     落到下面的「单表通用」时会被当成「id = summary 的那条记录」，
+     于是 GET /lessons/summary 直接抛「云端暂不支持」——
+     上课记录页拿不到汇总，整页只剩「加载失败，请刷新重试」。
+     汇总的算法仍然复用本地那份 buildLessonSummary，只是把数据源换成云端行。 */
+  if (head === 'lessons') {
+    const monthOk = /^\d{4}-\d{2}$/.test(String(query.month || body?.month || ''));
+    const month = monthOk ? String(query.month || body?.month) : cnDate().slice(0, 7);
+
+    if (method === 'GET' && (second === 'summary' || second === 'statement')) {
+      const rows = (await m.listLessons({ month }))
+        .filter((r) => String(r.date || '').startsWith(month))
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)) || num(a.period_no) - num(b.period_no));
+      if (second === 'summary') return lessonSummaryPayload(month, rows);
+      const price = Number(currentUser().settings?.lesson?.pricePerHour) || 30;
+      return { month, price, summary: buildLessonSummary(rows, price), rows };
+    }
+
+    if (method === 'POST' && (second === 'settle' || second === 'unsettle')) {
+      const isSettle = second === 'settle';
+      const mth = String(body?.month || '');
+      const name = String(body?.name || '').trim();
+      const direction = body?.direction === 'in' ? 'in' : 'out';
+      const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Number.isInteger) : [];
+      if (!/^\d{4}-\d{2}$/.test(mth)) fail(400, '月份格式不对');
+      if (isSettle && !name && !ids.length) fail(400, '缺少结算对象');
+      const targetType = direction === 'out' ? '替他人上' : '他人替我上';
+      const now = nowISO();
+      let n = 0;
+      for (const r of (await m.listLessons({ month: mth }))) {
+        if (r.sub_type !== targetType) continue;
+        if (isSettle ? !!r.settled_at : !r.settled_at) continue;
+        const hit = ids.length
+          ? ids.includes(Number(r.id))
+          : (String(r.date || '').startsWith(mth + '-') && (String(r.peer_name || '') === name || String(r.orig_teacher || '') === name));
+        if (!hit) continue;
+        await m.updateRow('lessons', r.id, isSettle
+          ? { settled_at: now, settle_key: (name || '') + '|' + mth }
+          : { settled_at: null, settle_key: '' });
+        n += 1;
+      }
+      return isSettle
+        ? { settled: n, name, month: mth, direction, scope: ids.length ? 'ids' : 'month' }
+        : { unsettled: n, scope: ids.length ? 'ids' : 'month' };
+    }
   }
 
   /* ================= 单表通用：/invigilations、/invigilations/:id ================= */

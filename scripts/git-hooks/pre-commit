@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# 项目 git hooks（通过 scripts/install-hooks.sh 启用，core.hooksPath 指向本目录）
+# 1. 禁止直接往 master 提交（合并提交放行）
+# 2. 改了 js/ 却没升 sw.js 缓存版本时给个提醒
+
+GIT_DIR="$(git rev-parse --git-dir)"
+branch="$(git rev-parse --abbrev-ref HEAD)"
+
+if [ "$branch" = "master" ] && [ ! -f "$GIT_DIR/MERGE_HEAD" ]; then
+  cat >&2 <<'EOF'
+
+  ⛔ 当前在 master 分支，禁止直接提交。
+     master 只接受从 dev 合并进来的代码。
+
+     继续开发：  git checkout dev
+     搬运这次改动：git stash && git checkout dev && git stash pop
+     发布上线：  ./scripts/release.sh
+
+EOF
+  exit 1
+fi
+
+staged="$(git diff --cached --name-only)"
+if printf '%s\n' "$staged" | grep -qE '^js/.*\.js$' \
+   && ! printf '%s\n' "$staged" | grep -qE '^sw\.js$'; then
+  echo "  提醒：改了 js/ 下的文件，但 sw.js 没动 —— 记得升缓存版本号，不然老用户拿到旧代码。" >&2
+fi
+
+exit 0
