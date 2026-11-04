@@ -134,7 +134,11 @@ function dateChip(t) {
  *   现在年级的事归列表页管，进来点谁就只看谁，页面顶上是面包屑而不是 tab。
  */
 export async function renderAttendance(box, opts = {}) {
-  let activeGrade = String(opts.grade || sessionStorage.getItem('wb_att_grade') || '高一').trim();
+  const want = String(opts.grade || '').trim();
+  if (!want) return renderGradeList(box);
+
+  let activeGrade = want;
+  sessionStorage.setItem('wb_att_grade', activeGrade);
   let viewDate = sessionStorage.getItem('wb_att_date') || dayStr();
   let activeTab = ['seat', 'research', 'class'].includes(sessionStorage.getItem('wb_att_tab')) ? sessionStorage.getItem('wb_att_tab') : 'class';
   let gradesData = { grades: [], counts: {}, tabs: MAIN_GRADES.slice() };
