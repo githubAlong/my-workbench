@@ -287,3 +287,56 @@
  .att-work-sheet-table td{height:46px;font-size:12px}
  .aw-mark.aw-big-mark{width:38px;height:34px;min-width:38px}
 }
+
+/* 花名册页面视觉精修 v2 */
+.att-work-shell{padding:2px 0 18px}
+.att-work-crumb{margin-bottom:8px;color:#8b98ad;font-size:11px}
+.att-work-head{display:flex;align-items:center;gap:12px;margin:0 0 8px;padding:0 2px}
+.att-work-head>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}
+.att-work-head h2{font-size:21px;letter-spacing:-.35px}
+.att-work-sync{padding:5px 9px;border:1px solid #d9f0e2;border-radius:20px;background:#f1fbf5;font-size:10px}
+.att-work-grade{flex:0 0 104px!important;width:104px!important;min-width:104px!important;height:34px!important;padding:0 30px 0 11px!important;border:1px solid #d8e2f0!important;border-radius:9px!important;background-color:#fff!important;font-size:12px!important;box-shadow:none!important}
+.att-work-grade:focus{outline:2px solid #dceaff;border-color:#8db5f8!important}
+.att-work-date{gap:5px}
+.att-work-tabs{gap:28px;margin:5px 0 12px;border-bottom:1px solid #e5ebf4}
+.att-work-tabs button{padding:0 2px 11px;font-size:13px}
+.att-work-tabs button.on:after{height:3px}
+.att-work-panel{min-height:calc(100vh - 215px);padding:14px 15px 12px;border:1px solid #e3eaf4;border-radius:15px;background:#fff;box-shadow:0 5px 20px rgba(32,65,115,.045)}
+.att-work-toolbar{gap:8px;margin-bottom:12px}
+.att-work-toolbar select#att-work-subject{width:112px;height:35px;border-radius:9px}
+.att-work-toolbar .aw-search{width:205px;height:35px;border-radius:9px}
+.att-work-toolbar .btn{height:35px;padding:0 13px;border-radius:9px}
+.att-roster-count{color:#64748b;font-size:11px;font-weight:600}
+.att-work-table-title{align-items:center;margin:1px 0 10px;padding:0 1px}
+.att-work-table-title h3{font-size:15px;font-weight:800;letter-spacing:.1px}
+.att-work-table-title span{margin-top:3px;color:#8492a7;font-size:11px}
+.att-work-confirm{padding:5px 10px;border:1px solid #d8f0e1;border-radius:20px;background:#f0fbf4;color:#16834a;font-size:10px;font-weight:650}
+.att-work-table-scroll{border:1px solid #e4eaf3;border-radius:11px;overflow:auto}
+.aw-roster-table{width:100%;min-width:520px;border-collapse:separate;border-spacing:0;font-size:13px}
+.aw-roster-table thead{position:sticky;top:0;z-index:2}
+.aw-roster-table th{height:42px;padding:0 16px;background:#f5f8fd;color:#64748b;border-bottom:1px solid #e5ebf4;font-size:11px;font-weight:750;text-align:left}
+.aw-roster-table th:first-child,.aw-roster-table td:first-child{width:76px;text-align:center}
+.aw-roster-table th:nth-child(2){width:34%}
+.aw-roster-table td{height:46px;padding:0 16px;border-bottom:1px solid #edf1f6;color:#34445d;font-size:13px}
+.aw-roster-table tbody tr:nth-child(even) td{background:#fbfcfe}
+.aw-roster-table tbody tr:hover td{background:#f1f6ff}
+.aw-roster-table tbody tr:last-child td{border-bottom:0}
+.aw-roster-table td:first-child{color:#91a0b4;font-size:11px;font-variant-numeric:tabular-nums}
+.aw-roster-table td.aw-name{color:#1d2d47;font-size:13px;font-weight:700}
+.aw-roster-table td:nth-child(3){color:#526783}
+.att-work-panel:has(.aw-roster-table) .att-work-table-scroll{flex:1;min-height:320px}
+.att-work-panel:has(.aw-roster-table) .att-work-foot{margin-top:10px;padding-top:9px}
+.att-work-panel:has(.aw-roster-table) .att-work-foot>span{font-size:10px;color:#9aa6b7}
+@media(min-width:1100px){
+ .att-work-panel{min-height:calc(100vh - 195px)}
+ .aw-roster-table td{height:48px}
+}
+@media(max-width:760px){
+ .att-work-head{gap:8px;flex-wrap:wrap}
+ .att-work-head>div:first-child{flex:1 1 100%}
+ .att-work-grade{flex-basis:90px!important;width:90px!important;min-width:90px!important}
+ .att-work-date{margin-left:auto}
+ .att-work-panel{min-height:calc(100vh - 180px);padding:10px}
+ .att-work-toolbar .aw-search{width:min(190px,48vw)}
+ .att-work-tabs{gap:22px}
+}
