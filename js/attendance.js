@@ -385,7 +385,20 @@ export async function renderAttendance(box, opts = {}) {
     box.querySelector('#att-work-subject').onchange = (e) => { subjectFilter = e.target.value; paint(); };
     box.querySelector('#att-work-search').oninput = (e) => { searchText = e.target.value; const pos = e.target.selectionStart; paint(); const q = box.querySelector('#att-work-search'); q.focus(); q.setSelectionRange(pos, pos); };
     box.querySelector('#att-work-photo').onclick = () => isRoster ? rosterPhotoDialog(activeGrade, () => load()) : uploadDialog(activeGrade, () => load());
-    box.querySelector('#att-work-add').onclick = () => isRoster ? rosterSheet(activeGrade, () => load()) : detail ? openTable(detail.id, () => load()) : toast('请先生成当天考勤表', 'warn');
+    box.querySelector('#att-work-add').onclick = () => {
+      if (isRoster) return rosterSheet(activeGrade, () => load());
+      if (!detail) return toast('请先生成当天考勤表', 'warn');
+      tempTeacherDialog(detail, detail.columns || [], (it) => {
+        let target = detail.rows.find((x) => String(x.teacher || '').trim() === it.name);
+        if (!target) { target = { teacher: it.name, subject: it.subject, data: {} }; detail.rows.push(target); }
+        target.subject = it.subject || target.subject || '';
+        target.data = { ...(target.data || {}), __temp: 1 };
+        if (it.borrowGrade) target.data.borrow_grade = it.borrowGrade;
+        if (it.statusKey) target.data[it.statusKey] = '1';
+        if (it.remarkKey && it.remark) target.data[it.remarkKey] = it.remark;
+        dirty = true; paint();
+      });
+    };
     box.querySelectorAll('[data-roster-manage]').forEach((b) => b.onclick = () => rosterSheet(activeGrade, () => load()));
     box.querySelector('#att-work-export')?.addEventListener('click', () => { const m = box.querySelector('#att-work-export-menu'); if (m) m.hidden = !m.hidden; });
     const watermarkToggle = box.querySelector('#att-work-watermark');
