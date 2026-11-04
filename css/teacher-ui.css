@@ -220,3 +220,178 @@ body.hg-gesture .hg-item.hg-resizing > .card {
    手柄/角标一律藏起来，只留「隐藏」按钮 —— 不显示用不了的控件。 */
 .hg-grid.hg-mobile .hg-grip,
 .hg-grid.hg-mobile .hg-resize { display: none !important; }
+
+
+/* ==========================================================================
+   Teacher Workbench · 科技教育风首页视觉升级
+   仅覆盖首页视觉，不改动业务数据、接口、路由与交互逻辑。
+   ========================================================================== */
+html[data-theme="light"] {
+  --bg: #f3f7ff;
+  --card: #ffffff;
+  --text: #172b4d;
+  --text-2: #637b9d;
+  --text-3: #8da0bc;
+  --line: #e5edf9;
+  --primary: #2563eb;
+  --primary-weak: #eaf1ff;
+  --shadow-s: 0 8px 26px rgba(35, 75, 140, .055);
+}
+.app:has(#home-grid) .main {
+  background:
+    radial-gradient(ellipse at 8% 0%, rgba(219, 234, 254, .58), transparent 34%),
+    radial-gradient(ellipse at 96% 10%, rgba(224, 231, 255, .42), transparent 30%),
+    var(--bg);
+}
+.main:has(#home-grid) {
+  padding: 22px clamp(16px, 2vw, 30px) 34px;
+}
+.teacher-toolbar {
+  min-height: 60px;
+  margin-bottom: 18px;
+  padding: 7px 9px 7px 18px;
+  border: 1px solid rgba(220, 231, 248, .95);
+  border-radius: 17px;
+  box-shadow: 0 5px 20px rgba(36, 72, 130, .035);
+  transition: box-shadow .2s ease, border-color .2s ease;
+}
+.teacher-toolbar:focus-within {
+  border-color: #b9d0ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .07);
+}
+.teacher-toolbar .searchbar input::placeholder { color: #91a2bc; }
+.teacher-toolbar .sb-go {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, .18);
+}
+.teacher-toolbar > .btn {
+  min-height: 42px;
+  border-radius: 12px;
+  font-weight: 650;
+}
+.main:has(#home-grid) .cd-bar {
+  position: relative;
+  min-height: 68px;
+  margin: 0 0 18px;
+  padding: 14px 18px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 17px;
+  background: linear-gradient(105deg, #1677f9 0%, #3567e8 58%, #675fe4 100%);
+  box-shadow: 0 10px 24px rgba(39, 103, 224, .16);
+}
+.main:has(#home-grid) .cd-bar::after {
+  content: "";
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  right: 7%;
+  top: -155px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 50%;
+  box-shadow: 0 0 0 22px rgba(255,255,255,.045), 0 0 0 46px rgba(255,255,255,.035);
+  pointer-events: none;
+}
+.main:has(#home-grid) #home-grid {
+  gap: 16px;
+  grid-auto-rows: 66px;
+}
+.hg-item > .card,
+.main:has(#home-grid) .topbar > .card {
+  border: 1px solid rgba(225, 234, 248, .98);
+  border-radius: 19px;
+  box-shadow: 0 7px 24px rgba(34, 68, 125, .045);
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.hg-item > .card:hover {
+  border-color: #d5e3fb;
+  box-shadow: 0 12px 30px rgba(34, 68, 125, .075);
+}
+.hg-item > .clk-card {
+  background-color: #e6efff;
+  background-position: center;
+  background-size: cover;
+  border-color: #dce8fb;
+}
+.hg-item > .clk-card .clk-greet { letter-spacing: -.35px; }
+.hg-item > .clk-card .clock { letter-spacing: -1.5px; }
+.hg-item > .quote.quote-top {
+  padding: 20px 22px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(232, 240, 255, .75), transparent 42%),
+    #fff;
+}
+.hg-item > .quote .qt-head { margin-bottom: 16px; }
+.hg-item > .quote .quote-en {
+  color: #1d3558;
+  font-size: clamp(15px, 1.1vw, 18px);
+  font-weight: 650;
+  line-height: 1.65;
+}
+.hg-item > .quote .quote-zh { margin-top: 9px; line-height: 1.7; }
+.hg-item > .wx-card { padding: 20px 22px; }
+.hg-item > .wx-card .wxb-temp { font-size: 42px; font-weight: 650; letter-spacing: -1.5px; }
+.home-card .hc-head { padding: 19px 20px 12px; }
+.home-card .card-title { color: #1b3153; letter-spacing: -.2px; }
+.home-card .card-title > svg {
+  width: 18px;
+  height: 18px;
+  padding: 8px;
+  background: #edf3ff;
+  color: #2563eb;
+  border-radius: 12px;
+}
+.home-card .hc-body { padding-left: 18px; padding-right: 18px; }
+.home-card .list-item {
+  border-color: #edf1f8;
+  border-radius: 13px;
+  background: #fff;
+  transition: background .18s ease, border-color .18s ease;
+}
+.home-card .list-item:hover { background: #f8fbff; border-color: #dce8fb; }
+.home-card .qi-row {
+  min-height: 46px;
+  border-radius: 13px;
+  background: #f5f8ff;
+  border-color: #e5edfb;
+}
+.home-card .qi-row input { min-width: 0; }
+.home-card .cal-title { color: #1b3153; font-weight: 750; }
+.home-card .cal-day {
+  border-top: 1px solid #edf1f8;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.hg-toolbar {
+  border-color: #d7e5ff;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, .08);
+}
+.hg-toolbar .btn { border-radius: 10px; }
+button, .btn, a { -webkit-tap-highlight-color: transparent; }
+:where(button, input, select, textarea, a):focus-visible {
+  outline: 3px solid rgba(37, 99, 235, .22);
+  outline-offset: 2px;
+}
+@media (min-width: 1450px) {
+  .main:has(#home-grid) #home-grid { gap: 18px; }
+}
+@media (max-width: 1150px) {
+  .main:has(#home-grid) { padding: 16px; }
+  .main:has(#home-grid) #home-grid { gap: 14px; }
+}
+@media (max-width: 780px) {
+  .main:has(#home-grid) { padding: 12px 12px calc(88px + env(safe-area-inset-bottom)); }
+  .teacher-toolbar { border-radius: 14px; }
+  .main:has(#home-grid) .cd-bar { min-height: 58px; padding: 12px 14px; }
+  .hg-item > .card { border-radius: 16px; }
+  .home-card .hc-head { padding: 16px 15px 10px; }
+}
+html[data-theme="dark"] .app:has(#home-grid) .main {
+  background: radial-gradient(ellipse at 10% 0%, rgba(37, 99, 235, .09), transparent 38%), var(--bg);
+}
+html[data-theme="dark"] .hg-item > .quote.quote-top { background: var(--card); }
+html[data-theme="dark"] .home-card .list-item { background: var(--card); border-color: var(--line); }
+html[data-theme="dark"] .home-card .list-item:hover { background: rgba(80, 120, 190, .1); }
+html[data-theme="dark"] .home-card .qi-row { background: var(--bg); border-color: var(--line); }
