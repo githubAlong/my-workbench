@@ -50,8 +50,8 @@ export async function gradeManageDialog(reload, onChanged) {
       ${list.map((g) => `<div class="gm-row" data-g="${esc(g)}">
         <input class="input gm-name" value="${esc(g)}" aria-label="年级名称">
         <span class="gm-meta">${data.counts?.[g] ?? 0} 位老师</span>
-        <button class="btn ghost sm" data-rename="${esc(g)}">改名</button>
-        <button class="btn ghost sm danger" data-del="${esc(g)}">删除</button>
+        <button class="btn ghost sm gm-act" data-rename="${esc(g)}">修改</button>
+        <button class="btn ghost sm gm-act gm-del" data-del="${esc(g)}">删除</button>
       </div>`).join('')}
     </div>
     <div class="att-tip-note" style="margin-top:12px">

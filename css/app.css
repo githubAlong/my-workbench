@@ -3449,6 +3449,29 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .gm-row .gm-name { flex: 1; min-width: 0; }
 .gm-meta { font-size: 12px; color: var(--text-3); white-space: nowrap; }
 
+/* 行内两个操作按钮：尺寸、圆角、字号、内边距强制对齐，窄屏也不收缩换行 */
+.gm-row .gm-act {
+  flex: 0 0 auto; height: 30px; padding: 0 12px;
+  border-radius: 9px; font-size: 12.5px; line-height: 1;
+}
+.gm-row .gm-act:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* 删除：浅红底 + 深红字（对比度 ≥ 4.5:1）。
+   原来的删除按钮是实心红底、又被行内规则改成红字，红底红字等于看不见；
+   gm-del 与 gm-act 配套使用，年级管理、学科管理两处行内按钮共用。 */
+.gm-row .gm-del {
+  background: var(--red-weak);
+  border-color: color-mix(in srgb, var(--red) 26%, transparent);
+  color: color-mix(in srgb, var(--red) 62%, var(--text) 38%);
+}
+.gm-row .gm-del:hover {
+  background: color-mix(in srgb, var(--red) 16%, var(--red-weak));
+  border-color: color-mix(in srgb, var(--red) 45%, transparent);
+}
+.gm-row .gm-del:active { background: color-mix(in srgb, var(--red) 20%, var(--red-weak)); }
+.gm-row .gm-del:focus-visible { outline-color: var(--red); }
+.gm-row .gm-del[disabled] { opacity: .5; pointer-events: none; }
+
 /* ---------- 语音录入 ---------- */
 .vv-body { display: flex; flex-direction: column; gap: 12px; }
 .vv-mic-zone { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0 2px; }
@@ -3513,7 +3536,6 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .arf-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .arf-row .stt-chip { background: var(--bg-sunken); }
 .arf-row .stt-chip.on { background: var(--primary); color: #fff; }
-.gm-row .btn.danger { color: var(--red); }
 .att-badge.green { background: var(--green-weak); color: #0b7a35; }
 .att-badge.blue { background: var(--primary-weak); color: var(--primary-deep); }
 
