@@ -886,17 +886,30 @@ async function renderTimetable(box) {
           const sourcePayload = {
             weekday: target ? Number(target.weekday) : toDay,
             period_no: target ? Number(target.period_no) : toPeriod,
-            start_time: target ? (target.start_time || targetTime.start_time || '') : (source.start_time || targetTime.start_time || ''),
-            end_time: target ? (target.end_time || targetTime.end_time || '') : (source.end_time || targetTime.end_time || '')
+            start_time: targetTime.start_time || (target ? target.start_time : '') || '',
+            end_time: targetTime.end_time || (target ? target.end_time : '') || ''
           };
-          const writes = [];
-          if (target) writes.push(api.patch('/courses/' + target.id, {
+          const targetPayload = target ? {
             weekday: Number(source.weekday), period_no: Number(source.period_no),
-            start_time: target.start_time || sourceTime.start_time || '',
-            end_time: target.end_time || sourceTime.end_time || ''
-          }));
-          writes.push(api.patch('/courses/' + source.id, sourcePayload));
-          await Promise.all(writes);
+            start_time: sourceTime.start_time || target.start_time || '',
+            end_time: sourceTime.end_time || target.end_time || ''
+          } : null;
+          let targetUpdated = false;
+          try {
+            if (target) {
+              await api.patch('/courses/' + target.id, targetPayload);
+              targetUpdated = true;
+            }
+            await api.patch('/courses/' + source.id, sourcePayload);
+          } catch (error) {
+            if (target && targetUpdated) {
+              await api.patch('/courses/' + target.id, {
+                weekday: Number(target.weekday), period_no: Number(target.period_no),
+                start_time: target.start_time || '', end_time: target.end_time || ''
+              }).catch(() => {});
+            }
+            throw error;
+          }
           suppressCellClick = true;
           toast(target ? '已交换两门课程的位置' : '课程已移动');
           await load();
