@@ -44,4 +44,4 @@ jobs:
           node --check js/roster-import.mjs
           node --check js/roster-photo-parser.mjs
       - name: Run roster OCR structure tests
-        run: node --test tests/roster-structure.test.mjs tests/roster-import.test.mjs tests/roster-photo-parser.test.mjs
+        run: node --test tests/roster-structure.test.mjs tests/roster-import.test.mjs tests/roster-photo-parser.test.mjs tests/xlsx-lite.test.mjs
