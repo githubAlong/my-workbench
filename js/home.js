@@ -1193,7 +1193,7 @@ function paintCal() {
 async function loadDay(date) {
   const box = document.getElementById('cal-day');
   if (!box) return;
-  const collapsed = calFoldPref('calendar-day-collapsed') !== '0';
+  const collapsed = calFoldPref('calendar-day-collapsed') === '1';
   box.classList.toggle('is-collapsed', collapsed);
   box.innerHTML = `${calDayHeaderHTML(date, '…', collapsed)}
     <div class="cal-day-content"><div class="cal-day-empty">正在加载…</div></div>`;
