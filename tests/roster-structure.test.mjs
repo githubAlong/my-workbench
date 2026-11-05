@@ -82,7 +82,7 @@ test("漏掉整行时只显示空白待补项，不伪造姓名或学科", () =>
   assert.equal(validateRosterRows(review, { expectedCount: 46 }).valid, false);
 });
 
-test("序号识别失败时标记为位置推定，不能直接通过验收", () => {
+test("序号识别失败时按表格位置编号并保留姓名学科", () => {
   const items = fixture46().map((item) => {
     if (item.text === "12") return { ...item, text: "?" };
     return item;
@@ -93,8 +93,9 @@ test("序号识别失败时标记为位置推定，不能直接通过验收", ()
   });
   const row = rows.find((entry) => entry.serial === 12);
   assert.ok(row);
-  assert.equal(row.serialSource, "position");
-  assert.equal(validateRosterRows(buildRosterReviewRows(rows, 46, 23), { expectedCount: 46 }).valid, false);
+  assert.equal(row.serialSource, "layout");
+  assert.equal(row.name, names[11]);
+  assert.equal(row.subject, subjects[11 % subjects.length]);
 });
 
 test("重复序号与越界序号会被校验拦截", () => {
