@@ -10,21 +10,17 @@
 
 import { api, el, esc, toast, sheet, confirmDialog } from './core.js';
 
-/* 两个内置年级。学校的考勤只管高一高二；要加年级走「新建年级」。
-   放在这里是因为列表页和详情页都要用，各自写一份迟早对不上。 */
-export const MAIN_GRADES = ['高一', '高二'];
-
-/* 年级 tab 顺序：内置两个在前，额外加的（高三之类）排后面 */
+/* 年级列表只显示用户在年级管理中实际创建的项目，不预置任何默认年级。 */
 export function gradeTabs(data) {
-  const extra = ((data && data.grades) || []).filter((g) => !MAIN_GRADES.includes(g));
-  return [...MAIN_GRADES, ...extra];
+  const grades = Array.isArray(data?.grades) ? data.grades : [];
+  return [...new Set(grades.map((g) => String(g || '').trim()).filter(Boolean))];
 }
 
 export function addGradeDialog(reload) {
   const body = el(`<div class="sheet-body">
     <div class="field"><label class="field-label">年级名称</label>
       <input class="input" id="gname" placeholder="如：高三">
-      <div class="field-hint">内置「高一」「高二」，需要别的年级（比如高三）时在这里加。新年级是空的，名册要单独录。</div></div>
+      <div class="field-hint">创建后会在考勤管理首页显示；新年级的花名册和考勤表均为空，需要单独录入。</div></div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">添加</button></div>
   </div>`);
   const s = sheet({ title: '新建年级', body });
