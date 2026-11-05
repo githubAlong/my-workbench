@@ -61,7 +61,7 @@ export async function renderGradeList(box) {
   const card = ({ grade, count, progress }) => {
     const pct = progress.total ? Math.round(progress.done / progress.total * 100) : 0;
     const todayTables = tables.filter((t) =>
-      (t.grade || '高一') === grade && String(t.sheet_date || '') === today && !t.deleted_at);
+      t.grade === grade && String(t.sheet_date || '') === today && !t.deleted_at);
     const classConfirmed = todayTables.some((t) =>
       (t.sheet_type || t.kind) === 'class' && t.confirm_state === 'confirmed');
     const states = [
