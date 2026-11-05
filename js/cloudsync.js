@@ -159,6 +159,7 @@ async function pushSnapshot() {
   const saved = await cloud.saveWorkbenchSnapshot(safeSnapshot(JSON.parse(raw)), _revision);
   writeRevision(_uid, saved.revision);
   _pending = _changeSeq !== savingSeq;
+  setMeta({ lastPush: saved.updated_at || new Date().toISOString(), localChanged: _pending });
   _retryDelay = 1500;
   window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved', at: saved.updated_at } }));
   return saved;
@@ -207,6 +208,7 @@ function bindRemoteSnapshotEvents() {
 }
 export function hookSave() {
   if (!_uid || _uid !== activeAccountId()) return;
+  setMeta({ localChanged: true });
   _pending = true;
   _changeSeq += 1;
   window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saving' } }));
@@ -505,18 +507,6 @@ grant execute on function public.wb_put(text, jsonb) to anon;`;
     toast('绑定成功，本机数据已上传。同步钥匙：' + key, 'ok', 8000);
     s.close();
   };
-}
-
-/* ---------------- 挂钩：本地一改就排队上传 ---------------- */
-
-export function hookSave() {
-  setMeta({ localChanged: true });
-  clearTimeout(_debounce);
-  _debounce = setTimeout(() => {
-    const c = cfg();
-    if (!c) return;
-    pushNow().catch((e) => console.warn('自动上传失败', e));
-  }, 3000);
 }
 
 /* ---------------- 工具 ---------------- */
