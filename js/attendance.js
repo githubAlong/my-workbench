@@ -3129,71 +3129,202 @@ function rosterImportDialog(grade, reload) {
    「照片摆在上面，对着它一行一行敲」——照片会一直给你对照，
    比一边翻相册一边手打省事得多，这条路径任何设备都能用。 */
 function rosterPhotoDialog(grade, reload) {
-  const body = el(`<div class="sheet-body">
-    <div class="att-drop" id="pdrop">
-      <div class="ad-ico">${icon('camera', 24)}</div>
-      <div class="ad-t">拍一张纸质花名册</div>
-      <div class="ad-s">拍正、别反光；有「姓名」「学科」两列最好</div>
-      <input type="file" accept="image/*" capture="environment" hidden id="pfile">
-    </div>
-    <div id="pprev" hidden style="margin-bottom:10px">
-      <img id="pimg" alt="花名册照片" style="width:100%;border-radius:12px;border:1px solid var(--line);max-height:240px;object-fit:contain;background:var(--card-2)">
-      <div class="tiny muted" id="pstate" style="margin-top:6px"></div>
-    </div>
-    <div class="field"><label class="field-label">识别结果（请核对：姓名 学科，一行一位）</label>
-      <textarea class="input" id="ptext" rows="8" placeholder="张三国 语文&#10;李四 数学"></textarea>
-      <div class="field-hint">系统会自动识别照片并填入这里；识别结果可以修改，确认姓名和学科无误后再加入名册。</div></div>
-    <div class="confirm-actions">
-      <button class="btn ghost" id="c">取消</button>
-      <button class="btn primary" id="k">加入「${esc(grade)}」名册</button>
-    </div>
-  </div>`);
-  const s = sheet({ title: `拍照建册 · ${grade}`, body, wide: true });
-  const $ = (x) => body.querySelector(x);
+  const markup = [
+    '<div class="roster-ocr">',
+      '<div class="roster-ocr-intro">',
+        '<div class="roster-ocr-intro-icon">', icon('scan-text', 22), '</div>',
+        '<div class="roster-ocr-intro-copy"><strong>照片智能建册</strong><span>上传教师花名册，自动提取姓名与学科，核对后再保存</span></div>',
+        '<span class="roster-ocr-grade">', esc(grade), '</span>',
+      '</div>',
+      '<div class="roster-ocr-grid">',
+        '<section class="roster-ocr-card roster-ocr-photo-card">',
+          '<div class="roster-ocr-card-head"><div><strong>01 · 花名册照片</strong><span>尽量使用手机相册中的原始照片</span></div><span class="roster-ocr-step">照片</span></div>',
+          '<button class="roster-ocr-drop" id="pdrop" type="button">',
+            '<span class="roster-ocr-drop-icon">', icon('upload-cloud', 25), '</span>',
+            '<strong>点击上传或拖入照片</strong>',
+            '<span>支持 JPG、PNG、WebP，建议拍全纸张、保持清晰</span>',
+            '<span class="roster-ocr-drop-action">选择照片</span>',
+            '<input type="file" accept="image/jpeg,image/png,image/webp,image/*" capture="environment" hidden id="pfile">',
+          '</button>',
+          '<div class="roster-ocr-preview" id="pprev" hidden>',
+            '<div class="roster-ocr-preview-head"><strong>照片预览</strong><button class="roster-ocr-link" type="button" id="pchange">更换照片</button></div>',
+            '<div class="roster-ocr-preview-stage" id="pstage"><img id="pimg" alt="花名册照片"></div>',
+            '<div class="roster-ocr-photo-tools">',
+              '<button class="roster-ocr-tool" type="button" id="protate-left">', icon('rotate-ccw', 15), '向左旋转</button>',
+              '<button class="roster-ocr-tool" type="button" id="protate-right">', icon('rotate-cw', 15), '向右旋转</button>',
+              '<button class="roster-ocr-tool roster-ocr-tool-primary" type="button" id="pretry">', icon('scan-search', 15), '重新识别</button>',
+            '</div>',
+          '</div>',
+          '<div class="roster-ocr-tip">', icon('lightbulb', 15), '<span>文字越大、纸张越平整，识别越准确。请避免反光、阴影和远距离拍摄。</span></div>',
+        '</section>',
+        '<section class="roster-ocr-card roster-ocr-result-card">',
+          '<div class="roster-ocr-card-head"><div><strong>02 · 识别结果</strong><span>仅保留可信的姓名与学科组合</span></div><span class="roster-ocr-count" id="pcount">0 位教师</span></div>',
+          '<div class="roster-ocr-status" id="pstate" role="status"><span class="roster-ocr-status-dot"></span><span>等待上传照片</span></div>',
+          '<div class="roster-ocr-quality" id="pquality" hidden></div>',
+          '<label class="roster-ocr-label" for="ptext">姓名与学科 <span>一行一位，可直接修改</span></label>',
+          '<textarea id="ptext" class="roster-ocr-textarea" rows="12" spellcheck="false" placeholder="识别结果会显示在这里&#10;&#10;格式示例：&#10;张三 语文&#10;李四 数学"></textarea>',
+          '<div class="roster-ocr-result-foot"><span>', icon('shield-check', 14), '识别结果不会自动入库，请核对后再保存</span><span id="pvalid">等待识别</span></div>',
+        '</section>',
+      '</div>',
+      '<div class="roster-ocr-footer">',
+        '<div class="roster-ocr-footer-note">', icon('lock', 14), '<span>照片在当前浏览器本地处理，不会上传到识别服务器</span></div>',
+        '<div class="roster-ocr-footer-actions"><button class="btn ghost" id="c" type="button">取消</button><button class="btn primary" id="k" type="button" disabled>', icon('user-plus', 16), '加入「', esc(grade), '」名册</button></div>',
+      '</div>',
+    '</div>'
+  ].join('');
+  const body = el(markup);
   let previewUrl = '';
-  const cleanup = () => { if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = ''; };
+  let selectedFile = null;
+  let rotation = 0;
+  let manualRotation = false;
+  let busy = false;
+  const $ = (x) => body.querySelector(x);
+  const cleanup = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = '';
+  };
+  const s = sheet({ title: '拍照建册', body, wide: true, cls: 'roster-ocr-sheet', onClose: cleanup });
 
-  $('#pdrop').onclick = () => $('#pfile').click();
-  $('#c').onclick = () => { cleanup(); s.close(); };
-  $('#pfile').onchange = async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    e.target.value = ''; // 允许用户选择同一张照片重新识别
+  const stopWords = new Set(['姓名', '名字', '学科', '序号', '编号', '教师', '老师', '教师名单', '教师名册', '花名册', '合计', '小计', '总计', '备注', '说明', '年级', '班级', '星期', '日期', '签到', '上课', '坐班', '听课', '教研', '请假', '高一', '高二', '高三']);
+  const parseLines = () => $('#ptext').value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    const parts = line.split(/[\t,，、;；\s]+/).filter(Boolean);
+    const name = String(parts[0] || '').replace(/[^\u3400-\u9fff]/g, '');
+    const subject = parts.slice(1).join(' ').trim();
+    return { name, subject };
+  }).filter((item) => /^[\u3400-\u9fff]{2,4}$/.test(item.name) && !stopWords.has(item.name));
+
+  const setStatus = (message, type = '') => {
+    const node = $('#pstate');
+    node.className = 'roster-ocr-status' + (type ? ' is-' + type : '');
+    node.innerHTML = '<span class="roster-ocr-status-dot"></span><span>' + esc(message) + '</span>';
+  };
+  const updateCount = () => {
+    const items = parseLines();
+    $('#pcount').textContent = items.length + ' 位教师';
+    $('#pvalid').textContent = items.length ? '可导入 ' + items.length + ' 位' : '尚无有效姓名';
+    $('#k').disabled = busy || !items.length;
+  };
+  const drawPreview = () => {
+    const img = $('#pimg');
+    const stage = $('#pstage');
+    if (!img.naturalWidth || !stage.clientWidth) return;
+    const swap = Math.abs(rotation % 180) === 90;
+    const orientedW = swap ? img.naturalHeight : img.naturalWidth;
+    const orientedH = swap ? img.naturalWidth : img.naturalHeight;
+    const scale = Math.min((stage.clientWidth - 24) / orientedW, (stage.clientHeight - 24) / orientedH, 1);
+    img.style.width = Math.max(1, img.naturalWidth * scale) + 'px';
+    img.style.height = Math.max(1, img.naturalHeight * scale) + 'px';
+    img.style.transform = 'rotate(' + rotation + 'deg)';
+  };
+  const showFile = (file) => {
+    if (!file || !String(file.type || '').startsWith('image/')) {
+      toast('请选择 JPG、PNG 或 WebP 图片', 'warn');
+      return;
+    }
+    selectedFile = file;
+    manualRotation = false;
+    rotation = 0;
     cleanup();
-    previewUrl = URL.createObjectURL(f);
+    previewUrl = URL.createObjectURL(file);
+    $('#pimg').onload = drawPreview;
     $('#pimg').src = previewUrl;
+    $('#pdrop').hidden = true;
     $('#pprev').hidden = false;
-    const st = $('#pstate');
     $('#ptext').value = '';
-    st.textContent = '正在加载中文识别引擎；首次使用需要下载识别模型，请稍候…';
+    $('#pquality').hidden = true;
+    $('#pcount').textContent = '0 位教师';
+    $('#pvalid').textContent = '等待识别';
+    $('#k').disabled = true;
+    setStatus('照片已载入，正在准备中文识别…');
+    requestAnimationFrame(drawPreview);
+    runRecognition(null);
+  };
+  const runRecognition = async (forcedRotation) => {
+    if (!selectedFile || busy) return;
+    busy = true;
+    $('#pretry').disabled = true;
+    $('#protate-left').disabled = true;
+    $('#protate-right').disabled = true;
+    $('#k').disabled = true;
+    $('#pquality').hidden = true;
+    $('#ptext').value = '';
+    setStatus('正在准备中文识别引擎…');
     try {
       const { recognizeRosterPhoto } = await import('./ocr.js');
-      const result = await recognizeRosterPhoto(f, (message) => { st.textContent = message; });
+      const result = await recognizeRosterPhoto(selectedFile, (message) => setStatus(message), forcedRotation);
+      rotation = result.rotation;
+      drawPreview();
       $('#ptext').value = result.text;
-      const direction = result.rotation ? '，已自动旋转 ' + result.rotation + '°' : '';
-      st.textContent = '识别完成：' + result.count + ' 条候选内容' + direction
-        + '。请逐条核对姓名和学科，确认后再加入名册。';
+      $('#pquality').hidden = true;
+      setStatus('识别完成：已找到 ' + result.count + ' 组姓名与学科，请核对后保存。', 'success');
+      updateCount();
     } catch (err) {
-      st.textContent = '自动识别失败：' + (err.message || err)
-        + '。照片仍保留，可以重新选择照片再试。';
+      $('#ptext').value = '';
+      $('#pquality').hidden = false;
+      $('#pquality').innerHTML = '<strong>' + icon('alert-triangle', 15) + ' 暂未获得可靠名单</strong><span>' + esc(err.message || '识别失败') + '</span><span>建议上传手机相册中的原始照片，靠近拍摄姓名和学科两列；也可以旋转照片后重新识别。</span>';
+      setStatus('识别未通过校验，没有把错误文字填入名单。', 'error');
+      updateCount();
+    } finally {
+      busy = false;
+      $('#pretry').disabled = !selectedFile;
+      $('#protate-left').disabled = !selectedFile;
+      $('#protate-right').disabled = !selectedFile;
+      updateCount();
     }
   };
+
+  $('#pdrop').onclick = () => $('#pfile').click();
+  $('#pchange').onclick = () => $('#pfile').click();
+  $('#pfile').onchange = (event) => {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (file) showFile(file);
+  };
+  $('#pdrop').ondragover = (event) => { event.preventDefault(); $('#pdrop').classList.add('is-dragover'); };
+  $('#pdrop').ondragleave = () => $('#pdrop').classList.remove('is-dragover');
+  $('#pdrop').ondrop = (event) => {
+    event.preventDefault();
+    $('#pdrop').classList.remove('is-dragover');
+    const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+    if (file) showFile(file);
+  };
+  $('#protate-left').onclick = () => {
+    if (!selectedFile || busy) return;
+    rotation = (rotation + 270) % 360;
+    manualRotation = true;
+    drawPreview();
+    $('#ptext').value = '';
+    $('#pquality').hidden = true;
+    setStatus('已向左旋转 ' + rotation + '°，点击「重新识别」开始识别。');
+    updateCount();
+  };
+  $('#protate-right').onclick = () => {
+    if (!selectedFile || busy) return;
+    rotation = (rotation + 90) % 360;
+    manualRotation = true;
+    drawPreview();
+    $('#ptext').value = '';
+    $('#pquality').hidden = true;
+    setStatus('已向右旋转 ' + rotation + '°，点击「重新识别」开始识别。');
+    updateCount();
+  };
+  $('#pretry').onclick = () => runRecognition(manualRotation ? rotation : null);
+  $('#ptext').addEventListener('input', updateCount);
+  $('#c').onclick = () => s.close();
   $('#k').onclick = async () => {
-    const lines = $('#ptext').value.split('\n').map((x) => x.trim()).filter(Boolean);
-    if (!lines.length) return toast('还没有名单', 'warn');
-    const items = lines.map((l) => {
-      const parts = l.split(/[\t,，\s]+/).filter(Boolean);
-      return { name: parts[0], subject: parts[1] || '' };
-    }).filter((x) => x.name && x.name.length >= 2);
-    if (!items.length) return toast('没认出像样的姓名，检查一下是不是敲成了数字或拼音', 'warn');
+    const items = parseLines();
+    if (!items.length) return toast('请先识别或填写有效的教师姓名', 'warn');
     try {
       const r = await api.post('/teachers', { grade, items });
-      cleanup();
       s.close();
-      toast(`已加入 ${items.length - (r.skipped || 0)} 人${r.skipped ? `，${r.skipped} 人已在名册里` : ''}`, 'ok', 3600);
+      toast('已加入 ' + (items.length - (r.skipped || 0)) + ' 人' + (r.skipped ? '，' + r.skipped + ' 人已在名册里' : ''), 'ok', 3600);
       reload();
-    } catch (e) { toast(e.message || '导入失败', 'err'); }
+    } catch (e) {
+      toast(e.message || '导入失败', 'err');
+    }
   };
 }
+
 
 /* ================= 统计 ================= */
 async function showStats(id) {
