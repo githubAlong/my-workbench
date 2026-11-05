@@ -636,8 +636,11 @@ function renderHome() {
             <div class="clk-hello-t">
               <div class="clk-greet" id="greet-line">${esc(g1)}</div>
               <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
-              <div class="clk-profile-meta" id="home-profile-meta">${esc(profileSchoolSubject)}</div>
-              <div class="clk-profile-role" id="home-profile-role">${esc(profileRole)}</div>
+              <div class="clk-profile-details" aria-label="个人资料">
+                <div class="clk-profile-label">个人资料</div>
+                <div class="clk-profile-meta" id="home-profile-meta">${esc(profileSchoolSubject)}</div>
+                <div class="clk-profile-role" id="home-profile-role">${esc(profileRole)}</div>
+              </div>
             </div>
           </div>
           <button class="icon-btn sm" id="theme-btn" title="主题外观" aria-label="主题外观">${icon('sun', 17)}</button>
@@ -651,7 +654,7 @@ function renderHome() {
           </div>
           <div class="clk-date-panel">
             <div class="clock-date" id="clock-date"></div>
-            <div class="clk-date-caption">今天也要稳稳推进</div>
+
           </div>
         </div>
         <div class="clk-foot" id="clk-foot"></div>
