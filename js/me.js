@@ -6,6 +6,7 @@ import { AUTH_CFG } from './ui.js';
 import { makeShareLink } from './cloudsync.js';
 import { loginSheet, cloudOn } from './auth.js';
 import * as cloud from './cloud.js';
+import { load as loadLocalDB, save as saveLocalDB } from './localdb.js';
 
 const ADMIN_PHONE = '+8613071825243';
 
@@ -21,6 +22,8 @@ registerView(async function me(main, { query }) {
   });
   if (path === 'messages') return renderMessages(main);
   if (path === 'profile') return renderProfile(main);
+  if (path === 'me/account-settings') return renderAccountSettings(main);
+  if (path === 'me/workbench-settings') return renderWorkbenchSettings(main);
   return renderMe(main);
 });
 
@@ -59,21 +62,15 @@ async function renderMe(main) {
     return;
   }
 
-  const [msgs, rawSessions] = await Promise.all([
-    api.get('/messages').catch(() => ({ unread: 0, counts: {} })),
-    api.get('/me/sessions').catch(() => null),
-  ]);
-  /* 接口回的是 { rows: [...] }，这里统一成数组，后面 length / map 才不会炸 */
-  const sessions = Array.isArray(rawSessions) ? rawSessions : (rawSessions?.rows || []);
+
+  const msgs = await api.get('/messages').catch(() => ({ unread: 0, counts: {} }));
   const needProfile = !u.school || !u.subject;
-  const adminPhone = cloud.session()?.phone || '';
-  const isAdmin = adminPhone === ADMIN_PHONE || adminPhone === ADMIN_PHONE.slice(3);
   main.innerHTML = `
     <div class="me-hero">
       ${avatarHTML(u, 74, 'me-avatar-lg', true)}
       <div class="me-hero-info">
         <div class="me-name">${esc(u.nickname || '未设置昵称')}</div>
-        <div class="me-sub">${esc(u.account || '')}${u.school ? ' · ' + esc(u.school) : ''}${u.subject ? ' · ' + esc(u.subject) : ''}</div>
+        <div class="me-sub">${esc(displayLoginAccount(u.account, ''))}${u.school ? ' · ' + esc(u.school) : ''}${u.subject ? ' · ' + esc(u.subject) : ''}</div>
         <div class="me-chips">
           ${u.bindings?.wechat ? '<span class="chip green">微信</span>' : ''}
           ${u.bindings?.qq ? '<span class="chip blue">QQ</span>' : ''}
@@ -84,38 +81,17 @@ async function renderMe(main) {
       <button class="icon-btn me-cam" id="avatar-btn" title="换头像">${icon('camera', 16)}</button>
     </div>
 
-    ${group('账号', [
-      ['bell', '消息中心', msgs.unread ? `${msgs.unread} 条未读` : '暂无未读', 'messages',
-        msgs.unread ? `<span class="msg-badge">${msgs.unread > 99 ? '99+' : msgs.unread}</span>` : ''],
-      ['user', '个人信息', needProfile ? '昵称、学校、学科填一下' : '昵称、头像、学校、学科、职务', 'profile', ''],
-      ['shield', '账号安全', '本机 PIN 锁、打开需验证', 'security', ''],
-      ['qr', '账号', '登录账号与改密码', 'bind', ''],
-    ], needProfile)}
-
-    ${isAdmin ? group('管理', [
-      ['shield', '重置用户密码', '生成一次性临时密码', 'admin-reset', ''],
-    ]) : ''}
-
-    ${group('个性化', [
-      ['sun', '主题外观', `当前：${themeName(state.theme)}`, 'theme', `<span class="tiny muted">共 6 套</span>`],
-    ])}
-
-    ${group('数据', [
-      ['refresh', '云同步', '已接入模块跨设备同步', 'cloud', syncBadge()],
-      ['copy', '搬到另一台设备', '生成一条链接，手机点开即导入', 'share', ''],
-      ['down', '数据导出与备份', '导出全部数据、导入恢复', 'backup', ''],
-      ['copy', '学生短链', '课件 / 点名 / 惩罚 三合一', 'link', ''],
-      ['trash', '回收站', '删除的内容可在这里找回', 'recycle', ''],
-    ])}
+    <div class="card me-group-body">
+      ${row('bell', '消息中心', msgs.unread ? `${msgs.unread} 条未读` : '暂无未读', 'messages',
+        msgs.unread ? `<span class="msg-badge">${msgs.unread > 99 ? '99+' : msgs.unread}</span>` : '')}
+      ${row('user', '个人信息', needProfile ? '昵称、学校、学科填一下' : '昵称、头像、学校、学科、职务', 'profile')}
+      ${row('shield', '账号设置', '管理登录账号和修改密码', 'account-settings')}
+      ${row('sliders', '工作台设置', '修改首页图片、标题和副标题', 'workbench-settings')}
+      ${row('sun', '主题外观', `当前：${themeName(state.theme)}`, 'theme', '<span class="tiny muted">共 6 套</span>')}
+    </div>
 
     <div class="card me-logout">
       ${row('logout', '退出登录', '', 'logout')}
-    </div>
-
-    <div class="card card-pad small muted" style="margin-top:14px">
-      <div class="row"><b style="color:var(--text)">关于</b><span style="flex:1"></span><span>v1.0</span></div>
-      <div style="margin-top:6px">我的工作台 · 教师个人工作台。登录账号跨设备一致；本地模块数据按账号在当前浏览器隔离，云同步仅覆盖已接入模块。</div>
-      <div style="margin-top:6px" class="tiny">登录设备：${sessions.length} 台在线</div>
     </div>`;
 
   main.querySelectorAll('[data-act]').forEach((b) => { b.onclick = () => act(b.dataset.act); });
@@ -124,6 +100,8 @@ async function renderMe(main) {
   async function act(a) {
     if (a === 'messages') return go('messages');
     if (a === 'profile') return go('profile');
+    if (a === 'account-settings') return go('me/account-settings');
+    if (a === 'workbench-settings') return go('me/workbench-settings');
     if (a === 'recycle') return go('recycle');
     if (a === 'theme') return openThemeSheet();
     if (a === 'logout') {
@@ -377,7 +355,7 @@ function cropSquare(file, size = 192) {
    focusout 时不抓、input 时才抓 —— 因为 input 事件是「值真的变了」，
    而 focusout 只是「光标走了」，抓了会白存一份同样的值。 */
 let profileDraft = null;
-const PROFILE_FIELDS = ['nickname', 'school', 'subject', 'title'];
+const PROFILE_FIELDS = ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group'];
 
 /* 把当前页面上四个输入框的值快照到 profileDraft。
    页面不在个人信息页、或者四个框都不在，就什么都不做。 */
@@ -395,100 +373,366 @@ function captureProfileDraft() {
   if (any) profileDraft = d;
 }
 
+
+/* ================= 工作台设置 ================= */
+function readWorkbenchBrand() {
+  const db = loadLocalDB();
+  const value = db?.meta?.workbenchBrand;
+  return value && typeof value === 'object' ? value : { title: '', subtitle: '', image: '' };
+}
+
+async function renderWorkbenchSettings(main) {
+  const current = readWorkbenchBrand();
+  main.innerHTML = pageHead('工作台设置', '自定义首页欢迎卡片的背景图片、主标题和副标题', '<button class="btn primary sm" id="wb-brand-save">保存设置</button>') + `
+    <section class="card wb-brand-settings">
+      <div class="wb-brand-preview-label">首页效果预览</div>
+      <div class="wb-brand-preview" id="wb-brand-preview">
+        <div class="wb-brand-preview-copy">
+          <div class="wb-brand-preview-title" id="wb-brand-preview-title"></div>
+          <div class="wb-brand-preview-subtitle" id="wb-brand-preview-subtitle"></div>
+        </div>
+        <div class="wb-brand-preview-mark">我的工作台</div>
+      </div>
+      <div class="wb-brand-fields">
+        <div class="field">
+          <label class="field-label" for="wb-brand-title">首页主标题</label>
+          <input class="input" id="wb-brand-title" maxlength="40" placeholder="例如：一站式教师工作平台" value="${esc(current.title || '')}">
+        </div>
+        <div class="field">
+          <label class="field-label" for="wb-brand-subtitle">首页副标题</label>
+          <textarea class="input" id="wb-brand-subtitle" rows="2" maxlength="100" placeholder="例如：备课 · 授课 · 考勤 · 教研 · 任务 · 数据">${esc(current.subtitle || '')}</textarea>
+        </div>
+        <div class="field">
+          <label class="field-label">首页背景图片</label>
+          <div class="wb-brand-image-actions">
+            <label class="btn soft" style="cursor:pointer">${icon('upload', 15)} 上传图片
+              <input id="wb-brand-image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+            </label>
+            <button class="btn ghost" id="wb-brand-remove-image" type="button">移除图片</button>
+            <span class="tiny muted" id="wb-brand-image-hint">建议 16:9 横图，图片会自动压缩。</span>
+          </div>
+        </div>
+        <div class="wb-brand-tip">图片、标题和副标题只影响首页欢迎卡片，不会修改课表、考勤或其他业务数据。</div>
+      </div>
+    </section>`;
+
+  const title = main.querySelector('#wb-brand-title');
+  const subtitle = main.querySelector('#wb-brand-subtitle');
+  const preview = main.querySelector('#wb-brand-preview');
+  const previewTitle = main.querySelector('#wb-brand-preview-title');
+  const previewSubtitle = main.querySelector('#wb-brand-preview-subtitle');
+  const imageHint = main.querySelector('#wb-brand-image-hint');
+  let image = current.image || '';
+
+  const paint = () => {
+    previewTitle.textContent = title.value.trim() || '一站式教师工作平台';
+    previewSubtitle.textContent = subtitle.value.trim() || '备课 · 授课 · 考勤 · 教研 · 任务 · 数据';
+    preview.style.backgroundImage = image
+      ? 'linear-gradient(90deg, rgba(16,42,88,.82), rgba(16,42,88,.24)), url("' + image + '")'
+      : 'linear-gradient(120deg, #2678ed, #665be5)';
+    preview.classList.toggle('has-image', !!image);
+  };
+  title.addEventListener('input', paint);
+  subtitle.addEventListener('input', paint);
+  paint();
+
+  main.querySelector('#wb-brand-image').onchange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      toast('请上传 JPG、PNG 或 WebP 图片', 'warn');
+      event.target.value = '';
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast('图片不能超过 8MB', 'warn');
+      event.target.value = '';
+      return;
+    }
+    imageHint.textContent = '图片处理中…';
+    try {
+      image = await new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const maxW = 1600;
+            const scale = Math.min(1, maxW / img.width);
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob((blob) => {
+              URL.revokeObjectURL(url);
+              if (!blob) return reject(new Error('图片压缩失败'));
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = () => reject(new Error('图片读取失败'));
+              reader.readAsDataURL(blob);
+            }, 'image/jpeg', 0.78);
+          } catch (err) { URL.revokeObjectURL(url); reject(err); }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('无法读取这张图片')); };
+        img.src = url;
+      });
+      imageHint.textContent = '图片已载入，保存后应用到首页';
+      paint();
+    } catch (err) {
+      imageHint.textContent = '图片载入失败';
+      toast(err.message || '图片处理失败', 'err');
+    }
+    event.target.value = '';
+  };
+
+  main.querySelector('#wb-brand-remove-image').onclick = () => {
+    image = '';
+    imageHint.textContent = '已移除背景图片，保存后使用默认渐变背景';
+    paint();
+  };
+
+  main.querySelector('#wb-brand-save').onclick = () => {
+    const db = loadLocalDB();
+    if (!db.meta || typeof db.meta !== 'object') db.meta = {};
+    db.meta.workbenchBrand = {
+      title: title.value.trim().slice(0, 40),
+      subtitle: subtitle.value.trim().slice(0, 100),
+      image,
+      updatedAt: new Date().toISOString(),
+    };
+    if (!saveLocalDB()) {
+      toast('保存失败，请检查本机存储空间', 'err');
+      return;
+    }
+    toast('工作台首页设置已保存', 'ok');
+    go('home');
+  };
+}
+
 /* ================= 个人信息（独立页） ================= */
+function meSectionTabs(active) {
+  return `
+    <div class="me-section-tabs" role="tablist" aria-label="我的设置">
+      <button type="button" class="me-section-tab ${active === 'profile' ? 'active' : ''}" data-me-tab="profile">
+        ${icon('user', 17)}<span>个人信息</span>
+      </button>
+      <button type="button" class="me-section-tab ${active === 'account' ? 'active' : ''}" data-me-tab="account">
+        ${icon('shield', 17)}<span>账号设置</span>
+      </button>
+    </div>`;
+}
+
+function mePageHeader(active) {
+  return `
+    <div class="me-page-toolbar">
+      <button type="button" class="me-back-home" id="me-back-home">
+        <span aria-hidden="true">←</span> 返回主页面
+      </button>
+    </div>` + pageHead('我的', '管理个人资料与账号安全') + meSectionTabs(active);
+}
+
+function bindMeSectionTabs(main) {
+  const back = main.querySelector('#me-back-home');
+  if (back) back.onclick = () => go('home');
+  main.querySelectorAll('[data-me-tab]').forEach((button) => {
+    button.onclick = () => go(button.dataset.meTab === 'account' ? 'me/account-settings' : 'profile');
+  });
+}
+
+function displayLoginAccount(value, fallback = '未设置') {
+  const raw = String(value || '').trim();
+  return raw ? (cloud.displayPhone(raw) || fallback) : fallback;
+}
+
+/* ================= 个人信息页 ================= */
 async function renderProfile(main) {
   const u = state.user;
-  /* 和 renderMe 同一个坑：u 为空时这里会连抛好几个 TypeError */
   if (!u) {
     main.innerHTML = '<div class="empty" style="padding:40px 20px">登录状态已过期，请刷新页面重新登录</div>';
     return;
   }
-  // 有草稿就用草稿，没有才用云端/本机里已保存的值
-  const uv = (k) => esc(profileDraft ? (profileDraft[k] ?? '') : (u[k] || ''));
-  main.innerHTML = pageHead('个人信息', '改完点右上角保存', '<button class="btn primary sm" id="p-save">保存</button>') + `
-    <div class="card card-pad" style="margin-bottom:14px">
-      <div class="profile-av-row">
-        <button id="p-avatar" class="profile-av-btn">${avatarHTML(u, 68, '', true)}<span class="pa-tip">${icon('camera', 13)} 换头像</span></button>
-        <div class="tiny muted" style="flex:1">头像支持 JPG / PNG，2MB 以内，会自动裁成正方形。</div>
-      </div>
-    </div>
-    <div class="card card-pad">
-      <div class="field"><label class="field-label">昵称</label>
-        <input class="input" id="f-nickname" maxlength="20" value="${uv('nickname')}" placeholder="怎么称呼你"></div>
-      <div class="field"><label class="field-label">学校</label>
-        <input class="input" id="f-school" maxlength="40" value="${uv('school')}" placeholder="如：市第二中学"></div>
-      <div class="form-grid">
-        <div class="field"><label class="field-label">学科</label>
-          <input class="input" id="f-subject" maxlength="20" value="${uv('subject')}" placeholder="如：语文"></div>
-        <div class="field"><label class="field-label">职务</label>
-          <input class="input" id="f-title" maxlength="20" value="${uv('title')}" placeholder="如：班主任"></div>
-      </div>
-      <div class="field"><label class="field-label">登录账号</label>
-        <div class="row" style="gap:8px"><input class="input" value="${esc(u.account || '')}" disabled>
-          <button class="btn ghost sm" id="p-bind" style="flex:0 0 auto">改密码</button></div></div>
-      <div class="tiny muted" style="margin-top:4px">账号 + 密码是本机唯一的登录凭证，账号不可改，密码可随时修改。</div>
-    </div>`;
+  main.classList.add('page-me-profile');
+  const valueOf = (key) => profileDraft ? (profileDraft[key] ?? '') : (u[key] || '');
+  const uv = (key) => esc(valueOf(key));
+  const bannerName = valueOf('nickname') || '未设置昵称';
+  const bannerMeta = [valueOf('title') || '教师', valueOf('grade_group')].filter(Boolean).join(' · ') || '完善个人资料，让工作台更懂你的工作';
+  const session = cloud.session() || {};
+  const account = u.account || session.phone || session.email || '未设置';
 
-  /* 边打字边存草稿。留着这个引用，页面被换掉之后节点已脱离文档，
-     事件自然不会再触发，不需要手动解绑。 */
-  for (const k of PROFILE_FIELDS) {
-    const inp = main.querySelector('#f-' + k);
-    if (!inp) continue;
-    inp.addEventListener('input', () => {
+  main.innerHTML = mePageHeader('profile') + `
+    <section class="card profile-shell profile-shell-single">
+      <header class="profile-banner">
+        <div class="profile-banner-content">
+          <button id="p-avatar" class="profile-avatar-btn" type="button" title="更换头像">
+            ${avatarHTML(u, 92, 'profile-avatar-image', true)}
+            <span class="pa-tip">${icon('camera', 14)}</span>
+          </button>
+          <div class="profile-banner-info">
+            <div class="profile-banner-name" id="profile-banner-name">${esc(bannerName)}</div>
+            <div class="profile-banner-meta" id="profile-banner-meta">${esc(bannerMeta)}</div>
+            <div class="profile-banner-hint">教师个人资料 · 仅用于工作台内展示</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="profile-content">
+        <div class="profile-section-title"><span></span>基本信息</div>
+        <div class="profile-fields">
+          <div class="field">
+            <label class="field-label" for="f-nickname">姓名 <b class="required-mark">*</b></label>
+            <input class="input" id="f-nickname" maxlength="20" value="${uv('nickname')}" placeholder="请输入姓名">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-gender">性别</label>
+            <select class="input" id="f-gender">
+              <option value="" ${!valueOf('gender') ? 'selected' : ''}>请选择</option>
+              <option value="男" ${valueOf('gender') === '男' ? 'selected' : ''}>男</option>
+              <option value="女" ${valueOf('gender') === '女' ? 'selected' : ''}>女</option>
+              <option value="其他" ${valueOf('gender') === '其他' ? 'selected' : ''}>其他</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-contact_phone">联系电话</label>
+            <input class="input" id="f-contact_phone" type="tel" maxlength="24" value="${uv('contact_phone') || uv('phone')}" placeholder="请输入联系电话">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-email">邮箱</label>
+            <input class="input" id="f-email" type="email" maxlength="80" value="${uv('email')}" placeholder="请输入邮箱地址">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-subject">学科</label>
+            <input class="input" id="f-subject" maxlength="20" value="${uv('subject')}" placeholder="如：信息技术">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-title">职务</label>
+            <input class="input" id="f-title" maxlength="30" value="${uv('title')}" placeholder="如：教师">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-grade_group">所属年级组</label>
+            <input class="input" id="f-grade_group" maxlength="30" value="${uv('grade_group')}" placeholder="如：高二年级组">
+          </div>
+        </div>
+
+        <div class="profile-divider"></div>
+        <div class="profile-section-title"><span></span>工作信息</div>
+        <div class="profile-work-field">
+          <label class="field-label" for="f-school">所在学校</label>
+          <input class="input" id="f-school" maxlength="50" value="${uv('school')}" placeholder="请输入学校名称">
+        </div>
+
+        <div class="profile-save-row">
+          <div class="profile-save-note">修改完成后点击保存，资料会自动同步。</div>
+          <button class="btn primary" id="p-save" type="button">${icon('check', 16)} 保存修改</button>
+        </div>
+      </div>
+    </section>`;
+
+  bindMeSectionTabs(main);
+
+  const updateBanner = () => {
+    const nickname = main.querySelector('#f-nickname').value.trim() || '未设置昵称';
+    const title = main.querySelector('#f-title').value.trim() || '教师';
+    const grade = main.querySelector('#f-grade_group').value.trim();
+    main.querySelector('#profile-banner-name').textContent = nickname;
+    main.querySelector('#profile-banner-meta').textContent = [title, grade].filter(Boolean).join(' · ');
+  };
+
+  for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group']) {
+    const input = main.querySelector('#f-' + key);
+    if (!input) continue;
+    input.addEventListener('input', updateBanner);
+    input.addEventListener('change', updateBanner);
+    input.addEventListener('input', () => {
       if (!profileDraft) profileDraft = {};
-      profileDraft[k] = inp.value;
+      profileDraft[key] = input.value;
     });
   }
 
-  const av = main.querySelector('#p-avatar');
-  /* 点头像前先抓一次快照。
-     用 mousedown/touchstart 而不是 click：click 的时机是手指抬起之后，
-     万一将来有人在 click 里塞了别的东西，快照可能已经晚了。 */
-  const snap = () => captureProfileDraft();
-  av.addEventListener('mousedown', snap);
-  av.addEventListener('touchstart', snap, { passive: true });
-  av.onclick = () => {
-    snap();
-    avatarSheet();
-  };
-  main.querySelector('#p-bind').onclick = async () => {
-    /* 这里原来的按钮是「换绑手机号」，现在只做改密码 ——
-       拉 /me/sessions 没有意义（那套「登录设备」是服务端会话，静态版恒为空）。 */
-    captureProfileDraft();           // 去改密码再回来，字还在
-    accountPwdSheet(null);
-  };
-  main.querySelector('#p-save').onclick = async (e) => {
-    const btn = e.currentTarget;
-    /* 【昵称不能存成空】
-       只填了学校/科目就把昵称删光点保存，库里 nickname 变成 ''，
-       左上角、头像、"我的"页面全变成「未设置昵称」，别人也没法在成员列表里认出你。
-       （头像首字还会退化成「师」，看起来像是账号出了问题。）
-       昵称是唯一的口头称呼来源，必须留着。 */
-    const nick = main.querySelector('#f-nickname').value.trim();
-    if (!nick) {
-      toast('昵称不能为空，留个称呼吧', 'warn');
+  const avatarButton = main.querySelector('#p-avatar');
+  const snapshot = () => captureProfileDraft();
+  avatarButton.addEventListener('mousedown', snapshot);
+  avatarButton.addEventListener('touchstart', snapshot, { passive: true });
+  avatarButton.onclick = () => { snapshot(); avatarSheet(); };
+
+  main.querySelector('#p-save').onclick = async (event) => {
+    const button = event.currentTarget;
+    const nickname = main.querySelector('#f-nickname').value.trim();
+    if (!nickname) {
+      toast('姓名不能为空，请填写姓名', 'warn');
       main.querySelector('#f-nickname').focus();
       return;
     }
-    btn.disabled = true; btn.textContent = '保存中…';
+    button.disabled = true;
+    button.textContent = '保存中…';
+    const payload = {};
+    for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group']) {
+      payload[key] = main.querySelector('#f-' + key).value.trim();
+    }
     try {
-      const r = await api.patch('/me', {
-        nickname: nick,
-        school: main.querySelector('#f-school').value.trim(),
-        subject: main.querySelector('#f-subject').value.trim(),
-        title: main.querySelector('#f-title').value.trim(),
-      });
-      state.user = r.user;
-      profileDraft = null;           // 已经落盘，草稿使命结束
-      toast('已保存');
+      const result = await api.patch('/me', payload);
+      state.user = result.user;
+      profileDraft = null;
+      toast('个人信息已保存', 'ok');
       render();
-    } catch (err) {
-      toast(err.message || '保存失败', 'err');
-    } finally {
-      // 注意：render() 之后 btn 已脱离文档，但改它不会报错，也不影响新页面
-      btn.disabled = false; btn.textContent = '保存';
+    } catch (error) {
+      toast(error.message || '保存失败', 'err');
+      button.disabled = false;
+      button.innerHTML = icon('check', 16) + ' 保存修改';
     }
   };
+}
+
+/* ================= 账号设置页 ================= */
+function renderAccountSettings(main) {
+  const u = state.user;
+  if (!u) {
+    main.innerHTML = '<div class="empty" style="padding:40px 20px">登录状态已过期，请刷新页面重新登录</div>';
+    return;
+  }
+  main.classList.add('page-me-account-settings');
+  const session = cloud.session() || {};
+  const account = displayLoginAccount(u.account || session.phone || u.phone || session.email);
+  main.innerHTML = mePageHeader('account') + `
+    <section class="card account-security-shell">
+      <header class="account-security-banner">
+        <span class="account-security-banner-icon">${icon('shield', 42)}</span>
+        <div class="account-security-banner-copy">
+          <div class="account-security-banner-title">账号设置</div>
+          <div class="account-security-banner-subtitle">管理您的登录账号、密码及账号安全信息</div>
+        </div>
+      </header>
+
+      <div class="account-security-content">
+        <div class="account-security-row account-security-login-row">
+          <span class="account-security-row-icon">${icon('phone', 26)}</span>
+          <span class="account-security-row-copy">
+            <strong>登录账号</strong>
+            <small>管理用于登录系统的账号</small>
+          </span>
+          <span class="account-security-row-value">${esc(account)}</span>
+          <span class="account-security-chevron" aria-hidden="true">${icon('right', 18)}</span>
+        </div>
+
+        <button class="account-security-row account-security-password-row" id="account-password-change" type="button">
+          <span class="account-security-row-icon">${icon('lock', 26)}</span>
+          <span class="account-security-row-copy">
+            <strong>修改密码</strong>
+            <small>更新登录密码，保障账号安全</small>
+          </span>
+          <span class="account-security-chevron" aria-hidden="true">${icon('right', 18)}</span>
+        </button>
+
+        <div class="account-security-art" aria-hidden="true">
+          <span class="account-security-orbit"></span>
+          <span class="account-security-orbit account-security-orbit-inner"></span>
+          <span class="account-security-shield">${icon('shield', 62)}<i>${icon('lock', 24)}</i></span>
+        </div>
+        <div class="account-security-caption">账号安全 · 个人隐私 · 数据保护</div>
+      </div>
+    </section>`;
+
+  bindMeSectionTabs(main);
+  main.querySelector('#account-password-change').onclick = () => accountPwdSheet(null);
 }
 
 /* ================= 账号安全（本机 PIN 锁） =================
@@ -639,7 +883,7 @@ export function lockScreen(onOk) {
 function bindManager() {
   const u = state.user || {};
   const body = el(`<div class="sheet-body">
-    ${bindRow('account', `${icon('user', 15)} 登录账号`, u.account || '未设置', !!u.account, false, '改密码')}
+    ${bindRow('account', `${icon('user', 15)} 登录账号`, displayLoginAccount(u.account), !!u.account, false, '改密码')}
     <div class="tiny muted" style="margin-top:12px;line-height:1.7">
       登录账号由 Supabase 管理。修改密码时需要验证当前密码；忘记密码请联系管理员重置。
     </div>
@@ -676,7 +920,7 @@ function bindRow(type, label, val, bound, disabled = false, onAct = '') {
 function accountPwdSheet(parent) {
   const b = el(`<div class="sheet-body">
     <div class="tiny muted" style="margin-bottom:10px;line-height:1.7">
-      当前账号 <b>${esc(state.user?.account || '')}</b>。修改后请使用新密码登录其他设备。
+      当前账号 <b>${esc(displayLoginAccount(state.user?.account || cloud.session()?.phone, ''))}</b>。修改后请使用新密码登录其他设备。
     </div>
     <div class="field"><label class="field-label">原密码</label>
       <input class="input" id="op" type="password" autocomplete="current-password" maxlength="72" placeholder="当前密码"></div>

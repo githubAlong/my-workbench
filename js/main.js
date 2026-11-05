@@ -1,6 +1,6 @@
 import { state, loadMe, render, parseHash, loadAuthConfig } from './ui.js';
 import { ls, toast, STATIC, api } from './core.js';
-import { setActiveAccount, activeAccountId } from './localdb.js';
+import { setActiveAccount, activeAccountId, blank, replaceAll, load as loadDb } from './localdb.js';
 
 /* 【第 30 条 · 白屏】
    原来这里是 9 行串行 import：
@@ -22,7 +22,7 @@ import './repairs.js';
 import './me.js';
 import './recycle.js';
 import './alarm.js';
-import { autoSync, hookSave, tryImportFromHash } from './cloudsync.js';
+import { hookSave, tryImportFromHash, initializeAccountSync, pushNow } from './cloudsync.js';
 
 /* 云同步：本地一改就排队上传（内部有防抖）；启动时看一眼云端有没有新数据。
    没绑定云存储时 hookSave 是空操作，autoSync 直接返回，零开销。 */
@@ -58,6 +58,36 @@ await loadAuthConfig();
 const cloudAuth = await import('./cloud.js');
 let cloudSession = cloudAuth.session();
 setActiveAccount(cloudSession?.uid || '');
+
+/* 一次性开发环境重置：仅在明确带 ?reset-dev-data=1 且已登录时执行。
+   清空当前账号的本机工作台缓存和同步版本号，保留 Supabase 登录身份；
+   云端当前账号快照由维护操作先行清理，随后正常初始化会重新生成示例数据。 */
+const resetDevData = !!(cloudSession?.uid && new URLSearchParams(location.search).get('reset-dev-data') === '1');
+if (resetDevData) {
+  const emptyDb = blank();
+  emptyDb.meta.seeded = true; // 本次明确要求空库初始化，不再灌入演示数据
+  replaceAll(emptyDb);
+  try {
+    localStorage.removeItem('wb_account_revision:' + cloudSession.uid);
+    localStorage.removeItem('wb_before_account_sync:' + cloudSession.uid);
+    localStorage.removeItem('wb_cloud_meta:' + cloudSession.uid);
+  } catch (e) {
+    console.warn('[reset] 清理本机同步缓存时出现提示', e);
+  }
+}
+let accountSyncReady = !cloudSession?.uid;
+if (cloudSession?.uid) {
+  try {
+    accountSyncReady = await initializeAccountSync();
+    if (!accountSyncReady) throw new Error('云端账户数据尚未完成初始化');
+  } catch (e) {
+    /* 云端临时超时不应阻止本地工作台打开。
+       cloudsync 在初始化成功前会拒绝所有上传，避免把本机旧快照覆盖到云端。 */
+    accountSyncReady = false;
+    console.error('[sync] 账户数据初始化失败，进入本地只读保护模式', e);
+    toast('云端暂时连接不上：' + (e.message || e) + '。工作台将先使用本机缓存；本地修改会留在本机，云端连接恢复前不会上传。请稍后刷新重试。', 'warn', 12000);
+  }
+}
 if (cloudSession?.uid) {
   try {
     /* 导入和同步数据写入当前用户自己的本地命名空间，绝不落进旧的共享库。 */
@@ -67,6 +97,22 @@ if (cloudSession?.uid) {
       email: cloudSession.email || '',
       uid: cloudSession.uid,
     }, { silent: true });
+    /* login-cloud 会触发历史兼容 seedIfEmpty。为避免旧设备缓存或旧 SW
+       在启动阶段重新灌入示例课表，重置标记在账号资料初始化完成后再执行一次，
+       保留登录资料和工作台品牌设置，只清空业务数据，并立即推送云端。 */
+    if (resetDevData) {
+      const current = loadDb();
+      const clean = blank();
+      clean.meta.seeded = true;
+      if (current.meta?.user) clean.meta.user = current.meta.user;
+      if (current.meta?.workbenchBrand) clean.meta.workbenchBrand = current.meta.workbenchBrand;
+      if (current.workbenchBrand) clean.workbenchBrand = current.workbenchBrand;
+      replaceAll(clean);
+      await pushNow();
+      const cleanUrl = new URL(location.href);
+      cleanUrl.searchParams.delete('reset-dev-data');
+      history.replaceState(null, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+    }
   } catch (e) {
     console.warn('[auth] 本机账号初始化失败', e);
     toast('账号数据初始化失败：' + (e.message || e), 'err', 7000);
@@ -113,6 +159,7 @@ try {
   const live = await import('./live.js');
   live.startLiveRefresh();
   live.bindLiveDot();
+  window.addEventListener('wb:snapshot-applied', () => { render().catch((e) => console.warn('[sync] 远端数据刷新失败', e)); });
   rt.syncWithAuth();
   /* 登录框是浮层，登录成功不会重新加载页面，所以这里要主动补一次连接。
      用事件解耦：auth.js 登录/退出后派发 wb:auth-changed，不必反向 import。 */
@@ -169,7 +216,8 @@ try {
    表现就是「我明明改了，他那边还是旧的」。
    现在 sw.js 里 clients.claim() 接管后会给所有页面发 WB_SW_UPDATED，
    这里收到就弹一条提示，点一下直接刷新到新版。 */
-if ('serviceWorker' in navigator) {
+const LOCAL_DEV_HOSTS = new Set(['localhost', '127.0.0.1']);
+if ('serviceWorker' in navigator && !LOCAL_DEV_HOSTS.has(location.hostname)) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
   /* 注册后主动问一次：有没有装好但还没接管的新版本？
      以前只能等 activate 里的 postMessage，如果那次消息没送达
@@ -196,6 +244,13 @@ if ('serviceWorker' in navigator) {
       if (last) { last.style.cursor = 'pointer'; last.onclick = () => location.reload(); }
     }, 1200);
   });
+} else if ('serviceWorker' in navigator) {
+  /* localhost 是开发环境，不能使用 PWA 缓存：否则切换 dev 代码后，
+     浏览器可能继续拿旧 index.html / JS，造成「页面加载失败」假象。
+     index.html 中还有一段更早执行的注销逻辑，防止 main.js 未加载时被旧 SW 卡住。 */
+  navigator.serviceWorker.getRegistrations()
+    .then((regs) => Promise.all(regs.map((reg) => reg.unregister())))
+    .catch((e) => console.warn('[sw] 本地开发环境注销旧缓存失败', e));
 }
 
 /* === 【2026-10 离线失效事故复盘 —— 这里曾经把缓存删干净】 ===
@@ -243,8 +298,8 @@ if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
   }
 }
 
-/* 云同步启动检查：放最后，等首屏渲染完再悄悄跑，不抢首屏时间 */
-autoSync();
+/* 账户级云同步已在首屏前完成一次初始化；不要再无条件重复请求。
+   失败时保留本地只读模式，用户刷新页面即可重新尝试。 */
 
 /* 主题同步 */
 document.documentElement.dataset.theme = state.theme;
