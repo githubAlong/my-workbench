@@ -72,7 +72,6 @@ function applyHomeSidebar() {
       +'<div class="home-side-motto">'+esc(user.signature||'看山又是山，看山又不是山')+'</div>'
       +'<div class="home-side-meta" id="home-profile-meta">'+esc(schoolSubject)+'</div>'
       +'<div class="home-side-role" id="home-profile-role">'+esc(role)+'</div>';}
-  const userEntry=sidebar.querySelector('#side-user');if(userEntry)userEntry.hidden=true;
   const footer=sidebar.querySelector('.sidebar-foot');
   if(footer&&!footer.querySelector('#home-side-layout-edit')){const theme=footer.querySelector('#side-theme');
     const button='<button class="nav-item home-side-layout-edit" id="home-side-layout-edit" type="button" title="编辑首页卡片布局"><span class="ni">'+icon('edit',18)+'</span><span>编辑布局</span></button>';
