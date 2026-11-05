@@ -91,9 +91,13 @@ const DEFAULT_USER = () => ({
   phone: '',
   nickname: '老师',
   avatar: '',
+  gender: '',
+  contact_phone: '',
+  email: '',
   school: '',
   subject: '',
   title: '',
+  grade_group: '',
   settings: {},
 });
 
@@ -132,6 +136,7 @@ function publicUser(u) {
   return {
     id: u.id, account: u.account || '', phone: u.phone || '', nickname: u.nickname, avatar: u.avatar,
     school: u.school, subject: u.subject, title: u.title,
+    gender: u.gender || '', contact_phone: u.contact_phone || '', email: u.email || '', grade_group: u.grade_group || '',
     bindings: { phone: false, wechat: false, qq: false, workbuddy: false },
     /* settings 必须带上：前端 state.user 来自 /auth/me 的返回值，
        这里不含 settings 的话，课时单价永远读回默认值 30 元。 */
@@ -1709,7 +1714,7 @@ on('PATCH', '/me', ({ body }) => {
      一刷新全没了。用户看到的是「明明保存了，怎么又变回去」。
      这里改完先试写，写不进去就把内存对象还原，再明确告诉用户存不下。 */
   const prev = {};
-  for (const k of ['nickname', 'school', 'subject', 'title', 'avatar']) prev[k] = u[k];
+  for (const k of ['nickname', 'school', 'subject', 'title', 'avatar', 'gender', 'contact_phone', 'email', 'grade_group']) prev[k] = u[k];
   const prevSettings = u.settings;
 
   /* 【昵称是硬性非空】前端已经拦了一道，这里再兜一道：
@@ -1720,7 +1725,7 @@ on('PATCH', '/me', ({ body }) => {
     fail(422, '昵称不能为空');
   }
 
-  for (const k of ['nickname', 'school', 'subject', 'title', 'avatar']) {
+  for (const k of ['nickname', 'school', 'subject', 'title', 'avatar', 'gender', 'contact_phone', 'email', 'grade_group']) {
     if (k in (body || {})) u[k] = String(body[k] ?? '');
   }
   /* settings 按顶层键浅合并，不整块覆盖。
