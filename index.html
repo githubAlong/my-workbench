@@ -36,6 +36,23 @@
 </script>
 </head>
 <body>
+<script>
+  /* localhost 开发环境清理历史 PWA 接管：必须放在主模块之前执行，
+     防止旧 Service Worker 把本地入口页和 JS 请求送进旧缓存。 */
+  (function () {
+    if (!['localhost', '127.0.0.1'].includes(location.hostname) || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.getRegistrations()
+      .then(function (regs) { return Promise.all(regs.map(function (reg) { return reg.unregister(); })); })
+      .then(function () {
+        if (!navigator.serviceWorker.controller) return;
+        var key = 'wb_local_sw_released';
+        if (sessionStorage.getItem(key) === '1') return;
+        sessionStorage.setItem(key, '1');
+        location.reload();
+      })
+      .catch(function (e) { console.warn('[sw] 本地开发环境清理旧注册失败', e); });
+  })();
+</script>
 <div id="app"></div>
 <div id="alarm-root"></div>
 <script type="module" src="js/main.js"></script>
