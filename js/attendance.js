@@ -3282,7 +3282,6 @@ function rosterPhotoDialog(grade, reload) {
     $('#protate-right').disabled = true;
     $('#k').disabled = true;
     $('#pquality').hidden = true;
-    $('#ptext').value = '';
     setStatus('正在准备中文识别引擎…');
     try {
       const { recognizeRosterPhoto } = await import('./ocr.js');
