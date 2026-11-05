@@ -216,7 +216,8 @@ try {
    表现就是「我明明改了，他那边还是旧的」。
    现在 sw.js 里 clients.claim() 接管后会给所有页面发 WB_SW_UPDATED，
    这里收到就弹一条提示，点一下直接刷新到新版。 */
-if ('serviceWorker' in navigator) {
+const LOCAL_DEV_HOSTS = new Set(['localhost', '127.0.0.1']);
+if ('serviceWorker' in navigator && !LOCAL_DEV_HOSTS.has(location.hostname)) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
   /* 注册后主动问一次：有没有装好但还没接管的新版本？
      以前只能等 activate 里的 postMessage，如果那次消息没送达
@@ -243,6 +244,13 @@ if ('serviceWorker' in navigator) {
       if (last) { last.style.cursor = 'pointer'; last.onclick = () => location.reload(); }
     }, 1200);
   });
+} else if ('serviceWorker' in navigator) {
+  /* localhost 是开发环境，不能使用 PWA 缓存：否则切换 dev 代码后，
+     浏览器可能继续拿旧 index.html / JS，造成「页面加载失败」假象。
+     index.html 中还有一段更早执行的注销逻辑，防止 main.js 未加载时被旧 SW 卡住。 */
+  navigator.serviceWorker.getRegistrations()
+    .then((regs) => Promise.all(regs.map((reg) => reg.unregister())))
+    .catch((e) => console.warn('[sw] 本地开发环境注销旧缓存失败', e));
 }
 
 /* === 【2026-10 离线失效事故复盘 —— 这里曾经把缓存删干净】 ===
