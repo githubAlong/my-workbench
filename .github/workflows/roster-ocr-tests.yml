@@ -8,6 +8,10 @@ on:
       - "js/ocr.js"
       - "js/attendance.js"
       - "js/roster-structure.mjs"
+      - "js/roster-import.mjs"
+      - "js/roster-photo-parser.mjs"
+      - "js/xlsx-lite.js"
+      - "js/att-parse.js"
       - "tests/**"
       - ".github/workflows/roster-ocr-tests.yml"
   pull_request:
@@ -37,5 +41,7 @@ jobs:
           node --check js/ocr.js
           node --check js/attendance.js
           node --check js/roster-structure.mjs
+          node --check js/roster-import.mjs
+          node --check js/roster-photo-parser.mjs
       - name: Run roster OCR structure tests
-        run: node --test tests/roster-structure.test.mjs
+        run: node --test tests/roster-structure.test.mjs tests/roster-import.test.mjs tests/roster-photo-parser.test.mjs
