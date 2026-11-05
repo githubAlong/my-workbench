@@ -1,6 +1,6 @@
 import { api, el, esc, toast, ls, sheet } from './core.js';
 import { decodeQR as qrDecode } from './qrdecode.js';
-import { setActiveAccount } from './localdb.js';
+import { setActiveAccount, load as loadLocalDB } from './localdb.js';
 
 /* ---------------- 图标 ---------------- */
 const I = {
@@ -517,9 +517,19 @@ export async function render() {
   }
   const fn = views[viewName];
   const app = document.getElementById('app');
+  const brandData = loadLocalDB()?.meta?.workbenchBrand || {};
+  const brandTitle = String(brandData.title || '').trim() || '我的工作台';
+  const brandSubtitle = String(brandData.subtitle || '').trim() || 'Workbench';
+  const brandImage = typeof brandData.image === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(brandData.image)
+    ? brandData.image : '';
+  // 与「工作台设置」的实时预览共用同一默认图标；未上传自定义图片时也不再显示文字占位。
+  const brandLogo = '<img src="' + esc(brandImage || './icons/icon-192.png') + '" alt="" loading="eager">';
   const pageShell = `<div class="app">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-logo">台</div><div><div class="brand-name">我的工作台</div><div class="brand-sub">Workbench</div></div></div>
+      <div class="brand brand-static" id="side-brand" aria-label="${esc(brandTitle)}">
+        <div class="brand-logo">${brandLogo}</div>
+        <div class="brand-copy"><div class="brand-name">${esc(brandTitle)}</div><div class="brand-sub">${esc(brandSubtitle)}</div></div>
+      </div>
       <div class="side-nav">${NAV.filter((n) => n.id !== 'me').map((n) => navHTML(n, 'nav-item') + subNavHTML(n)).join('')}</div>
       <div class="sidebar-foot">
         <button class="nav-item" id="side-theme" title="切换主题外观"><span class="theme-dot" style="background:${(THEME_MAP[state.theme] || THEMES[0]).sw.pri}"></span><span>主题外观</span><span class="theme-now">${esc(themeName(state.theme))}</span></button>

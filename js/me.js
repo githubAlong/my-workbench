@@ -29,20 +29,6 @@ registerView(async function me(main, { query }) {
 
 /* ================= 我的（首页） ================= */
 async function renderMe(main) {
-  /* 【第 27 条：点「我的」是空白页】
-     本地用两个账号都复现不出来，但代码里确实有一条「什么都不显示」的路径：
-     state.user 为空时，下面 u.nickname / u.bindings / u.avatar 会直接抛 TypeError，
-     而 render() 的 catch 只会往 main 里塞一行「页面加载失败」——
-     用户看到的就是一片空白（那行字很小，标题区还是空的）。
-
-     state.user 什么时候会是空？三条真实路径：
-       ① 会话过期，/auth/me 返回 401，loadMe() 把 state.user 设成 null；
-       ② 换绑手机号 / 退出登录后，另一台设备的 tab 还开着；
-       ③ 页面从 bfcache 恢复（手机切后台再切回来），内存里的 state 与 Cookie 不同步。
-
-     正确的做法不是「假设它不为空」，而是补一次 /auth/me：
-     补得回来就正常渲染，补不回来就明确说「登录已过期」并给出重新登录的按钮。
-     这样无论哪种情况都不会是空白。 */
   let u = state.user;
   if (!u) {
     try {
@@ -51,57 +37,84 @@ async function renderMe(main) {
     } catch { u = null; }
   }
   if (!u) {
-    main.innerHTML = `<div class="empty" style="padding:48px 20px">
-      <div class="em">${icon('user', 34)}</div>
-      登录状态已过期
-      <div class="tiny muted" style="margin-top:8px">重新登录后，「我的」里的数据都还在</div>
-      <div style="margin-top:16px"><button class="btn primary" id="me-relogin">重新登录</button></div>
-    </div>`;
+    main.innerHTML = '<div class="empty" style="padding:48px 20px">' +
+      '<div class="em">' + icon('user', 34) + '</div>登录状态已过期' +
+      '<div class="tiny muted" style="margin-top:8px">重新登录后，「我的」里的数据都还在</div>' +
+      '<div style="margin-top:16px"><button class="btn primary" id="me-relogin">重新登录</button></div></div>';
     const b = main.querySelector('#me-relogin');
-    if (b) b.onclick = () => { location.hash = '#/home'; const m = window; m.location.reload?.(); };
+    if (b) b.onclick = () => { location.hash = '#/home'; location.reload(); };
     return;
   }
 
-
+  main.classList.add('page-me-home');
   const msgs = await api.get('/messages').catch(() => ({ unread: 0, counts: {} }));
   const needProfile = !u.school || !u.subject;
-  main.innerHTML = `
-    <div class="me-hero">
-      ${avatarHTML(u, 74, 'me-avatar-lg', true)}
-      <div class="me-hero-info">
-        <div class="me-name">${esc(u.nickname || '未设置昵称')}</div>
-        <div class="me-sub">${esc(displayLoginAccount(u.account, ''))}${u.school ? ' · ' + esc(u.school) : ''}${u.subject ? ' · ' + esc(u.subject) : ''}</div>
-        <div class="me-chips">
-          ${u.bindings?.wechat ? '<span class="chip green">微信</span>' : ''}
-          ${u.bindings?.qq ? '<span class="chip blue">QQ</span>' : ''}
-          ${u.bindings?.workbuddy ? '<span class="chip purple">WorkBuddy</span>' : ''}
-          ${needProfile ? '<span class="chip amber">资料还没填完</span>' : ''}
-        </div>
-      </div>
-      <button class="icon-btn me-cam" id="avatar-btn" title="换头像">${icon('camera', 16)}</button>
-    </div>
+  const account = displayLoginAccount(u.account || u.phone, '暂未绑定登录账号');
+  const meta = [u.title, u.grade_group].filter(Boolean).join(' · ') || '完善个人资料，让工作台更懂你的工作';
+  const schoolSubject = [u.school, u.subject].filter(Boolean).join(' · ');
+  const bindings = [
+    u.bindings?.wechat ? '<span class="chip green">微信已绑定</span>' : '',
+    u.bindings?.qq ? '<span class="chip blue">QQ已绑定</span>' : '',
+    u.bindings?.workbuddy ? '<span class="chip purple">WorkBuddy已绑定</span>' : '',
+    needProfile ? '<span class="chip amber">资料待完善</span>' : '<span class="chip green">资料已完善</span>'
+  ].filter(Boolean).join('');
 
-    <div class="card me-group-body">
-      ${row('bell', '消息中心', msgs.unread ? `${msgs.unread} 条未读` : '暂无未读', 'messages',
-        msgs.unread ? `<span class="msg-badge">${msgs.unread > 99 ? '99+' : msgs.unread}</span>` : '')}
-      ${row('user', '个人信息', needProfile ? '昵称、学校、学科填一下' : '昵称、头像、学校、学科、职务', 'profile')}
-      ${row('shield', '账号设置', '管理登录账号和修改密码', 'account-settings')}
-      ${row('sliders', '工作台设置', '修改首页图片、标题和副标题', 'workbench-settings')}
-      ${row('sun', '主题外观', `当前：${themeName(state.theme)}`, 'theme', '<span class="tiny muted">共 6 套</span>')}
-    </div>
-
-    <div class="card me-logout">
-      ${row('logout', '退出登录', '', 'logout')}
-    </div>`;
+  main.innerHTML =
+    '<header class="me-home-head">' +
+      '<div><div class="me-home-eyebrow">PERSONAL CENTER</div><h1>我的</h1>' +
+      '<p>在这里管理个人资料、工作台展示和账号安全</p></div>' +
+      '<span class="me-home-live"><i></i> 个人中心</span>' +
+    '</header>' +
+    '<section class="me-identity-card">' +
+      '<div class="me-identity-main">' +
+        '<button type="button" class="me-identity-avatar" id="avatar-btn" title="更换头像">' +
+          avatarHTML(u, 78, 'me-avatar-lg', true) +
+          '<span class="me-identity-camera">' + icon('camera', 13) + '</span>' +
+        '</button>' +
+        '<div class="me-identity-copy">' +
+          '<div class="me-identity-name">' + esc(u.nickname || '未设置昵称') + '</div>' +
+          '<div class="me-identity-meta">' + esc(meta) + '</div>' +
+          '<div class="me-identity-account">' + icon('phone', 13) + '<span>' + esc(account) + '</span>' +
+            (schoolSubject ? '<i>·</i><span>' + esc(schoolSubject) + '</span>' : '') +
+          '</div>' +
+          '<div class="me-identity-chips">' + bindings + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<button type="button" class="me-identity-edit" data-act="profile">' + icon('edit', 15) + '<span>编辑个人资料</span></button>' +
+    '</section>' +
+    '<div class="me-home-sections">' +
+      '<section class="me-home-section">' +
+        '<header class="me-home-section-head"><span class="me-home-section-icon blue">' + icon('user', 19) + '</span>' +
+          '<div><h2>个人设置</h2><p>维护个人资料与工作台品牌信息</p></div></header>' +
+        '<div class="me-settings-list">' +
+          row('user', '个人信息', '头像、姓名、学校、学科及职务', 'profile') +
+          row('sliders', '工作台设置', '左上角名称、副标题和品牌图片', 'workbench-settings') +
+          row('shield', '账号设置', '管理登录账号和修改密码', 'account-settings') +
+        '</div>' +
+      '</section>' +
+      '<section class="me-home-section">' +
+        '<header class="me-home-section-head"><span class="me-home-section-icon violet">' + icon('sun', 19) + '</span>' +
+          '<div><h2>消息与偏好</h2><p>查看通知并调整工作台外观</p></div></header>' +
+        '<div class="me-settings-list">' +
+          row('bell', '消息中心', msgs.unread ? (msgs.unread + ' 条未读消息') : '暂无未读消息', 'messages',
+            msgs.unread ? '<span class="me-setting-badge">' + (msgs.unread > 99 ? '99+' : msgs.unread) + '</span>' : '') +
+          row('sun', '主题外观', '当前：' + themeName(state.theme), 'theme', '<span class="me-setting-extra">共 6 套</span>') +
+        '</div>' +
+      '</section>' +
+    '</div>' +
+    '<section class="me-logout-section">' +
+      row('logout', '退出登录', '安全退出当前工作台账号', 'logout') +
+    '</section>';
 
   main.querySelectorAll('[data-act]').forEach((b) => { b.onclick = () => act(b.dataset.act); });
-  main.querySelector('#avatar-btn').onclick = () => avatarSheet();
+  const avatarButton = main.querySelector('#avatar-btn');
+  if (avatarButton) avatarButton.onclick = () => avatarSheet();
 
   async function act(a) {
     if (a === 'messages') return go('messages');
     if (a === 'profile') return go('profile');
-    if (a === 'account-settings') return go('me/account-settings');
     if (a === 'workbench-settings') return go('me/workbench-settings');
+    if (a === 'account-settings') return go('me/account-settings');
     if (a === 'recycle') return go('recycle');
     if (a === 'theme') return openThemeSheet();
     if (a === 'logout') {
@@ -113,14 +126,7 @@ async function renderMe(main) {
     if (a === 'security') return securitySheet();
     if (a === 'backup') return backupSheet();
     if (a === 'cloud') {
-      /* 【A 方案：这里不再是手动上传/下载，而是登录】
-         以前点进来是「生成/输入同步密钥 → 上传 / 下载」，
-         换设备要重输 32 位密钥，改完还得记得点上传。
-         现在复用全站的手机号 Supabase 会话，课时直接读写云上。
-         旧的 bindSheet 没删（还有别的入口在用），但主路径换成登录。 */
-      loginSheet({
-        onDone: () => { render(); },
-      });
+      loginSheet({ onDone: () => { render(); } });
       return;
     }
     if (a === 'share') return shareSheet();
@@ -132,21 +138,14 @@ async function renderMe(main) {
     }
   }
 
-  /* 分组卡片：以前 11 个入口全平铺成一条长列表，常用和冷门混在一起，
-     眼睛找不到重点。现在按「账号 / 个性化 / 数据」三块收拢，每块带一个小标题，
-     有未完成事项的分区（比如资料没填）标题旁挂个点，一眼能看到该先做什么。 */
-  function group(title, items, urgent = false) {
-    return `<div class="me-group">
-      <div class="me-group-h">${esc(title)}${urgent ? '<i class="me-dot" title="这一组还有没完成的"></i>' : ''}</div>
-      <div class="card me-group-body">${items.map(([ic, t, sub, act, extra]) => row(ic, t, sub, act, extra)).join('')}</div>
-    </div>`;
-  }
-
   function row(ic, title, sub, action, extra = '') {
-    return `<button class="list-item" style="width:100%;text-align:left;align-items:center" data-act="${action}">
-      <span class="doc-ico">${icon(ic, 17)}</span>
-      <span style="flex:1;min-width:0"><span class="bold small" style="${action === 'logout' ? 'color:var(--red)' : ''}">${esc(title)}</span>
-        ${sub ? `<div class="tiny muted">${esc(sub)}</div>` : ''}</span>${extra}${icon('right', 15)}</button>`;
+    return '<button type="button" class="me-setting-row' + (action === 'logout' ? ' is-danger' : '') + '" data-act="' + action + '">' +
+      '<span class="me-setting-icon">' + icon(ic, 18) + '</span>' +
+      '<span class="me-setting-copy"><strong>' + esc(title) + '</strong>' +
+        (sub ? '<small>' + esc(sub) + '</small>' : '') +
+      '</span>' +
+      (extra ? '<span class="me-setting-extra-wrap">' + extra + '</span>' : '') +
+      '<span class="me-setting-chevron">' + icon('right', 16) + '</span></button>';
   }
 }
 
@@ -382,55 +381,78 @@ function readWorkbenchBrand() {
 }
 
 async function renderWorkbenchSettings(main) {
+  main.classList.add('page-me-workbench-settings');
   const current = readWorkbenchBrand();
-  main.innerHTML = pageHead('工作台设置', '自定义首页欢迎卡片的背景图片、主标题和副标题', '<button class="btn primary sm" id="wb-brand-save">保存设置</button>') + `
-    <section class="card wb-brand-settings">
-      <div class="wb-brand-preview-label">首页效果预览</div>
-      <div class="wb-brand-preview" id="wb-brand-preview">
-        <div class="wb-brand-preview-copy">
-          <div class="wb-brand-preview-title" id="wb-brand-preview-title"></div>
-          <div class="wb-brand-preview-subtitle" id="wb-brand-preview-subtitle"></div>
-        </div>
-        <div class="wb-brand-preview-mark">我的工作台</div>
-      </div>
-      <div class="wb-brand-fields">
-        <div class="field">
-          <label class="field-label" for="wb-brand-title">首页主标题</label>
-          <input class="input" id="wb-brand-title" maxlength="40" placeholder="例如：一站式教师工作平台" value="${esc(current.title || '')}">
-        </div>
-        <div class="field">
-          <label class="field-label" for="wb-brand-subtitle">首页副标题</label>
-          <textarea class="input" id="wb-brand-subtitle" rows="2" maxlength="100" placeholder="例如：备课 · 授课 · 考勤 · 教研 · 任务 · 数据">${esc(current.subtitle || '')}</textarea>
-        </div>
-        <div class="field">
-          <label class="field-label">首页背景图片</label>
-          <div class="wb-brand-image-actions">
-            <label class="btn soft" style="cursor:pointer">${icon('upload', 15)} 上传图片
-              <input id="wb-brand-image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
-            </label>
-            <button class="btn ghost" id="wb-brand-remove-image" type="button">移除图片</button>
-            <span class="tiny muted" id="wb-brand-image-hint">建议 16:9 横图，图片会自动压缩。</span>
-          </div>
-        </div>
-        <div class="wb-brand-tip">图片、标题和副标题只影响首页欢迎卡片，不会修改课表、考勤或其他业务数据。</div>
-      </div>
-    </section>`;
+  let image = typeof current.image === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(current.image)
+    ? current.image : '';
+  const fallbackTitle = '我的工作台';
+  const fallbackSubtitle = 'Workbench';
+  // 默认图标与侧栏完全相同；上传后预览和侧栏都读取同一份品牌图片。
+  const logoMarkup = () => '<img src="' + esc(image || './icons/icon-192.png') + '" alt="工作台图标">';
 
+  main.innerHTML = mePageHeader('workbench') +
+    '<section class="card wb-brand-settings">' +
+      '<header class="wb-brand-settings-head">' +
+        '<div><h2>工作台品牌设置</h2><p>这里的设置会同步显示在所有页面左上角</p></div>' +
+        '<span class="wb-brand-live"><i></i> 实时预览</span>' +
+      '</header>' +
+      '<div class="wb-brand-preview-area">' +
+        '<div class="wb-brand-preview-label">左上角显示效果</div>' +
+        '<div class="wb-brand-preview" id="wb-brand-preview">' +
+          '<div class="wb-brand-preview-logo" id="wb-brand-preview-logo">' + logoMarkup() + '</div>' +
+          '<div class="wb-brand-preview-copy">' +
+            '<div class="wb-brand-preview-title" id="wb-brand-preview-title"></div>' +
+            '<div class="wb-brand-preview-subtitle" id="wb-brand-preview-subtitle"></div>' +
+          '</div>' +
+        '</div>' +
+        '<p class="wb-brand-preview-note">预览区域对应电脑端侧栏左上角的品牌名称、说明文字和图片。</p>' +
+      '</div>' +
+      '<div class="wb-brand-form">' +
+        '<div class="field">' +
+          '<label class="field-label" for="wb-brand-title">主标题 <span>（左上角名称）</span></label>' +
+          '<input class="input" id="wb-brand-title" maxlength="40" placeholder="我的工作台" value="' + esc(current.title || '') + '">' +
+        '</div>' +
+        '<div class="field">' +
+          '<label class="field-label" for="wb-brand-subtitle">副标题 <span>（左上角英文或说明）</span></label>' +
+          '<input class="input" id="wb-brand-subtitle" maxlength="60" placeholder="Workbench" value="' + esc(current.subtitle || '') + '">' +
+        '</div>' +
+        '<div class="field wb-brand-image-field">' +
+          '<label class="field-label">品牌图片 <span>（左上角图标）</span></label>' +
+          '<div class="wb-brand-image-setting">' +
+            '<div class="wb-brand-image-preview" id="wb-brand-image-preview">' + logoMarkup() + '</div>' +
+            '<div class="wb-brand-image-controls">' +
+              '<div class="wb-brand-image-actions">' +
+                '<label class="btn soft" style="cursor:pointer">' + icon('upload', 15) + ' 上传图片' +
+                  '<input id="wb-brand-image" type="file" accept="image/png,image/jpeg,image/webp" hidden>' +
+                '</label>' +
+                '<button class="btn ghost" id="wb-brand-remove-image" type="button">恢复默认图标</button>' +
+              '</div>' +
+              '<span class="tiny muted" id="wb-brand-image-hint">支持 JPG、PNG、WebP，建议正方形图片，最大 8MB，保存时自动压缩。</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<footer class="wb-brand-settings-footer">' +
+        '<span class="wb-brand-tip">只修改左上角品牌展示，不会改变首页欢迎语、课表、考勤或其他业务数据。</span>' +
+        '<button class="btn primary" id="wb-brand-save" type="button">' + icon('check', 16) + ' 保存设置</button>' +
+      '</footer>' +
+    '</section>';
+
+  bindMeSectionTabs(main);
   const title = main.querySelector('#wb-brand-title');
   const subtitle = main.querySelector('#wb-brand-subtitle');
-  const preview = main.querySelector('#wb-brand-preview');
   const previewTitle = main.querySelector('#wb-brand-preview-title');
   const previewSubtitle = main.querySelector('#wb-brand-preview-subtitle');
+  const previewLogo = main.querySelector('#wb-brand-preview-logo');
+  const imagePreview = main.querySelector('#wb-brand-image-preview');
   const imageHint = main.querySelector('#wb-brand-image-hint');
-  let image = current.image || '';
 
   const paint = () => {
-    previewTitle.textContent = title.value.trim() || '一站式教师工作平台';
-    previewSubtitle.textContent = subtitle.value.trim() || '备课 · 授课 · 考勤 · 教研 · 任务 · 数据';
-    preview.style.backgroundImage = image
-      ? 'linear-gradient(90deg, rgba(16,42,88,.82), rgba(16,42,88,.24)), url("' + image + '")'
-      : 'linear-gradient(120deg, #2678ed, #665be5)';
-    preview.classList.toggle('has-image', !!image);
+    previewTitle.textContent = title.value.trim() || fallbackTitle;
+    previewSubtitle.textContent = subtitle.value.trim() || fallbackSubtitle;
+    const markup = logoMarkup();
+    previewLogo.innerHTML = markup;
+    imagePreview.innerHTML = markup;
   };
   title.addEventListener('input', paint);
   subtitle.addEventListener('input', paint);
@@ -456,11 +478,11 @@ async function renderWorkbenchSettings(main) {
         const img = new Image();
         img.onload = () => {
           try {
-            const maxW = 1600;
-            const scale = Math.min(1, maxW / img.width);
+            const maxSide = 640;
+            const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
             const canvas = document.createElement('canvas');
-            canvas.width = Math.round(img.width * scale);
-            canvas.height = Math.round(img.height * scale);
+            canvas.width = Math.max(1, Math.round(img.width * scale));
+            canvas.height = Math.max(1, Math.round(img.height * scale));
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             canvas.toBlob((blob) => {
@@ -470,13 +492,13 @@ async function renderWorkbenchSettings(main) {
               reader.onload = () => resolve(reader.result);
               reader.onerror = () => reject(new Error('图片读取失败'));
               reader.readAsDataURL(blob);
-            }, 'image/jpeg', 0.78);
+            }, 'image/jpeg', 0.82);
           } catch (err) { URL.revokeObjectURL(url); reject(err); }
         };
         img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('无法读取这张图片')); };
         img.src = url;
       });
-      imageHint.textContent = '图片已载入，保存后应用到首页';
+      imageHint.textContent = '图片已载入，保存后会显示在左上角';
       paint();
     } catch (err) {
       imageHint.textContent = '图片载入失败';
@@ -487,7 +509,7 @@ async function renderWorkbenchSettings(main) {
 
   main.querySelector('#wb-brand-remove-image').onclick = () => {
     image = '';
-    imageHint.textContent = '已移除背景图片，保存后使用默认渐变背景';
+    imageHint.textContent = '已恢复默认图标，保存后生效';
     paint();
   };
 
@@ -496,7 +518,7 @@ async function renderWorkbenchSettings(main) {
     if (!db.meta || typeof db.meta !== 'object') db.meta = {};
     db.meta.workbenchBrand = {
       title: title.value.trim().slice(0, 40),
-      subtitle: subtitle.value.trim().slice(0, 100),
+      subtitle: subtitle.value.trim().slice(0, 60),
       image,
       updatedAt: new Date().toISOString(),
     };
@@ -504,38 +526,41 @@ async function renderWorkbenchSettings(main) {
       toast('保存失败，请检查本机存储空间', 'err');
       return;
     }
-    toast('工作台首页设置已保存', 'ok');
-    go('home');
+    toast('工作台品牌设置已保存', 'ok');
+    render();
   };
 }
 
 /* ================= 个人信息（独立页） ================= */
 function meSectionTabs(active) {
-  return `
-    <div class="me-section-tabs" role="tablist" aria-label="我的设置">
-      <button type="button" class="me-section-tab ${active === 'profile' ? 'active' : ''}" data-me-tab="profile">
-        ${icon('user', 17)}<span>个人信息</span>
-      </button>
-      <button type="button" class="me-section-tab ${active === 'account' ? 'active' : ''}" data-me-tab="account">
-        ${icon('shield', 17)}<span>账号设置</span>
-      </button>
-    </div>`;
+  return '<div class="me-section-tabs" role="tablist" aria-label="个人设置">' +
+    '<button type="button" class="me-section-tab ' + (active === 'profile' ? 'active' : '') + '" data-me-tab="profile">' +
+      icon('user', 17) + '<span>个人信息</span></button>' +
+    '<button type="button" class="me-section-tab ' + (active === 'workbench' ? 'active' : '') + '" data-me-tab="workbench">' +
+      icon('sliders', 17) + '<span>工作台设置</span></button>' +
+    '<button type="button" class="me-section-tab ' + (active === 'account' ? 'active' : '') + '" data-me-tab="account">' +
+      icon('shield', 17) + '<span>账号设置</span></button>' +
+  '</div>';
 }
 
 function mePageHeader(active) {
-  return `
-    <div class="me-page-toolbar">
-      <button type="button" class="me-back-home" id="me-back-home">
-        <span aria-hidden="true">←</span> 返回主页面
-      </button>
-    </div>` + pageHead('我的', '管理个人资料与账号安全') + meSectionTabs(active);
+  return '<div class="me-page-toolbar">' +
+      '<button type="button" class="me-back-home" id="me-back-home"><span aria-hidden="true">←</span> 返回我的</button>' +
+    '</div>' +
+    pageHead('个人设置', '管理个人资料、工作台品牌与账号安全') +
+    meSectionTabs(active);
 }
 
 function bindMeSectionTabs(main) {
   const back = main.querySelector('#me-back-home');
-  if (back) back.onclick = () => go('home');
+  if (back) back.onclick = () => go('me');
   main.querySelectorAll('[data-me-tab]').forEach((button) => {
-    button.onclick = () => go(button.dataset.meTab === 'account' ? 'me/account-settings' : 'profile');
+    button.onclick = () => {
+      const tab = button.dataset.meTab;
+      if (tab === 'account') go('me/account-settings');
+      else if (tab === 'workbench') go('me/workbench-settings');
+      else go('profile');
+    };
   });
 }
 

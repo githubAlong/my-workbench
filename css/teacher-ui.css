@@ -6,6 +6,22 @@ html[data-theme="light"] { --bg:#f3f7ff; --text:#17263f; --text-2:#657b9d; --tex
 .sidebar { background:#f5f8ff; border-color:#e5edfb; width:232px; flex-basis:232px; padding:22px 12px; }
 .sidebar .brand { padding:0 0 28px; gap:12px; }
 .sidebar .brand-logo { font-size:0; width:50px; height:50px; border-radius:16px; background:url('../assets/teacher-ui/brand-avatar.png') center/cover; }
+
+/* 工作台品牌图标：固定正方形，避免 flex-basis 与 width/height 不一致导致图片被压成椭圆。 */
+.sidebar .brand-static .brand-logo {
+  flex: 0 0 50px;
+  width: 50px;
+  height: 50px;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+}
+.sidebar .brand-static .brand-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
 .sidebar .brand-name { font-size:16px; }
 .sidebar .brand-sub { margin-top:7px; }
 .sidebar .nav-item { min-height:46px; margin:3px 0; color:#526b94; }
@@ -744,3 +760,28 @@ html[data-theme="dark"] .home-card .qi-row { background: var(--bg); border-color
   #today-courses .course-time { flex-basis:48px; font-size:11px; }
   #today-courses .course-action { min-width:70px; padding:5px 7px; font-size:10.5px; }
 }
+
+
+/* 左上角品牌入口：点击「我的工作台」进入工作台设置 */
+.brand-settings-entry {
+  width: 100%; border: 0; background: transparent; color: inherit; font: inherit;
+  text-align: left; cursor: pointer; border-radius: 12px; transition: background .15s ease;
+}
+.brand-settings-entry:hover,
+.brand-settings-entry.is-current { background: var(--bg-sunken); }
+.brand-settings-entry:focus-visible { outline: 3px solid rgba(37, 99, 235, .22); outline-offset: 2px; }
+.brand-copy { display: flex; flex-direction: column; min-width: 0; }
+.brand-settings-icon {
+  width: 24px; height: 24px; flex: 0 0 24px; margin-left: auto; display: grid; place-items: center;
+  border-radius: 8px; color: var(--text-3); opacity: .72; transition: .15s ease;
+}
+.brand-settings-entry:hover .brand-settings-icon,
+.brand-settings-entry.is-current .brand-settings-icon {
+  color: var(--primary); opacity: 1; background: var(--primary-weak);
+}
+/* 首页欢迎卡片同时展示工作台品牌文案与个人资料；个人资料由「我的-个人信息」维护 */
+.hg-item > .clk-card .clk-profile-meta {
+  margin-top: 5px; color: var(--text-2); opacity: .88; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere;
+}
+.hg-item > .clk-card .clk-profile-meta:empty { display: none; }
+.hg-item > .clk-card.wb-brand-card.has-brand-image .clk-profile-meta { color: rgba(255,255,255,.84); }
