@@ -355,7 +355,7 @@ function cropSquare(file, size = 192) {
    focusout 时不抓、input 时才抓 —— 因为 input 事件是「值真的变了」，
    而 focusout 只是「光标走了」，抓了会白存一份同样的值。 */
 let profileDraft = null;
-const PROFILE_FIELDS = ['nickname', 'school', 'subject', 'title'];
+const PROFILE_FIELDS = ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group'];
 
 /* 把当前页面上四个输入框的值快照到 profileDraft。
    页面不在个人信息页、或者四个框都不在，就什么都不做。 */
