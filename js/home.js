@@ -446,7 +446,7 @@ function weatherBriefHTML() {
       <button class="icon-btn sm" data-wx-refresh title="刷新天气">${icon('refresh', 14)}</button>
     </div>
     <div class="wxb-main">
-      <span class="wxb-emoji">${emo}</span>
+      <button class="wxb-emoji-btn" type="button" data-wx-forecast title="点击查看未来一周天气" aria-label="查看未来一周天气"><span class="wxb-emoji">${emo}</span></button>
       <span class="wxb-temp">${Math.round(cur.temperature_2m)}<span class="deg">°</span></span>
       <div class="wxb-side">
         <div class="wxb-desc">${desc}</div>
@@ -602,7 +602,7 @@ function renderHome() {
     <span class="sb-ico">${icon('search', 17)}</span>
     <input id="gsearch" placeholder="搜索事项、任务、上课、出差、笔记…" autocomplete="off" enterkeyhint="search">
     <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close', 15)}</button>
-    <button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search', 15)}</button>
+    <button class="sb-go" id="search-go" title="执行搜索" aria-label="执行搜索">${icon('right', 17)}</button>
   </div>
   <button class="btn soft" id="teacher-layout">编辑布局</button></div>
   <div class="sr-scrim" id="search-scrim" hidden></div>
@@ -633,21 +633,28 @@ function renderHome() {
       <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
       <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
       <section class="card clk-card wb-brand-card">
-        <div class="clk-hello">
-          ${homeAvatarHTML(52)}
-          <div class="clk-hello-t">
-            <div class="clk-greet" id="greet-line">${esc(g1)}</div>
-            <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
+        <div class="clk-head">
+          <div class="clk-hello">
+            ${homeAvatarHTML(52)}
+            <div class="clk-hello-t">
+              <div class="clk-greet" id="greet-line">${esc(g1)}</div>
+              <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
+            </div>
           </div>
-          <button class="icon-btn sm" id="theme-btn" title="主题外观">${icon('sun', 17)}</button>
+          <button class="icon-btn sm" id="theme-btn" title="主题外观" aria-label="主题外观">${icon('sun', 17)}</button>
         </div>
-        <div class="clock-row">
-          <div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div>
-          <button class="icon-btn msg-bell" data-msg title="消息中心" aria-label="消息中心">${icon('bell', 19)}
-            ${d.unread ? `<span class="badge-dot msg-bell-dot">${d.unread > 99 ? '99+' : d.unread}</span>` : ''}
-          </button>
+        <div class="clk-main">
+          <div class="clock-row">
+            <div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div>
+            <button class="icon-btn msg-bell" data-msg title="消息中心" aria-label="消息中心">${icon('bell', 19)}
+              ${d.unread ? `<span class="badge-dot msg-bell-dot">${d.unread > 99 ? '99+' : d.unread}</span>` : ''}
+            </button>
+          </div>
+          <div class="clk-date-panel">
+            <div class="clock-date" id="clock-date"></div>
+            <div class="clk-date-caption">今天也要稳稳推进</div>
+          </div>
         </div>
-        <div class="clock-date" id="clock-date"></div>
         <div class="clk-foot" id="clk-foot"></div>
       </section>
     </div>
@@ -669,7 +676,7 @@ function renderHome() {
         <div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div>
         <div class="quote-by">
           <span id="q-author">— ${esc(d.quote.author || '')}</span>
-          <span class="tiny" id="speak-tip">点喇叭听英文</span>
+          
         </div>
       </section>
     </div>
@@ -734,7 +741,7 @@ function renderHome() {
             <span style="flex:1"></span>
             <button class="cal-nav" id="cal-prev" title="上个月" aria-label="上个月">${icon('left', 18)}</button>
             <button class="cal-nav" id="cal-next" title="下个月" aria-label="下个月">${icon('right', 18)}</button>
-            <button class="btn ghost sm" id="cal-fold" title="月 / 周视图">${icon('cal', 14)} <span id="cal-fold-txt">周</span></button>
+            <button class="btn ghost sm" id="cal-fold" title="收起成这一周">${icon('up', 14)} <span id="cal-fold-txt">周</span></button>
             <button class="btn ghost sm" id="cal-today" style="margin-left:2px">今天</button>
             <button class="month-btn" id="cal-jump" title="选择年月">${icon('cal', 15)}<span>年月</span></button>
             <input type="month" id="cal-month-input" class="month-hidden" aria-hidden="true" tabindex="-1">
@@ -749,6 +756,11 @@ function renderHome() {
           <span><i style="background:var(--purple)"></i>提醒</span>
         </div>
         <div class="cal-day" id="cal-day"></div>
+        <div class="cal-collapse-row">
+          <button class="btn ghost sm" id="cal-collapse" type="button" aria-expanded="true" title="收起日历">
+            ${icon('up', 14)} <span>收起日历</span>
+          </button>
+        </div>
       </section>
     </div>
 
@@ -931,25 +943,63 @@ function renderTodayCourses() {
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const list = homeData.courses.filter((c) => c.date === homeData.date);
-  if (!list.length) { box.innerHTML = `<div class="empty" style="padding:20px">今天没有课，好好备课或休息一下</div>`; return; }
+  if (!list.length) {
+    box.innerHTML = `<div class="empty" style="padding:20px">今天没有课，好好备课或休息一下</div>`;
+    return;
+  }
+
+  const lessonRows = homeData.lessons || [];
+  const lessonPath = (c) => 'work/lessons?add=1&period=' + encodeURIComponent(c.period_no)
+    + '&class=' + encodeURIComponent(c.class_name || '')
+    + '&subject=' + encodeURIComponent(c.subject || '');
   box.innerHTML = list.map((c) => {
-    const [sh, sm] = (c.start_time || '0:0').split(':').map(Number);
-    const [eh, em] = (c.end_time || '0:0').split(':').map(Number);
-    const s = sh * 60 + sm, e = eh * 60 + em;
-    const isNow = nowMin >= s && nowMin <= e;
-    const past = nowMin > e;
-    return `<div class="course-row">
+    const start = String(c.start_time || '00:00').slice(0, 5).split(':').map(Number);
+    const end = String(c.end_time || '00:00').slice(0, 5).split(':').map(Number);
+    const s = (start[0] || 0) * 60 + (start[1] || 0);
+    const e = (end[0] || 0) * 60 + (end[1] || 0);
+    const status = nowMin < s ? 'upcoming' : nowMin <= e ? 'ongoing' : 'done';
+    const labels = { upcoming: '未开始', ongoing: '进行中', done: '已完成' };
+    const recorded = lessonRows.some((r) =>
+      String(r.date || '') === String(c.date || '')
+      && Number(r.period_no) === Number(c.period_no)
+      && String(r.class_name || '').trim() === String(c.class_name || '').trim()
+      && String(r.subject || '').trim() === String(c.subject || '').trim()
+    );
+    const action = status === 'upcoming'
+      ? { type: 'timetable', label: '查看课表' }
+      : status === 'ongoing'
+        ? { type: 'add', label: '记进度' }
+        : recorded
+          ? { type: 'view', label: '查看记录' }
+          : { type: 'add', label: '补记进度' };
+    return `<div class="course-row course-${status}">
       <span class="course-bar" style="background:${colorOf(c.class_name)}"></span>
-      <span class="course-time">${c.start_time}<br><span class="muted">${c.end_time}</span></span>
-      <div style="flex:1;min-width:0">
-        <div class="course-name">${esc(c.class_name)} <span class="small muted">${esc(c.subject)} · 第${c.period_no}节</span> ${isNow ? '<span class="now-badge">正在上</span>' : past ? '<span class="tiny muted">已结束</span>' : ''}</div>
-        <div class="course-room">${esc(c.room || '')} ${c.rescheduled ? '<span class="chip amber" style="height:18px;font-size:10px">已调课</span>' : ''}</div>
+      <span class="course-time">${esc(String(c.start_time || '').slice(0, 5))}<br><span class="muted">${esc(String(c.end_time || '').slice(0, 5))}</span></span>
+      <div class="course-main">
+        <div class="course-name">${esc(c.class_name)} <span class="small muted">${esc(c.subject)} · 第${esc(c.period_no)}节</span></div>
+        <div class="course-meta">
+          <span class="course-room">${esc(c.room || '')}</span>
+          <span class="course-state state-${status}">${labels[status]}</span>
+          ${c.rescheduled ? '<span class="chip amber" style="height:18px;font-size:10px">已调课</span>' : ''}
+        </div>
       </div>
-      <button class="btn ghost sm" data-lesson-add="${c.period_no}" data-class="${esc(c.class_name)}" data-subject="${esc(c.subject)}">记进度</button>
+      <button class="btn ghost sm course-action" data-course-action="${action.type}"
+        data-period="${esc(c.period_no)}" data-class="${esc(c.class_name)}" data-subject="${esc(c.subject)}">${action.label}</button>
     </div>`;
   }).join('');
-  box.querySelectorAll('[data-lesson-add]').forEach((b) => {
-    b.onclick = () => { go('work/lessons?add=1&period=' + b.dataset.lessonAdd + '&class=' + encodeURIComponent(b.dataset.class) + '&subject=' + encodeURIComponent(b.dataset.subject)); };
+
+  box.querySelectorAll('[data-course-action]').forEach((button) => {
+    button.onclick = () => {
+      const action = button.dataset.courseAction;
+      if (action === 'timetable') return go('work/timetable');
+      if (action === 'view') return go('work/lessons');
+      const course = {
+        period_no: button.dataset.period,
+        class_name: button.dataset.class,
+        subject: button.dataset.subject,
+      };
+      go(lessonPath(course));
+    };
   });
 }
 
@@ -1569,6 +1619,12 @@ function bindHome() {
     if (wr) wr.onclick = async () => { wr.textContent = '…'; await loadWeather(true).catch(() => toast('天气刷新失败', 'warn')); renderWeatherOnly(); };
   };
   bindWxRefresh();
+  const bindWxForecast = (root = document) => {
+    root.querySelectorAll('[data-wx-forecast]').forEach((button) => {
+      button.onclick = () => openWeatherSheet();
+    });
+  };
+  bindWxForecast();
   /* 天气卡默认只显示「今天」，详细内容（指标 / 穿搭 / 逐时 / 一周）
      走抽屉弹窗，不跳页 —— 跳页会丢掉首页上下文，回来还要滚回原位。 */
   const wxMore = q('#wx-more');
@@ -1659,11 +1715,12 @@ function bindHome() {
   q('#cal-today').onclick = () => { calState.selected = ymd(new Date()); loadCal(ymd(new Date())); paintCal(); };
   // 月 / 周切换：只重画网格，不重新拉数据，年月和选中日都保留
   const foldBtn = q('#cal-fold');
-  const foldTxt = q('#cal-fold-txt');
   const syncFold = () => {
-    if (foldTxt) foldTxt.textContent = calState.view === 'week' ? '月' : '周';
-    if (foldBtn) foldBtn.title = calState.view === 'week' ? '展开整月' : '收起成这一周';
-    if (foldBtn) foldBtn.classList.toggle('on', calState.view === 'week');
+    if (!foldBtn) return;
+    const weekView = calState.view === 'week';
+    foldBtn.innerHTML = `${icon(weekView ? 'down' : 'up', 14)} <span id="cal-fold-txt">${weekView ? '月' : '周'}</span>`;
+    foldBtn.title = weekView ? '展开整月' : '收起成这一周';
+    foldBtn.classList.toggle('on', weekView);
   };
   if (foldBtn) {
     foldBtn.onclick = () => {
@@ -1673,6 +1730,27 @@ function bindHome() {
     };
   }
   syncFold();
+
+  /* 日历卡片整体收起：只保留月份标题和展开入口；状态记在本机，
+     不改用户保存的卡片尺寸，展开时自动恢复原来的布局。 */
+  const calItem = q('.hg-item[data-hcard="calendar"]');
+  const calCollapse = q('#cal-collapse');
+  let calCollapsed = calFoldPref('calendar-collapsed') === '1';
+  const syncCalendarCollapse = () => {
+    if (calItem) calItem.classList.toggle('is-collapsed', calCollapsed);
+    if (calCollapse) {
+      calCollapse.innerHTML = `${icon(calCollapsed ? 'down' : 'up', 14)} <span>${calCollapsed ? '展开日历' : '收起日历'}</span>`;
+      calCollapse.setAttribute('aria-expanded', String(!calCollapsed));
+      calCollapse.title = calCollapsed ? '展开日历' : '收起日历';
+    }
+  };
+  syncCalendarCollapse();
+  if (calCollapse) calCollapse.onclick = () => {
+    calCollapsed = !calCollapsed;
+    calFoldPref('calendar-collapsed', calCollapsed ? '1' : '0');
+    syncCalendarCollapse();
+  };
+
   const mi = q('#cal-month-input');
   if (mi) {
     mi.onchange = () => { if (/^\d{4}-\d{2}$/.test(mi.value)) { calState.selected = mi.value + '-01'; loadCal(mi.value + '-01'); } };
@@ -1696,6 +1774,7 @@ function renderWeatherOnly() {
   if (brief) {
     brief.innerHTML = weatherBriefHTML();
     brief.querySelectorAll('[data-pick-city]').forEach((b) => { b.onclick = pickCity; });
+    brief.querySelectorAll('[data-wx-forecast]').forEach((b) => { b.onclick = () => openWeatherSheet(); });
     const wr = brief.querySelector('[data-wx-refresh]');
     if (wr) wr.onclick = async () => { await loadWeather(true).catch(() => {}); renderWeatherOnly(); };
   }
@@ -1719,7 +1798,7 @@ function wxDrawerHTML() {
 /* 天气详情抽屉：默认不显示，点「详细信息」才打开 */
 function openWeatherSheet() {
   const body = el(`<div class="wx-drawer" id="wxd-body">${wxDrawerHTML()}</div>`);
-  sheet({ title: `${state.city?.name || '天气'} · 详细天气`, body, wide: true });
+  sheet({ title: `${state.city?.name || '天气'} · 未来一周天气`, body, wide: true });
 }
 
 /* 清理计时器（切换页面时） */
