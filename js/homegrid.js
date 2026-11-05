@@ -30,7 +30,7 @@ import { state, icon } from './ui.js';
 import * as cloud from './cloud.js';
 
 export const COLS = 12;
-const ROW_H = 64;      /* 一行的高度（px），h=3 就是 3 行 */
+const ROW_H = 68;      /* 新首页卡片基准行高；h=3 就是 3 行 */
 const GAP = 14;        /* 卡片间距，和 CSS 里的 gap 必须一致 */
 
 const BP = {
@@ -40,12 +40,17 @@ const BP = {
 
 /* 卡片清单。顺序 = 卡片管理面板里的顺序 = 默认布局顺序 */
 export const CARDS = [
-  { id: 'profile', title: '个人信息', minW: 3, minH: 2 },
-  { id: 'dailyQuote', title: '每日一句', minW: 3, minH: 2 },
-  { id: 'weather', title: '天气', minW: 3, minH: 2 },
-  { id: 'todayTodo', title: '今日事项', minW: 3, minH: 2 },
-  { id: 'todayCourse', title: '今日课程', minW: 3, minH: 2 },
-  { id: 'calendar', title: '日历', minW: 4, minH: 2 },
+  { id: 'timeline', title: '今日时间轴', minW: 5, minH: 2 },
+  { id: 'profile', title: '欢迎信息', minW: 4, minH: 2 },
+  { id: 'todayCourse', title: '今日课程', minW: 5, minH: 3 },
+  { id: 'weather', title: '天气', minW: 4, minH: 2 },
+  { id: 'todayTodo', title: '今日事项与快速便签', minW: 4, minH: 2 },
+  { id: 'dailyQuote', title: '每日一句', minW: 2, minH: 2 },
+  { id: 'calendar', title: '日历', minW: 4, minH: 4 },
+  { id: 'weekLessons', title: '本周课时', minW: 2, minH: 2 },
+  { id: 'invigilation', title: '监考任务', minW: 2, minH: 2 },
+  { id: 'prepDeadline', title: '备课截止', minW: 2, minH: 2 },
+  { id: 'recentNotes', title: '最近笔记', minW: 2, minH: 2 },
 ];
 const CARD_MAP = new Map(CARDS.map((c) => [c.id, c]));
 export const cardTitle = (id) => CARD_MAP.get(id)?.title || id;
@@ -55,32 +60,28 @@ export const cardTitle = (id) => CARD_MAP.get(id)?.title || id;
      第二行：今日事项 / 今日课程 / 日历 */
 const DEFAULTS = {
   desktop: [
-    ['profile', 0, 0, 4, 3],
-    ['dailyQuote', 4, 0, 4, 3],
-    ['weather', 8, 0, 4, 3],
-    /* 第二行给 5 行高：日历一个整月是 6 周，4 行会把最后一周裁掉一半。
-       事项/课程会因此留点空白，用户可以自己把卡片缩回去 —— 这正是这次要做的功能。 */
-    ['todayTodo', 0, 3, 4, 5],
-    ['todayCourse', 4, 3, 4, 5],
-    ['calendar', 8, 3, 4, 5],
+    ['timeline', 0, 0, 7, 2], ['profile', 7, 0, 5, 2],
+    ['todayCourse', 0, 2, 7, 4], ['weather', 7, 2, 5, 2],
+    ['todayTodo', 0, 6, 4, 3], ['dailyQuote', 4, 6, 3, 3],
+    ['calendar', 7, 4, 5, 5],
+    ['weekLessons', 0, 9, 3, 2], ['invigilation', 3, 9, 3, 2],
+    ['prepDeadline', 6, 9, 3, 2], ['recentNotes', 9, 9, 3, 2],
   ],
-  /* 平板两列：宽度减半，高度给够，不然日历被压成一条 */
   tablet: [
-    ['profile', 0, 0, 6, 3],
-    ['dailyQuote', 6, 0, 6, 3],
-    ['weather', 0, 3, 6, 4],
-    ['todayTodo', 6, 3, 6, 5],
-    ['todayCourse', 0, 7, 6, 5],
-    ['calendar', 6, 8, 6, 6],
+    ['timeline', 0, 0, 6, 3], ['profile', 6, 0, 6, 3],
+    ['todayCourse', 0, 3, 6, 4], ['weather', 6, 3, 6, 3],
+    ['todayTodo', 0, 7, 6, 4], ['dailyQuote', 6, 6, 6, 3],
+    ['calendar', 6, 9, 6, 5],
+    ['weekLessons', 0, 11, 3, 2], ['invigilation', 3, 11, 3, 2],
+    ['prepDeadline', 0, 13, 6, 2], ['recentNotes', 6, 14, 6, 2],
   ],
-  /* 手机单列：h 只在切回大屏时才有意义，手机上高度由内容决定 */
   mobile: [
-    ['profile', 0, 0, 12, 3],
-    ['dailyQuote', 0, 3, 12, 3],
-    ['weather', 0, 6, 12, 3],
-    ['todayTodo', 0, 9, 12, 5],
-    ['todayCourse', 0, 14, 12, 5],
-    ['calendar', 0, 19, 12, 6],
+    ['timeline', 0, 0, 12, 3], ['profile', 0, 3, 12, 3],
+    ['todayCourse', 0, 6, 12, 5], ['weather', 0, 11, 12, 3],
+    ['todayTodo', 0, 14, 12, 5], ['dailyQuote', 0, 19, 12, 3],
+    ['calendar', 0, 22, 12, 6],
+    ['weekLessons', 0, 28, 12, 2], ['invigilation', 0, 30, 12, 2],
+    ['prepDeadline', 0, 32, 12, 2], ['recentNotes', 0, 34, 12, 2],
   ],
 };
 
@@ -93,7 +94,7 @@ function defaultSeg(bp) {
 
 export function defaultState() {
   return {
-    version: 1,
+    version: 2,
     /* 【为什么这里是空串而不是 new Date()】
        updatedAt 用来判断「云端和本地谁更新」。如果默认状态取"现在"，
        那一个从没排过布局的新设备，其本地时间永远比云端那次保存更晚，
@@ -183,7 +184,14 @@ let offResize = null;
 function normalize(raw) {
   const out = defaultState();
   if (!raw || typeof raw !== 'object' || !raw.breakpoints) return out;
-  out.version = Number(raw.version) || 1;
+  const rawVersion = Number(raw.version) || 1;
+  if (rawVersion < 2) {
+    const hidden = [...new Set((raw.breakpoints.desktop?.hidden || []).map(String).filter((id) => CARD_MAP.has(id)))];
+    for (const bp of Object.keys(out.breakpoints)) out.breakpoints[bp].hidden = hidden;
+    out.updatedAt = raw.updatedAt || '';
+    return out;
+  }
+  out.version = rawVersion;
   out.updatedAt = raw.updatedAt || out.updatedAt;
   for (const bp of Object.keys(out.breakpoints)) {
     const seg = raw.breakpoints[bp];
