@@ -3161,9 +3161,10 @@ function rosterPhotoDialog(grade, reload) {
           '<div class="roster-ocr-card-head"><div><strong>02 · 识别结果</strong><span>仅保留可信的姓名与学科组合</span></div><span class="roster-ocr-count" id="pcount">0 位教师</span></div>',
           '<div class="roster-ocr-status" id="pstate" role="status"><span class="roster-ocr-status-dot"></span><span>等待上传照片</span></div>',
           '<div class="roster-ocr-quality" id="pquality" hidden></div>',
-          '<label class="roster-ocr-label" for="ptext">姓名与学科 <span>一行一位，可直接修改</span></label>',
-          '<textarea id="ptext" class="roster-ocr-textarea" rows="12" spellcheck="false" placeholder="识别结果会显示在这里&#10;&#10;格式示例：&#10;张三 语文&#10;李四 数学"></textarea>',
-          '<div class="roster-ocr-result-foot"><span>', icon('shield-check', 14), '识别结果不会自动入库，请核对后再保存</span><span id="pvalid">等待识别</span></div>',
+          '<label class="roster-ocr-label">姓名与学科 <span>按纸质花名册序号逐行核对，可直接修改</span></label>',
+          '<div class="roster-review-summary" id="roster-review-summary">等待识别照片，默认按 1—46 号建立审核表</div>',
+          '<div class="roster-review-scroll"><table class="roster-review-table"><thead><tr><th>序号</th><th>姓名</th><th>学科</th><th>识别状态</th></tr></thead><tbody id="roster-review-body"><tr><td colspan="4" class="roster-review-empty">上传照片后，这里会按左右两组展开 46 条记录</td></tr></tbody></table></div>',
+          '<div class="roster-ocr-result-foot"><span>', icon('shield-check', 14), '识别结果不会自动入库；46 条全部核对完整后才可保存</span><span id="pvalid">等待识别</span></div>',
         '</section>',
       '</div>',
       '<div class="roster-ocr-footer">',
@@ -3185,13 +3186,16 @@ function rosterPhotoDialog(grade, reload) {
   };
   const s = sheet({ title: '拍照建册', body, wide: true, cls: 'roster-ocr-sheet', onClose: cleanup });
 
-  const stopWords = new Set(['姓名', '名字', '学科', '序号', '编号', '教师', '老师', '教师名单', '教师名册', '花名册', '合计', '小计', '总计', '备注', '说明', '年级', '班级', '星期', '日期', '签到', '上课', '坐班', '听课', '教研', '请假', '高一', '高二', '高三']);
-  const parseLines = () => $('#ptext').value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
-    const parts = line.split(/[\t,，、;；\s]+/).filter(Boolean);
-    const name = String(parts[0] || '').replace(/[^\u3400-\u9fff]/g, '');
-    const subject = parts.slice(1).join(' ').trim();
-    return { name, subject };
-  }).filter((item) => /^[\u3400-\u9fff]{2,4}$/.test(item.name) && !stopWords.has(item.name));
+  const EXPECTED_COUNT = 46;
+  let reviewRows = [];
+  const parseLines = () => reviewRows
+    .map((row) => {
+      const tr = body.querySelector('[data-roster-serial="' + row.serial + '"]');
+      const name = String(tr?.querySelector('[data-roster-name]')?.value ?? row.name ?? '').trim();
+      const subject = String(tr?.querySelector('[data-roster-subject]')?.value ?? row.subject ?? '').trim();
+      return { serial: Number(row.serial), name, subject };
+    })
+    .filter((item) => /^[\\u3400-\\u9fff]{2,4}$/.test(item.name) && item.subject);
 
   const setStatus = (message, type = '') => {
     const node = $('#pstate');
@@ -3200,9 +3204,40 @@ function rosterPhotoDialog(grade, reload) {
   };
   const updateCount = () => {
     const items = parseLines();
-    $('#pcount').textContent = items.length + ' 位教师';
-    $('#pvalid').textContent = items.length ? '可导入 ' + items.length + ' 位' : '尚无有效姓名';
-    $('#k').disabled = busy || !items.length;
+    const serials = items.map((item) => item.serial);
+    const duplicate = new Set(serials).size !== serials.length;
+    const complete = reviewRows.length === EXPECTED_COUNT
+      && items.length === EXPECTED_COUNT
+      && !duplicate
+      && reviewRows.every((row) => row.serial >= 1 && row.serial <= EXPECTED_COUNT);
+    $('#pcount').textContent = items.length + ' / ' + EXPECTED_COUNT + ' 位完整记录';
+    $('#pvalid').textContent = complete ? '46 条完整，可保存' : '还需核对 ' + (EXPECTED_COUNT - items.length) + ' 条';
+    $('#roster-review-summary').textContent = complete
+      ? '已填写 46 / 46 条。请最后核对姓名、学科与纸质原表。'
+      : '已填写 ' + items.length + ' / 46 条；空白或不完整记录不会自动补造。';
+    $('#k').disabled = busy || !complete;
+    body.querySelectorAll('[data-roster-serial]').forEach((tr) => {
+      const name = String(tr.querySelector('[data-roster-name]')?.value || '').trim();
+      const subject = String(tr.querySelector('[data-roster-subject]')?.value || '').trim();
+      const ok = /^[\\u3400-\\u9fff]{2,4}$/.test(name) && !!subject;
+      const state = tr.querySelector('[data-roster-state]');
+      if (state) state.textContent = ok ? '待核对' : '待补全';
+      tr.classList.toggle('is-incomplete', !ok);
+    });
+  };
+  const renderReviewTable = (rows) => {
+    reviewRows = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
+    $('#roster-review-body').innerHTML = reviewRows.map((row) => {
+      const serial = Number(row.serial);
+      const complete = !!row.name && !!row.subject;
+      return '<tr data-roster-serial="' + serial + '" class="' + (complete ? '' : 'is-incomplete') + '">'
+        + '<td class="roster-review-serial">' + serial + '</td>'
+        + '<td><input data-roster-name maxlength="4" value="' + esc(row.name || '') + '" placeholder="填写姓名" aria-label="' + serial + '号姓名"></td>'
+        + '<td><input data-roster-subject maxlength="12" value="' + esc(row.subject || '') + '" placeholder="填写学科" aria-label="' + serial + '号学科"></td>'
+        + '<td><span data-roster-state>' + (complete ? '待核对' : '待补全') + '</span></td></tr>';
+    }).join('');
+    $('#roster-review-body').querySelectorAll('input').forEach((input) => input.addEventListener('input', updateCount));
+    updateCount();
   };
   const drawPreview = () => {
     const img = $('#pimg');
@@ -3230,7 +3265,7 @@ function rosterPhotoDialog(grade, reload) {
     $('#pimg').src = previewUrl;
     $('#pdrop').hidden = true;
     $('#pprev').hidden = false;
-    $('#ptext').value = '';
+    renderReviewTable([]);
     $('#pquality').hidden = true;
     $('#pcount').textContent = '0 位教师';
     $('#pvalid').textContent = '等待识别';
@@ -3254,12 +3289,12 @@ function rosterPhotoDialog(grade, reload) {
       const result = await recognizeRosterPhoto(selectedFile, (message) => setStatus(message), forcedRotation);
       rotation = result.rotation;
       drawPreview();
-      $('#ptext').value = result.text;
+      renderReviewTable(result.rows || []);
       $('#pquality').hidden = true;
       setStatus('识别完成：已找到 ' + result.count + ' 组姓名与学科，请核对后保存。', 'success');
       updateCount();
     } catch (err) {
-      $('#ptext').value = '';
+      renderReviewTable([]);
       $('#pquality').hidden = false;
       $('#pquality').innerHTML = '<strong>' + icon('alert-triangle', 15) + ' 暂未获得可靠名单</strong><span>' + esc(err.message || '识别失败') + '</span><span>建议上传手机相册中的原始照片，靠近拍摄姓名和学科两列；也可以旋转照片后重新识别。</span>';
       setStatus('识别未通过校验，没有把错误文字填入名单。', 'error');
@@ -3309,13 +3344,14 @@ function rosterPhotoDialog(grade, reload) {
     updateCount();
   };
   $('#pretry').onclick = () => runRecognition(manualRotation ? rotation : null);
-  $('#ptext').addEventListener('input', updateCount);
   $('#c').onclick = () => s.close();
   $('#k').onclick = async () => {
     const items = parseLines();
-    if (!items.length) return toast('请先识别或填写有效的教师姓名', 'warn');
+    if (items.length !== EXPECTED_COUNT) return toast('请先补全 1—46 号所有姓名和学科', 'warn');
+    const serials = items.map((item) => item.serial);
+    if (new Set(serials).size !== EXPECTED_COUNT) return toast('序号存在重复，请核对后再保存', 'warn');
     try {
-      const r = await api.post('/teachers', { grade, items });
+      const r = await api.post('/teachers', { grade, items: items.map(({ name, subject }) => ({ name, subject })) });
       s.close();
       toast('已加入 ' + (items.length - (r.skipped || 0)) + ' 人' + (r.skipped ? '，' + r.skipped + ' 人已在名册里' : ''), 'ok', 3600);
       reload();
