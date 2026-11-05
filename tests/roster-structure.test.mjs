@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   extractRosterRowsFromPaddle,
+  extractRosterRowsFromTesseract,
   buildRosterReviewRows,
   validateRosterRows,
   parseRosterSerial
@@ -106,6 +107,29 @@ test("重复序号与越界序号会被校验拦截", () => {
   assert.deepEqual(result.duplicateSerials, [1]);
   assert.deepEqual(result.outOfRangeSerials, [47]);
   assert.equal(result.valid, false);
+});
+
+
+test("实际 Tesseract words/bbox 输入也能按左右两组识别46条记录", () => {
+  const words = fixture46().map((item) => ({
+    text: item.text,
+    confidence: item.score * 100,
+    bbox: {
+      x0: item.poly[0][0],
+      y0: item.poly[0][1],
+      x1: item.poly[2][0],
+      y1: item.poly[2][1]
+    }
+  }));
+  const rows = extractRosterRowsFromTesseract(words, 1000, 1100, {
+    expectedCount: 46,
+    leftGroupCount: 23
+  });
+  assert.equal(rows.length, 46);
+  assert.deepEqual(rows.map((row) => row.serial), Array.from({ length: 46 }, (_, index) => index + 1));
+  assert.equal(rows[0].name, names[0]);
+  assert.equal(rows[45].name, names[45]);
+  assert.equal(validateRosterRows(rows, { expectedCount: 46 }).valid, true);
 });
 
 test("支持全角数字和常见中文序号", () => {
