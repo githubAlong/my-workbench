@@ -539,70 +539,129 @@ async function renderProfile(main) {
   const valueOf = (key) => profileDraft ? (profileDraft[key] ?? '') : (u[key] || '');
   const uv = (key) => esc(valueOf(key));
   const bannerName = valueOf('nickname') || '未设置昵称';
-  const bannerMeta = [valueOf('school'), valueOf('subject')].filter(Boolean).join(' · ') || '完善学校和学科，让工作台资料更完整';
+  const bannerMeta = [valueOf('title') || '教师', valueOf('grade_group')].filter(Boolean).join(' · ') || '完善个人资料，让工作台更懂你的工作';
+  const session = cloud.session() || {};
+  const account = u.account || session.phone || session.email || '未设置';
 
-  main.innerHTML = pageHead('我的', '管理个人资料与工作信息') + meSectionTabs('profile') + `
-    <section class="card profile-shell">
-      <header class="profile-banner">
-        <div class="profile-banner-content">
-          <button id="p-avatar" class="profile-avatar-btn" type="button" title="更换头像">
-            ${avatarHTML(u, 92, 'profile-avatar-image', true)}
-            <span class="pa-tip">${icon('camera', 14)}</span>
-          </button>
-          <div class="profile-banner-info">
-            <div class="profile-banner-name" id="profile-banner-name">${esc(bannerName)}</div>
-            <div class="profile-banner-meta" id="profile-banner-meta">${esc(bannerMeta)}</div>
-            <div class="profile-banner-hint">教师个人资料 · 仅用于工作台内展示</div>
+  main.innerHTML = pageHead('我的', '管理个人资料与账号安全') + meSectionTabs('profile') + `
+    <div class="profile-layout">
+      <section class="card profile-shell">
+        <header class="profile-banner">
+          <div class="profile-banner-content">
+            <button id="p-avatar" class="profile-avatar-btn" type="button" title="更换头像">
+              ${avatarHTML(u, 92, 'profile-avatar-image', true)}
+              <span class="pa-tip">${icon('camera', 14)}</span>
+            </button>
+            <div class="profile-banner-info">
+              <div class="profile-banner-name" id="profile-banner-name">${esc(bannerName)}</div>
+              <div class="profile-banner-meta" id="profile-banner-meta">${esc(bannerMeta)}</div>
+              <div class="profile-banner-hint">教师个人资料 · 仅用于工作台内展示</div>
+            </div>
           </div>
-        </div>
-        <div class="profile-banner-decoration" aria-hidden="true"></div>
-      </header>
+        </header>
 
-      <div class="profile-content">
-        <div class="profile-section-title"><span></span>个人资料</div>
-        <div class="profile-fields">
-          <div class="field">
-            <label class="field-label" for="f-nickname">昵称</label>
-            <input class="input" id="f-nickname" maxlength="20" value="${uv('nickname')}" placeholder="怎么称呼你">
+        <div class="profile-content">
+          <div class="profile-section-title"><span></span>基本信息</div>
+          <div class="profile-fields">
+            <div class="field">
+              <label class="field-label" for="f-nickname">姓名 <b class="required-mark">*</b></label>
+              <input class="input" id="f-nickname" maxlength="20" value="${uv('nickname')}" placeholder="请输入姓名">
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-gender">性别</label>
+              <select class="input" id="f-gender">
+                <option value="" ${!valueOf('gender') ? 'selected' : ''}>请选择</option>
+                <option value="男" ${valueOf('gender') === '男' ? 'selected' : ''}>男</option>
+                <option value="女" ${valueOf('gender') === '女' ? 'selected' : ''}>女</option>
+                <option value="其他" ${valueOf('gender') === '其他' ? 'selected' : ''}>其他</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-contact_phone">联系电话</label>
+              <input class="input" id="f-contact_phone" type="tel" maxlength="24" value="${uv('contact_phone') || uv('phone')}" placeholder="请输入联系电话">
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-email">邮箱</label>
+              <input class="input" id="f-email" type="email" maxlength="80" value="${uv('email')}" placeholder="请输入邮箱地址">
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-subject">学科</label>
+              <input class="input" id="f-subject" maxlength="20" value="${uv('subject')}" placeholder="如：信息技术">
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-title">职务</label>
+              <input class="input" id="f-title" maxlength="30" value="${uv('title')}" placeholder="如：教师">
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-grade_group">所属年级组</label>
+              <input class="input" id="f-grade_group" maxlength="30" value="${uv('grade_group')}" placeholder="如：高二年级组">
+            </div>
           </div>
-          <div class="field">
-            <label class="field-label" for="f-school">学校</label>
-            <input class="input" id="f-school" maxlength="40" value="${uv('school')}" placeholder="如：市第二中学">
+
+          <div class="profile-divider"></div>
+          <div class="profile-section-title"><span></span>工作信息</div>
+          <div class="profile-work-field">
+            <label class="field-label" for="f-school">所在学校</label>
+            <input class="input" id="f-school" maxlength="50" value="${uv('school')}" placeholder="请输入学校名称">
           </div>
-          <div class="field">
-            <label class="field-label" for="f-subject">学科</label>
-            <input class="input" id="f-subject" maxlength="20" value="${uv('subject')}" placeholder="如：语文">
-          </div>
-          <div class="field">
-            <label class="field-label" for="f-title">职务</label>
-            <input class="input" id="f-title" maxlength="20" value="${uv('title')}" placeholder="如：班主任">
+
+          <div class="profile-save-row">
+            <div class="profile-save-note">修改完成后点击保存，资料会自动同步。</div>
+            <button class="btn primary" id="p-save" type="button">${icon('check', 16)} 保存修改</button>
           </div>
         </div>
-        <div class="profile-save-row">
-          <div class="profile-save-note">头像支持 JPG / PNG，2MB 以内；修改资料后记得保存。</div>
-          <button class="btn primary" id="p-save" type="button">${icon('check', 16)} 保存修改</button>
+      </section>
+
+      <aside class="card profile-account-panel">
+        <div class="profile-account-head">
+          <span class="profile-account-shield">${icon('shield', 22)}</span>
+          <div>
+            <div class="profile-account-title">账号设置</div>
+            <div class="profile-account-subtitle">管理您的登录账号、密码及账号安全信息</div>
+          </div>
         </div>
-      </div>
-    </section>`;
+        <button type="button" class="profile-account-row" id="p-account-login">
+          <span class="profile-account-row-icon">${icon('user', 22)}</span>
+          <span class="profile-account-row-copy">
+            <strong>登录账号</strong>
+            <small>管理用于登录系统的账号</small>
+          </span>
+          ${icon('right', 18)}
+        </button>
+        <button type="button" class="profile-account-row" id="p-account-password">
+          <span class="profile-account-row-icon">${icon('lock', 22)}</span>
+          <span class="profile-account-row-copy">
+            <strong>修改密码</strong>
+            <small>更新登录密码，保障账号安全</small>
+          </span>
+          ${icon('right', 18)}
+        </button>
+        <div class="profile-security-art" aria-hidden="true">
+          <span class="profile-security-orbit"></span>
+          <span class="profile-security-shield">${icon('shield', 54)}<i>${icon('lock', 22)}</i></span>
+        </div>
+        <div class="profile-security-caption">账号安全 · 个人隐私 · 数据保护</div>
+      </aside>
+    </div>`;
 
   bindMeSectionTabs(main);
 
   const updateBanner = () => {
     const nickname = main.querySelector('#f-nickname').value.trim() || '未设置昵称';
-    const school = main.querySelector('#f-school').value.trim();
-    const subject = main.querySelector('#f-subject').value.trim();
+    const title = main.querySelector('#f-title').value.trim() || '教师';
+    const grade = main.querySelector('#f-grade_group').value.trim();
     main.querySelector('#profile-banner-name').textContent = nickname;
-    main.querySelector('#profile-banner-meta').textContent =
-      [school, subject].filter(Boolean).join(' · ') || '完善学校和学科，让工作台资料更完整';
+    main.querySelector('#profile-banner-meta').textContent = [title, grade].filter(Boolean).join(' · ');
   };
 
-  for (const key of PROFILE_FIELDS) {
+  for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group']) {
     const input = main.querySelector('#f-' + key);
     if (!input) continue;
+    input.addEventListener('input', updateBanner);
+    input.addEventListener('change', updateBanner);
     input.addEventListener('input', () => {
       if (!profileDraft) profileDraft = {};
       profileDraft[key] = input.value;
-      updateBanner();
     });
   }
 
@@ -610,28 +669,27 @@ async function renderProfile(main) {
   const snapshot = () => captureProfileDraft();
   avatarButton.addEventListener('mousedown', snapshot);
   avatarButton.addEventListener('touchstart', snapshot, { passive: true });
-  avatarButton.onclick = () => {
-    snapshot();
-    avatarSheet();
-  };
+  avatarButton.onclick = () => { snapshot(); avatarSheet(); };
+
+  main.querySelector('#p-account-login').onclick = () => go('me/account-settings');
+  main.querySelector('#p-account-password').onclick = () => accountPwdSheet(null);
 
   main.querySelector('#p-save').onclick = async (event) => {
     const button = event.currentTarget;
     const nickname = main.querySelector('#f-nickname').value.trim();
     if (!nickname) {
-      toast('昵称不能为空，留个称呼吧', 'warn');
+      toast('姓名不能为空，请填写姓名', 'warn');
       main.querySelector('#f-nickname').focus();
       return;
     }
     button.disabled = true;
     button.textContent = '保存中…';
+    const payload = {};
+    for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group']) {
+      payload[key] = main.querySelector('#f-' + key).value.trim();
+    }
     try {
-      const result = await api.patch('/me', {
-        nickname,
-        school: main.querySelector('#f-school').value.trim(),
-        subject: main.querySelector('#f-subject').value.trim(),
-        title: main.querySelector('#f-title').value.trim(),
-      });
+      const result = await api.patch('/me', payload);
       state.user = result.user;
       profileDraft = null;
       toast('个人信息已保存', 'ok');
