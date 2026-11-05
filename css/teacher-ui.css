@@ -928,3 +928,157 @@ html[data-theme="dark"] .hg-item > .clk-card .clk-foot {
   background: rgba(255,255,255,.07);
   color: #b8cbe4;
 }
+
+
+/* 个人信息卡验收修订：资料与时钟分栏，身份信息独立成组 */
+.hg-item > .clk-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(168px, .88fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: stretch;
+  column-gap: 18px;
+  row-gap: 10px;
+  padding: 18px 20px 14px;
+  overflow: hidden;
+}
+.hg-item > .clk-card .clk-head {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 8px;
+}
+.hg-item > .clk-card .clk-hello {
+  align-items: flex-start;
+  gap: 11px;
+}
+.hg-item > .clk-card .clk-hello .ah-btn {
+  flex: 0 0 46px;
+  width: 46px !important;
+  height: 46px !important;
+}
+.hg-item > .clk-card .clk-hello-t {
+  min-width: 0;
+}
+.hg-item > .clk-card .clk-greet {
+  font-size: clamp(16px, 1.25vw, 19px);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.hg-item > .clk-card .clk-greet-sub {
+  margin-top: 5px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.hg-item > .clk-card .clk-profile-details {
+  margin-top: 9px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,.72);
+  border-radius: 12px;
+  background: rgba(255,255,255,.48);
+  box-shadow: 0 3px 12px rgba(55, 91, 143, .06);
+}
+.hg-item > .clk-card .clk-profile-label {
+  margin-bottom: 4px;
+  color: #7890b0;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .08em;
+}
+.hg-item > .clk-card .clk-profile-meta,
+.hg-item > .clk-card .clk-profile-role {
+  margin: 0;
+  color: #45668f;
+  font-size: 10.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.hg-item > .clk-card .clk-profile-role {
+  margin-top: 2px;
+  color: #7189aa;
+}
+.hg-item > .clk-card #theme-btn {
+  margin: -4px -5px 0 0;
+}
+.hg-item > .clk-card .clk-main {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  align-self: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0;
+}
+.hg-item > .clk-card .clock-row {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.hg-item > .clk-card .clock {
+  font-size: clamp(29px, 2.35vw, 42px);
+  letter-spacing: -1.4px;
+  white-space: nowrap;
+}
+.hg-item > .clk-card .msg-bell {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+}
+.hg-item > .clk-card .clk-date-panel {
+  gap: 6px;
+}
+.hg-item > .clk-card .clock-date {
+  font-size: 11.5px;
+}
+.hg-item > .clk-card .wd-badge {
+  padding: 3px 7px;
+  font-size: 10px;
+}
+.hg-item > .clk-card .clk-foot {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  justify-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 11px;
+  font-size: 10.5px;
+}
+html[data-theme="dark"] .hg-item > .clk-card .clk-profile-details {
+  border-color: rgba(255,255,255,.12);
+  background: rgba(255,255,255,.07);
+}
+html[data-theme="dark"] .hg-item > .clk-card .clk-profile-label {
+  color: #9bb4d4;
+}
+html[data-theme="dark"] .hg-item > .clk-card .clk-profile-meta,
+html[data-theme="dark"] .hg-item > .clk-card .clk-profile-role {
+  color: #b8cbe4;
+}
+@media (max-width: 780px) {
+  .hg-item > .clk-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    row-gap: 12px;
+    padding: 17px;
+  }
+  .hg-item > .clk-card .clk-head {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .hg-item > .clk-card .clk-main {
+    grid-column: 1;
+    grid-row: 2;
+    padding: 0;
+  }
+  .hg-item > .clk-card .clock {
+    font-size: clamp(34px, 9vw, 46px);
+  }
+  .hg-item > .clk-card .clk-foot {
+    grid-column: 1;
+    grid-row: 3;
+    flex-wrap: wrap;
+  }
+}
