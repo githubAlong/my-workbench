@@ -3327,7 +3327,7 @@ function rosterPhotoDialog(grade, reload) {
     rotation = (rotation + 270) % 360;
     manualRotation = true;
     drawPreview();
-    $('#ptext').value = '';
+    renderReviewTable([]);
     $('#pquality').hidden = true;
     setStatus('已向左旋转 ' + rotation + '°，点击「重新识别」开始识别。');
     updateCount();
@@ -3337,7 +3337,7 @@ function rosterPhotoDialog(grade, reload) {
     rotation = (rotation + 90) % 360;
     manualRotation = true;
     drawPreview();
-    $('#ptext').value = '';
+    renderReviewTable([]);
     $('#pquality').hidden = true;
     setStatus('已向右旋转 ' + rotation + '°，点击「重新识别」开始识别。');
     updateCount();
