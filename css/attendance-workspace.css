@@ -377,6 +377,99 @@
  .att-work-meta-controls .att-work-date label input{flex:0 0 18px}
  .att-work-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+/* 教师工作台 - 考勤管理 UI 精修补丁
+ * 用法：将本文件全部内容追加到 css/attendance-workspace.css 末尾。
+ * 仅调整视觉样式，不修改考勤数据、生成规则、勾选逻辑或接口。
+ */
+.att-work-shell{--aw-ink:#172b4d;--aw-muted:#71829d;--aw-line:#e5ebf4;--aw-blue:#2563eb;color:var(--aw-ink);padding:8px 2px 24px}
+.att-work-crumb{margin:0 0 10px;padding:0 2px;color:#91a0b5;font-size:11px;letter-spacing:.02em}
+.att-work-head{gap:14px;margin:0 0 14px;padding:0 2px}
+.att-work-head h2{color:#142746;font-size:24px;font-weight:800;letter-spacing:-.6px}
+.att-work-sync{padding:5px 10px;border:1px solid #d7f0e1;border-radius:999px;background:#f0fbf4;color:#16834a;font-size:11px;font-weight:650}
+.att-work-grade{height:38px!important;min-width:112px!important;border:1px solid #dce5f1!important;border-radius:10px!important;background:#fff!important;color:#263b5b!important;font-size:13px!important;box-shadow:0 2px 5px rgba(30,64,112,.035)!important}
+.att-work-meta-controls{gap:10px 14px;margin:0 0 14px;padding:11px 13px;border:1px solid #e3eaf4;border-radius:13px;background:linear-gradient(105deg,#f8fbff 0%,#fff 78%);box-shadow:0 3px 12px rgba(35,70,125,.035)}
+.att-work-meta-controls label{gap:8px;color:#52647f;font-size:12px;font-weight:650}
+.att-work-meta-controls .input,.att-work-date label{height:36px;border:1px solid #dce5f1;border-radius:9px;background:#fff;color:#243956;font-size:12px}
+.att-work-date{gap:6px}
+.att-work-date .icon-btn{width:34px;height:34px;border:1px solid #dce5f1;border-radius:9px;background:#fff;color:#49617f;transition:.16s ease}
+.att-work-date .icon-btn:hover{border-color:#a9c7fb;background:#f1f6ff;color:var(--aw-blue)}
+.att-work-date .btn{height:34px;border-radius:9px;font-weight:650}
+.att-work-meta-hint{color:#9aa8bb;font-size:11px}
+.att-work-tabs{gap:30px;margin:2px 0 14px;border-bottom:1px solid #e6edf6}
+.att-work-tabs button{padding:0 3px 12px;color:#687b96;font-size:13px;font-weight:700;transition:color .16s ease}
+.att-work-tabs button:hover,.att-work-tabs button.on{color:#1d63df}
+.att-work-tabs button.on:after{height:3px;border-radius:3px 3px 0 0;background:#2872ed}
+.att-work-stats{gap:12px;margin:0 0 14px;grid-template-columns:repeat(5,minmax(0,1fr))}
+.aw-stat{position:relative;min-height:66px;gap:11px;padding:12px 14px;overflow:hidden;border:1px solid #e7eef8;border-radius:13px;background:#f5f8fd;color:#52647e;box-shadow:0 3px 10px rgba(35,70,125,.025)}
+.aw-stat:before{flex:0 0 32px;width:32px;height:32px;border:1px solid #d6e5fb;border-radius:10px;background:rgba(255,255,255,.8);color:#3476df;font-size:16px}
+.aw-stat span{overflow:hidden;color:#647690;font-size:12px;font-weight:650;text-overflow:ellipsis}
+.aw-stat b{margin-left:auto;color:#1a2d4b;font-size:25px;font-weight:800;font-variant-numeric:tabular-nums}
+.aw-stat small{margin-left:-7px;color:#8c9bb0;font-size:11px}
+.aw-stat.blue{border-color:#e0ebfc;background:linear-gradient(115deg,#edf5ff,#f8fbff)}
+.aw-stat.amber{border-color:#f6e9d5;background:linear-gradient(115deg,#fff7eb,#fffdf8)}
+.aw-stat.violet{border-color:#ebe5fc;background:linear-gradient(115deg,#f5f1ff,#fcfaff)}
+.aw-stat.gray{border-color:#e5eaf1;background:linear-gradient(115deg,#f2f5f9,#fbfcfe)}
+.att-work-panel{min-height:calc(100vh - 300px);padding:16px;border:1px solid #e3eaf4;border-radius:16px;background:#fff;box-shadow:0 8px 26px rgba(31,64,115,.055)}
+.att-work-toolbar{gap:9px;margin:0 0 15px}
+.att-work-toolbar .input,.att-work-toolbar select#att-work-subject,.att-work-toolbar .aw-search{height:38px;border:1px solid #dce5f1;border-radius:10px;background:#fff;color:#314763;font-size:12px}
+.att-work-toolbar select#att-work-subject{width:122px}
+.att-work-toolbar .aw-search{width:min(240px,26vw);padding:0 12px}
+.att-work-toolbar .input:focus,.att-work-toolbar .aw-search:focus{border-color:#8db5f7;outline:3px solid rgba(37,99,235,.09)}
+.att-work-toolbar .btn{height:38px;padding:0 14px;border-radius:10px;font-size:12px;font-weight:650;transition:transform .15s ease,box-shadow .15s ease,background .15s ease}
+.att-work-toolbar .btn:hover{transform:translateY(-1px)}
+.att-work-toolbar .btn.primary{border-color:#2563eb;background:linear-gradient(105deg,#3478ef,#215fda);box-shadow:0 5px 12px rgba(37,99,235,.18)}
+.att-work-toolbar .btn.ghost{border-color:#dce5f1;background:#fff;color:#425875}
+.att-work-toolbar .btn.ghost:hover{border-color:#b8cff5;background:#f5f8ff;color:#1f63dc}
+.att-work-table-title{align-items:center;margin:0 0 12px;padding:0 2px}
+.att-work-table-title h3{margin:0;color:#1b2e4d;font-size:16px;font-weight:800;letter-spacing:-.2px}
+.att-work-table-title span{display:inline-block;margin-top:4px;color:#8b9ab0;font-size:11px}
+.att-work-confirm{padding:6px 11px;border:1px solid #f3e4c5;border-radius:999px;background:#fff8e9;color:#a66b16;font-size:11px;font-weight:700}
+.att-work-confirm.ok{border-color:#d6efdf;background:#f0fbf4;color:#16834a}
+.att-work-confirm.warn{border-color:#f4dfc0;background:#fff7eb;color:#a9680b}
+.att-work-table-scroll{max-height:calc(100vh - 430px);min-height:300px;overflow:auto;border:1px solid #e4eaf3;border-radius:12px;background:#fff;scrollbar-color:#cbd7e7 #f5f7fb;scrollbar-width:thin}
+.att-work-table{width:100%;border-collapse:separate;border-spacing:0;min-width:760px;color:#31445f;font-size:12px}
+.att-work-table thead{position:sticky;top:0;z-index:4}
+.att-work-table th{height:43px;padding:0 12px;border-bottom:1px solid #e2eaf5;background:#f3f7fd;color:#536783;font-size:12px;font-weight:750;white-space:nowrap}
+.att-work-table td{height:50px;padding:6px 12px;border-bottom:1px solid #edf1f6;background:#fff;color:#354964;font-size:12px;white-space:nowrap}
+.att-work-table tbody tr:nth-child(even) td{background:#fbfcfe}
+.att-work-table tbody tr:hover td{background:#f1f6ff}
+.att-work-table tbody tr:last-child td{border-bottom:0}
+.att-work-table td:first-child,.att-work-table th:first-child{width:64px;text-align:center;color:#91a0b4;font-variant-numeric:tabular-nums}
+.att-work-table td.aw-name{color:#1d2e49;font-size:13px;font-weight:750}
+.att-work-table td:nth-child(3){color:#667b96}
+.aw-check-cell{min-width:72px;text-align:center}
+.aw-mark.aw-big-mark{width:38px;height:36px;min-width:38px;border:1px solid #d7e1ef;border-radius:10px;background:#f7f9fc;color:#fff;font-size:19px;font-weight:850;line-height:1;box-shadow:inset 0 1px 1px rgba(25,52,90,.025);transition:border-color .14s ease,background .14s ease,transform .14s ease,box-shadow .14s ease}
+.aw-mark.aw-big-mark:hover:not(:disabled){border-color:#8eb5f4;background:#edf4ff;transform:translateY(-1px)}
+.aw-mark.aw-big-mark.on{border-color:#2563eb;background:linear-gradient(145deg,#3b82f6,#2563eb);color:#fff;box-shadow:0 3px 8px rgba(37,99,235,.2)}
+.aw-mark.aw-big-mark:disabled{opacity:.35;cursor:not-allowed}
+.aw-cell-input{min-width:110px;height:36px;border:1px solid #e0e7f1;border-radius:9px;background:#fff;color:#31445f;font-size:12px}
+.aw-cell-input:focus{border-color:#8db5f7;outline:3px solid rgba(37,99,235,.09)}
+.att-work-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:13px;padding-top:12px;border-top:1px solid #edf1f6}
+.att-work-foot>span{color:#91a0b4;font-size:11px}
+.att-work-foot .btn{min-height:36px;padding:0 14px;border-radius:9px;font-size:12px;font-weight:700}
+.aw-roster-table{min-width:560px}
+.aw-roster-table th{height:44px}
+.aw-roster-table td{height:50px}
+@media(max-width:1100px){.att-work-stats{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}.att-work-panel{min-height:calc(100vh - 270px)}.att-work-table-scroll{max-height:calc(100vh - 400px)}}
+@media(max-width:760px){
+ .att-work-shell{padding:4px 0 18px}
+ .att-work-head{flex-wrap:wrap;gap:8px}
+ .att-work-head>div:first-child{flex:1 1 100%}
+ .att-work-meta-controls{align-items:flex-start;gap:9px;padding:10px}
+ .att-work-meta-hint{width:100%;margin-left:0}
+ .att-work-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+ .aw-stat{min-height:60px;padding:9px}
+ .aw-stat b{font-size:21px}
+ .att-work-panel{min-height:auto;padding:11px;border-radius:13px}
+ .att-work-toolbar{gap:7px}
+ .att-work-toolbar .aw-search,.att-work-toolbar select#att-work-subject{width:100%;flex:1 1 100%}
+ .att-work-table-scroll{max-height:65vh;min-height:260px}
+ .att-work-table.att-work-sheet-table{min-width:760px}
+ .att-work-sheet-table th{height:42px}
+ .att-work-sheet-table td{height:48px}
+ .aw-mark.aw-big-mark{width:36px;height:36px;min-width:36px}
+ .att-work-foot{align-items:stretch}
+}
 
 
 /* ===== 考勤管理首页：按最终确认稿精修 ===== */
