@@ -1,6 +1,6 @@
 import { state, loadMe, render, parseHash, loadAuthConfig } from './ui.js';
 import { ls, toast, STATIC, api } from './core.js';
-import { setActiveAccount, activeAccountId } from './localdb.js';
+import { setActiveAccount, activeAccountId, blank, replaceAll } from './localdb.js';
 
 /* 【第 30 条 · 白屏】
    原来这里是 9 行串行 import：
@@ -58,6 +58,23 @@ await loadAuthConfig();
 const cloudAuth = await import('./cloud.js');
 let cloudSession = cloudAuth.session();
 setActiveAccount(cloudSession?.uid || '');
+
+/* 一次性开发环境重置：仅在明确带 ?reset-dev-data=1 且已登录时执行。
+   清空当前账号的本机工作台缓存和同步版本号，保留 Supabase 登录身份；
+   云端当前账号快照由维护操作先行清理，随后正常初始化会重新生成示例数据。 */
+if (cloudSession?.uid && new URLSearchParams(location.search).get('reset-dev-data') === '1') {
+  replaceAll(blank());
+  try {
+    localStorage.removeItem('wb_account_revision:' + cloudSession.uid);
+    localStorage.removeItem('wb_before_account_sync:' + cloudSession.uid);
+    localStorage.removeItem('wb_cloud_meta:' + cloudSession.uid);
+  } catch (e) {
+    console.warn('[reset] 清理本机同步缓存时出现提示', e);
+  }
+  const cleanUrl = new URL(location.href);
+  cleanUrl.searchParams.delete('reset-dev-data');
+  history.replaceState(null, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+}
 if (cloudSession?.uid) {
   try {
     await initializeAccountSync();
