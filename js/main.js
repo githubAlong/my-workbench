@@ -63,7 +63,9 @@ setActiveAccount(cloudSession?.uid || '');
    清空当前账号的本机工作台缓存和同步版本号，保留 Supabase 登录身份；
    云端当前账号快照由维护操作先行清理，随后正常初始化会重新生成示例数据。 */
 if (cloudSession?.uid && new URLSearchParams(location.search).get('reset-dev-data') === '1') {
-  replaceAll(blank());
+  const emptyDb = blank();
+  emptyDb.meta.seeded = true; // 本次明确要求空库初始化，不再灌入演示数据
+  replaceAll(emptyDb);
   try {
     localStorage.removeItem('wb_account_revision:' + cloudSession.uid);
     localStorage.removeItem('wb_before_account_sync:' + cloudSession.uid);
