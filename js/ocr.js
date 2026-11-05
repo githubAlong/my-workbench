@@ -367,13 +367,15 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
       report(rotations.length > 1 ? '正在检查照片方向（' + (i + 1) + '/4）…' : '正在按当前方向重新识别…');
       const canvas = makeCanvas(image, rotation, 1700);
       canvases.push(canvas);
-      await ocrWorker.setParameters({
-        tessedit_pageseg_mode: '11',
-        preserve_interword_spaces: '1',
-      });
-      const result = await ocrWorker.recognize(canvas);
-      const scored = scoreData(result.data, canvas.width, canvas.height);
-      orientationResults.push({ rotation, data: result.data, width: canvas.width, height: canvas.height, ...scored });
+      for (const mode of ['11', '12']) {
+        await ocrWorker.setParameters({
+          tessedit_pageseg_mode: mode,
+          preserve_interword_spaces: '1',
+        });
+        const result = await ocrWorker.recognize(canvas);
+        const scored = scoreData(result.data, canvas.width, canvas.height);
+        orientationResults.push({ rotation, mode, data: result.data, width: canvas.width, height: canvas.height, ...scored });
+      }
     }
 
     orientationResults.sort((a, b) => b.score - a.score);
@@ -389,7 +391,7 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
     canvases.push(cleanCanvas);
     const finalResults = [];
 
-    for (const mode of ['6', '11']) {
+    for (const mode of ['6', '11', '12']) {
       await ocrWorker.setParameters({
         tessedit_pageseg_mode: mode,
         preserve_interword_spaces: '1',
