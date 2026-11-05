@@ -370,6 +370,142 @@ function captureProfileDraft() {
   if (any) profileDraft = d;
 }
 
+
+/* ================= 工作台设置 ================= */
+function readWorkbenchBrand() {
+  const db = loadLocalDB();
+  const value = db?.meta?.workbenchBrand;
+  return value && typeof value === 'object' ? value : { title: '', subtitle: '', image: '' };
+}
+
+async function renderWorkbenchSettings(main) {
+  const current = readWorkbenchBrand();
+  main.innerHTML = pageHead('工作台设置', '自定义首页欢迎卡片的背景图片、主标题和副标题', '<button class="btn primary sm" id="wb-brand-save">保存设置</button>') + \`
+    <section class="card wb-brand-settings">
+      <div class="wb-brand-preview-label">首页效果预览</div>
+      <div class="wb-brand-preview" id="wb-brand-preview">
+        <div class="wb-brand-preview-copy">
+          <div class="wb-brand-preview-title" id="wb-brand-preview-title"></div>
+          <div class="wb-brand-preview-subtitle" id="wb-brand-preview-subtitle"></div>
+        </div>
+        <div class="wb-brand-preview-mark">我的工作台</div>
+      </div>
+      <div class="wb-brand-fields">
+        <div class="field">
+          <label class="field-label" for="wb-brand-title">首页主标题</label>
+          <input class="input" id="wb-brand-title" maxlength="40" placeholder="例如：一站式教师工作平台" value="\${esc(current.title || '')}">
+        </div>
+        <div class="field">
+          <label class="field-label" for="wb-brand-subtitle">首页副标题</label>
+          <textarea class="input" id="wb-brand-subtitle" rows="2" maxlength="100" placeholder="例如：备课 · 授课 · 考勤 · 教研 · 任务 · 数据">\${esc(current.subtitle || '')}</textarea>
+        </div>
+        <div class="field">
+          <label class="field-label">首页背景图片</label>
+          <div class="wb-brand-image-actions">
+            <label class="btn soft" style="cursor:pointer">\${icon('upload', 15)} 上传图片
+              <input id="wb-brand-image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+            </label>
+            <button class="btn ghost" id="wb-brand-remove-image" type="button">移除图片</button>
+            <span class="tiny muted" id="wb-brand-image-hint">建议 16:9 横图，图片会自动压缩。</span>
+          </div>
+        </div>
+        <div class="wb-brand-tip">图片、标题和副标题只影响首页欢迎卡片，不会修改课表、考勤或其他业务数据。</div>
+      </div>
+    </section>\`;
+
+  const title = main.querySelector('#wb-brand-title');
+  const subtitle = main.querySelector('#wb-brand-subtitle');
+  const preview = main.querySelector('#wb-brand-preview');
+  const previewTitle = main.querySelector('#wb-brand-preview-title');
+  const previewSubtitle = main.querySelector('#wb-brand-preview-subtitle');
+  const imageHint = main.querySelector('#wb-brand-image-hint');
+  let image = current.image || '';
+
+  const paint = () => {
+    previewTitle.textContent = title.value.trim() || '一站式教师工作平台';
+    previewSubtitle.textContent = subtitle.value.trim() || '备课 · 授课 · 考勤 · 教研 · 任务 · 数据';
+    preview.style.backgroundImage = image
+      ? 'linear-gradient(90deg, rgba(16,42,88,.82), rgba(16,42,88,.24)), url("' + image + '")'
+      : 'linear-gradient(120deg, #2678ed, #665be5)';
+    preview.classList.toggle('has-image', !!image);
+  };
+  title.addEventListener('input', paint);
+  subtitle.addEventListener('input', paint);
+  paint();
+
+  main.querySelector('#wb-brand-image').onchange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      toast('请上传 JPG、PNG 或 WebP 图片', 'warn');
+      event.target.value = '';
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast('图片不能超过 8MB', 'warn');
+      event.target.value = '';
+      return;
+    }
+    imageHint.textContent = '图片处理中…';
+    try {
+      image = await new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const maxW = 1600;
+            const scale = Math.min(1, maxW / img.width);
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob((blob) => {
+              URL.revokeObjectURL(url);
+              if (!blob) return reject(new Error('图片压缩失败'));
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = () => reject(new Error('图片读取失败'));
+              reader.readAsDataURL(blob);
+            }, 'image/jpeg', 0.78);
+          } catch (err) { URL.revokeObjectURL(url); reject(err); }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('无法读取这张图片')); };
+        img.src = url;
+      });
+      imageHint.textContent = '图片已载入，保存后应用到首页';
+      paint();
+    } catch (err) {
+      imageHint.textContent = '图片载入失败';
+      toast(err.message || '图片处理失败', 'err');
+    }
+    event.target.value = '';
+  };
+
+  main.querySelector('#wb-brand-remove-image').onclick = () => {
+    image = '';
+    imageHint.textContent = '已移除背景图片，保存后使用默认渐变背景';
+    paint();
+  };
+
+  main.querySelector('#wb-brand-save').onclick = () => {
+    const db = loadLocalDB();
+    if (!db.meta || typeof db.meta !== 'object') db.meta = {};
+    db.meta.workbenchBrand = {
+      title: title.value.trim().slice(0, 40),
+      subtitle: subtitle.value.trim().slice(0, 100),
+      image,
+      updatedAt: new Date().toISOString(),
+    };
+    if (!saveLocalDB()) {
+      toast('保存失败，请检查本机存储空间', 'err');
+      return;
+    }
+    toast('工作台首页设置已保存', 'ok');
+    go('home');
+  };
+}
+
 /* ================= 个人信息（独立页） ================= */
 async function renderProfile(main) {
   const u = state.user;
