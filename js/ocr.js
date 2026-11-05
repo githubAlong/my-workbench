@@ -7,6 +7,15 @@
  * 表头、星期、考勤项目、备注等文字一律不作为教师姓名。
  */
 
+import {
+  DEFAULT_ROSTER_EXPECTED_COUNT,
+  DEFAULT_LEFT_GROUP_COUNT,
+  extractRosterRowsFromTesseract,
+  buildRosterReviewRows,
+  validateRosterRows,
+  scoreRosterExtraction
+} from './roster-structure.mjs';
+
 const CDN_OPTIONS = [
   {
     script: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
@@ -368,7 +377,7 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
       });
       const result = await ocrWorker.recognize(canvas);
       const scored = scoreData(result.data);
-      orientationResults.push({ rotation, data: result.data, ...scored });
+      orientationResults.push({ rotation, data: result.data, width: canvas.width, height: canvas.height, ...scored });
     }
 
     orientationResults.sort((a, b) => b.score - a.score);
@@ -390,7 +399,7 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
         preserve_interword_spaces: '1',
       });
       const result = await ocrWorker.recognize(rawCanvas);
-      finalResults.push({ data: result.data, ...scoreData(result.data) });
+      finalResults.push({ data: result.data, width: rawCanvas.width, height: rawCanvas.height, ...scoreData(result.data) });
     }
 
     await ocrWorker.setParameters({
@@ -398,23 +407,45 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
       preserve_interword_spaces: '1',
     });
     const cleanResult = await ocrWorker.recognize(cleanCanvas);
-    finalResults.push({ data: cleanResult.data, ...scoreData(cleanResult.data) });
+    finalResults.push({ data: cleanResult.data, width: cleanCanvas.width, height: cleanCanvas.height, ...scoreData(cleanResult.data) });
     finalResults.push(best);
-    finalResults.sort((a, b) => b.pairs.length - a.pairs.length || b.score - a.score);
+    for (const candidate of finalResults) {
+      candidate.rows = extractRosterRowsFromTesseract(
+        candidate.data?.words || [],
+        candidate.width || rawCanvas.width,
+        candidate.height || rawCanvas.height,
+        { expectedCount: DEFAULT_ROSTER_EXPECTED_COUNT, leftGroupCount: DEFAULT_LEFT_GROUP_COUNT }
+      );
+      candidate.validation = validateRosterRows(candidate.rows, { expectedCount: DEFAULT_ROSTER_EXPECTED_COUNT });
+      candidate.reviewRows = buildRosterReviewRows(candidate.rows, DEFAULT_ROSTER_EXPECTED_COUNT, DEFAULT_LEFT_GROUP_COUNT);
+      candidate.structureScore = scoreRosterExtraction(candidate.rows, DEFAULT_ROSTER_EXPECTED_COUNT);
+    }
+    finalResults.sort((a, b) =>
+      b.structureScore - a.structureScore
+      || b.pairs.length - a.pairs.length
+      || b.score - a.score
+    );
 
     const selected = finalResults[0];
-    const pairs = selected.pairs;
+    const pairs = selected.rows.length
+      ? selected.rows.filter((row) => row.name && row.subject).map((row) => ({ name: row.name, subject: row.subject, serial: row.serial }))
+      : selected.pairs.map((pair, index) => ({ ...pair, serial: index + 1 }));
     if (pairs.length < 2) {
       throw new Error('二次校验没有找到足够可靠的教师姓名。请换用更清晰的原始照片，确保姓名和学科列完整入镜。');
     }
-    const text = pairs.map((pair) => pair.name + ' ' + pair.subject).join('\n');
-    report('识别完成，已通过姓名和学科校验。');
+    const text = selected.reviewRows.map((row) => [row.serial, row.name, row.subject].filter(Boolean).join(' ')).join('\\n');
+    const validation = selected.validation;
+    report('结构识别完成：识别到 ' + pairs.length + ' 条，待核对 ' + (validation.expectedCount - validation.completeCount) + ' 条。');
     return {
       text,
       rotation: best.rotation,
       confidence: Math.round(selected.confidence),
       count: pairs.length,
-      pairs: pairs.map(({ name, subject }) => ({ name, subject })),
+      pairs,
+      rows: selected.reviewRows,
+      validation,
+      expectedCount: DEFAULT_ROSTER_EXPECTED_COUNT,
+      leftGroupCount: DEFAULT_LEFT_GROUP_COUNT
     };
   } finally {
     canvases.forEach((canvas) => { canvas.width = 0; canvas.height = 0; });
