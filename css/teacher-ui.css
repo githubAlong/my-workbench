@@ -1082,3 +1082,64 @@ html[data-theme="dark"] .hg-item > .clk-card .clk-profile-role {
     flex-wrap: wrap;
   }
 }
+
+
+/* 首页截图验收修订：主题按钮置右上、消息铃铛置右下，个人资料左对齐 */
+.hg-item > .clk-card .clk-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-content: start;
+  min-width: 0;
+}
+.hg-item > .clk-card .clk-hello {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+.hg-item > .clk-card .clk-profile-details {
+  grid-column: 1;
+  grid-row: 2;
+  width: 100%;
+  margin: 10px 0 0;
+  box-sizing: border-box;
+  text-align: left;
+}
+.hg-item > .clk-card #theme-btn {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 3;
+  margin: 0;
+}
+.hg-item > .clk-card .clk-main {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: stretch;
+  min-height: 0;
+  padding: 0 0 40px;
+}
+.hg-item > .clk-card .msg-bell {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  margin: 0;
+}
+@media (max-width: 780px) {
+  .hg-item > .clk-card .clk-head {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .hg-item > .clk-card .clk-main {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 112px;
+    padding: 0 0 40px;
+  }
+  .hg-item > .clk-card .clk-foot {
+    grid-column: 1;
+    grid-row: 3;
+  }
+}
