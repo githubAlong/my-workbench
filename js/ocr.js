@@ -335,11 +335,14 @@ function extractPairs(data) {
   return output;
 }
 
-function scoreData(data) {
+function scoreData(data, width = 0, height = 0) {
   const pairs = extractPairs(data);
+  const rows = width > 0 && height > 0
+    ? extractRosterRowsFromTesseract(data?.words || [], width, height)
+    : [];
   const confidence = Number(data?.confidence) || 0;
   const subjectHits = SUBJECTS.reduce((count, subject) => count + (String(data?.text || '').includes(subject) ? 1 : 0), 0);
-  return { pairs, confidence, score: pairs.length * 100 + subjectHits * 8 + confidence * 0.12 };
+  return { pairs, rows, confidence, score: Math.max(pairs.length, rows.length) * 100 + subjectHits * 8 + confidence * 0.12 };
 }
 
 export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRotation = null, gradeHint = '') {
@@ -369,13 +372,13 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
         preserve_interword_spaces: '1',
       });
       const result = await ocrWorker.recognize(canvas);
-      const scored = scoreData(result.data);
+      const scored = scoreData(result.data, canvas.width, canvas.height);
       orientationResults.push({ rotation, data: result.data, width: canvas.width, height: canvas.height, ...scored });
     }
 
     orientationResults.sort((a, b) => b.score - a.score);
     const best = orientationResults[0];
-    if (!best || best.pairs.length < 2) {
+    if (!best || Math.max(best.pairs.length, best.rows?.length || 0) < 2) {
       throw new Error('这张照片暂时无法可靠提取出“姓名＋学科”组合。当前画面中的表头和考勤项目不能当作教师名单。请上传原始高清照片，尽量只拍姓名、学科两列；也可以手动旋转后重新识别。');
     }
 
