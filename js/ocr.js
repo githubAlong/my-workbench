@@ -7,14 +7,7 @@
  * 表头、星期、考勤项目、备注等文字一律不作为教师姓名。
  */
 
-import {
-  DEFAULT_ROSTER_EXPECTED_COUNT,
-  DEFAULT_LEFT_GROUP_COUNT,
-  extractRosterRowsFromTesseract,
-  buildRosterReviewRows,
-  validateRosterRows,
-  scoreRosterExtraction
-} from './roster-structure.mjs';
+import { extractRosterRowsFromTesseract, buildRosterReviewRows, validateRosterRows, inferKnownRosterCount } from './roster-photo-parser.mjs';
 
 const CDN_OPTIONS = [
   {
@@ -349,7 +342,7 @@ function scoreData(data) {
   return { pairs, confidence, score: pairs.length * 100 + subjectHits * 8 + confidence * 0.12 };
 }
 
-export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRotation = null) {
+export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRotation = null, gradeHint = '') {
   if (!file || !String(file.type || '').startsWith('image/')) throw new Error('请选择 JPG、PNG 或 WebP 照片');
   if (file.size > 30 * 1024 * 1024) throw new Error('照片超过 30MB，请先压缩后再识别');
 
@@ -413,12 +406,18 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
       candidate.rows = extractRosterRowsFromTesseract(
         candidate.data?.words || [],
         candidate.width || rawCanvas.width,
-        candidate.height || rawCanvas.height,
-        { expectedCount: DEFAULT_ROSTER_EXPECTED_COUNT, leftGroupCount: DEFAULT_LEFT_GROUP_COUNT }
+        candidate.height || rawCanvas.height
       );
-      candidate.validation = validateRosterRows(candidate.rows, { expectedCount: DEFAULT_ROSTER_EXPECTED_COUNT });
-      candidate.reviewRows = buildRosterReviewRows(candidate.rows, DEFAULT_ROSTER_EXPECTED_COUNT, DEFAULT_LEFT_GROUP_COUNT);
-      candidate.structureScore = scoreRosterExtraction(candidate.rows, DEFAULT_ROSTER_EXPECTED_COUNT);
+      const ocrText = String(candidate.data?.text || '');
+      const knownCount = inferKnownRosterCount(gradeHint, ocrText);
+      candidate.expectedCount = knownCount || candidate.rows.length;
+      candidate.leftGroupCount = Math.ceil(candidate.expectedCount / 2);
+      candidate.validation = validateRosterRows(candidate.rows, candidate.expectedCount);
+      candidate.reviewRows = buildRosterReviewRows(candidate.rows, candidate.expectedCount, candidate.leftGroupCount);
+      candidate.structureScore = candidate.rows.length * 100
+        - candidate.validation.duplicateSerials.length * 80
+        - candidate.validation.missingSerials.length * 12
+        - candidate.validation.incompleteSerials.length * 10;
     }
     finalResults.sort((a, b) =>
       b.structureScore - a.structureScore
@@ -444,8 +443,8 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
       pairs,
       rows: selected.reviewRows,
       validation,
-      expectedCount: DEFAULT_ROSTER_EXPECTED_COUNT,
-      leftGroupCount: DEFAULT_LEFT_GROUP_COUNT
+      expectedCount: selected.expectedCount,
+      leftGroupCount: selected.leftGroupCount
     };
   } finally {
     canvases.forEach((canvas) => { canvas.width = 0; canvas.height = 0; });
