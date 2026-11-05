@@ -85,7 +85,7 @@ if (cloudSession?.uid) {
        cloudsync 在初始化成功前会拒绝所有上传，避免把本机旧快照覆盖到云端。 */
     accountSyncReady = false;
     console.error('[sync] 账户数据初始化失败，进入本地只读保护模式', e);
-    toast('云端暂时连接不上：' + (e.message || e) + '。工作台将以本机缓存只读打开；恢复连接后刷新即可重新同步。', 'warn', 12000);
+    toast('云端暂时连接不上：' + (e.message || e) + '。工作台将先使用本机缓存；本地修改会留在本机，云端连接恢复前不会上传。请稍后刷新重试。', 'warn', 12000);
   }
 }
 if (cloudSession?.uid) {
