@@ -7,8 +7,8 @@ function fixture(count,left,repeat=false){
  const out=[];
  for(let i=0;i<Math.max(left,count-left);i++){
   const y=100+i*38;
-  if(i<left)out.push(word(repeat?'1':String(i+1),55,y),word('教师'+(i+1),160,y),word(subjects[i%8],275,y));
-  if(i<count-left)out.push(word(repeat?'1':String(left+i+1),555,y),word('教师'+(left+i+1),660,y),word(subjects[(left+i)%8],775,y));
+  if(i<left)out.push(word(repeat?'1':String(i+1),55,y),word(['张伟','王芳','李娜','刘洋','陈静','杨洋','赵敏','黄磊'][i%8],160,y),word(subjects[i%8],275,y));
+  if(i<count-left)out.push(word(repeat?'1':String(left+i+1),555,y),word(['张伟','王芳','李娜','刘洋','陈静','杨洋','赵敏','黄磊'][(left+i)%8],660,y),word(subjects[(left+i)%8],775,y));
  }
  return out;
 }
