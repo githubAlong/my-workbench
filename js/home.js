@@ -593,7 +593,7 @@ function renderHome() {
   const brand = workbenchBrand();
   const g1 = brand.title || defaultG1;
   const g2 = brand.subtitle || defaultG2;
-  const profileMeta = [state.user?.nickname, state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
+  const profileMeta = [brand.title ? state.user?.nickname : '', state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
   const todayCourses = d.courses.filter((c) => c.date === d.date);
 
   main.innerHTML = `
@@ -845,7 +845,7 @@ function startClock() {
       const sub = document.getElementById('greet-sub');
       if (sub) sub.textContent = brand.subtitle ? subtitle : `${greetIcon()} ${subtitle}`;
       const profile = document.getElementById('home-profile-meta');
-      const profileMeta = [state.user?.nickname, state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
+      const profileMeta = [brand.title ? state.user?.nickname : '', state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
       if (profile && profile.textContent !== profileMeta) profile.textContent = profileMeta;
     }
   };
