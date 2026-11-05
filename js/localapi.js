@@ -1341,7 +1341,7 @@ export function seedIfEmpty() {
      那些示例表的列结构（签到时间/教研地点/上午坐班…）跟老师真实用的纸表对不上，
      打开一看全是别人编的数据，反而碍事。
      真正有用的是名册：高一 46 人、高二 54 人，是老师那四张纸表上的人。 */
-  seedRoster(db, now); /* 幂等，见 /grades 注释 */
+  /* 年级和教师名册由用户显式创建，不再自动注入示例年级或名单。 */
 
   // 出差 & 监考示例
   const inv1 = db.invigilations.reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
@@ -3006,13 +3006,7 @@ on('POST', '/invig/school-paid', ({ body }) => {
 /* ---- 年级 & 教师名册 ---- */
 const DEFAULT_GRADES = [];
 on('GET', '/grades', () => {
-  /* 名册预置放在这里，而不是只放在 seedIfEmpty 里：
-     seedIfEmpty 只在「空库」时跑一次，老师这台设备上早就有课程表、
-     笔记、事项了，升级上来永远不会走进那个分支，名册就永远是空的。
-     seedRoster 自己是幂等的（看 meta.rosterSeeded），放这里等于
-     「打开考勤页面时顺手补一次」，老用户新用户都能拿到。
-     只写不读的副作用也没有：没有名册的人才会真的插数据。 */
-  seedRoster(load(), nowISO());
+  /* GET 只读取已创建的年级；不得在读取时自动创建年级或教师名单。 */
   /* gradeOff：内置年级被删除/改名后要藏起来的名字。
      内置名单不能真的从代码里删，只能「关掉」，否则刷新一下又回来了。 */
   const u = currentUser();
