@@ -6,6 +6,7 @@ import { AUTH_CFG } from './ui.js';
 import { makeShareLink } from './cloudsync.js';
 import { loginSheet, cloudOn } from './auth.js';
 import * as cloud from './cloud.js';
+import { load as loadLocalDB, save as saveLocalDB } from './localdb.js';
 
 const ADMIN_PHONE = '+8613071825243';
 
@@ -21,6 +22,7 @@ registerView(async function me(main, { query }) {
   });
   if (path === 'messages') return renderMessages(main);
   if (path === 'profile') return renderProfile(main);
+  if (path === 'me/workbench-settings') return renderWorkbenchSettings(main);
   return renderMe(main);
 });
 
@@ -59,15 +61,9 @@ async function renderMe(main) {
     return;
   }
 
-  const [msgs, rawSessions] = await Promise.all([
-    api.get('/messages').catch(() => ({ unread: 0, counts: {} })),
-    api.get('/me/sessions').catch(() => null),
-  ]);
-  /* 接口回的是 { rows: [...] }，这里统一成数组，后面 length / map 才不会炸 */
-  const sessions = Array.isArray(rawSessions) ? rawSessions : (rawSessions?.rows || []);
+
+  const msgs = await api.get('/messages').catch(() => ({ unread: 0, counts: {} }));
   const needProfile = !u.school || !u.subject;
-  const adminPhone = cloud.session()?.phone || '';
-  const isAdmin = adminPhone === ADMIN_PHONE || adminPhone === ADMIN_PHONE.slice(3);
   main.innerHTML = `
     <div class="me-hero">
       ${avatarHTML(u, 74, 'me-avatar-lg', true)}
@@ -84,38 +80,16 @@ async function renderMe(main) {
       <button class="icon-btn me-cam" id="avatar-btn" title="换头像">${icon('camera', 16)}</button>
     </div>
 
-    ${group('账号', [
-      ['bell', '消息中心', msgs.unread ? `${msgs.unread} 条未读` : '暂无未读', 'messages',
-        msgs.unread ? `<span class="msg-badge">${msgs.unread > 99 ? '99+' : msgs.unread}</span>` : ''],
-      ['user', '个人信息', needProfile ? '昵称、学校、学科填一下' : '昵称、头像、学校、学科、职务', 'profile', ''],
-      ['shield', '账号安全', '本机 PIN 锁、打开需验证', 'security', ''],
-      ['qr', '账号', '登录账号与改密码', 'bind', ''],
-    ], needProfile)}
-
-    ${isAdmin ? group('管理', [
-      ['shield', '重置用户密码', '生成一次性临时密码', 'admin-reset', ''],
-    ]) : ''}
-
-    ${group('个性化', [
-      ['sun', '主题外观', `当前：${themeName(state.theme)}`, 'theme', `<span class="tiny muted">共 6 套</span>`],
-    ])}
-
-    ${group('数据', [
-      ['refresh', '云同步', '已接入模块跨设备同步', 'cloud', syncBadge()],
-      ['copy', '搬到另一台设备', '生成一条链接，手机点开即导入', 'share', ''],
-      ['down', '数据导出与备份', '导出全部数据、导入恢复', 'backup', ''],
-      ['copy', '学生短链', '课件 / 点名 / 惩罚 三合一', 'link', ''],
-      ['trash', '回收站', '删除的内容可在这里找回', 'recycle', ''],
-    ])}
+    <div class="card me-group-body">
+      ${row('bell', '消息中心', msgs.unread ? `${msgs.unread} 条未读` : '暂无未读', 'messages',
+        msgs.unread ? `<span class="msg-badge">${msgs.unread > 99 ? '99+' : msgs.unread}</span>` : '')}
+      ${row('user', '个人信息', needProfile ? '昵称、学校、学科填一下' : '昵称、头像、学校、学科、职务', 'profile')}
+      ${row('sliders', '工作台设置', '修改首页图片、标题和副标题', 'workbench-settings')}
+      ${row('sun', '主题外观', `当前：${themeName(state.theme)}`, 'theme', '<span class="tiny muted">共 6 套</span>')}
+    </div>
 
     <div class="card me-logout">
       ${row('logout', '退出登录', '', 'logout')}
-    </div>
-
-    <div class="card card-pad small muted" style="margin-top:14px">
-      <div class="row"><b style="color:var(--text)">关于</b><span style="flex:1"></span><span>v1.0</span></div>
-      <div style="margin-top:6px">我的工作台 · 教师个人工作台。登录账号跨设备一致；本地模块数据按账号在当前浏览器隔离，云同步仅覆盖已接入模块。</div>
-      <div style="margin-top:6px" class="tiny">登录设备：${sessions.length} 台在线</div>
     </div>`;
 
   main.querySelectorAll('[data-act]').forEach((b) => { b.onclick = () => act(b.dataset.act); });
@@ -124,6 +98,7 @@ async function renderMe(main) {
   async function act(a) {
     if (a === 'messages') return go('messages');
     if (a === 'profile') return go('profile');
+    if (a === 'workbench-settings') return go('me/workbench-settings');
     if (a === 'recycle') return go('recycle');
     if (a === 'theme') return openThemeSheet();
     if (a === 'logout') {
