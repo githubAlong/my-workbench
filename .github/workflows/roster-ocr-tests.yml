@@ -1,0 +1,35 @@
+name: Roster OCR structure tests
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - "js/ocr.js"
+      - "js/roster-structure.mjs"
+      - "tests/**"
+      - ".github/workflows/roster-ocr-tests.yml"
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - "js/ocr.js"
+      - "js/roster-structure.mjs"
+      - "tests/**"
+      - ".github/workflows/roster-ocr-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  roster-structure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run roster OCR structure tests
+        run: node --test tests/roster-structure.test.mjs
