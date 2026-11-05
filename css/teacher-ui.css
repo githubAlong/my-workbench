@@ -785,3 +785,146 @@ html[data-theme="dark"] .home-card .qi-row { background: var(--bg); border-color
 }
 .hg-item > .clk-card .clk-profile-meta:empty { display: none; }
 .hg-item > .clk-card.wb-brand-card.has-brand-image .clk-profile-meta { color: rgba(255,255,255,.84); }
+
+
+/* ==========================================================================
+   首页 UI 精修 · 布局编辑 / 个人资料 / 日期安排独立折叠
+   ========================================================================== */
+
+/* 顶部编辑布局入口：在普通状态和编辑状态之间给出清晰反馈 */
+.teacher-toolbar .teacher-layout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 118px;
+  padding: 0 15px;
+  border: 1px solid rgba(37, 99, 235, .18);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #347df4 0%, #245bdc 100%);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 6px 15px rgba(37, 99, 235, .2);
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.teacher-toolbar .teacher-layout-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 9px 19px rgba(37, 99, 235, .25);
+}
+.teacher-toolbar .teacher-layout-btn.is-active {
+  background: linear-gradient(135deg, #244fb9 0%, #4338a8 100%);
+  box-shadow: 0 5px 14px rgba(49, 65, 160, .2);
+}
+.teacher-toolbar .teacher-layout-btn svg { width: 16px; height: 16px; }
+
+/* 编辑工具条采用独立标题 + 操作分组，避免和普通搜索栏混在一起 */
+.hg-toolbar {
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 15px;
+  background: linear-gradient(120deg, var(--card), var(--primary-weak));
+}
+.hg-tb-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--primary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.hg-tb-title svg { width: 15px; height: 15px; }
+.hg-tb-spacer { flex: 1 1 auto; }
+.hg-toolbar .btn {
+  min-height: 35px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  font-weight: 650;
+}
+
+/* 欢迎卡片：学校/学科与职务/年级分层呈现，资料较长时允许自然换行 */
+.hg-item > .clk-card .clk-hello-t { flex: 1; min-width: 0; }
+.hg-item > .clk-card .clk-profile-meta,
+.hg-item > .clk-card .clk-profile-role {
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.hg-item > .clk-card .clk-profile-meta {
+  margin-top: 5px;
+  color: #54749d;
+  font-size: 10.5px;
+}
+.hg-item > .clk-card .clk-profile-role {
+  margin-top: 2px;
+  color: #7890b0;
+  font-size: 10px;
+}
+.hg-item > .clk-card .clk-profile-role:empty { display: none; }
+
+/* 选中日期信息栏独立折叠，不影响日历网格及整张日历卡片的收起状态 */
+.cal-day-head { flex-wrap: wrap; align-items: center; }
+.cal-day-head-spacer { flex: 1 1 auto; }
+.cal-day-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: 29px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: color .18s ease, background .18s ease, border-color .18s ease;
+}
+.cal-day-toggle:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-weak);
+}
+.cal-day-toggle svg { width: 13px; height: 13px; }
+.cal-day-content {
+  max-height: 360px;
+  overflow: hidden;
+  opacity: 1;
+  transform: translateY(0);
+  transition: max-height .25s ease, opacity .18s ease, transform .25s ease;
+}
+.cal-day.is-collapsed .cal-day-content {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+}
+.cal-day.is-collapsed .cal-day-head { margin-bottom: 0; }
+
+@media (max-width: 780px) {
+  .hg-toolbar { gap: 8px; padding: 10px; }
+  .hg-tb-title { flex: 1 0 100%; }
+  .hg-tb-spacer { display: none; }
+  .hg-toolbar .btn { flex: 1 1 calc(50% - 8px); }
+  .cal-day-head { gap: 6px; }
+  .cal-day-head-spacer { display: none; }
+  .cal-day-toggle { margin-left: auto; }
+}
+
+html[data-theme="dark"] .hg-item > .clk-card {
+  border-color: #304b6d;
+  background: linear-gradient(145deg, #172b46 0%, #203d61 100%);
+  color: #edf4ff;
+}
+html[data-theme="dark"] .hg-item > .clk-card .clk-greet,
+html[data-theme="dark"] .hg-item > .clk-card .clock { color: #edf4ff; }
+html[data-theme="dark"] .hg-item > .clk-card .clk-greet-sub,
+html[data-theme="dark"] .hg-item > .clk-card .clk-profile-meta,
+html[data-theme="dark"] .hg-item > .clk-card .clk-profile-role { color: #a9bfdc; }
+html[data-theme="dark"] .hg-item > .clk-card .clk-foot {
+  border-color: rgba(255,255,255,.12);
+  background: rgba(255,255,255,.07);
+  color: #b8cbe4;
+}

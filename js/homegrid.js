@@ -26,7 +26,7 @@
    ========================================================================== */
 
 import { api, el, esc, toast, confirmDialog } from './core.js';
-import { state } from './ui.js';
+import { state, icon } from './ui.js';
 import * as cloud from './cloud.js';
 
 export const COLS = 12;
@@ -289,7 +289,12 @@ function paintToolbar() {
   document.body.classList.toggle('hg-edit', editing);
   document.body.classList.toggle('hg-edit-mobile', editing && mobile);
   const btn = document.getElementById('teacher-layout');
-  if (btn) btn.textContent = editing ? '退出编辑' : '编辑布局';
+  if (btn) {
+    btn.innerHTML = `${icon(editing ? 'close' : 'edit', 16)}<span>${editing ? '退出编辑' : '编辑布局'}</span>`;
+    btn.setAttribute('aria-pressed', String(editing));
+    btn.title = editing ? '退出首页布局编辑' : '调整首页卡片位置、大小和显示';
+    btn.classList.toggle('is-active', editing);
+  }
   /* 手机上是单列，拖拽和缩放都没有意义（手柄也藏起来了），
      文案要说清楚这一步能干什么，否则用户会一直找拖拽柄。 */
   const hint = document.querySelector('.hg-tb-hint');
