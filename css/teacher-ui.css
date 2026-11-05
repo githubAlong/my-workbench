@@ -492,3 +492,255 @@ html[data-theme="dark"] .home-card .qi-row { background: var(--bg); border-color
   .att-type-tab { flex-direction:column; gap:4px; padding:9px 4px; font-size:11px; }
   .att-type-icon svg { width:16px; height:16px; }
 }
+
+
+/* ==========================================================================
+   首页精修 · 个人信息 / 天气 / 课程状态 / 日历收起
+   ========================================================================== */
+.main:has(#home-grid) .teacher-toolbar .sb-go {
+  width: 46px;
+  height: 42px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg,#2877f5,#2059dc);
+  box-shadow: 0 5px 12px rgba(37,99,235,.2);
+}
+.main:has(#home-grid) .teacher-toolbar .sb-go svg {
+  width: 19px;
+  height: 19px;
+  stroke-width: 2.5;
+}
+
+/* 个人信息卡：问候、日期、时钟分区，避免窄卡里文字和时间互相挤压 */
+.hg-item > .clk-card {
+  position: relative;
+  gap: 0;
+  padding: 19px 20px 15px;
+  background:
+    radial-gradient(ellipse at 92% 5%,rgba(255,255,255,.88),transparent 42%),
+    linear-gradient(145deg,#edf4ff 0%,#dceaff 54%,#c9ddfb 100%);
+  color: #17365f;
+}
+.hg-item > .clk-card .clk-head {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+}
+.hg-item > .clk-card .clk-hello {
+  flex:1;
+  min-width:0;
+  align-items:center;
+  gap:12px;
+  margin:0;
+}
+.hg-item > .clk-card .clk-hello .ah-btn {
+  width:48px!important;
+  height:48px!important;
+  border:3px solid rgba(255,255,255,.9);
+  box-shadow:0 5px 16px rgba(45,91,160,.16);
+}
+.hg-item > .clk-card .clk-greet {
+  color:#19375e;
+  font-size:clamp(16px,1.25vw,20px);
+  font-weight:800;
+  white-space:normal;
+}
+.hg-item > .clk-card .clk-greet-sub {
+  color:#6782a7;
+  font-size:12px;
+  line-height:1.55;
+  white-space:normal;
+}
+.hg-item > .clk-card #theme-btn {
+  position:static;
+  flex:0 0 auto;
+  margin:-4px -6px 0 0;
+  color:#6c86aa;
+  background:rgba(255,255,255,.48);
+}
+.hg-item > .clk-card .clk-main {
+  display:flex;
+  flex:1;
+  min-height:0;
+  flex-direction:column;
+  justify-content:center;
+  gap:9px;
+  padding:14px 0 8px 60px;
+}
+.hg-item > .clk-card .clock-row {
+  align-items:center;
+  margin:0;
+  gap:8px;
+}
+.hg-item > .clk-card .clock {
+  color:#142f53;
+  font-size:clamp(31px,2.4vw,43px);
+  font-weight:800;
+  letter-spacing:-1.7px;
+}
+.hg-item > .clk-card .clock .sec { color:#5678a8; }
+.hg-item > .clk-card .msg-bell {
+  margin:0;
+  color:#6b85a8;
+  background:rgba(255,255,255,.48);
+}
+.hg-item > .clk-card .clk-date-panel {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+}
+.hg-item > .clk-card .clock-date {
+  margin:0;
+  color:#48698f;
+  font-size:12px;
+}
+.hg-item > .clk-card .wd-badge {
+  border-radius:999px;
+  padding:3px 9px;
+  background:#2768e9;
+  color:#fff;
+  font-size:11px;
+  font-weight:700;
+}
+.hg-item > .clk-card .clk-date-caption {
+  color:#7b92b2;
+  font-size:10.5px;
+}
+.hg-item > .clk-card .clk-foot {
+  margin:0;
+  padding:8px 11px;
+  border:1px solid rgba(255,255,255,.62);
+  border-radius:13px;
+  background:rgba(255,255,255,.48);
+  color:#607da4;
+  font-size:11px;
+}
+.hg-item > .clk-card .clk-foot b { color:#254d80; }
+
+/* 名言作者署名保留，去掉「点喇叭听英文」这类操作说明 */
+.hg-item > .quote .quote-by { gap:0; }
+.hg-item > .quote .quote-by #q-author { color:#8295b0; font-size:11.5px; }
+.hg-item > .quote .quote-by #speak-tip { display:none; }
+
+/* 天气图标本身可点开未来一周，不再把详细天气入口藏在文字里 */
+.wxb-emoji-btn {
+  display:inline-grid;
+  place-items:center;
+  flex:0 0 auto;
+  padding:0;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  cursor:pointer;
+  transition:transform .18s ease,filter .18s ease;
+}
+.wxb-emoji-btn:hover { transform:translateY(-2px) scale(1.08); filter:drop-shadow(0 5px 8px rgba(37,99,235,.18)); }
+.wxb-emoji-btn:focus-visible { outline:3px solid rgba(37,99,235,.28); outline-offset:4px; }
+.hg-item > .wx-card .wxb-emoji { font-size:30px; }
+
+/* 今日课程：三种状态清楚区分，按钮放在每行右侧 */
+#today-courses .course-row {
+  min-height:72px;
+  gap:11px;
+  padding:11px 2px;
+}
+#today-courses .course-bar { align-self:stretch; width:4px; min-height:42px; border-radius:6px; }
+#today-courses .course-time {
+  flex:0 0 55px;
+  font-size:12px;
+  line-height:1.55;
+  font-variant-numeric:tabular-nums;
+}
+#today-courses .course-main { flex:1; min-width:0; }
+#today-courses .course-name { color:#263d5e; font-size:13px; font-weight:750; line-height:1.45; }
+#today-courses .course-meta { display:flex; flex-wrap:wrap; align-items:center; gap:5px 8px; margin-top:5px; }
+#today-courses .course-room { color:#8a9bb4; font-size:11.5px; }
+#today-courses .course-state {
+  display:inline-flex;
+  align-items:center;
+  min-height:19px;
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:10.5px;
+  font-weight:700;
+  white-space:nowrap;
+}
+#today-courses .state-upcoming { color:#4771a7; background:#edf3fb; }
+#today-courses .state-ongoing { color:#137a53; background:#e4f7ee; }
+#today-courses .state-done { color:#8492a6; background:#f0f2f6; }
+#today-courses .course-action {
+  flex:0 0 auto;
+  min-width:78px;
+  min-height:34px;
+  padding:6px 9px;
+  border:1px solid #dce6f5;
+  border-radius:10px;
+  background:#fff;
+  color:#52709a;
+  font-size:11.5px;
+  font-weight:650;
+  white-space:nowrap;
+}
+#today-courses .course-ongoing .course-action {
+  border-color:#ccebdc;
+  background:#f0fbf5;
+  color:#16845b;
+}
+#today-courses .course-done .course-action { color:#687d9a; }
+
+/* 日历：顶部月/周切换用方向图标，底部独立控制整张卡片收起 */
+.cal-collapse-row {
+  display:flex;
+  justify-content:center;
+  padding:9px 0 0;
+  margin-top:auto;
+}
+.cal-collapse-row .btn {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  min-height:30px;
+  padding:5px 12px;
+  border-radius:999px;
+  color:#7186a5;
+  background:#f5f8fd;
+  font-size:11.5px;
+}
+.hg-item[data-hcard="calendar"].is-collapsed {
+  grid-row:auto!important;
+  min-height:0;
+  align-self:start;
+}
+.hg-item[data-hcard="calendar"].is-collapsed > .calendar-card {
+  height:auto;
+  min-height:0;
+  overflow:hidden;
+  padding:14px 18px;
+}
+.hg-item[data-hcard="calendar"].is-collapsed > .calendar-card > :not(.hc-head):not(.cal-collapse-row) {
+  display:none!important;
+}
+.hg-item[data-hcard="calendar"].is-collapsed .hc-head {
+  padding:0;
+}
+.hg-item[data-hcard="calendar"].is-collapsed .cal-collapse-row {
+  padding:5px 0 0;
+}
+.hg-item[data-hcard="calendar"].is-collapsed .cal-collapse-row .btn {
+  padding:2px 9px;
+  min-height:25px;
+}
+
+@media(max-width:1100px) {
+  .hg-item > .clk-card .clk-main { padding-left:0; }
+}
+@media(max-width:780px) {
+  .hg-item > .clk-card { min-height:220px; }
+  .hg-item > .clk-card .clk-main { padding:12px 0 8px; }
+  #today-courses .course-row { gap:7px; }
+  #today-courses .course-time { flex-basis:48px; font-size:11px; }
+  #today-courses .course-action { min-width:70px; padding:5px 7px; font-size:10.5px; }
+}
