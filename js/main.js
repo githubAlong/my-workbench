@@ -22,7 +22,7 @@ import './repairs.js';
 import './me.js';
 import './recycle.js';
 import './alarm.js';
-import { autoSync, hookSave, tryImportFromHash } from './cloudsync.js';
+import { autoSync, hookSave, tryImportFromHash, initializeAccountSync } from './cloudsync.js';
 
 /* 云同步：本地一改就排队上传（内部有防抖）；启动时看一眼云端有没有新数据。
    没绑定云存储时 hookSave 是空操作，autoSync 直接返回，零开销。 */
@@ -58,6 +58,15 @@ await loadAuthConfig();
 const cloudAuth = await import('./cloud.js');
 let cloudSession = cloudAuth.session();
 setActiveAccount(cloudSession?.uid || '');
+if (cloudSession?.uid) {
+  try {
+    await initializeAccountSync();
+  } catch (e) {
+    console.error('[sync] 账户数据初始化失败', e);
+    toast('工作台云端数据读取失败：' + (e.message || e) + '。为防止旧数据覆盖云端，本次不会继续写入。', 'err', 10000);
+    throw e;
+  }
+}
 if (cloudSession?.uid) {
   try {
     /* 导入和同步数据写入当前用户自己的本地命名空间，绝不落进旧的共享库。 */
@@ -113,6 +122,7 @@ try {
   const live = await import('./live.js');
   live.startLiveRefresh();
   live.bindLiveDot();
+  window.addEventListener('wb:snapshot-applied', () => { render().catch((e) => console.warn('[sync] 远端数据刷新失败', e)); });
   rt.syncWithAuth();
   /* 登录框是浮层，登录成功不会重新加载页面，所以这里要主动补一次连接。
      用事件解耦：auth.js 登录/退出后派发 wb:auth-changed，不必反向 import。 */

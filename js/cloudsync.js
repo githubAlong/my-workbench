@@ -126,52 +126,102 @@ function applyRemote(payload) {
   })();
 }
 
-/* ---------------- 对外三个动作 ---------------- */
-
-/* 启动时静默检查：云端新且本地没改 → 自动拉；否则只挂个提醒，不打断 */
-export async function autoSync() {
-  const c = cfg();
-  if (!c || !c.url || !c.anon || !c.syncKey) return;
+/* ---------------- 账户级自动同步 ---------------- */
+const REV_KEY = 'wb_account_revision';
+let _revision = 0, _uid = '', _pending = false, _writing = Promise.resolve(), _retryDelay = 1500, _remoteBound = false;
+function revisionStorageKey(uid) { return REV_KEY + ':' + uid; }
+function writeRevision(uid, value) {
+  _revision = Number(value) || 0;
+  try { localStorage.setItem(revisionStorageKey(uid), String(_revision)); } catch {}
+}
+function safeSnapshot(raw) {
+  const copy = JSON.parse(JSON.stringify(raw || {}));
+  if (copy.meta?.user) delete copy.meta.user.pwd;
+  return copy;
+}
+async function replaceLocalSnapshot(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('云端工作台数据格式不正确');
   try {
-    const remote = await fetchRemote(c);
-    if (!remote) { /* 云端还没有数据，等本地第一次改动时推上去 */ return; }
-    const m = meta();
-    const remoteAt = new Date(remote.updated_at).getTime();
-    const lastPull = m.lastPull ? new Date(m.lastPull).getTime() : 0;
-    if (remoteAt > lastPull) {
-      if (m.localChanged) {
-        toast('云端有新数据，本地也有改动。打开「我的 → 云同步」选择保留哪边', 'warn', 6000);
-        setMeta({ conflict: true });
-      } else {
-        await applyRemote(remote.payload);
-        toast('已同步云端最新数据', 'ok', 2500);
-        setTimeout(() => location.reload(), 900);
-      }
-    }
-  } catch (e) {
-    console.warn('云同步检查失败', e);
-  }
+    const key = 'wb_before_account_sync:' + _uid;
+    const existing = localStorage.getItem(DB_KEY);
+    if (existing && !localStorage.getItem(key)) localStorage.setItem(key, existing);
+  } catch {}
+  localStorage.setItem(DB_KEY, JSON.stringify(payload));
+  const localdb = await import('./localdb.js');
+  localdb.replaceMemFromDisk?.();
 }
-
-/* 手动：上传本地（覆盖云端） */
-export async function pushNow() {
-  const c = cfg();
-  if (!c) throw new Error('还没绑定云存储');
+async function pushSnapshot() {
+  if (!_uid || !_pending) return;
+  const cloud = await import('./cloud.js');
   const raw = localStorage.getItem(DB_KEY);
-  if (!raw) throw new Error('本地没有数据');
-  return pushRemote(c, JSON.parse(raw));
+  if (!raw) throw new Error('本机工作台数据尚未初始化');
+  const saved = await cloud.saveWorkbenchSnapshot(safeSnapshot(JSON.parse(raw)), _revision);
+  writeRevision(_uid, saved.revision);
+  _pending = false;
+  _retryDelay = 1500;
+  window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved', at: saved.updated_at } }));
+  return saved;
 }
-
-/* 手动：下载云端（覆盖本地，先问一句） */
-export async function pullNow() {
-  const c = cfg();
-  if (!c) throw new Error('还没绑定云存储');
-  const remote = await fetchRemote(c);
-  if (!remote) throw new Error('云端还没有数据');
-  const before = localStorage.getItem(DB_KEY);
-  await applyRemote(remote.payload);
-  return { before, at: remote.updated_at };
+export async function initializeAccountSync() {
+  const cloud = await import('./cloud.js');
+  const uid = cloud.session()?.uid || '';
+  if (!uid || uid !== activeAccountId()) return false;
+  _uid = uid;
+  const remote = await cloud.getWorkbenchSnapshot();
+  if (remote?.payload) {
+    await replaceLocalSnapshot(remote.payload);
+    writeRevision(uid, remote.revision);
+    _pending = false;
+  } else {
+    _revision = 0;
+    _pending = true;
+    await pushSnapshot();
+  }
+  bindRemoteSnapshotEvents();
+  window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved' } }));
+  return true;
 }
+export async function refreshAccountSync() {
+  if (!_uid || _uid !== activeAccountId()) return false;
+  const cloud = await import('./cloud.js');
+  const remote = await cloud.getWorkbenchSnapshot();
+  if (!remote?.payload || Number(remote.revision) <= _revision || _pending) return false;
+  await replaceLocalSnapshot(remote.payload);
+  writeRevision(_uid, remote.revision);
+  return true;
+}
+function bindRemoteSnapshotEvents() {
+  if (_remoteBound) return;
+  _remoteBound = true;
+  window.addEventListener('wb:remote', async (ev) => {
+    if (ev.detail?.table !== 'wb_user_data') return;
+    try {
+      if (await refreshAccountSync()) window.dispatchEvent(new Event('wb:snapshot-applied'));
+    } catch (e) {
+      console.warn('[sync] 读取远端更新失败', e);
+      toast('另一台设备的数据更新暂时没拉下来，请检查网络', 'warn', 6000);
+    }
+  });
+}
+export function hookSave() {
+  if (!_uid || _uid !== activeAccountId()) return;
+  _pending = true;
+  window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saving' } }));
+  clearTimeout(_debounce);
+  _debounce = setTimeout(() => {
+    _writing = _writing.then(() => pushSnapshot()).catch((e) => {
+      console.error('[sync] 自动保存失败', e);
+      window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'error', message: e.message } }));
+      toast('自动保存失败：' + (e.message || '网络异常') + '。系统会自动重试，请暂时不要关闭页面。', 'err', 8000);
+      clearTimeout(_debounce);
+      _debounce = setTimeout(() => hookSave(), _retryDelay);
+      _retryDelay = Math.min(30000, _retryDelay * 2);
+    });
+  }, 800);
+}
+export async function autoSync() { return initializeAccountSync(); }
+export async function pushNow() { _pending = true; return pushSnapshot(); }
+export async function pullNow() { return refreshAccountSync(); }
 
 /* ---------------- 链接搬运：不起服务器也能换设备 ----------------
 

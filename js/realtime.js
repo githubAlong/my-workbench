@@ -32,6 +32,7 @@ export const REALTIME_TABLES = [
   'invigilations',
   'attendance_tables',
   'attendance_rows',
+  'wb_user_data',
 ];
 
 function cfg() {
