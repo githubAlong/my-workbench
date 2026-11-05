@@ -585,7 +585,8 @@ function renderHome() {
   const [defaultG1, defaultG2] = greetFor(name);
   const g1 = defaultG1;
   const g2 = defaultG2;
-  const profileMeta = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
+  const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
+  const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
   const todayCourses = d.courses.filter((c) => c.date === d.date);
 
   main.innerHTML = `
@@ -597,7 +598,9 @@ function renderHome() {
     <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close', 15)}</button>
     <button class="sb-go" id="search-go" title="执行搜索" aria-label="执行搜索">${icon('right', 17)}</button>
   </div>
-  <button class="btn soft" id="teacher-layout">编辑布局</button></div>
+  <button class="btn soft teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false">
+    ${icon('edit', 16)}<span>编辑布局</span>
+  </button></div>
   <div class="sr-scrim" id="search-scrim" hidden></div>
   <div class="sr-panel" id="search-result" hidden></div>
 
@@ -608,13 +611,14 @@ function renderHome() {
 
   <!-- 编辑模式的顶部操作栏。显式保存，不做自动保存：
        拖拽是试错型操作，自动保存会把「拖歪了」的中间态也写进账号。 -->
-  <div class="hg-toolbar" id="hg-toolbar" hidden>
+  <div class="hg-toolbar" id="hg-toolbar" role="region" aria-label="首页布局编辑工具" hidden>
+    <span class="hg-tb-title">${icon('grid', 15)}<b>布局编辑</b></span>
     <span class="hg-tb-hint">拖动卡片换位置 · 拖右下角调大小</span>
-    <span style="flex:1"></span>
-    <button class="btn ghost sm" id="hg-manage">卡片管理</button>
-    <button class="btn ghost sm" id="hg-reset">恢复默认</button>
-    <button class="btn ghost sm" id="hg-cancel">取消</button>
-    <button class="btn primary sm" id="hg-save">保存布局</button>
+    <span class="hg-tb-spacer" aria-hidden="true"></span>
+    <button class="btn ghost sm" id="hg-manage" type="button">卡片管理</button>
+    <button class="btn ghost sm" id="hg-reset" type="button">恢复默认</button>
+    <button class="btn ghost sm" id="hg-cancel" type="button">取消</button>
+    <button class="btn primary sm" id="hg-save" type="button">保存布局</button>
   </div>
 
   <!-- 可拖拽区：6 张卡片。位置全部由 data 决定（见 homegrid.js），
@@ -632,7 +636,8 @@ function renderHome() {
             <div class="clk-hello-t">
               <div class="clk-greet" id="greet-line">${esc(g1)}</div>
               <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
-              <div class="clk-profile-meta" id="home-profile-meta">${esc(profileMeta)}</div>
+              <div class="clk-profile-meta" id="home-profile-meta">${esc(profileSchoolSubject)}</div>
+              <div class="clk-profile-role" id="home-profile-role">${esc(profileRole)}</div>
             </div>
           </div>
           <button class="icon-btn sm" id="theme-btn" title="主题外观" aria-label="主题外观">${icon('sun', 17)}</button>
@@ -827,8 +832,11 @@ function startClock() {
       const sub = document.getElementById('greet-sub');
       if (sub) sub.textContent = `${greetIcon()} ${subtitle}`;
       const profile = document.getElementById('home-profile-meta');
-      const profileMeta = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
-      if (profile && profile.textContent !== profileMeta) profile.textContent = profileMeta;
+      const profileRoleEl = document.getElementById('home-profile-role');
+      const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
+      const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
+      if (profile && profile.textContent !== profileSchoolSubject) profile.textContent = profileSchoolSubject;
+      if (profileRoleEl && profileRoleEl.textContent !== profileRole) profileRoleEl.textContent = profileRole;
     }
   };
   paint();
@@ -1181,13 +1189,24 @@ function paintCal() {
   loadDay(calState.selected);
 }
 
+
 async function loadDay(date) {
   const box = document.getElementById('cal-day');
   if (!box) return;
-  box.innerHTML = `<div class="cal-day-head"><span class="cal-day-date">${esc(date)}</span></div><div class="cal-day-empty">正在加载…</div>`;
+  const collapsed = calFoldPref('calendar-day-collapsed') !== '0';
+  box.classList.toggle('is-collapsed', collapsed);
+  box.innerHTML = `${calDayHeaderHTML(date, '…', collapsed)}
+    <div class="cal-day-content"><div class="cal-day-empty">正在加载…</div></div>`;
+  bindCalDayControls(box, date);
+
   const d = await api.get('/calendar/day', { date }).catch(() => null);
   if (!box.isConnected) return;
-  if (!d) { box.innerHTML = '<div class="cal-day-empty">加载失败</div>'; return; }
+  if (!d) {
+    const content = box.querySelector('.cal-day-content');
+    if (content) content.innerHTML = '<div class="cal-day-empty">加载失败</div>';
+    return;
+  }
+
   const evs = [];
   for (const c of d.courses) evs.push({ s: c.start_time, e: c.end_time, k: 'course', title: `${c.class_name} ${c.subject}`, sub: `第${c.period_no}节${c.room ? ' · ' + c.room : ''}`, color: 'var(--teal)' });
   for (const i of d.items) {
@@ -1197,8 +1216,7 @@ async function loadDay(date) {
   for (const g of d.invigilations || []) evs.push({ s: String(g.start_at || '').slice(11, 16), e: String(g.end_at || '').slice(11, 16), k: 'inv', title: `${g.subject} 监考`, sub: `${g.type}${g.place ? ' · ' + g.place : ''}`, color: 'var(--amber)' });
   for (const l of d.lessons || []) evs.push({ s: l.start_time || '', e: l.end_time || '', k: 'lesson', title: `${l.class_name} ${l.content || '已上课'}`, sub: l.progress || '已完成课时', color: 'var(--purple)' });
   evs.sort((a, b) => (a.s || '99').localeCompare(b.s || '99'));
-  const wd = WD_CN[new Date(date + 'T00:00').getDay()];
-  const isToday = date === ymd(new Date());
+
   const rows = evs.map((e) => `<div class="cal-day-row">
       <span class="cal-day-t">${e.s ? esc(e.s + (e.e ? '–' + e.e : '')) : '全天'}</span>
       <span class="cal-day-dot" style="background:${e.color}"></span>
@@ -1207,18 +1225,53 @@ async function loadDay(date) {
         ${e.sub ? `<div class="cal-day-sub">${esc(e.sub)}</div>` : ''}
       </div>
     </div>`).join('');
-  box.innerHTML = `
-    <div class="cal-day-head">
-      <span class="cal-day-date">${mNum(date)}月${Number(date.slice(8, 10))}日</span>
-      <span class="cal-day-wd">${wd}${isToday ? ' · 今天' : ''}</span>
-      <span class="cal-day-count">${evs.length} 项</span>
-      <span style="flex:1"></span>
-      <button class="btn soft sm" data-add-day="${date}" style="padding:4px 10px;font-size:12px">＋ 添加</button>
-    </div>
-    ${evs.length ? `<div class="cal-day-list">${rows}</div>` : `<div class="cal-day-empty">这一天还没有安排<br><span class="tiny">点右上「＋ 添加」记一件事项</span></div>`}`;
-  box.querySelectorAll('[data-add-day]').forEach((b) => { b.onclick = () => editItem(null, date); });
+
+  box.innerHTML = `${calDayHeaderHTML(date, evs.length, collapsed)}
+    <div class="cal-day-content">
+      ${evs.length
+        ? `<div class="cal-day-list">${rows}</div>`
+        : '<div class="cal-day-empty">这一天还没有安排<br><span class="tiny">点右上「＋ 添加」记一件事项</span></div>'}
+    </div>`;
+  box.classList.toggle('is-collapsed', collapsed);
+  bindCalDayControls(box, date);
 }
 
+function calDayHeaderHTML(date, count, collapsed) {
+  const day = new Date(date + 'T00:00');
+  const wd = WD_CN[day.getDay()];
+  const isToday = date === ymd(new Date());
+  const label = Number(date.slice(5, 7)) + '月' + Number(date.slice(8, 10)) + '日';
+  return `<div class="cal-day-head">
+      <span class="cal-day-date">${label}</span>
+      <span class="cal-day-wd">${wd}${isToday ? ' · 今天' : ''}</span>
+      <span class="cal-day-count">${esc(String(count))} 项</span>
+      <span class="cal-day-head-spacer" aria-hidden="true"></span>
+      <button class="btn soft sm" data-add-day="${esc(date)}" type="button" style="padding:4px 10px;font-size:12px">＋ 添加</button>
+      <button class="cal-day-toggle" data-cal-day-toggle type="button"
+        aria-expanded="${String(!collapsed)}"
+        aria-label="${collapsed ? '展开当天安排' : '收起当天安排'}"
+        title="${collapsed ? '展开当天安排' : '收起当天安排'}">
+        ${icon(collapsed ? 'down' : 'up', 13)}<span>${collapsed ? '展开' : '收起'}</span>
+      </button>
+    </div>`;
+}
+
+function bindCalDayControls(box, date) {
+  const add = box.querySelector('[data-add-day]');
+  if (add) add.onclick = () => editItem(null, date);
+
+  const toggle = box.querySelector('[data-cal-day-toggle]');
+  if (!toggle) return;
+  toggle.onclick = () => {
+    const collapsed = !box.classList.contains('is-collapsed');
+    box.classList.toggle('is-collapsed', collapsed);
+    calFoldPref('calendar-day-collapsed', collapsed ? '1' : '0');
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute('aria-label', collapsed ? '展开当天安排' : '收起当天安排');
+    toggle.title = collapsed ? '展开当天安排' : '收起当天安排';
+    toggle.innerHTML = `${icon(collapsed ? 'down' : 'up', 13)}<span>${collapsed ? '展开' : '收起'}</span>`;
+  };
+}
 const mNum = (s) => Number(String(s).slice(5, 7));
 
 /* 消息
