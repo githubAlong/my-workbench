@@ -1168,7 +1168,23 @@ html[data-theme="dark"] .hg-item > .clk-card .clk-profile-role {
 .home-sidebar .nav-sub { border-color:rgba(112,147,183,.28); }
 .home-sidebar .sidebar-foot { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; padding-top:9px; border-top:1px solid rgba(178,202,225,.55); }
 .home-sidebar .sidebar-foot .nav-item { min-height:36px; margin:0; padding:7px 8px; gap:6px; background:rgba(255,255,255,.52); border:1px solid rgba(206,220,236,.7); border-radius:10px; font-size:11.5px; white-space:nowrap; }
-.home-sidebar #side-user { display:none; }
+.home-sidebar .sidebar-foot #side-user {
+  grid-column:1 / -1; display:flex; align-items:center; min-height:48px;
+  margin:0; padding:7px 10px; gap:10px; justify-content:flex-start;
+  border:1px solid rgba(206,220,236,.78); border-radius:10px;
+  background:rgba(255,255,255,.68); color:#405a78;
+}
+.home-sidebar .sidebar-foot #side-user .side-user-avatar {
+  display:grid; place-items:center; flex:0 0 30px; width:30px; height:30px;
+  border:0; border-radius:50%; background:#e0edff; color:#176bd4;
+  font-size:12px; font-weight:750;
+}
+.home-sidebar .sidebar-foot #side-user .side-user-label {
+  display:flex; flex:1; min-width:0; flex-direction:column; gap:2px; line-height:1.25;
+}
+.home-sidebar .sidebar-foot #side-user .side-user-label strong { color:inherit; font-size:12px; font-weight:750; }
+.home-sidebar .sidebar-foot #side-user .side-user-label small { overflow:hidden; color:#71869f; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.home-sidebar .sidebar-foot #side-user.active { color:#176bd4; background:#eaf3ff; border-color:#c9def9; }
 
 .home-redesign-app > .main.home-redesign { width:calc(100% - 296px); max-width:none; min-width:0; margin:0; padding:0 18px 28px; background:radial-gradient(ellipse at 18% 0%,rgba(211,231,249,.6),transparent 38%),#edf5fb; }
 .home-redesign .home-topbar { position:sticky; top:0; z-index:35; display:flex; align-items:center; gap:16px; min-height:62px; margin:0 -18px 14px; padding:10px 22px; background:rgba(255,255,255,.88); border-bottom:1px solid rgba(216,228,240,.9); box-shadow:0 3px 16px rgba(39,77,119,.04); backdrop-filter:blur(18px) saturate(150%); }
