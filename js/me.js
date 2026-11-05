@@ -383,12 +383,12 @@ function readWorkbenchBrand() {
 async function renderWorkbenchSettings(main) {
   main.classList.add('page-me-workbench-settings');
   const current = readWorkbenchBrand();
-  let image = current.image || '';
+  let image = typeof current.image === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(current.image)
+    ? current.image : '';
   const fallbackTitle = '我的工作台';
   const fallbackSubtitle = 'Workbench';
-  const logoMarkup = () => image
-    ? '<img src="' + esc(image) + '" alt="工作台图片">'
-    : '<span>台</span>';
+  // 默认图标与侧栏完全相同；上传后预览和侧栏都读取同一份品牌图片。
+  const logoMarkup = () => '<img src="' + esc(image || './icons/icon-192.png') + '" alt="工作台图标">';
 
   main.innerHTML = mePageHeader('workbench') +
     '<section class="card wb-brand-settings">' +
