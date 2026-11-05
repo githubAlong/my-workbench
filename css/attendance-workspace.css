@@ -473,33 +473,27 @@
 
 
 /* ===== 考勤管理首页：按最终确认稿精修 ===== */
+/* 考勤管理首页单独铺满可用工作区，不受全站舒适宽度限制。 */
+.main:has(.agd-dashboard){width:100%;max-width:none;margin:0}
 .agd-dashboard{
   width:100%;
-  max-width:1440px;
-  margin:0 auto;
-  padding:16px 2px 26px;
+  max-width:none;
+  margin:0;
+  padding:4px 0 26px;
 }
-.agd-crumb{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  margin:0 0 26px;
-  color:#8191aa;
-  font-size:12px;
-  line-height:18px;
-}
-.agd-crumb-home{display:inline-flex;align-items:center;color:#7186a5}
-.agd-crumb>i{color:#b7c3d5;font-style:normal}
-.agd-crumb>b{color:#405675;font-weight:750}
-.agd-header{margin:0 0 32px}
+.agd-header{margin:0 0 24px}
 .agd-actions{gap:12px}
 .agd-manage,.agd-add{height:48px!important;padding:0 19px!important}
-.agd-stats{gap:18px;margin-bottom:32px}
+.agd-stats{gap:18px;margin-bottom:26px}
 .agd-stat{min-height:112px;padding:20px 22px;border-radius:18px}
 .agd-stat>i{width:64px;height:64px;border-radius:18px}
 .agd-section-head{margin-bottom:18px}
 .agd-grade-grid{grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:18px}
+.agd-grade-grid.is-empty{grid-template-columns:minmax(280px,420px)}
+.agd-grade-grid.is-empty .agd-new-card{min-height:176px;padding:20px}
+.agd-grade-grid.is-empty .agd-school-scene{display:none}
 .agd-grade-card,.agd-new-card{min-height:390px;border-radius:20px}
+.agd-grade-grid.is-empty .agd-new-card{min-height:176px}
 .agd-grade-banner{min-height:74px;padding:16px 20px}
 .agd-grade-name{font-size:23px}
 .agd-grade-content{padding:20px 18px 17px}
@@ -523,6 +517,7 @@
   .agd-stat>i{width:42px;height:42px}
   .agd-section-head{margin-bottom:12px}
   .agd-grade-grid{grid-template-columns:1fr;gap:11px}
+  .agd-grade-grid.is-empty{grid-template-columns:minmax(0,1fr)}
   .agd-grade-card,.agd-new-card{min-height:0}
   .agd-grade-banner{min-height:60px;padding:12px 14px}
   .agd-grade-content{padding:14px}
