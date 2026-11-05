@@ -244,6 +244,26 @@ export function extractRosterRowsFromPaddle(items, imageWidth, imageHeight, conf
   );
 }
 
+
+/* 将 Tesseract.js 的 words/bbox 统一转换为表格几何识别器所需的文本框。
+   这样实际浏览器 OCR 与结构识别测试走同一条解析路径。 */
+export function extractRosterRowsFromTesseract(words, imageWidth, imageHeight, config = {}) {
+  const items = (Array.isArray(words) ? words : []).map((word) => {
+    const box = word?.bbox || {};
+    const x0 = Number(box.x0);
+    const y0 = Number(box.y0);
+    const x1 = Number(box.x1);
+    const y1 = Number(box.y1);
+    if (![x0, y0, x1, y1].every(Number.isFinite) || x1 <= x0 || y1 <= y0) return null;
+    return {
+      text: String(word?.text || "").trim(),
+      score: Number(word?.confidence) || 0,
+      poly: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+    };
+  }).filter((item) => item && item.text);
+  return extractRosterRowsFromPaddle(items, imageWidth, imageHeight, config);
+}
+
 export function validateRosterRows(rows, config = {}) {
   const expectedCount = Math.max(1, Number(config.expectedCount) || DEFAULT_ROSTER_EXPECTED_COUNT);
   const list = Array.isArray(rows) ? rows : [];
