@@ -2,7 +2,6 @@ import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_
 import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
 import { syncDay, DAY_SYNC } from './homelayout.js';
 import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud } from './homegrid.js';
-import { load as loadLocalDB } from './localdb.js';
 
 /* ================= 欢迎语 =================
    【第 5 条：按时段问候 + 头像上移】
@@ -47,12 +46,6 @@ function greetIcon() {
 }
 
 const nowHM = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
-function workbenchBrand() {
-  const value = loadLocalDB()?.meta?.workbenchBrand;
-  return value && typeof value === 'object' ? value : {};
-}
-
-
 /* 首页顶栏的头像。这里不复用 me.js 的 avatarHTML（那是 me 模块私有的），
    但渲染逻辑保持一致：有图用图，没图用首字 + 渐变底。多一层 <button> 是为了
    点头像能直接进「我的」——用户习惯把头像当入口。 */
@@ -590,10 +583,9 @@ function renderHome() {
      所以去掉结尾的「老师」再拼。全名只有一个字时退回「老师」，避免「王，上午好」。 */
   const name = nick.replace(/老师$/, '').trim() || '老师';
   const [defaultG1, defaultG2] = greetFor(name);
-  const brand = workbenchBrand();
-  const g1 = brand.title || defaultG1;
-  const g2 = brand.subtitle || defaultG2;
-  const profileMeta = [brand.title ? state.user?.nickname : '', state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
+  const g1 = defaultG1;
+  const g2 = defaultG2;
+  const profileMeta = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
   const todayCourses = d.courses.filter((c) => c.date === d.date);
 
   main.innerHTML = `
@@ -633,7 +625,7 @@ function renderHome() {
       <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
       <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
       <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
-      <section class="card clk-card wb-brand-card">
+      <section class="card clk-card">
         <div class="clk-head">
           <div class="clk-hello">
             ${homeAvatarHTML(52)}
@@ -764,13 +756,6 @@ function renderHome() {
     </div>
 
   </div>`;
-  const brandCard = main.querySelector('.wb-brand-card');
-  if (brandCard && brand.image) {
-    brandCard.style.backgroundImage = 'linear-gradient(100deg, rgba(16,42,88,.84), rgba(16,42,88,.30)), url("' + brand.image + '")';
-    brandCard.classList.add('has-brand-image');
-  }
-
-
   bindHome();
   /* 卡片位置、拖拽、缩放、隐藏全部交给 homegrid。
      renderHome 每次都重建 DOM，所以这里必须每次重挂一次，
@@ -836,16 +821,13 @@ function startClock() {
       lastGreetKey = key;
       const nick = state.user?.nickname || '老师';
       const nm = nick.replace(/老师$/, '').trim() || '老师';
-      const brand = workbenchBrand();
-      const [a, b] = greetFor(nm);
-      const title = brand.title || a;
-      const subtitle = brand.subtitle || b;
+      const [title, subtitle] = greetFor(nm);
       const g = document.getElementById('greet-line');
       if (g && g.textContent !== title) g.textContent = title;
       const sub = document.getElementById('greet-sub');
-      if (sub) sub.textContent = brand.subtitle ? subtitle : `${greetIcon()} ${subtitle}`;
+      if (sub) sub.textContent = `${greetIcon()} ${subtitle}`;
       const profile = document.getElementById('home-profile-meta');
-      const profileMeta = [brand.title ? state.user?.nickname : '', state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
+      const profileMeta = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
       if (profile && profile.textContent !== profileMeta) profile.textContent = profileMeta;
     }
   };
