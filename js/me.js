@@ -86,7 +86,6 @@ async function renderMe(main) {
         msgs.unread ? `<span class="msg-badge">${msgs.unread > 99 ? '99+' : msgs.unread}</span>` : '')}
       ${row('user', '个人信息', needProfile ? '昵称、学校、学科填一下' : '昵称、头像、学校、学科、职务', 'profile')}
       ${row('shield', '账号设置', '管理登录账号和修改密码', 'account-settings')}
-      ${row('sliders', '工作台设置', '修改首页图片、标题和副标题', 'workbench-settings')}
       ${row('sun', '主题外观', `当前：${themeName(state.theme)}`, 'theme', '<span class="tiny muted">共 6 套</span>')}
     </div>
 
@@ -101,7 +100,6 @@ async function renderMe(main) {
     if (a === 'messages') return go('messages');
     if (a === 'profile') return go('profile');
     if (a === 'account-settings') return go('me/account-settings');
-    if (a === 'workbench-settings') return go('me/workbench-settings');
     if (a === 'recycle') return go('recycle');
     if (a === 'theme') return openThemeSheet();
     if (a === 'logout') {
