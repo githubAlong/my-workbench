@@ -543,10 +543,10 @@ function displayLoginAccount(value) {
   const raw = String(value || '').trim();
   if (!raw) return '未设置';
   if (raw.includes('@')) return raw;
-  const digits = raw.replace(/\\D/g, '');
+  const digits = raw.replace(/\D/g, '');
   if (digits.startsWith('0086') && digits.length === 15) return digits.slice(4);
   if (digits.startsWith('86') && digits.length === 13) return digits.slice(2);
-  if (/^1[3-9]\\d{9}$/.test(digits)) return digits;
+  if (/^1[3-9]\d{9}$/.test(digits)) return digits;
   return raw;
 }
 
