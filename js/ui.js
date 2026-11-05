@@ -522,7 +522,8 @@ export async function render() {
   const brandSubtitle = String(brandData.subtitle || '').trim() || 'Workbench';
   const brandImage = typeof brandData.image === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(brandData.image)
     ? brandData.image : '';
-  const brandLogo = brandImage ? '<img src="' + esc(brandImage) + '" alt="" loading="eager">' : '台';
+  // 与「工作台设置」的实时预览共用同一默认图标；未上传自定义图片时也不再显示文字占位。
+  const brandLogo = '<img src="' + esc(brandImage || './icons/icon-192.png') + '" alt="" loading="eager">';
   const pageShell = `<div class="app">
     <aside class="sidebar">
       <div class="brand brand-static" id="side-brand" aria-label="${esc(brandTitle)}">
