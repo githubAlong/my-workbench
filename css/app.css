@@ -3899,3 +3899,29 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   .account-security-art { height:145px; }
   .account-security-caption { font-size:13px; }
 }
+
+
+/* 我的入口统一放在侧栏底部，与底部用户资料入口合并 */
+.sidebar-foot .side-user-entry {
+  display:flex; align-items:center; gap:10px; min-height:56px;
+  margin-top:8px; padding:9px 12px; border-top:1px solid var(--line);
+  border-radius:0 0 11px 11px;
+}
+.side-user-entry .side-user-avatar {
+  width:34px; height:34px; flex:0 0 34px; display:grid; place-items:center;
+  border-radius:50%; background:var(--primary-weak); color:var(--primary);
+  font-size:13px; font-weight:750;
+}
+.side-user-entry .side-user-label {
+  display:flex; flex:1; min-width:0; flex-direction:column; gap:2px; line-height:1.25;
+}
+.side-user-entry .side-user-label strong {
+  color:inherit; font-size:13px; font-weight:700;
+}
+.side-user-entry .side-user-label small {
+  overflow:hidden; color:var(--text-3); font-size:10.5px;
+  text-overflow:ellipsis; white-space:nowrap;
+}
+.side-user-entry.active .side-user-label small {
+  color:color-mix(in srgb,var(--primary) 68%,var(--text-3));
+}
