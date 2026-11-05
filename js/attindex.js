@@ -95,10 +95,6 @@ export async function renderGradeList(box) {
   };
 
   box.innerHTML = `<div class="agl agd-dashboard">
-    <nav class="agd-crumb" aria-label="面包屑导航">
-      <span class="agd-crumb-home">${icon('home', 15)}</span>
-      <span>首页</span><i>›</i><span>工作</span><i>›</i><b>考勤</b>
-    </nav>
     <header class="agd-header">
       <div class="agd-heading">
         <span class="agd-heading-icon">${icon('cal', 27)}</span>
@@ -123,7 +119,7 @@ export async function renderGradeList(box) {
         <div><h3>${icon('grid', 19)} 年级考勤工作区</h3><p>选择年级进入独立工作台，查看当天考勤与历史记录</p></div>
         <span class="agd-date">${dateText(today)}</span>
       </div>
-      <div class="agd-grade-grid">
+      <div class="agd-grade-grid${tabs.length ? '' : ' is-empty'}">
         ${progressList.map(card).join('')}
         <button class="agd-new-card" id="agl-add-card">
           <span class="agd-new-plus">${icon('plus', 25)}</span>
