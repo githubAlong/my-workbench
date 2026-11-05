@@ -3195,7 +3195,7 @@ function rosterPhotoDialog(grade, reload) {
       const subject = String(tr?.querySelector('[data-roster-subject]')?.value ?? row.subject ?? '').trim();
       return { serial: Number(row.serial), name, subject };
     })
-    .filter((item) => /^[\\u3400-\\u9fff]{2,4}$/.test(item.name) && item.subject);
+    .filter((item) => /^[\u3400-\u9fff]{2,4}$/.test(item.name) && item.subject);
 
   const setStatus = (message, type = '') => {
     const node = $('#pstate');
@@ -3219,7 +3219,7 @@ function rosterPhotoDialog(grade, reload) {
     body.querySelectorAll('[data-roster-serial]').forEach((tr) => {
       const name = String(tr.querySelector('[data-roster-name]')?.value || '').trim();
       const subject = String(tr.querySelector('[data-roster-subject]')?.value || '').trim();
-      const ok = /^[\\u3400-\\u9fff]{2,4}$/.test(name) && !!subject;
+      const ok = /^[\u3400-\u9fff]{2,4}$/.test(name) && !!subject;
       const state = tr.querySelector('[data-roster-state]');
       if (state) state.textContent = ok ? '待核对' : '待补全';
       tr.classList.toggle('is-incomplete', !ok);
