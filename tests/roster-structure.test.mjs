@@ -62,9 +62,11 @@ test("能按左右两组的空间位置识别并排序46条记录", () => {
 });
 
 test("漏掉整行时只显示空白待补项，不伪造姓名或学科", () => {
+  const missingY = 100 + 11 * 38;
   const items = fixture46().filter((item) => {
-    const serial = parseRosterSerial(item.text, 46);
-    return serial !== 12;
+    const bounds = item.poly;
+    const centerY = (bounds[0][1] + bounds[2][1]) / 2;
+    return Math.abs(centerY - missingY) > 1;
   });
   const rows = extractRosterRowsFromPaddle(items, 1000, 1100, {
     expectedCount: 46,
