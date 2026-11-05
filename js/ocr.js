@@ -1,8 +1,10 @@
 /*
- * 中文花名册 OCR
- * - Tesseract.js 在浏览器 WebWorker / WASM 中运行，照片本身不上传服务器。
- * - 首次使用需要联网加载识别引擎和 chi_sim 中文模型；模型由 Tesseract 缓存。
- * - 纸质名单经常横拍竖传，先尝试 0/90/180/270 度，再对最佳方向做表格线清理。
+ * 教师花名册 OCR
+ * 使用浏览器端 Tesseract.js 中文模型。照片仅在本机浏览器处理。
+ *
+ * 重要：花名册识别不能以“识别到多少汉字”作为成功标准。
+ * 只有提取到可信的“中文姓名 + 已知学科”组合才会返回名单；
+ * 表头、星期、考勤项目、备注等文字一律不作为教师姓名。
  */
 
 const CDN_OPTIONS = [
@@ -24,11 +26,15 @@ const SUBJECTS = [
   '语文', '数学', '英语', '物理', '化学', '生物',
   '政治', '历史', '地理', '体育', '音乐', '美术', '科学',
 ];
-const SKIP_WORDS = new Set([
+const STOP_WORDS = new Set([
   '姓名', '名字', '学科', '序号', '编号', '教师', '老师',
   '教师名单', '教师名册', '花名册', '合计', '小计', '总计',
-  '备注', '说明', '年级', '班级', '日期', '签到',
+  '备注', '说明', '年级', '班级', '星期', '日期', '签到',
+  '上课', '坐班', '听课', '教研', '请假', '高一', '高二', '高三',
 ]);
+const COMMON_SURNAMES = new Set(Array.from(
+  '赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻柏水窦章云苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳酆鲍史唐费廉岑薛雷贺倪汤滕殷罗毕郝邬安常乐于时傅皮卞齐康伍余元卜顾孟平黄和穆萧尹姚邵湛汪祁毛禹狄米贝明臧计伏成戴谈宋茅庞熊纪舒屈项祝董梁杜阮蓝闵席季麻强贾路娄危江童颜郭梅盛林刁钟徐邱骆高夏蔡田樊胡凌霍虞万支柯管卢莫经房裘干解应宗丁宣邓郁单杭洪包诸左石崔吉龚程嵇邢滑裴陆荣翁荀羊惠甄曲家封芮储靳汲松井段富焦巴牧山谷车侯全班仰秋仲伊宫宁仇甘厉戎祖武符刘景詹束龙叶幸向古易慎戈廖庾终居衡步都耿满弘匡国文寇广东欧司马欧阳上官诸葛夏侯皇甫尉迟公羊公孙慕容令狐钟离宇文长孙司徒司空东方闻人赫连濮阳淳于单于太叔申屠轩辕百里南宫第五',
+));
 
 let libraryPromise = null;
 let workerPromise = null;
@@ -37,11 +43,7 @@ let activeCdn = null;
 let progressHandler = () => {};
 
 function report(message) {
-  try {
-    progressHandler(String(message || '正在识别…'));
-  } catch (_) {
-    // UI 已关闭时不影响 OCR 任务本身
-  }
+  try { progressHandler(String(message || '正在识别…')); } catch (_) {}
 }
 
 function loadScript(url) {
@@ -49,25 +51,17 @@ function loadScript(url) {
     const script = document.createElement('script');
     let settled = false;
     const timer = setTimeout(() => finish(new Error('加载识别组件超时')), 25000);
-
     function finish(error) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       script.onload = null;
       script.onerror = null;
-      if (error) {
-        script.remove();
-        reject(error);
-      } else {
-        resolve();
-      }
+      if (error) { script.remove(); reject(error); } else resolve();
     }
-
     script.src = url;
     script.async = true;
     script.crossOrigin = 'anonymous';
-    script.dataset.wbOcrEngine = 'tesseract';
     script.onload = () => finish();
     script.onerror = () => finish(new Error('识别组件下载失败'));
     document.head.appendChild(script);
@@ -90,37 +84,23 @@ async function loadLibrary() {
             return { api: window.Tesseract, cdn };
           }
           throw new Error('识别组件加载后没有初始化');
-        } catch (error) {
-          lastError = error;
-        }
+        } catch (error) { lastError = error; }
       }
-      throw new Error('OCR 识别组件加载失败，请检查网络后重新识别。' +
-        (lastError && lastError.message ? '（' + lastError.message + '）' : ''));
+      throw new Error('OCR 识别组件加载失败，请检查网络后重试。' + (lastError?.message ? '（' + lastError.message + '）' : ''));
     })();
   }
-  try {
-    return await libraryPromise;
-  } catch (error) {
-    libraryPromise = null;
-    throw error;
-  }
+  try { return await libraryPromise; }
+  catch (error) { libraryPromise = null; throw error; }
 }
 
-function onEngineLog(message) {
+function engineLogger(message) {
   if (!message) return;
   const status = String(message.status || '');
-  const progress = Number.isFinite(message.progress)
-    ? Math.round(message.progress * 100)
-    : 0;
-  if (status.includes('loading tesseract core')) {
-    report('正在加载 OCR 核心…');
-  } else if (status.includes('loading language traineddata')) {
-    report('正在下载中文识别模型…' + (progress ? ' ' + progress + '%' : ''));
-  } else if (status.includes('initializing api')) {
-    report('正在初始化中文识别…');
-  } else if (status.includes('recognizing text')) {
-    report('正在识别照片文字…' + (progress ? ' ' + progress + '%' : ''));
-  }
+  const progress = Number.isFinite(message.progress) ? Math.round(message.progress * 100) : 0;
+  if (status.includes('loading tesseract core')) report('正在加载 OCR 核心…');
+  else if (status.includes('loading language traineddata')) report('正在下载中文模型…' + (progress ? ' ' + progress + '%' : ''));
+  else if (status.includes('initializing api')) report('正在初始化中文识别…');
+  else if (status.includes('recognizing text')) report('正在识别姓名和学科…' + (progress ? ' ' + progress + '%' : ''));
 }
 
 async function getWorker() {
@@ -128,325 +108,316 @@ async function getWorker() {
   if (!workerPromise) {
     workerPromise = (async () => {
       const loaded = await loadLibrary();
-      report('正在准备中文识别模型，首次使用需要下载模型…');
+      report('首次使用需要准备中文识别模型…');
       worker = await loaded.api.createWorker('chi_sim+eng', 1, {
         workerPath: loaded.cdn.worker,
         corePath: loaded.cdn.core,
         langPath: LANG_PATH,
         gzip: true,
         cacheMethod: 'write',
-        logger: onEngineLog,
+        logger: engineLogger,
       });
       return worker;
     })();
   }
-  try {
-    return await workerPromise;
-  } catch (error) {
-    workerPromise = null;
-    worker = null;
-    throw error;
-  }
+  try { return await workerPromise; }
+  catch (error) { workerPromise = null; worker = null; throw error; }
 }
 
-function imageDimensions(image) {
-  return {
-    width: image.naturalWidth || image.width,
-    height: image.naturalHeight || image.height,
-  };
+function dimensions(image) {
+  return { width: image.naturalWidth || image.width, height: image.naturalHeight || image.height };
 }
 
 async function decodeImage(file) {
   if (typeof createImageBitmap === 'function') {
-    try {
-      return await createImageBitmap(file);
-    } catch (_) {
-      // Safari 某些图片格式回退到 HTMLImageElement
-    }
+    try { return await createImageBitmap(file); } catch (_) {}
   }
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const image = new Image();
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('照片无法读取，请换一张 JPG 或 PNG 图片'));
-    };
+    image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+    image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('照片无法读取，请换一张 JPG 或 PNG 图片')); };
     image.src = url;
   });
 }
 
 function makeCanvas(image, rotation, maxEdge) {
-  const size = imageDimensions(image);
-  const sourceWidth = size.width;
-  const sourceHeight = size.height;
-  if (!sourceWidth || !sourceHeight) throw new Error('照片尺寸无效');
-
+  const size = dimensions(image);
+  const sw = size.width, sh = size.height;
+  if (!sw || !sh) throw new Error('照片尺寸无效');
   const swap = rotation === 90 || rotation === 270;
-  const targetWidth = swap ? sourceHeight : sourceWidth;
-  const targetHeight = swap ? sourceWidth : sourceHeight;
-  const scale = Math.min(2, maxEdge / Math.max(targetWidth, targetHeight));
-  const width = Math.max(1, Math.round(targetWidth * scale));
-  const height = Math.max(1, Math.round(targetHeight * scale));
+  const ow = swap ? sh : sw;
+  const oh = swap ? sw : sh;
+  const scale = Math.min(4, maxEdge / Math.max(ow, oh));
+  const width = Math.max(1, Math.round(ow * scale));
+  const height = Math.max(1, Math.round(oh * scale));
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('浏览器无法处理这张照片');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, width, height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.translate(width / 2, height / 2);
+  ctx.rotate(rotation * Math.PI / 180);
+  ctx.drawImage(image, -sw * scale / 2, -sh * scale / 2, sw * scale, sh * scale);
 
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) throw new Error('浏览器无法处理这张照片');
-  context.fillStyle = '#fff';
-  context.fillRect(0, 0, width, height);
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = 'high';
-  context.translate(width / 2, height / 2);
-  context.rotate(rotation * Math.PI / 180);
-  context.drawImage(
-    image,
-    -sourceWidth * scale / 2,
-    -sourceHeight * scale / 2,
-    sourceWidth * scale,
-    sourceHeight * scale,
-  );
-
-  // 灰度 + 适度拉高对比度，尽量压低纸张阴影，同时保留细笔画。
-  const pixels = context.getImageData(0, 0, width, height);
+  // 轻度灰度与对比度增强；不过度二值化，避免细小汉字笔画消失。
+  const pixels = ctx.getImageData(0, 0, width, height);
   const data = pixels.data;
   for (let i = 0; i < data.length; i += 4) {
-    let gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-    gray = Math.max(0, Math.min(255, (gray - 150) * 1.45 + 150));
-    data[i] = gray;
-    data[i + 1] = gray;
-    data[i + 2] = gray;
+    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    const value = Math.max(0, Math.min(255, (gray - 128) * 1.25 + 128));
+    data[i] = value;
+    data[i + 1] = value;
+    data[i + 2] = value;
     data[i + 3] = 255;
   }
-  context.putImageData(pixels, 0, 0);
+  ctx.putImageData(pixels, 0, 0);
   return canvas;
 }
 
-function removeLongTableLines(canvas) {
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) return canvas;
-  const width = canvas.width;
-  const height = canvas.height;
-  const pixels = context.getImageData(0, 0, width, height);
-  const data = pixels.data;
-  const horizontal = new Uint8Array(height);
-  const vertical = new Uint8Array(width);
-  const threshold = 160;
+function removeTableLines(source) {
+  const canvas = document.createElement('canvas');
+  canvas.width = source.width;
+  canvas.height = source.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(source, 0, 0);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const { data } = image;
+  const w = canvas.width, h = canvas.height;
+  const dark = 155;
+  const hLines = new Uint8Array(h);
+  const vLines = new Uint8Array(w);
 
-  // 只删除长直线，避免把普通汉字笔画误判成表格线。
-  for (let y = 0; y < height; y += 1) {
-    let run = 0;
-    let longest = 0;
-    for (let x = 0; x < width; x += 1) {
-      if (data[(y * width + x) * 4] < threshold) {
-        run += 1;
-        if (run > longest) longest = run;
-      } else {
-        run = 0;
-      }
+  for (let y = 0; y < h; y += 1) {
+    let run = 0, longest = 0;
+    for (let x = 0; x < w; x += 1) {
+      if (data[(y * w + x) * 4] < dark) { run += 1; longest = Math.max(longest, run); }
+      else run = 0;
     }
-    if (longest >= Math.max(70, width * 0.28)) horizontal[y] = 1;
+    if (longest > w * 0.34) hLines[y] = 1;
   }
-
-  for (let x = 0; x < width; x += 1) {
-    let run = 0;
-    let longest = 0;
-    for (let y = 0; y < height; y += 1) {
-      if (data[(y * width + x) * 4] < threshold) {
-        run += 1;
-        if (run > longest) longest = run;
-      } else {
-        run = 0;
-      }
+  for (let x = 0; x < w; x += 1) {
+    let run = 0, longest = 0;
+    for (let y = 0; y < h; y += 1) {
+      if (data[(y * w + x) * 4] < dark) { run += 1; longest = Math.max(longest, run); }
+      else run = 0;
     }
-    if (longest >= Math.max(70, height * 0.28)) vertical[x] = 1;
+    if (longest > h * 0.34) vLines[x] = 1;
   }
 
-  const hMask = horizontal.slice();
-  const vMask = vertical.slice();
-  for (let y = 0; y < height; y += 1) {
-    if (horizontal[y]) {
-      if (y > 0) hMask[y - 1] = 1;
-      if (y + 1 < height) hMask[y + 1] = 1;
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      if (!hLines[y] && !vLines[x]) continue;
+      const i = (y * w + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = 255;
     }
   }
-  for (let x = 0; x < width; x += 1) {
-    if (vertical[x]) {
-      if (x > 0) vMask[x - 1] = 1;
-      if (x + 1 < width) vMask[x + 1] = 1;
-    }
-  }
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      if (!hMask[y] && !vMask[x]) continue;
-      const i = (y * width + x) * 4;
-      data[i] = 255;
-      data[i + 1] = 255;
-      data[i + 2] = 255;
-      data[i + 3] = 255;
-    }
-  }
-  context.putImageData(pixels, 0, 0);
+  ctx.putImageData(image, 0, 0);
   return canvas;
 }
 
-function scoreResult(data) {
-  const text = String(data && data.text || '');
-  const han = (text.match(/[\u3400-\u9fff]/g) || []).length;
-  const words = text.split(/\s+/).filter(Boolean).length;
-  const lines = text.split(/\n/).filter((line) => line.trim()).length;
-  const confidence = Number(data && data.confidence) || 0;
-  return confidence + Math.min(han, 120) * 0.65
-    + Math.min(words, 60) * 0.12 + Math.min(lines, 40) * 0.2;
+function chinese(value) {
+  return String(value || '').replace(/[^\u3400-\u9fff]/g, '');
 }
 
-function isNameToken(token) {
-  const value = String(token || '').replace(/[^\u3400-\u9fff]/g, '');
-  if (value.length < 2 || value.length > 4) return false;
-  if (SKIP_WORDS.has(value) || SUBJECTS.includes(value)) return false;
-  return true;
+function validName(value) {
+  const name = chinese(value);
+  if (name.length < 2 || name.length > 4 || STOP_WORDS.has(name)) return false;
+  if (SUBJECTS.includes(name)) return false;
+  if (name.length === 4) {
+    return ['欧阳', '司马', '上官', '诸葛', '夏侯', '皇甫', '尉迟', '公羊', '公孙', '慕容', '令狐', '钟离', '宇文', '长孙', '司徒', '司空', '东方', '赫连', '濮阳', '淳于', '单于', '太叔', '申屠', '轩辕', '百里', '南宫', '第五'].some((s) => name.startsWith(s));
+  }
+  return COMMON_SURNAMES.has(name[0]);
 }
 
-function normalizeRosterText(rawText) {
-  const rawLines = String(rawText || '').replace(/\r/g, '\n').split('\n');
+function subjectAt(text) {
+  const ordered = [...SUBJECTS].sort((a, b) => b.length - a.length);
+  for (const subject of ordered) {
+    const index = text.indexOf(subject);
+    if (index >= 0) return { subject, index };
+  }
+  return null;
+}
+
+function candidateName(text) {
+  const cleaned = String(text || '')
+    .replace(/[0-9０-９一二三四五六七八九十、，,。.:：;；|｜\[\]【】()（）]/g, '')
+    .replace(/(高一|高二|高三|教师|老师|姓名|名字|学科|年级|班级|序号|编号|名单|花名册)/g, '');
+  const value = chinese(cleaned);
+  if (validName(value)) return value;
+  for (let len = 4; len >= 2; len -= 1) {
+    const tail = value.slice(-len);
+    if (validName(tail)) return tail;
+  }
+  return '';
+}
+
+function extractPairs(data) {
   const output = [];
   const seen = new Set();
-
-  const add = (value) => {
-    const line = String(value || '').replace(/\s+/g, ' ').trim();
-    if (!line || seen.has(line)) return;
-    seen.add(line);
-    output.push(line);
+  const add = (name, subject, confidence = 0) => {
+    const key = name + ' ' + subject;
+    if (!name || !subject || seen.has(key)) return;
+    if (confidence < 18) return;
+    seen.add(key);
+    output.push({ name, subject, confidence });
   };
 
-  for (const rawLine of rawLines) {
-    const line = rawLine.replace(/[|｜¦]+/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!line) continue;
-    const tokens = line.split(' ').map((token) => token.trim()).filter(Boolean);
-    const pairs = [];
+  const lines = Array.isArray(data?.lines) && data.lines.length
+    ? data.lines.map((line) => ({
+        text: line.text || (line.words || []).map((word) => word.text).join(' '),
+        words: line.words || [],
+      }))
+    : String(data?.text || '').split(/\r?\n/).map((text) => ({ text, words: [] }));
 
-    for (let i = 0; i < tokens.length; i += 1) {
-      const subject = SUBJECTS.find((item) => tokens[i].includes(item));
-      if (!subject) continue;
-      let name = '';
-      for (let j = i - 1; j >= 0; j -= 1) {
-        if (isNameToken(tokens[j])) { name = tokens[j].replace(/[^\u3400-\u9fff]/g, ''); break; }
+  for (const line of lines) {
+    const text = String(line.text || '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const words = (line.words || []).map((word) => ({
+      text: String(word.text || '').trim(),
+      confidence: Number(word.confidence) || Number(data?.confidence) || 0,
+    })).filter((word) => word.text && word.confidence >= 18);
+
+    // 首选同一 OCR 行中的姓名/学科配对，避免把表头或其他列拼成姓名。
+    const matches = [];
+    for (const subject of [...SUBJECTS].sort((a, b) => b.length - a.length)) {
+      let at = text.indexOf(subject);
+      while (at >= 0) {
+        const before = text.slice(0, at);
+        const after = text.slice(at + subject.length);
+        const beforeTokens = before.split(/[\s,，、|｜:：;；]+/).filter(Boolean);
+        const afterTokens = after.split(/[\s,，、|｜:：;；]+/).filter(Boolean);
+        let name = '';
+        for (let i = beforeTokens.length - 1; i >= 0 && !name; i -= 1) name = candidateName(beforeTokens[i]);
+        if (!name) {
+          for (let i = 0; i < afterTokens.length && !name; i += 1) name = candidateName(afterTokens[i]);
+        }
+        if (!name) {
+          const left = candidateName(before);
+          const right = candidateName(after);
+          name = left || right;
+        }
+        if (name) matches.push({ name, subject });
+        at = text.indexOf(subject, at + subject.length);
       }
-      if (!name && i + 1 < tokens.length && isNameToken(tokens[i + 1])) {
-        name = tokens[i + 1].replace(/[^\u3400-\u9fff]/g, '');
-      }
-      if (name) pairs.push(name + ' ' + subject);
     }
-
-    if (pairs.length) {
-      pairs.forEach(add);
-      continue;
-    }
-
-    // 识别结果没有明确学科列时，保留疑似姓名，一人一行，学科留空待核对。
-    const names = tokens
-      .map((token) => token.replace(/[^\u3400-\u9fff]/g, ''))
-      .filter(isNameToken);
-    if (names.length) {
-      names.forEach(add);
-      continue;
-    }
-
-    const hanCount = (line.match(/[\u3400-\u9fff]/g) || []).length;
-    if (hanCount >= 2 && !SKIP_WORDS.has(line)) add(line);
+    matches.forEach((pair) => {
+      const wordConfidence = words.length
+        ? Math.max(...words.map((word) => word.confidence))
+        : Number(data?.confidence) || 0;
+      add(pair.name, pair.subject, wordConfidence);
+    });
   }
 
-  return output.join('\n');
+  // 备用：Tesseract 将姓名和学科分成相邻单词时，按同一行的词序配对。
+  if (!output.length) {
+    for (const line of lines) {
+      const tokens = (line.words || []).map((word) => String(word.text || '').trim()).filter(Boolean);
+      for (let i = 0; i < tokens.length; i += 1) {
+        const subject = SUBJECTS.find((item) => tokens[i].includes(item));
+        if (!subject) continue;
+        let name = '';
+        for (let j = i - 1; j >= 0 && !name; j -= 1) name = candidateName(tokens[j]);
+        if (!name) {
+          for (let j = i + 1; j < tokens.length && !name; j += 1) name = candidateName(tokens[j]);
+        }
+        const confidence = Number(data?.confidence) || 0;
+        add(name, subject, confidence);
+      }
+    }
+  }
+  return output;
 }
 
-export async function recognizeRosterPhoto(file, onProgress = () => {}) {
-  if (!file || !String(file.type || '').startsWith('image/')) {
-    throw new Error('请选择 JPG、PNG 或 WebP 照片');
-  }
-  if (file.size > 30 * 1024 * 1024) {
-    throw new Error('照片超过 30MB，请先压缩后再识别');
-  }
+function scoreData(data) {
+  const pairs = extractPairs(data);
+  const confidence = Number(data?.confidence) || 0;
+  const subjectHits = SUBJECTS.reduce((count, subject) => count + (String(data?.text || '').includes(subject) ? 1 : 0), 0);
+  return { pairs, confidence, score: pairs.length * 100 + subjectHits * 8 + confidence * 0.12 };
+}
+
+export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRotation = null) {
+  if (!file || !String(file.type || '').startsWith('image/')) throw new Error('请选择 JPG、PNG 或 WebP 照片');
+  if (file.size > 30 * 1024 * 1024) throw new Error('照片超过 30MB，请先压缩后再识别');
 
   progressHandler = typeof onProgress === 'function' ? onProgress : () => {};
   let image = null;
+  const canvases = [];
   try {
     image = await decodeImage(file);
+    const size = dimensions(image);
+    if (Math.min(size.width, size.height) < 360) {
+      throw new Error('照片分辨率太低。请上传手机相册中的原始照片，不要上传聊天软件压缩图或页面截图。');
+    }
     const ocrWorker = await getWorker();
-    const rotations = [0, 90, 180, 270];
-    const candidates = [];
+    const rotations = forcedRotation === null ? [0, 90, 180, 270] : [((Number(forcedRotation) % 360) + 360) % 360];
+    const orientationResults = [];
 
     for (let i = 0; i < rotations.length; i += 1) {
       const rotation = rotations[i];
-      report('正在自动校正照片方向（' + (i + 1) + '/4）…');
-      const canvas = makeCanvas(image, rotation, 1450);
+      report(rotations.length > 1 ? '正在检查照片方向（' + (i + 1) + '/4）…' : '正在按当前方向重新识别…');
+      const canvas = makeCanvas(image, rotation, 1700);
+      canvases.push(canvas);
       await ocrWorker.setParameters({
         tessedit_pageseg_mode: '11',
         preserve_interword_spaces: '1',
       });
       const result = await ocrWorker.recognize(canvas);
-      candidates.push({
-        rotation,
-        data: result.data,
-        score: scoreResult(result.data),
-      });
-      canvas.width = 0;
-      canvas.height = 0;
+      const scored = scoreData(result.data);
+      orientationResults.push({ rotation, data: result.data, ...scored });
     }
 
-    candidates.sort((a, b) => b.score - a.score);
-    const best = candidates[0];
-    report('已校正照片方向，正在精细识别姓名和学科…');
+    orientationResults.sort((a, b) => b.score - a.score);
+    const best = orientationResults[0];
+    if (!best || best.pairs.length < 2) {
+      throw new Error('这张照片暂时无法可靠提取出“姓名＋学科”组合。当前画面中的表头和考勤项目不能当作教师名单。请上传原始高清照片，尽量只拍姓名、学科两列；也可以手动旋转后重新识别。');
+    }
 
-    const rawCanvas = makeCanvas(image, best.rotation, 2500);
-    const cleanCanvas = document.createElement('canvas');
-    cleanCanvas.width = rawCanvas.width;
-    cleanCanvas.height = rawCanvas.height;
-    const cleanContext = cleanCanvas.getContext('2d', { willReadFrequently: true });
-    cleanContext.drawImage(rawCanvas, 0, 0);
-    removeLongTableLines(cleanCanvas);
-
+    report('已找到姓名和学科线索，正在进行二次校验…');
+    const rawCanvas = makeCanvas(image, best.rotation, 2800);
+    canvases.push(rawCanvas);
+    const cleanCanvas = removeTableLines(rawCanvas);
+    canvases.push(cleanCanvas);
     const finalResults = [];
-    await ocrWorker.setParameters({
-      tessedit_pageseg_mode: '6',
-      preserve_interword_spaces: '1',
-    });
-    const rawResult = await ocrWorker.recognize(rawCanvas);
-    finalResults.push({ data: rawResult.data, score: scoreResult(rawResult.data) });
+
+    for (const mode of ['6', '11']) {
+      await ocrWorker.setParameters({
+        tessedit_pageseg_mode: mode,
+        preserve_interword_spaces: '1',
+      });
+      const result = await ocrWorker.recognize(rawCanvas);
+      finalResults.push({ data: result.data, ...scoreData(result.data) });
+    }
 
     await ocrWorker.setParameters({
       tessedit_pageseg_mode: '11',
       preserve_interword_spaces: '1',
     });
     const cleanResult = await ocrWorker.recognize(cleanCanvas);
-    finalResults.push({ data: cleanResult.data, score: scoreResult(cleanResult.data) });
+    finalResults.push({ data: cleanResult.data, ...scoreData(cleanResult.data) });
+    finalResults.push(best);
+    finalResults.sort((a, b) => b.pairs.length - a.pairs.length || b.score - a.score);
 
-    finalResults.push({ data: best.data, score: best.score });
-    finalResults.sort((a, b) => b.score - a.score);
-
-    rawCanvas.width = 0;
-    rawCanvas.height = 0;
-    cleanCanvas.width = 0;
-    cleanCanvas.height = 0;
-
-    const selected = finalResults[0].data;
-    const text = normalizeRosterText(selected && selected.text);
-    if (!text) {
-      throw new Error('识别引擎已运行，但没有提取到可用中文姓名。请把纸张放平、靠近拍摄并避免反光，再试一次');
+    const selected = finalResults[0];
+    const pairs = selected.pairs;
+    if (pairs.length < 2) {
+      throw new Error('二次校验没有找到足够可靠的教师姓名。请换用更清晰的原始照片，确保姓名和学科列完整入镜。');
     }
-
-    report('识别完成，请核对姓名和学科…');
+    const text = pairs.map((pair) => pair.name + ' ' + pair.subject).join('\n');
+    report('识别完成，已通过姓名和学科校验。');
     return {
       text,
       rotation: best.rotation,
-      confidence: Math.round(Number(selected && selected.confidence) || 0),
-      count: text.split('\n').filter(Boolean).length,
+      confidence: Math.round(selected.confidence),
+      count: pairs.length,
+      pairs: pairs.map(({ name, subject }) => ({ name, subject })),
     };
   } finally {
+    canvases.forEach((canvas) => { canvas.width = 0; canvas.height = 0; });
     if (image && typeof image.close === 'function') image.close();
     progressHandler = () => {};
   }
