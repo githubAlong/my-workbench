@@ -674,10 +674,7 @@ function renderHome() {
           <button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak', 15)}</button>
         </div>
         <div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div>
-        <div class="quote-by">
-          <span id="q-author">— ${esc(d.quote.author || '')}</span>
-          
-        </div>
+
       </section>
     </div>
 
