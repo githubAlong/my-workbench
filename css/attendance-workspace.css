@@ -377,3 +377,62 @@
  .att-work-meta-controls .att-work-date label input{flex:0 0 18px}
  .att-work-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+
+/* ===== 考勤管理首页：按最终确认稿精修 ===== */
+.agd-dashboard{
+  width:100%;
+  max-width:1440px;
+  margin:0 auto;
+  padding:16px 2px 26px;
+}
+.agd-crumb{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:0 0 26px;
+  color:#8191aa;
+  font-size:12px;
+  line-height:18px;
+}
+.agd-crumb-home{display:inline-flex;align-items:center;color:#7186a5}
+.agd-crumb>i{color:#b7c3d5;font-style:normal}
+.agd-crumb>b{color:#405675;font-weight:750}
+.agd-header{margin:0 0 32px}
+.agd-actions{gap:12px}
+.agd-manage,.agd-add{height:48px!important;padding:0 19px!important}
+.agd-stats{gap:18px;margin-bottom:32px}
+.agd-stat{min-height:112px;padding:20px 22px;border-radius:18px}
+.agd-stat>i{width:64px;height:64px;border-radius:18px}
+.agd-section-head{margin-bottom:18px}
+.agd-grade-grid{grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:18px}
+.agd-grade-card,.agd-new-card{min-height:390px;border-radius:20px}
+.agd-grade-banner{min-height:74px;padding:16px 20px}
+.agd-grade-name{font-size:23px}
+.agd-grade-content{padding:20px 18px 17px}
+.agd-grade-meta{font-size:13px}
+.agd-grade-meta>b{font-size:23px}
+.agd-progress{margin-top:16px}
+.agd-sheet-grid{gap:10px;margin-top:19px}
+.agd-sheet{min-height:94px}
+.agd-grade-foot{padding-top:16px}
+.agd-new-card{gap:14px}
+.agd-new-plus{width:64px;height:64px}
+
+@media(max-width:680px){
+  .agd-dashboard{padding:8px 0 18px}
+  .agd-crumb{gap:7px;margin-bottom:18px;font-size:11px}
+  .agd-header{gap:14px;margin-bottom:18px}
+  .agd-actions{gap:7px}
+  .agd-manage,.agd-add{height:38px!important;padding:0 11px!important}
+  .agd-stats{gap:8px;margin-bottom:22px}
+  .agd-stat{min-height:78px;padding:11px}
+  .agd-stat>i{width:42px;height:42px}
+  .agd-section-head{margin-bottom:12px}
+  .agd-grade-grid{grid-template-columns:1fr;gap:11px}
+  .agd-grade-card,.agd-new-card{min-height:0}
+  .agd-grade-banner{min-height:60px;padding:12px 14px}
+  .agd-grade-content{padding:14px}
+  .agd-sheet{min-height:78px}
+  .agd-new-card{min-height:185px}
+}
