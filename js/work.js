@@ -140,7 +140,7 @@ registerView(async function work(main, { tab, third }) {
     /* PRD 第 4 节：两级。第三段是年级（#/work/attendance/高一），
        没有第三段就是年级列表页。中文要解码，URL 里是 %E9%AB%98%E4%B8%80。 */
     const grade = third ? decodeURIComponent(third) : '';
-    if (grade) headEl.innerHTML = pageHead(`考勤 · ${grade}`, '今日三张表：坐班 / 教研 / 上课，补齐后确认才生效');
+    if (grade) headEl.innerHTML = pageHead('考勤管理', '按年级独立管理坐班、教研与上课记录；完成后人工确认生效');
     return renderAttendance(body, { grade });
   }
   if (t === 'invigilation') return renderInvigilation(body);
