@@ -22,7 +22,7 @@ import './repairs.js';
 import './me.js';
 import './recycle.js';
 import './alarm.js';
-import { autoSync, hookSave, tryImportFromHash, initializeAccountSync, pushNow } from './cloudsync.js';
+import { hookSave, tryImportFromHash, initializeAccountSync, pushNow } from './cloudsync.js';
 
 /* 云同步：本地一改就排队上传（内部有防抖）；启动时看一眼云端有没有新数据。
    没绑定云存储时 hookSave 是空操作，autoSync 直接返回，零开销。 */
