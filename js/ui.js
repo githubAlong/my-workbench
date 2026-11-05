@@ -72,6 +72,7 @@ const I = {
   gift: '<rect x="4" y="10" width="16" height="10.5" rx="2"/><path d="M3 10h18v3.5H3z"/><path d="M12 10v10.5"/><path d="M12 10c-1.2 0-4-1-4-3a2 2 0 0 1 4 0c0 2-2.8 3-4 3z"/><path d="M12 10c1.2 0 4-1 4-3a2 2 0 0 0-4 0c0 2 2.8 3 4 3z"/>',
   dice: '<rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="15" r="1.3" fill="currentColor" stroke="none"/>',
   /* 在现有的图标里加上这一行 */
+  sliders: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h9M17 18h3"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="18" r="2"/>',
   star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2-6.2 3.2 1.2-6.8-5-4.9 6.9-1z"/>',
 };
 export function icon(name, size = 20, cls = '') {
