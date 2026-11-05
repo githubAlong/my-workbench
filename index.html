@@ -73,8 +73,8 @@
     t2 = setTimeout(function () {
       if (rendered()) return;
       box('页面没能加载出来<br>多半是网络卡了一下，或者浏览器里存着旧版本。', true);
-      /* 自动再试一次：很多情况是第一次请求超时，重试就通了 */
-      if (!tried && navigator.onLine) { tried = 1; setTimeout(function () { location.reload(); }, 1200); }
+      /* 不要自动刷新：云端超时期间刷新会重复触发账户初始化请求，
+         造成请求风暴。让用户手动点击重试，避免放大 Supabase 压力。 */
     }, 12000);
     /* main.js 自己跑通了会调用 window.__wbBooted */
     window.addEventListener('load', function () {
