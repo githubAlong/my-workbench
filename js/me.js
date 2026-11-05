@@ -522,10 +522,32 @@ function meSectionTabs(active) {
     </div>`;
 }
 
+function mePageHeader(active) {
+  return `
+    <div class="me-page-toolbar">
+      <button type="button" class="me-back-home" id="me-back-home">
+        <span aria-hidden="true">←</span> 返回主页面
+      </button>
+    </div>` + pageHead('我的', '管理个人资料与账号安全') + meSectionTabs(active);
+}
+
 function bindMeSectionTabs(main) {
+  const back = main.querySelector('#me-back-home');
+  if (back) back.onclick = () => go('home');
   main.querySelectorAll('[data-me-tab]').forEach((button) => {
     button.onclick = () => go(button.dataset.meTab === 'account' ? 'me/account-settings' : 'profile');
   });
+}
+
+function displayLoginAccount(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '未设置';
+  if (raw.includes('@')) return raw;
+  const digits = raw.replace(/\\D/g, '');
+  if (digits.startsWith('0086') && digits.length === 15) return digits.slice(4);
+  if (digits.startsWith('86') && digits.length === 13) return digits.slice(2);
+  if (/^1[3-9]\\d{9}$/.test(digits)) return digits;
+  return raw;
 }
 
 /* ================= 个人信息页 ================= */
@@ -543,106 +565,73 @@ async function renderProfile(main) {
   const session = cloud.session() || {};
   const account = u.account || session.phone || session.email || '未设置';
 
-  main.innerHTML = pageHead('我的', '管理个人资料与账号安全') + meSectionTabs('profile') + `
-    <div class="profile-layout">
-      <section class="card profile-shell">
-        <header class="profile-banner">
-          <div class="profile-banner-content">
-            <button id="p-avatar" class="profile-avatar-btn" type="button" title="更换头像">
-              ${avatarHTML(u, 92, 'profile-avatar-image', true)}
-              <span class="pa-tip">${icon('camera', 14)}</span>
-            </button>
-            <div class="profile-banner-info">
-              <div class="profile-banner-name" id="profile-banner-name">${esc(bannerName)}</div>
-              <div class="profile-banner-meta" id="profile-banner-meta">${esc(bannerMeta)}</div>
-              <div class="profile-banner-hint">教师个人资料 · 仅用于工作台内展示</div>
-            </div>
-          </div>
-        </header>
-
-        <div class="profile-content">
-          <div class="profile-section-title"><span></span>基本信息</div>
-          <div class="profile-fields">
-            <div class="field">
-              <label class="field-label" for="f-nickname">姓名 <b class="required-mark">*</b></label>
-              <input class="input" id="f-nickname" maxlength="20" value="${uv('nickname')}" placeholder="请输入姓名">
-            </div>
-            <div class="field">
-              <label class="field-label" for="f-gender">性别</label>
-              <select class="input" id="f-gender">
-                <option value="" ${!valueOf('gender') ? 'selected' : ''}>请选择</option>
-                <option value="男" ${valueOf('gender') === '男' ? 'selected' : ''}>男</option>
-                <option value="女" ${valueOf('gender') === '女' ? 'selected' : ''}>女</option>
-                <option value="其他" ${valueOf('gender') === '其他' ? 'selected' : ''}>其他</option>
-              </select>
-            </div>
-            <div class="field">
-              <label class="field-label" for="f-contact_phone">联系电话</label>
-              <input class="input" id="f-contact_phone" type="tel" maxlength="24" value="${uv('contact_phone') || uv('phone')}" placeholder="请输入联系电话">
-            </div>
-            <div class="field">
-              <label class="field-label" for="f-email">邮箱</label>
-              <input class="input" id="f-email" type="email" maxlength="80" value="${uv('email')}" placeholder="请输入邮箱地址">
-            </div>
-            <div class="field">
-              <label class="field-label" for="f-subject">学科</label>
-              <input class="input" id="f-subject" maxlength="20" value="${uv('subject')}" placeholder="如：信息技术">
-            </div>
-            <div class="field">
-              <label class="field-label" for="f-title">职务</label>
-              <input class="input" id="f-title" maxlength="30" value="${uv('title')}" placeholder="如：教师">
-            </div>
-            <div class="field">
-              <label class="field-label" for="f-grade_group">所属年级组</label>
-              <input class="input" id="f-grade_group" maxlength="30" value="${uv('grade_group')}" placeholder="如：高二年级组">
-            </div>
-          </div>
-
-          <div class="profile-divider"></div>
-          <div class="profile-section-title"><span></span>工作信息</div>
-          <div class="profile-work-field">
-            <label class="field-label" for="f-school">所在学校</label>
-            <input class="input" id="f-school" maxlength="50" value="${uv('school')}" placeholder="请输入学校名称">
-          </div>
-
-          <div class="profile-save-row">
-            <div class="profile-save-note">修改完成后点击保存，资料会自动同步。</div>
-            <button class="btn primary" id="p-save" type="button">${icon('check', 16)} 保存修改</button>
+  main.innerHTML = mePageHeader('profile') + `
+    <section class="card profile-shell profile-shell-single">
+      <header class="profile-banner">
+        <div class="profile-banner-content">
+          <button id="p-avatar" class="profile-avatar-btn" type="button" title="更换头像">
+            ${avatarHTML(u, 92, 'profile-avatar-image', true)}
+            <span class="pa-tip">${icon('camera', 14)}</span>
+          </button>
+          <div class="profile-banner-info">
+            <div class="profile-banner-name" id="profile-banner-name">${esc(bannerName)}</div>
+            <div class="profile-banner-meta" id="profile-banner-meta">${esc(bannerMeta)}</div>
+            <div class="profile-banner-hint">教师个人资料 · 仅用于工作台内展示</div>
           </div>
         </div>
-      </section>
+      </header>
 
-      <aside class="card profile-account-panel">
-        <div class="profile-account-head">
-          <span class="profile-account-shield">${icon('shield', 22)}</span>
-          <div>
-            <div class="profile-account-title">账号设置</div>
-            <div class="profile-account-subtitle">管理您的登录账号、密码及账号安全信息</div>
+      <div class="profile-content">
+        <div class="profile-section-title"><span></span>基本信息</div>
+        <div class="profile-fields">
+          <div class="field">
+            <label class="field-label" for="f-nickname">姓名 <b class="required-mark">*</b></label>
+            <input class="input" id="f-nickname" maxlength="20" value="${uv('nickname')}" placeholder="请输入姓名">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-gender">性别</label>
+            <select class="input" id="f-gender">
+              <option value="" ${!valueOf('gender') ? 'selected' : ''}>请选择</option>
+              <option value="男" ${valueOf('gender') === '男' ? 'selected' : ''}>男</option>
+              <option value="女" ${valueOf('gender') === '女' ? 'selected' : ''}>女</option>
+              <option value="其他" ${valueOf('gender') === '其他' ? 'selected' : ''}>其他</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-contact_phone">联系电话</label>
+            <input class="input" id="f-contact_phone" type="tel" maxlength="24" value="${uv('contact_phone') || uv('phone')}" placeholder="请输入联系电话">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-email">邮箱</label>
+            <input class="input" id="f-email" type="email" maxlength="80" value="${uv('email')}" placeholder="请输入邮箱地址">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-subject">学科</label>
+            <input class="input" id="f-subject" maxlength="20" value="${uv('subject')}" placeholder="如：信息技术">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-title">职务</label>
+            <input class="input" id="f-title" maxlength="30" value="${uv('title')}" placeholder="如：教师">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-grade_group">所属年级组</label>
+            <input class="input" id="f-grade_group" maxlength="30" value="${uv('grade_group')}" placeholder="如：高二年级组">
           </div>
         </div>
-        <button type="button" class="profile-account-row" id="p-account-login">
-          <span class="profile-account-row-icon">${icon('user', 22)}</span>
-          <span class="profile-account-row-copy">
-            <strong>登录账号</strong>
-            <small>管理用于登录系统的账号</small>
-          </span>
-          ${icon('right', 18)}
-        </button>
-        <button type="button" class="profile-account-row" id="p-account-password">
-          <span class="profile-account-row-icon">${icon('lock', 22)}</span>
-          <span class="profile-account-row-copy">
-            <strong>修改密码</strong>
-            <small>更新登录密码，保障账号安全</small>
-          </span>
-          ${icon('right', 18)}
-        </button>
-        <div class="profile-security-art" aria-hidden="true">
-          <span class="profile-security-orbit"></span>
-          <span class="profile-security-shield">${icon('shield', 54)}<i>${icon('lock', 22)}</i></span>
+
+        <div class="profile-divider"></div>
+        <div class="profile-section-title"><span></span>工作信息</div>
+        <div class="profile-work-field">
+          <label class="field-label" for="f-school">所在学校</label>
+          <input class="input" id="f-school" maxlength="50" value="${uv('school')}" placeholder="请输入学校名称">
         </div>
-        <div class="profile-security-caption">账号安全 · 个人隐私 · 数据保护</div>
-      </aside>
-    </div>`;
+
+        <div class="profile-save-row">
+          <div class="profile-save-note">修改完成后点击保存，资料会自动同步。</div>
+          <button class="btn primary" id="p-save" type="button">${icon('check', 16)} 保存修改</button>
+        </div>
+      </div>
+    </section>`;
 
   bindMeSectionTabs(main);
 
@@ -670,9 +659,6 @@ async function renderProfile(main) {
   avatarButton.addEventListener('mousedown', snapshot);
   avatarButton.addEventListener('touchstart', snapshot, { passive: true });
   avatarButton.onclick = () => { snapshot(); avatarSheet(); };
-
-  main.querySelector('#p-account-login').onclick = () => go('me/account-settings');
-  main.querySelector('#p-account-password').onclick = () => accountPwdSheet(null);
 
   main.querySelector('#p-save').onclick = async (event) => {
     const button = event.currentTarget;
@@ -711,47 +697,45 @@ function renderAccountSettings(main) {
   }
   main.classList.add('page-me-account-settings');
   const session = cloud.session() || {};
-  const account = u.account || session.phone || session.email || '未设置';
-  main.innerHTML = pageHead('我的', '管理登录账号与密码安全') + meSectionTabs('account') + `
-    <div class="account-settings-grid">
-      <section class="card account-setting-card">
-        <div class="account-setting-head">
-          <span class="account-setting-icon">${icon('user', 21)}</span>
-          <div>
-            <div class="account-setting-title">登录账号</div>
-            <div class="account-setting-subtitle">用于登录教师工作台的账号</div>
-          </div>
+  const account = displayLoginAccount(u.account || session.phone || u.phone || session.email);
+  main.innerHTML = mePageHeader('account') + `
+    <section class="card account-security-shell">
+      <header class="account-security-banner">
+        <span class="account-security-banner-icon">${icon('shield', 42)}</span>
+        <div class="account-security-banner-copy">
+          <div class="account-security-banner-title">账号设置</div>
+          <div class="account-security-banner-subtitle">管理您的登录账号、密码及账号安全信息</div>
         </div>
-        <div class="account-current-box">
-          <div class="account-current-label">当前登录账号</div>
-          <div class="account-current-value">${esc(account)}</div>
-          <span class="chip blue">当前使用</span>
-        </div>
-        <div class="account-setting-help">登录账号为注册时使用的手机号，目前不支持直接修改；请妥善保管账号信息。</div>
-      </section>
+      </header>
 
-      <section class="card account-setting-card">
-        <div class="account-setting-head">
-          <span class="account-setting-icon">${icon('lock', 21)}</span>
-          <div>
-            <div class="account-setting-title">登录密码</div>
-            <div class="account-setting-subtitle">定期更新密码，保护账号安全</div>
-          </div>
+      <div class="account-security-content">
+        <div class="account-security-row account-security-login-row">
+          <span class="account-security-row-icon">${icon('phone', 26)}</span>
+          <span class="account-security-row-copy">
+            <strong>登录账号</strong>
+            <small>管理用于登录系统的账号</small>
+          </span>
+          <span class="account-security-row-value">${esc(account)}</span>
+          <span class="account-security-chevron" aria-hidden="true">${icon('right', 18)}</span>
         </div>
-        <div class="account-password-row">
-          <div>
-            <div class="account-password-title">修改密码</div>
-            <div class="account-setting-subtitle">需要验证当前密码后才能修改</div>
-          </div>
-          <button class="btn primary" id="account-password-change" type="button">修改密码 ${icon('right', 15)}</button>
+
+        <button class="account-security-row account-security-password-row" id="account-password-change" type="button">
+          <span class="account-security-row-icon">${icon('lock', 26)}</span>
+          <span class="account-security-row-copy">
+            <strong>修改密码</strong>
+            <small>更新登录密码，保障账号安全</small>
+          </span>
+          <span class="account-security-chevron" aria-hidden="true">${icon('right', 18)}</span>
+        </button>
+
+        <div class="account-security-art" aria-hidden="true">
+          <span class="account-security-orbit"></span>
+          <span class="account-security-orbit account-security-orbit-inner"></span>
+          <span class="account-security-shield">${icon('shield', 62)}<i>${icon('lock', 24)}</i></span>
         </div>
-        <div class="account-setting-help">修改成功后，其他设备下次登录请使用新密码。</div>
-      </section>
-    </div>
-    <div class="account-security-note">
-      ${icon('shield', 18)}
-      <span>账号安全提示：不要向他人透露登录密码；如忘记密码，请联系管理员协助重置。</span>
-    </div>`;
+        <div class="account-security-caption">账号安全 · 个人隐私 · 数据保护</div>
+      </div>
+    </section>`;
 
   bindMeSectionTabs(main);
   main.querySelector('#account-password-change').onclick = () => accountPwdSheet(null);
