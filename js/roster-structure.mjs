@@ -127,6 +127,20 @@ function clusterRows(items, imageHeight) {
     target.items.push(item);
     target.centerY = target.items.reduce((sum, entry) => sum + entry.bounds.centerY, 0) / target.items.length;
   }
+  if (clusters.length > 1) {
+    const gaps = clusters.slice(1).map((cluster, index) =>
+      cluster.centerY - clusters[index].centerY
+    ).filter((gap) => gap > 0);
+    const pitch = median(gaps);
+    const firstY = clusters[0].centerY;
+    clusters.forEach((cluster) => {
+      cluster.rowIndex = pitch > 0
+        ? Math.max(0, Math.round((cluster.centerY - firstY) / pitch))
+        : 0;
+    });
+  } else {
+    clusters[0].rowIndex = 0;
+  }
   return clusters;
 }
 
@@ -235,7 +249,7 @@ export function extractRosterRowsFromPaddle(items, imageWidth, imageHeight, conf
     const clusters = clusterRows(sideItems[side], imageHeight);
     let dataRowIndex = 0;
     for (const cluster of clusters) {
-      const row = parseRowItems(cluster.items, side, dataRowIndex, options);
+      const row = parseRowItems(cluster.items, side, cluster.rowIndex ?? dataRowIndex, options);
       if (!row) continue;
       rows.push(row);
       dataRowIndex += 1;
