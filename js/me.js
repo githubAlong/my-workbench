@@ -70,7 +70,7 @@ async function renderMe(main) {
       ${avatarHTML(u, 74, 'me-avatar-lg', true)}
       <div class="me-hero-info">
         <div class="me-name">${esc(u.nickname || '未设置昵称')}</div>
-        <div class="me-sub">${esc(u.account || '')}${u.school ? ' · ' + esc(u.school) : ''}${u.subject ? ' · ' + esc(u.subject) : ''}</div>
+        <div class="me-sub">${esc(displayLoginAccount(u.account, ''))}${u.school ? ' · ' + esc(u.school) : ''}${u.subject ? ' · ' + esc(u.subject) : ''}</div>
         <div class="me-chips">
           ${u.bindings?.wechat ? '<span class="chip green">微信</span>' : ''}
           ${u.bindings?.qq ? '<span class="chip blue">QQ</span>' : ''}
@@ -539,15 +539,9 @@ function bindMeSectionTabs(main) {
   });
 }
 
-function displayLoginAccount(value) {
+function displayLoginAccount(value, fallback = '未设置') {
   const raw = String(value || '').trim();
-  if (!raw) return '未设置';
-  if (raw.includes('@')) return raw;
-  const digits = raw.replace(/\D/g, '');
-  if (digits.startsWith('0086') && digits.length === 15) return digits.slice(4);
-  if (digits.startsWith('86') && digits.length === 13) return digits.slice(2);
-  if (/^1[3-9]\d{9}$/.test(digits)) return digits;
-  return raw;
+  return raw ? (cloud.displayPhone(raw) || fallback) : fallback;
 }
 
 /* ================= 个人信息页 ================= */
@@ -889,7 +883,7 @@ export function lockScreen(onOk) {
 function bindManager() {
   const u = state.user || {};
   const body = el(`<div class="sheet-body">
-    ${bindRow('account', `${icon('user', 15)} 登录账号`, u.account || '未设置', !!u.account, false, '改密码')}
+    ${bindRow('account', `${icon('user', 15)} 登录账号`, displayLoginAccount(u.account), !!u.account, false, '改密码')}
     <div class="tiny muted" style="margin-top:12px;line-height:1.7">
       登录账号由 Supabase 管理。修改密码时需要验证当前密码；忘记密码请联系管理员重置。
     </div>
@@ -926,7 +920,7 @@ function bindRow(type, label, val, bound, disabled = false, onAct = '') {
 function accountPwdSheet(parent) {
   const b = el(`<div class="sheet-body">
     <div class="tiny muted" style="margin-bottom:10px;line-height:1.7">
-      当前账号 <b>${esc(state.user?.account || '')}</b>。修改后请使用新密码登录其他设备。
+      当前账号 <b>${esc(displayLoginAccount(state.user?.account || cloud.session()?.phone, ''))}</b>。修改后请使用新密码登录其他设备。
     </div>
     <div class="field"><label class="field-label">原密码</label>
       <input class="input" id="op" type="password" autocomplete="current-password" maxlength="72" placeholder="当前密码"></div>
