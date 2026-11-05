@@ -309,7 +309,7 @@ export function validateRosterRows(rows, config = {}) {
   const serialMismatchSerials = list.filter((row) => row?.serialMismatch || row?.serialConflict)
     .map((row) => Number(row.serial)).filter(Number.isFinite);
   const completeCount = list.filter((row) =>
-    /^[\\u3400-\\u9fff]{2,4}$/.test(String(row?.name || "").trim())
+    /^[\u3400-\u9fff]{2,4}$/.test(String(row?.name || "").trim())
     && String(row?.subject || "").trim()
   ).length;
   const valid = completeCount === expectedCount
