@@ -1313,6 +1313,17 @@ function readClassNumber(get, w, h) {
 
 
 /* 主入口：返回网格结构 + 每格是否有字 + 推测的节次/星期映射 + 班号猜测 */
+/* 只给真实课程行编号；午休/标题等跨列合并行不占节次。row index 保持与图片网格一致。 */
+export function mapTimetablePeriodNumbers(bodyStart, rowCount, mergedRows = []) {
+  const byRow = new Array(rowCount).fill(0);
+  let period = 0;
+  for (let row = bodyStart; row < rowCount; row += 1) {
+    if (mergedRows[row]) continue;
+    byRow[row] = ++period;
+  }
+  return byRow;
+}
+
 export function detectTimetable(img) {  const { mono, w, h } = imageToMono(img);
   const { hs, vs } = findTableLines(mono, w, h);
 
@@ -1343,45 +1354,6 @@ export function detectTimetable(img) {  const { mono, w, h } = imageToMono(img);
 
   const filled = (r, c) => ink[r][c] >= thr;
 
-  /* 找表头行：第一行「几乎每列都有字」的那一行。
-     课表表头就是「节次 / 时间 / 星期一 … 星期日」，全都有字。 */
-  let headerRow = -1;
-  for (let r = 0; r < Math.min(rows, 5); r++) {
-    let cnt = 0;
-    for (let c = 0; c < cols; c++) if (filled(r, c)) cnt++;
-    if (cnt >= cols - 1) { headerRow = r; break; }
-  }
-
-  /* 【列角色的推断】不去假设「第一列一定是节次、第二列一定是时间」。
-     真实截图经常缺边、左边被裁、前两列合成一格，按固定的位置猜必然翻车。
-     改成看每一列的数据特征：
-
-       节次列：几乎每一行都有字（1/2/3… 或者第1节/晚一），而且空行少
-       星序列：有字的行只占一部分（只有排了课的行才有字）
-
-     于是：从左往右，第一段「几乎每行都有字」的列都算前置列（节次/时间/序号），
-     剩下的列就是星期。
-
-     这一步错了也只是班级位置整体平移，界面上每行都能改星期，不会静默出错。 */
-  const bodyStart = headerRow >= 0 ? headerRow + 1 : 0;
-  const bodyRows = rows - bodyStart;
-  let prefixEnd = 0;   // [0, prefixEnd) 是前置列
-  for (let c = 0; c < cols; c++) {
-    let cnt = 0;
-    for (let r = bodyStart; r < rows; r++) if (filled(r, c)) cnt++;
-    // 该列有字的行数 ≥ 70% 就认为是「节次/时间」这类每行都有的列
-    if (bodyRows > 0 && cnt >= bodyRows * 0.7) prefixEnd = c + 1;
-    else break;
-  }
-  // 全表都没排课时上面的循环会吃满，兜底留出第一列当节次
-  if (prefixEnd >= cols) prefixEnd = Math.max(1, cols - 1);
-  const firstDayCol = prefixEnd;
-
-  /* 表头文字认不出（不做 OCR），按「第 N 列 = 周 N」的顺序推。 */
-  const dayOrder = [1, 2, 3, 4, 5, 6, 7];
-  const dayOfCol = [];
-  for (let c = firstDayCol; c < cols; c++) dayOfCol[c] = dayOrder[c - firstDayCol] || 0;
-
   /* 【排除合并单元格行】课表里常有横跨整行的「午休 12:20-14:10」这种格子。
      它的行内，中间的竖线是断开的。测法：看每条竖线在该行带里是否贯通，
      断掉的列数过半，这一行就是合并行，整行跳过——里面装的是时间，不是课。 */
@@ -1403,6 +1375,48 @@ export function detectTimetable(img) {  const { mono, w, h } = imageToMono(img);
     mergedRow[r] = checked > 0 && broken >= checked * 0.5;
   }
 
+
+  /* 找表头行：第一行「几乎每列都有字」的那一行。
+     课表表头就是「节次 / 时间 / 星期一 … 星期日」，全都有字。 */
+  let headerRow = -1;
+  for (let r = 0; r < Math.min(rows, 8); r++) {
+    if (mergedRow[r]) continue; // 标题通常是跨列合并行，不能误当星期表头
+    let cnt = 0;
+    for (let c = 0; c < cols; c++) if (filled(r, c)) cnt++;
+    if (cnt >= cols - 1) { headerRow = r; break; }
+  }
+
+  /* 【列角色的推断】不去假设「第一列一定是节次、第二列一定是时间」。
+     真实截图经常缺边、左边被裁、前两列合成一格，按固定的位置猜必然翻车。
+     改成看每一列的数据特征：
+
+       节次列：几乎每一行都有字（1/2/3… 或者第1节/晚一），而且空行少
+       星序列：有字的行只占一部分（只有排了课的行才有字）
+
+     于是：从左往右，第一段「几乎每行都有字」的列都算前置列（节次/时间/序号），
+     剩下的列就是星期。
+
+     这一步错了也只是班级位置整体平移，界面上每行都能改星期，不会静默出错。 */
+  const bodyStart = headerRow >= 0 ? headerRow + 1 : 0;
+  const bodyRows = rows - bodyStart;
+  const periodByRow = mapTimetablePeriodNumbers(bodyStart, rows, mergedRow);
+  let prefixEnd = 0;   // [0, prefixEnd) 是前置列
+  for (let c = 0; c < cols; c++) {
+    let cnt = 0;
+    for (let r = bodyStart; r < rows; r++) if (filled(r, c)) cnt++;
+    // 该列有字的行数 ≥ 70% 就认为是「节次/时间」这类每行都有的列
+    if (bodyRows > 0 && cnt >= bodyRows * 0.7) prefixEnd = c + 1;
+    else break;
+  }
+  // 全表都没排课时上面的循环会吃满，兜底留出第一列当节次
+  if (prefixEnd >= cols) prefixEnd = Math.max(1, cols - 1);
+  const firstDayCol = prefixEnd;
+
+  /* 表头文字认不出（不做 OCR），按「第 N 列 = 周 N」的顺序推。 */
+  const dayOrder = [1, 2, 3, 4, 5, 6, 7];
+  const dayOfCol = [];
+  for (let c = firstDayCol; c < cols; c++) dayOfCol[c] = dayOrder[c - firstDayCol] || 0;
+
   const cells = [];
   for (let r = bodyStart; r < rows; r++) {
     if (mergedRow[r]) continue;          // 合并行（午休、备注）整行不算课
@@ -1417,7 +1431,7 @@ export function detectTimetable(img) {  const { mono, w, h } = imageToMono(img);
       cells.push({
         row: r, col: c,
         weekday: dayOfCol[c] || 0,
-        periodGuess: r - bodyStart + 1,
+        periodGuess: periodByRow[r],
         box: { x: bx, y: by, w: bw, h: bh },
         classGuess: cls && cls.digits && cls.digits.indexOf('?') < 0 ? cls.digits : '',
         classConfidence: cls ? cls.confidence : 0,
@@ -1430,6 +1444,7 @@ export function detectTimetable(img) {  const { mono, w, h } = imageToMono(img);
     w, h,
     rows, cols,
     headerRow,
+    periodByRow,
     firstDayCol,
     grid: { hs, vs },
     ink,
