@@ -151,22 +151,31 @@ function parseRowItems(items, side, rowIndex, options) {
 
   let name = cleanCandidateName(nameItems.map((item) => item.text).join(""), subject);
   if (!name) name = cleanCandidateName(sorted.map((item) => item.text).join(""), subject);
-  if (!detectedSerial && !name && !subject) return null;
+  const rowText = sorted.map((item) => item.text).join("");
+  const isHeader = /序号|姓名|学科/.test(rowText) && !name && !subject;
+  if (isHeader || (!detectedSerial && !name && !subject)) return null;
 
-  const serialSource = detectedSerial === null ? "position" : "ocr";
-  const serial = detectedSerial === null
-    ? (side === "left" ? rowIndex + 1 : options.leftGroupCount + rowIndex + 1)
-    : detectedSerial;
+  // 固定花名册按左右两组连续编号。OCR 读错数字不能造成多个教师挤到同一序号，
+  // 因此以表格纵向位置为主，OCR 序号只保留作交叉校验。
+  const serial = side === "left" ? rowIndex + 1 : options.leftGroupCount + rowIndex + 1;
+  const serialMismatch = detectedSerial !== null && detectedSerial !== serial;
+  const confidence = averageConfidence(sorted);
 
   return {
     serial,
+    detectedSerial,
+    serialMismatch,
     name,
     subject,
     side,
-    serialSource,
-    confidence: averageConfidence(sorted),
-    needsReview: serialSource !== "ocr" || !name || !subject || averageConfidence(sorted) < 0.65
+    serialSource: "layout",
+    confidence,
+    needsReview: serialMismatch || !name || !subject || confidence < 0.65
   };
+}
+}
+
+function parseWideLine
 }
 
 function parseWideLine(item, options) {
@@ -283,8 +292,10 @@ export function validateRosterRows(rows, config = {}) {
   ).map((row) => Number(row?.serial)).filter(Number.isFinite);
   const inferredSerials = list.filter((row) => row?.serialSource === "position")
     .map((row) => Number(row.serial)).filter(Number.isFinite);
+  const serialMismatchSerials = list.filter((row) => row?.serialMismatch || row?.serialConflict)
+    .map((row) => Number(row.serial)).filter(Number.isFinite);
   const completeCount = list.filter((row) =>
-    /^[\u3400-\u9fff]{2,4}$/.test(String(row?.name || "").trim())
+    /^[\\u3400-\\u9fff]{2,4}$/.test(String(row?.name || "").trim())
     && String(row?.subject || "").trim()
   ).length;
   const valid = completeCount === expectedCount
@@ -293,6 +304,7 @@ export function validateRosterRows(rows, config = {}) {
     && duplicateSerials.length === 0
     && incompleteSerials.length === 0
     && inferredSerials.length === 0
+    && serialMismatchSerials.length === 0
     && outOfRangeSerials.length === 0;
   return {
     expectedCount,
@@ -302,6 +314,7 @@ export function validateRosterRows(rows, config = {}) {
     duplicateSerials,
     incompleteSerials,
     inferredSerials,
+    serialMismatchSerials,
     outOfRangeSerials,
     valid
   };
@@ -311,11 +324,32 @@ export function buildRosterReviewRows(rows, expectedCount = DEFAULT_ROSTER_EXPEC
   const sourceRows = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
   const bySerial = new Map();
   const extras = [];
+  const quality = (row) =>
+    (String(row.name || "").trim() ? 8 : 0)
+    + (String(row.subject || "").trim() ? 8 : 0)
+    + (Number(row.confidence) || 0)
+    - (row.serialMismatch ? 2 : 0);
+
   for (const row of sourceRows) {
     const serial = Number(row.serial);
     if (Number.isInteger(serial) && serial >= 1 && serial <= expectedCount) {
-      if (!bySerial.has(serial)) bySerial.set(serial, []);
-      bySerial.get(serial).push(row);
+      const previous = bySerial.get(serial);
+      if (!previous) {
+        bySerial.set(serial, row);
+      } else {
+        const selected = quality(row) > quality(previous) ? row : previous;
+        bySerial.set(serial, {
+          ...selected,
+          serialConflict: true,
+          needsReview: true,
+          alternateCandidates: [
+            ...(previous.alternateCandidates || []),
+            ...(row.alternateCandidates || []),
+            { name: previous.name || "", subject: previous.subject || "", detectedSerial: previous.detectedSerial ?? null },
+            { name: row.name || "", subject: row.subject || "", detectedSerial: row.detectedSerial ?? null }
+          ]
+        });
+      }
     } else {
       extras.push(row);
     }
@@ -323,20 +357,16 @@ export function buildRosterReviewRows(rows, expectedCount = DEFAULT_ROSTER_EXPEC
 
   const output = [];
   for (let serial = 1; serial <= expectedCount; serial += 1) {
-    const matches = bySerial.get(serial);
-    if (matches?.length) {
-      output.push(...matches);
-    } else {
-      output.push({
-        serial,
-        name: "",
-        subject: "",
-        side: serial <= leftGroupCount ? "left" : "right",
-        serialSource: "template",
-        confidence: 0,
-        needsReview: true
-      });
-    }
+    const match = bySerial.get(serial);
+    output.push(match || {
+      serial,
+      name: "",
+      subject: "",
+      side: serial <= leftGroupCount ? "left" : "right",
+      serialSource: "template",
+      confidence: 0,
+      needsReview: true
+    });
   }
   return [...output, ...extras].sort((a, b) =>
     Number(a.serial || 9999) - Number(b.serial || 9999)
@@ -344,6 +374,18 @@ export function buildRosterReviewRows(rows, expectedCount = DEFAULT_ROSTER_EXPEC
 }
 
 export function scoreRosterExtraction(rows, expectedCount = DEFAULT_ROSTER_EXPECTED_COUNT) {
+  const validation = validateRosterRows(rows, { expectedCount });
+  const reliableSerials = (rows || []).filter((row) =>
+    (row.serialSource === "ocr" || row.serialSource === "layout") && !row.serialMismatch
+  ).length;
+  return validation.completeCount * 1000
+    + reliableSerials * 2
+    - validation.inferredSerials.length * 5
+    - validation.serialMismatchSerials.length * 12
+    - validation.missingSerials.length * 2
+    - validation.duplicateSerials.length * 100;
+}
+rows, expectedCount = DEFAULT_ROSTER_EXPECTED_COUNT) {
   const validation = validateRosterRows(rows, { expectedCount });
   const detectedSerials = (rows || []).filter((row) => row.serialSource === "ocr").length;
   return validation.completeCount * 1000
