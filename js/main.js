@@ -75,13 +75,17 @@ if (resetDevData) {
     console.warn('[reset] 清理本机同步缓存时出现提示', e);
   }
 }
+let accountSyncReady = !cloudSession?.uid;
 if (cloudSession?.uid) {
   try {
-    await initializeAccountSync();
+    accountSyncReady = await initializeAccountSync();
+    if (!accountSyncReady) throw new Error('云端账户数据尚未完成初始化');
   } catch (e) {
-    console.error('[sync] 账户数据初始化失败', e);
-    toast('工作台云端数据读取失败：' + (e.message || e) + '。为防止旧数据覆盖云端，本次不会继续写入。', 'err', 10000);
-    throw e;
+    /* 云端临时超时不应阻止本地工作台打开。
+       cloudsync 在初始化成功前会拒绝所有上传，避免把本机旧快照覆盖到云端。 */
+    accountSyncReady = false;
+    console.error('[sync] 账户数据初始化失败，进入本地只读保护模式', e);
+    toast('云端暂时连接不上：' + (e.message || e) + '。工作台将以本机缓存只读打开；恢复连接后刷新即可重新同步。', 'warn', 12000);
   }
 }
 if (cloudSession?.uid) {
@@ -286,8 +290,8 @@ if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
   }
 }
 
-/* 云同步启动检查：放最后，等首屏渲染完再悄悄跑，不抢首屏时间 */
-autoSync();
+/* 账户级云同步已在首屏前完成一次初始化；不要再无条件重复请求。
+   失败时保留本地只读模式，用户刷新页面即可重新尝试。 */
 
 /* 主题同步 */
 document.documentElement.dataset.theme = state.theme;
