@@ -691,7 +691,7 @@ function renderAccountSettings(main) {
       </section>
     </div>
     <div class="account-security-note">
-      ${icon('shield-check', 18)}
+      ${icon('shield', 18)}
       <span>账号安全提示：不要向他人透露登录密码；如忘记密码，请联系管理员协助重置。</span>
     </div>`;
 
