@@ -380,7 +380,7 @@ function readWorkbenchBrand() {
 
 async function renderWorkbenchSettings(main) {
   const current = readWorkbenchBrand();
-  main.innerHTML = pageHead('工作台设置', '自定义首页欢迎卡片的背景图片、主标题和副标题', '<button class="btn primary sm" id="wb-brand-save">保存设置</button>') + \`
+  main.innerHTML = pageHead('工作台设置', '自定义首页欢迎卡片的背景图片、主标题和副标题', '<button class="btn primary sm" id="wb-brand-save">保存设置</button>') + `
     <section class="card wb-brand-settings">
       <div class="wb-brand-preview-label">首页效果预览</div>
       <div class="wb-brand-preview" id="wb-brand-preview">
@@ -393,16 +393,16 @@ async function renderWorkbenchSettings(main) {
       <div class="wb-brand-fields">
         <div class="field">
           <label class="field-label" for="wb-brand-title">首页主标题</label>
-          <input class="input" id="wb-brand-title" maxlength="40" placeholder="例如：一站式教师工作平台" value="\${esc(current.title || '')}">
+          <input class="input" id="wb-brand-title" maxlength="40" placeholder="例如：一站式教师工作平台" value="${esc(current.title || '')}">
         </div>
         <div class="field">
           <label class="field-label" for="wb-brand-subtitle">首页副标题</label>
-          <textarea class="input" id="wb-brand-subtitle" rows="2" maxlength="100" placeholder="例如：备课 · 授课 · 考勤 · 教研 · 任务 · 数据">\${esc(current.subtitle || '')}</textarea>
+          <textarea class="input" id="wb-brand-subtitle" rows="2" maxlength="100" placeholder="例如：备课 · 授课 · 考勤 · 教研 · 任务 · 数据">${esc(current.subtitle || '')}</textarea>
         </div>
         <div class="field">
           <label class="field-label">首页背景图片</label>
           <div class="wb-brand-image-actions">
-            <label class="btn soft" style="cursor:pointer">\${icon('upload', 15)} 上传图片
+            <label class="btn soft" style="cursor:pointer">${icon('upload', 15)} 上传图片
               <input id="wb-brand-image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
             </label>
             <button class="btn ghost" id="wb-brand-remove-image" type="button">移除图片</button>
@@ -411,7 +411,7 @@ async function renderWorkbenchSettings(main) {
         </div>
         <div class="wb-brand-tip">图片、标题和副标题只影响首页欢迎卡片，不会修改课表、考勤或其他业务数据。</div>
       </div>
-    </section>\`;
+    </section>`;
 
   const title = main.querySelector('#wb-brand-title');
   const subtitle = main.querySelector('#wb-brand-subtitle');
