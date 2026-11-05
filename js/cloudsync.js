@@ -129,6 +129,7 @@ function applyRemote(payload) {
 /* ---------------- 账户级自动同步 ---------------- */
 const REV_KEY = 'wb_account_revision';
 let _revision = 0, _uid = '', _pending = false, _changeSeq = 0, _writing = Promise.resolve(), _retryDelay = 1500, _remoteBound = false;
+let _syncReady = false, _conflictPaused = false;
 function revisionStorageKey(uid) { return REV_KEY + ':' + uid; }
 function writeRevision(uid, value) {
   _revision = Number(value) || 0;
@@ -150,13 +151,63 @@ async function replaceLocalSnapshot(payload) {
   const localdb = await import('./localdb.js');
   localdb.replaceMemFromDisk?.();
 }
+function stableJson(value) {
+  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + stableJson(value[key])).join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+function isRevisionConflict(error) {
+  return /WB_DATA_REVISION_CONFLICT|40001|revision conflict/i.test(String(error?.message || ''));
+}
+function makeRevisionConflict(raw) {
+  _conflictPaused = true;
+  _syncReady = false;
+  try { localStorage.setItem('wb_sync_conflict_backup:' + _uid, raw); } catch { }
+  const error = new Error('检测到其他设备同时修改了工作台数据。为防止覆盖云端版本，自动同步已暂停；本机缓存未清除。请关闭重复打开的工作台标签页后刷新，重新读取云端最新数据。');
+  error.code = 'WB_DATA_REVISION_CONFLICT';
+  return error;
+}
+async function adoptRemoteIfSame(cloud, raw, payload, savingSeq) {
+  let remote = null;
+  try { remote = await cloud.getWorkbenchSnapshot(); } catch { }
+  if (!remote?.payload || stableJson(remote.payload) !== stableJson(payload)) return null;
+  writeRevision(_uid, remote.revision);
+  _pending = _changeSeq !== savingSeq;
+  setMeta({ lastPush: remote.updated_at || new Date().toISOString(), localChanged: _pending });
+  _retryDelay = 1500;
+  window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved', at: remote.updated_at } }));
+  return remote;
+}
 async function pushSnapshot() {
   if (!_uid || !_pending) return;
+  if (_conflictPaused) throw makeRevisionConflict(localStorage.getItem(DB_KEY) || '');
   const cloud = await import('./cloud.js');
   const raw = localStorage.getItem(DB_KEY);
   if (!raw) throw new Error('本机工作台数据尚未初始化');
+  const payload = safeSnapshot(JSON.parse(raw));
   const savingSeq = _changeSeq;
-  const saved = await cloud.saveWorkbenchSnapshot(safeSnapshot(JSON.parse(raw)), _revision);
+
+  /* 同一浏览器的其他标签页可能已经推进了版本号。
+     先比对云端快照；相同则只认领新版本，不同则停写，绝不拿旧快照覆盖新数据。 */
+  const sharedRevision = Number(localStorage.getItem(revisionStorageKey(_uid)) || 0);
+  if (sharedRevision > _revision) {
+    const adopted = await adoptRemoteIfSame(cloud, raw, payload, savingSeq);
+    if (adopted) return adopted;
+    throw makeRevisionConflict(raw);
+  }
+
+  let saved;
+  try {
+    saved = await cloud.saveWorkbenchSnapshot(payload, _revision);
+  } catch (error) {
+    if (!isRevisionConflict(error)) throw error;
+    const adopted = await adoptRemoteIfSame(cloud, raw, payload, savingSeq);
+    if (adopted) return adopted;
+    throw makeRevisionConflict(raw);
+  }
+
   writeRevision(_uid, saved.revision);
   _pending = _changeSeq !== savingSeq;
   setMeta({ lastPush: saved.updated_at || new Date().toISOString(), localChanged: _pending });
@@ -168,8 +219,10 @@ export async function initializeAccountSync() {
   const cloud = await import('./cloud.js');
   const uid = cloud.session()?.uid || '';
   if (!uid || uid !== activeAccountId()) return false;
-  if (_uid === uid && _revision > 0) return true;
+  if (_uid === uid && _revision > 0 && _syncReady) return true;
   _uid = uid;
+  _syncReady = false;
+  _conflictPaused = false;
   const remote = await cloud.getWorkbenchSnapshot();
   if (remote?.payload) {
     await replaceLocalSnapshot(remote.payload);
@@ -177,15 +230,17 @@ export async function initializeAccountSync() {
     _pending = false;
   } else {
     _revision = 0;
+    try { localStorage.removeItem(revisionStorageKey(uid)); } catch { }
     _pending = true;
     await pushSnapshot();
   }
+  _syncReady = true;
   bindRemoteSnapshotEvents();
   window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved' } }));
   return true;
 }
 export async function refreshAccountSync() {
-  if (!_uid || _uid !== activeAccountId()) return false;
+  if (!_syncReady || !_uid || _uid !== activeAccountId()) return false;
   const cloud = await import('./cloud.js');
   const remote = await cloud.getWorkbenchSnapshot();
   if (!remote?.payload || Number(remote.revision) <= _revision || _pending) return false;
@@ -207,7 +262,8 @@ function bindRemoteSnapshotEvents() {
   });
 }
 export function hookSave() {
-  if (!_uid || _uid !== activeAccountId()) return;
+  /* 首次云端读取未完成或检测到多端冲突时，禁止上传本机快照。 */
+  if (!_syncReady || _conflictPaused || !_uid || _uid !== activeAccountId()) return;
   setMeta({ localChanged: true });
   _pending = true;
   _changeSeq += 1;
@@ -216,16 +272,27 @@ export function hookSave() {
   _debounce = setTimeout(() => {
     _writing = _writing.then(() => pushSnapshot()).catch((e) => {
       console.error('[sync] 自动保存失败', e);
+      if (isRevisionConflict(e) || _conflictPaused) {
+        _conflictPaused = true;
+        _syncReady = false;
+        window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'conflict', message: e.message } }));
+        toast(e.message || '检测到多端数据冲突，自动同步已暂停以保护云端数据。', 'err', 12000);
+        return;
+      }
       window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'error', message: e.message } }));
-      toast('自动保存失败：' + (e.message || '网络异常') + '。系统会自动重试，请暂时不要关闭页面。', 'err', 8000);
+      toast('自动保存暂时失败：' + (e.message || '网络异常') + '。系统会降低频率后重试。', 'err', 8000);
       clearTimeout(_debounce);
-      _debounce = setTimeout(() => hookSave(), _retryDelay);
+      _debounce = setTimeout(() => { if (_syncReady && !_conflictPaused) hookSave(); }, _retryDelay);
       _retryDelay = Math.min(30000, _retryDelay * 2);
     });
   }, 800);
 }
 export async function autoSync() { return initializeAccountSync(); }
-export async function pushNow() { _pending = true; return pushSnapshot(); }
+export async function pushNow() {
+  if (!_syncReady || _conflictPaused) throw new Error('云端同步尚未就绪或已暂停，请重新连接后再试');
+  _pending = true;
+  return pushSnapshot();
+}
 export async function pullNow() { return refreshAccountSync(); }
 
 /* ---------------- 链接搬运：不起服务器也能换设备 ----------------
