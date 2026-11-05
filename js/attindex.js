@@ -95,6 +95,10 @@ export async function renderGradeList(box) {
   };
 
   box.innerHTML = `<div class="agl agd-dashboard">
+    <nav class="agd-crumb" aria-label="面包屑导航">
+      <span class="agd-crumb-home">${icon('home', 15)}</span>
+      <span>首页</span><i>›</i><span>工作</span><i>›</i><b>考勤</b>
+    </nav>
     <header class="agd-header">
       <div class="agd-heading">
         <span class="agd-heading-icon">${icon('cal', 27)}</span>
