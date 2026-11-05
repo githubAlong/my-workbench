@@ -4146,3 +4146,12 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+
+/* timetable drag-and-drop */
+.tt-course-chip{display:flex;align-items:center;gap:7px;min-width:0}
+.tt-drag-handle{display:inline-grid;place-items:center;flex:0 0 18px;width:18px;height:24px;border-radius:5px;color:#66839e;background:rgba(255,255,255,.62);font-size:17px;line-height:1;cursor:grab;user-select:none}
+[data-course-id][draggable="true"]{cursor:grab!important;user-select:none}
+[data-course-id].tt-dragging{opacity:.42;outline:2px dashed var(--primary);outline-offset:-3px}
+[data-cell].tt-drop-target{outline:3px solid var(--primary)!important;outline-offset:-3px;background:color-mix(in srgb,var(--primary) 13%,var(--card))!important}
+@media(hover:hover){[data-course-id][draggable="true"]:hover{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--primary) 45%,transparent)}}
