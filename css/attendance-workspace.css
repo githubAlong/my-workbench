@@ -667,3 +667,21 @@
  .roster-ocr-footer-actions{justify-content:flex-end}
  .roster-ocr-footer-note{font-size:10px}
 }
+
+
+/* ===== 花名册结构化识别审核表 ===== */
+.roster-review-summary{margin:2px 0 9px;padding:9px 11px;border:1px solid #e2eaf5;border-radius:9px;background:#f5f8fd;color:#627894;font-size:11px;line-height:1.55}
+.roster-review-scroll{max-height:390px;overflow:auto;border:1px solid #e2eaf2;border-radius:10px;background:#fff}
+.roster-review-table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;font-size:11px}
+.roster-review-table th{position:sticky;top:0;z-index:2;height:34px;padding:7px 9px;background:#f2f6fc;color:#60738d;text-align:left;font-weight:750;border-bottom:1px solid #e2eaf2}
+.roster-review-table th:first-child,.roster-review-table td:first-child{width:48px;text-align:center}
+.roster-review-table th:last-child,.roster-review-table td:last-child{width:68px}
+.roster-review-table td{height:39px;padding:4px 7px;border-bottom:1px solid #eef2f7;color:#435873}
+.roster-review-table tr:last-child td{border-bottom:0}
+.roster-review-table td input{display:block;width:100%;min-width:0;height:29px;padding:4px 7px;border:1px solid #e3eaf3;border-radius:7px;background:#fff;color:#20344f;font:inherit;outline:none}
+.roster-review-table td input:focus{border-color:#77aee9;box-shadow:0 0 0 2px rgba(59,130,210,.1)}
+.roster-review-table tr.is-incomplete{background:#fffaf3}
+.roster-review-table tr.is-incomplete td:last-child{color:#bd7a28}
+.roster-review-table td:last-child{font-size:10px;white-space:nowrap}
+.roster-review-serial{font-variant-numeric:tabular-nums;color:#8191a6!important;font-weight:700}
+.roster-review-empty{text-align:center!important;color:#94a3b8!important;padding:28px!important}
