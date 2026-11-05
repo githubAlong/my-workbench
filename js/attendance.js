@@ -3142,9 +3142,9 @@ function rosterPhotoDialog(grade, reload) {
           '<button class="roster-ocr-drop" id="pdrop" type="button">',
             '<span class="roster-ocr-drop-icon">', icon('upload-cloud', 25), '</span>',
             '<strong>点击上传或拖入照片</strong>',
-            '<span>支持 JPG、PNG、WebP，建议拍全纸张、保持清晰</span>',
+            '<span>支持 JPG、PNG、WebP、Excel（.xlsx/.xlsm），可上传照片或电子名单</span>',
             '<span class="roster-ocr-drop-action">选择照片</span>',
-            '<input type="file" accept="image/jpeg,image/png,image/webp,image/*" capture="environment" hidden id="pfile">',
+            '<input type="file" accept="image/jpeg,image/png,image/webp,image/*,.xlsx,.xlsm,.csv,.tsv" hidden id="pfile">',
           '</button>',
           '<div class="roster-ocr-preview" id="pprev" hidden>',
             '<div class="roster-ocr-preview-head"><strong>照片预览</strong><button class="roster-ocr-link" type="button" id="pchange">更换照片</button></div>',
@@ -3162,9 +3162,9 @@ function rosterPhotoDialog(grade, reload) {
           '<div class="roster-ocr-status" id="pstate" role="status"><span class="roster-ocr-status-dot"></span><span>等待上传照片</span></div>',
           '<div class="roster-ocr-quality" id="pquality" hidden></div>',
           '<label class="roster-ocr-label">姓名与学科 <span>按纸质花名册序号逐行核对，可直接修改</span></label>',
-          '<div class="roster-review-summary" id="roster-review-summary">等待识别照片，默认按 1—46 号建立审核表</div>',
-          '<div class="roster-review-scroll"><table class="roster-review-table"><thead><tr><th>序号</th><th>姓名</th><th>学科</th><th>识别状态</th></tr></thead><tbody id="roster-review-body"><tr><td colspan="4" class="roster-review-empty">上传照片后，这里会按左右两组展开 46 条记录</td></tr></tbody></table></div>',
-          '<div class="roster-ocr-result-foot"><span>', icon('shield-check', 14), '识别结果不会自动入库；46 条全部核对完整后才可保存</span><span id="pvalid">等待识别</span></div>',
+          '<div class="roster-review-summary" id="roster-review-summary">上传照片或 Excel 后，按原表人数建立审核表</div>',
+          '<div class="roster-review-scroll"><table class="roster-review-table"><thead><tr><th>序号</th><th>姓名</th><th>学科</th><th>识别状态</th></tr></thead><tbody id="roster-review-body"><tr><td colspan="4" class="roster-review-empty">上传照片或 Excel 后，这里显示姓名与学科</td></tr></tbody></table></div>',
+          '<div class="roster-ocr-result-foot"><span>', icon('shield-check', 14), '识别结果不会自动入库；全部识别记录核对完整后才可保存</span><span id="pvalid">等待识别</span></div>',
         '</section>',
       '</div>',
       '<div class="roster-ocr-footer">',
@@ -3186,7 +3186,9 @@ function rosterPhotoDialog(grade, reload) {
   };
   const s = sheet({ title: '拍照建册', body, wide: true, cls: 'roster-ocr-sheet', onClose: cleanup });
 
-  const EXPECTED_COUNT = 46;
+  let expectedCount = grade === '高二' ? 54 : 46;
+  let leftGroupCount = Math.ceil(expectedCount / 2);
+  let sourceKind = 'photo';
   let reviewRows = [];
   const parseLines = () => reviewRows
     .map((row) => {
@@ -3206,15 +3208,15 @@ function rosterPhotoDialog(grade, reload) {
     const items = parseLines();
     const serials = items.map((item) => item.serial);
     const duplicate = new Set(serials).size !== serials.length;
-    const complete = reviewRows.length === EXPECTED_COUNT
-      && items.length === EXPECTED_COUNT
+    const complete = reviewRows.length === expectedCount
+      && items.length === expectedCount
       && !duplicate
-      && reviewRows.every((row) => row.serial >= 1 && row.serial <= EXPECTED_COUNT);
-    $('#pcount').textContent = items.length + ' / ' + EXPECTED_COUNT + ' 位完整记录';
-    $('#pvalid').textContent = complete ? '46 条完整，可保存' : '还需核对 ' + (EXPECTED_COUNT - items.length) + ' 条';
+      && reviewRows.every((row) => row.serial >= 1 && row.serial <= expectedCount);
+    $('#pcount').textContent = items.length + ' / ' + expectedCount + ' 位完整记录';
+    $('#pvalid').textContent = complete ? expectedCount + ' 条完整，可保存' : '还需核对 ' + Math.max(0, expectedCount - items.length) + ' 条';
     $('#roster-review-summary').textContent = complete
-      ? '已填写 46 / 46 条。请最后核对姓名、学科与纸质原表。'
-      : '已填写 ' + items.length + ' / 46 条；空白或不完整记录不会自动补造。';
+      ? '已填写 ' + expectedCount + ' / ' + expectedCount + ' 条。请最后核对姓名、学科与原表。'
+      : '已填写 ' + items.length + ' / ' + expectedCount + ' 条；空白或不完整记录不会自动补造。';
     $('#k').disabled = busy || !complete;
     body.querySelectorAll('[data-roster-serial]').forEach((tr) => {
       const name = String(tr.querySelector('[data-roster-name]')?.value || '').trim();
@@ -3251,14 +3253,63 @@ function rosterPhotoDialog(grade, reload) {
     img.style.height = Math.max(1, img.naturalHeight * scale) + 'px';
     img.style.transform = 'rotate(' + rotation + 'deg)';
   };
-  const showFile = (file) => {
-    if (!file || !String(file.type || '').startsWith('image/')) {
-      toast('请选择 JPG、PNG 或 WebP 图片', 'warn');
+  const showFile = async (file) => {
+    if (!file) return;
+    const fileName = String(file.name || '').toLowerCase();
+    if (/\.(xlsx|xlsm)$/.test(fileName) || /^text\//i.test(file.type || '') || /\.(csv|tsv)$/.test(fileName)) {
+      busy = true;
+      sourceKind = 'excel';
+      selectedFile = null;
+      $('#pdrop').hidden = true;
+      $('#pprev').hidden = true;
+      $('#pquality').hidden = true;
+      $('#k').disabled = true;
+      renderReviewTable([]);
+      setStatus('正在读取 Excel 工作表…');
+      try {
+        const { readXlsx, readDelimited } = await import('./xlsx-lite.js');
+        const { chooseBestRosterSheet, parseTeacherRosterGrid } = await import('./roster-import.mjs');
+        let sheets = [];
+        if (/\.(xlsx|xlsm)$/.test(fileName)) {
+          const workbook = await readXlsx(file);
+          sheets = workbook.sheets;
+        } else {
+          const text = await file.text();
+          sheets = [{ name: file.name, rows: readDelimited(text, /\.tsv$/i.test(fileName) ? '\\t' : undefined) }];
+        }
+        const parsed = chooseBestRosterSheet(sheets, { gradeHint: grade });
+        if (!parsed.ok) throw new Error(parsed.reason);
+        const roster = parsed.rows.map((row) => ({ serial: row.serial, name: row.name, subject: row.subject, side: row.side, serialSource: 'excel' }));
+        expectedCount = roster.length;
+        leftGroupCount = Math.ceil(expectedCount / 2);
+        renderReviewTable(roster);
+        $('#pdrop').hidden = false;
+        $('#pdrop').innerHTML = '<span class="roster-ocr-drop-icon">' + icon('file-spreadsheet', 25) + '</span><strong>' + esc(file.name) + '</strong><span>已读取 ' + sheets.length + ' 张工作表，匹配到 ' + roster.length + ' 位教师</span><span class="roster-ocr-drop-action">更换文件</span>';
+        $('#pquality').hidden = !(parsed.warnings || []).length;
+        if ((parsed.warnings || []).length) $('#pquality').innerHTML = '<strong>' + icon('alert-triangle', 15) + ' 导入提醒</strong><span>' + esc(parsed.warnings.join('；')) + '</span>';
+        setStatus('Excel 名单读取完成：' + roster.length + ' 位教师，请核对后保存。', 'success');
+        updateCount();
+      } catch (error) {
+        $('#pdrop').hidden = false;
+        setStatus('Excel 读取失败，没有写入名册。', 'error');
+        $('#pquality').hidden = false;
+        $('#pquality').innerHTML = '<strong>' + icon('alert-triangle', 15) + ' Excel 未能导入</strong><span>' + esc(error.message || '文件读取失败') + '</span>';
+      } finally {
+        busy = false;
+        updateCount();
+      }
       return;
     }
+    if (!String(file.type || '').startsWith('image/')) {
+      toast('请选择照片或 .xlsx / .xlsm / .csv / .tsv 文件', 'warn');
+      return;
+    }
+    sourceKind = 'photo';
     selectedFile = file;
     manualRotation = false;
     rotation = 0;
+    expectedCount = grade === '高二' ? 54 : 46;
+    leftGroupCount = Math.ceil(expectedCount / 2);
     cleanup();
     previewUrl = URL.createObjectURL(file);
     $('#pimg').onload = drawPreview;
@@ -3285,8 +3336,10 @@ function rosterPhotoDialog(grade, reload) {
     setStatus('正在准备中文识别引擎…');
     try {
       const { recognizeRosterPhoto } = await import('./ocr.js');
-      const result = await recognizeRosterPhoto(selectedFile, (message) => setStatus(message), forcedRotation);
+      const result = await recognizeRosterPhoto(selectedFile, (message) => setStatus(message), forcedRotation, grade);
       rotation = result.rotation;
+      expectedCount = result.expectedCount || (result.rows || []).length;
+      leftGroupCount = result.leftGroupCount || Math.ceil(expectedCount / 2);
       drawPreview();
       renderReviewTable(result.rows || []);
       $('#pquality').hidden = true;
@@ -3346,9 +3399,9 @@ function rosterPhotoDialog(grade, reload) {
   $('#c').onclick = () => s.close();
   $('#k').onclick = async () => {
     const items = parseLines();
-    if (items.length !== EXPECTED_COUNT) return toast('请先补全 1—46 号所有姓名和学科', 'warn');
+    if (items.length !== expectedCount) return toast('请先补全 1—' + expectedCount + ' 号所有姓名和学科', 'warn');
     const serials = items.map((item) => item.serial);
-    if (new Set(serials).size !== EXPECTED_COUNT) return toast('序号存在重复，请核对后再保存', 'warn');
+    if (new Set(serials).size !== expectedCount) return toast('序号存在重复，请核对后再保存', 'warn');
     try {
       const r = await api.post('/teachers', { grade, items: items.map(({ name, subject }) => ({ name, subject })) });
       s.close();
