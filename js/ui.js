@@ -394,6 +394,8 @@ function bindShell() {
   });
   const st = document.getElementById('side-theme');
   if (st) st.onclick = () => openThemeSheet();
+  const sb = document.getElementById('side-brand');
+  if (sb) sb.onclick = () => go('me/workbench-settings');
   const su = document.getElementById('side-user');
   if (su) su.onclick = () => go('me');
   /* 拖拽一定要配一个「恢复默认」。
@@ -519,7 +521,11 @@ export async function render() {
   const app = document.getElementById('app');
   const pageShell = `<div class="app">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-logo">台</div><div><div class="brand-name">我的工作台</div><div class="brand-sub">Workbench</div></div></div>
+      <button type="button" class="brand brand-settings-entry${state.route === 'me/workbench-settings' ? ' is-current' : ''}" id="side-brand" title="工作台设置" aria-label="打开工作台设置">
+        <div class="brand-logo">台</div>
+        <div class="brand-copy"><div class="brand-name">我的工作台</div><div class="brand-sub">Workbench</div></div>
+        <span class="brand-settings-icon">${icon('sliders', 14)}</span>
+      </button>
       <div class="side-nav">${NAV.filter((n) => n.id !== 'me').map((n) => navHTML(n, 'nav-item') + subNavHTML(n)).join('')}</div>
       <div class="sidebar-foot">
         <button class="nav-item" id="side-theme" title="切换主题外观"><span class="theme-dot" style="background:${(THEME_MAP[state.theme] || THEMES[0]).sw.pri}"></span><span>主题外观</span><span class="theme-now">${esc(themeName(state.theme))}</span></button>
