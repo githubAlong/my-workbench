@@ -364,6 +364,10 @@ export async function renderAttendance(box, opts = {}) {
     const displayColumns = activeTab === 'class' ? [
       { key: keyByLabel('上课', 'k_上课'), label: '上课', type: 'check', w: 76 },
       { key: keyByLabel('听课', 'k_听课'), label: '听课', type: 'check', w: 76 },
+      (() => {
+        const remark = (detail?.columns || []).find((col) => /备注/.test(col.label || '') || col.key === 'k_remark');
+        return remark || { key: 'k_remark', label: '备注', type: 'text', w: 180 };
+      })(),
     ] : (detail?.columns || []);
     const rosterRows = visibleRoster();
     const rosterHTML = `<div class="att-work-table-scroll"><table class="att-work-table aw-roster-table">
