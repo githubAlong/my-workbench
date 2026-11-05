@@ -340,7 +340,7 @@ function accountSheet() {
       <div class="cl-ico ok">${icon('shield', 24)}</div>
       <div>
         <div class="bold">已连上云端</div>
-        <div class="tiny muted" style="margin-top:3px">${esc(s.phone || s.email || '')}</div>
+        <div class="tiny muted" style="margin-top:3px">${esc(cloud.displayPhone(s.phone || s.email || ''))}</div>
       </div>
     </div>
 
