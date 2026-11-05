@@ -28,7 +28,7 @@ import { state, icon, go } from './ui.js';
 import { readXlsx, readDelimited } from './xlsx-lite.js';
 import { parseAttendanceSheet, SUBJECT_ORDER, subjectRank, attRowState, stateLabel } from './att-parse.js';
 import { voiceSheet } from './attvoice.js';
-import { addGradeDialog, gradeManageDialog, MAIN_GRADES, gradeTabs } from './attgrade.js';
+import { addGradeDialog, gradeManageDialog, gradeTabs } from './attgrade.js';
 import { renderGradeList } from './attindex.js';
 import { statsSheet } from './attstats.js';
 import { registerLiveHook } from './live.js';
@@ -149,7 +149,7 @@ export async function renderAttendance(box, opts = {}) {
   // 每次进入年级工作台都从花名册开始；切换其他表只在本次工作台会话内生效。
   let activeTab = 'roster';
   sessionStorage.setItem('wb_att_tab', activeTab);
-  let gradesData = { grades: [], counts: {}, tabs: MAIN_GRADES.slice() };
+  let gradesData = { grades: [], counts: {}, tabs: [] };
   let tables = [];
   let roster = [];
   let detail = null;
@@ -164,7 +164,7 @@ export async function renderAttendance(box, opts = {}) {
     const d = new Date(`${v}T00:00:00`);
     return Number.isNaN(d.getTime()) ? v : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（星期${WD[d.getDay()]}）`;
   };
-  const listFor = (type) => tables.filter((t) => (t.grade || '高一') === activeGrade
+  const listFor = (type) => tables.filter((t) => t.grade === activeGrade
     && String(t.sheet_date || '') === viewDate && (t.sheet_type || t.kind) === type && !t.deleted_at);
   const listForSelected = (type) => listFor(type).filter((t) => type !== 'seat' || String(t.periods || '') === String(selectedPeriod));
   const getPeriodCols = (t) => {
@@ -236,7 +236,12 @@ export async function renderAttendance(box, opts = {}) {
         api.get('/attendance'),
       ]);
       gradesData.tabs = gradeTabs(gradesData);
-      if (!gradesData.tabs.includes(activeGrade)) activeGrade = gradesData.tabs[0] || '高一';
+      if (!gradesData.tabs.length) {
+        sessionStorage.removeItem('wb_att_grade');
+        await renderGradeList(box);
+        return;
+      }
+      if (!gradesData.tabs.includes(activeGrade)) activeGrade = gradesData.tabs[0];
       sessionStorage.setItem('wb_att_grade', activeGrade);
       sessionStorage.setItem('wb_att_date', viewDate);
       // 进入工作台或切换日期时只读取已有记录，不自动创建正式/草稿考勤表。
@@ -634,7 +639,7 @@ function bindGroups(root, load, grade) {
      「新建」按钮挂在两个板块里，归属哪个年级必须看当前这个 tab。
      以前读 sessionStorage，切 tab 时如果没写进去（或者进了别的页面再回来），
      就会出现「看着是高二，新建出来却是高一」的表。 */
-  const cur = grade || sessionStorage.getItem('wb_att_grade') || '高一';
+  const cur = grade || sessionStorage.getItem('wb_att_grade') || '';
   root.querySelectorAll('[data-card]').forEach((c) => {
     c.onclick = (e) => {
       if (e.target.closest('button')) return;
@@ -688,8 +693,7 @@ function newSheetDialog(grade, reload, type = 'seat') {
       <div class="field-hint" id="type-hint"></div></div>
     <div class="field-row">
       <div class="field"><label class="field-label">年级</label>
-        <select class="input" id="grade">${[grade, ...MAIN_GRADES].filter((v, i, a) => a.indexOf(v) === i)
-          .map((g) => `<option ${g === grade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
+        <select class="input" id="grade">${[grade].filter(Boolean).map((g) => `<option selected>${esc(g)}</option>`).join('')}</select></div>
       <div class="field"><label class="field-label">日期</label>
         <input class="input" type="date" id="date" value="${today}"></div>
     </div>
@@ -861,7 +865,7 @@ function headerBar(t) {
   const isSeat = (t.sheet_type || t.kind) === 'seat';
   const nPhoto = Number(t.photo_count || 0);
   return `<div class="att-header">
-    <div class="ah-grade">${esc(t.grade || '高一')}</div>
+    <div class="ah-grade">${esc(t.grade || '')}</div>
     <div class="ah-line">时间</div>
     ${dateChip(t)}
     ${isSeat ? periodChip(t) : ''}
@@ -1238,7 +1242,9 @@ function leaveTag(lv) {
 /* 上课表的「＋ 临时老师」（FR-CLASS-1/2/3）
    跨年级借调来的人不在本年级名册里，只是当天来上节课。
    录进去只在当天这张表里：不进名册、次日新建表不会带过去、统计里归到「临时老师」。 */
-function tempTeacherDialog(t, cols, done) {
+async function tempTeacherDialog(t, cols, done) {
+  const gradeData = await api.get('/grades').catch(() => ({ grades: [] }));
+  const borrowGrades = gradeTabs(gradeData).filter((g) => g !== t.grade);
   const checkCols = (cols || []).filter((c) => c.type === 'check');
   const remarkCol = (cols || []).find((c) => c.type !== 'check');
   const subjects = [...new Set(SUBJECT_ORDER)];
@@ -1257,7 +1263,7 @@ function tempTeacherDialog(t, cols, done) {
     <div class="field"><label class="field-label">借调自</label>
       <select class="input" id="tt-from">
         <option value="">外校 / 不记来源</option>
-        ${MAIN_GRADES.filter((g) => g !== t.grade).map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join('')}
+        ${borrowGrades.map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join('')}
       </select>
       <div class="field-hint">跨年级借调就选原来那个年级，统计里能看出他从哪借来的。</div></div>
     <div class="field"><label class="field-label">上课状态</label>
@@ -2553,7 +2559,7 @@ async function photoOnlyDialog(grade, reload) {
   const body = el(`<div class="sheet-body">
     <div class="field-row">
       <div class="field"><label class="field-label">年级</label>
-        <select class="input" id="po-grade">${MAIN_GRADES.map((g) => `<option ${g === grade ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
+        <select class="input" id="po-grade">${[grade].filter(Boolean).map((g) => `<option selected>${esc(g)}</option>`).join('')}</select></div>
       <div class="field"><label class="field-label">表类型</label>
         <select class="input" id="po-type">
           <option value="seat">教师坐班表</option>
@@ -2623,11 +2629,18 @@ async function photoOnlyDialog(grade, reload) {
 }
 
 /* ================= 识别结果确认页 ================= */
-function confirmSheet(parsed, ctx) {
+async function confirmSheet(parsed, ctx) {
   const { grade, reload, filename } = ctx;
+  const gradeData = await api.get('/grades').catch(() => ({ grades: [] }));
+  const gradeOptions = gradeTabs(gradeData);
+  if (grade && !gradeOptions.includes(grade)) gradeOptions.unshift(grade);
+  if (!gradeOptions.length) {
+    toast('请先创建年级，再导入考勤表', 'warn');
+    return;
+  }
   let r = parsed;
 
-  /* 支持切换工作表：一个文件里高一高二各一张表是常态 */
+  /* 支持切换工作表：一个文件里可能包含多个年级的表。 */
   const rebuild = (grid, sheetName) => {
     const np = parseAttendanceSheet(grid, { gradeHint: grade });
     if (!np.ok) { toast(np.reason, 'err', 6000); return; }
@@ -2637,7 +2650,7 @@ function confirmSheet(parsed, ctx) {
     confirmSheet(r, ctx);
   };
 
-  const d = { grade: r.grade || grade, date: r.date || '', period: r.period || 1, type: r.type };
+  const d = { grade: gradeOptions.includes(r.grade) ? r.grade : (grade || gradeOptions[0]), date: r.date || '', period: r.period || 1, type: r.type };
   const checkCols = (r.columns || []).filter((c) => c.type === 'check');
   const body = el(`<div class="att-confirm">
     <div class="acm-file">
@@ -2647,10 +2660,10 @@ function confirmSheet(parsed, ctx) {
     </div>
     ${ctx.sheets ? `<div class="field"><label class="field-label">这个文件里有 ${ctx.sheets.length} 张工作表</label>
       <div class="att-sheetpick" id="c-sheetpick">${ctx.sheets.map((x, i) => `<button class="btn ghost sm${x.name === ctx.sheetName ? ' on' : ''}" data-si="${i}">${esc(x.name)}<span class="tiny muted">${x.rows.length} 行</span></button>`).join('')}</div>
-      <div class="field-hint">切到别的表会重新识别。高一高二通常各一张。</div></div>` : ''}
+      <div class="field-hint">切换工作表会重新识别，确认时可选择已创建的年级。</div></div>` : ''}
     <div class="acm-grid">
       <div class="field"><label class="field-label">年级</label>
-        <select class="input" id="c-grade">${MAIN_GRADES.map((g) => `<option ${g === d.grade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
+        <select class="input" id="c-grade">${gradeOptions.map((g) => `<option ${g === d.grade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
       <div class="field"><label class="field-label">表类型</label>
         <select class="input" id="c-type">
           <option value="seat" ${d.type !== 'research' ? 'selected' : ''}>教师坐班表</option>
@@ -2866,7 +2879,7 @@ function confirmSheet(parsed, ctx) {
 
 /* ================= 教师名册（按年级分开管） =================
  *
- * 老师的原话：「高一老师名册和高二所有老师名册分开，两个年级分开管理比较好」。
+ * 每个年级的老师名册独立管理。
  * 所以这里不是一个长列表，而是一进来就在当前年级上，
  * 顶部的切换条跟主页面的 tab 一致，切过去看到的就是那个年级的人。
  */
@@ -2890,7 +2903,7 @@ function rosterSheet(grade, reload) {
   </div>`);
   const s = sheet({ title: '教师名册', body, wide: true, cls: 'att-roster-dialog' });
   const $ = (x) => body.querySelector(x);
-  let cur = grade || MAIN_GRADES[0];
+  let cur = grade || '';
   /* 学科筛选（FR-ROSTER-4）：点一个学科只看这一科的人，和纸表分块一致 */
   let filterSub = '';
   /* 在册老师按学科计数，筛选条用 */
@@ -2904,10 +2917,22 @@ function rosterSheet(grade, reload) {
   };
 
   const load = async () => {
-    const [g, list] = await Promise.all([api.get('/grades'), api.get('/teachers', { grade: cur, active: 'all' })]);
-    const tabs = [...new Set([...MAIN_GRADES, ...(g.grades || [])])];
+    const g = await api.get('/grades');
+    const tabs = gradeTabs(g);
+    if (!cur || !tabs.includes(cur)) cur = tabs[0] || '';
+    const list = cur ? await api.get('/teachers', { grade: cur, active: 'all' }) : { list: [] };
     const people = list.list || [];
-    $('#ars-tabs').innerHTML = tabs.map((x) => `<button class="seg-btn${x === cur ? ' on' : ''}" data-g="${esc(x)}">${esc(x)} <span class="tiny muted">${g.counts?.[x] || 0}</span></button>`).join('');
+    $('#ars-tabs').innerHTML = tabs.length
+      ? tabs.map((x) => `<button class="seg-btn${x === cur ? ' on' : ''}" data-g="${esc(x)}">${esc(x)} <span class="tiny muted">${g.counts?.[x] || 0}</span></button>`).join('')
+      : '<div class="att-empty">还没有创建年级。</div>';
+    if (!cur) {
+      $('.ars-add').hidden = true;
+      $('#ars-stats').innerHTML = '暂无年级';
+      $('#ars-filter').innerHTML = '';
+      $('#ars-list').innerHTML = '<div class="att-empty">请先在考勤管理首页新建年级。</div>';
+      return;
+    }
+    $('.ars-add').hidden = false;
     $('#ars-tabs').querySelectorAll('[data-g]').forEach((b) => {
       b.onclick = () => { cur = b.dataset.g; load(); };
     });
