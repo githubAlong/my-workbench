@@ -325,7 +325,7 @@ function isActive(id) {
   if (id === 'work') return r.startsWith('work') || r === 'selfstudy' || r === 'repairs';
   if (id === 'daily') return r.startsWith('daily');
   if (id === 'study') return r.startsWith('study');
-  if (id === 'me') return r === 'me' || r === 'messages' || r === 'profile';
+  if (id === 'me') return r === 'me' || r === 'messages' || r === 'profile' || r.startsWith('me/');
   if (id === 'recycle') return r === 'recycle';
   return false;
 }
