@@ -192,4 +192,4 @@ https://<项目Ref>.supabase.co/functions/v1/send-sms-hook
 考勤表存在云端 `attendance_tables` / `attendance_rows`（Supabase），名册仍在本地库（`teachers`）。确认状态记在 `attendance_tables.meta` 的 `confirmed_at` / `confirm_dirty` 上 —— 线上表已有 `meta` 列，不需要改数据库 schema。
 
 ### 已知未做
-`拍照建册` 目前没有随附 OCR 引擎（仓库里只有 `ocr/chi_sim.traineddata.gz` 语言包，没有运行时代码），所以走的是「照片摆在上面、对着它逐行录入」；若页面提供 `window.WB_OCR.recognize(file)` 会自动调用识别并预填。要真正离线 OCR，需要额外引入 Tesseract（约 4MB wasm + 20MB 中文语言包）并加进 Service Worker 缓存。
+`拍照建册` 已接入浏览器端 Tesseract.js 中文 OCR（`chi_sim+eng`）：上传照片后自动尝试 0°/90°/180°/270° 四种方向，并对表格长直线做预处理；识别结果会自动填入可编辑文本框，必须人工核对后才写入名册。照片在浏览器本地处理，不上传识别服务器。首次使用需要联网加载 OCR 引擎与中文模型，模型会由浏览器缓存；由于引擎核心仍从 CDN 加载，暂不承诺完全离线识别。识别准确率受照片清晰度、透视和表格排版影响，最终以人工核对为准。
