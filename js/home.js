@@ -596,7 +596,7 @@ function renderHome() {
     <span class="sb-ico">${icon('search', 17)}</span>
     <input id="gsearch" placeholder="搜索事项、任务、上课、出差、笔记…" autocomplete="off" enterkeyhint="search">
     <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close', 15)}</button>
-    <button class="sb-go" id="search-go" title="执行搜索" aria-label="执行搜索">${icon('right', 17)}</button>
+    <button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search', 17)}</button>
   </div>
   <button class="btn soft teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false">
     ${icon('edit', 16)}<span>编辑布局</span>
@@ -636,12 +636,12 @@ function renderHome() {
             <div class="clk-hello-t">
               <div class="clk-greet" id="greet-line">${esc(g1)}</div>
               <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
-              <div class="clk-profile-details" aria-label="个人资料">
-                <div class="clk-profile-label">个人资料</div>
-                <div class="clk-profile-meta" id="home-profile-meta">${esc(profileSchoolSubject)}</div>
-                <div class="clk-profile-role" id="home-profile-role">${esc(profileRole)}</div>
-              </div>
             </div>
+          </div>
+          <div class="clk-profile-details" aria-label="个人资料">
+            <div class="clk-profile-label">个人资料</div>
+            <div class="clk-profile-meta" id="home-profile-meta">${esc(profileSchoolSubject)}</div>
+            <div class="clk-profile-role" id="home-profile-role">${esc(profileRole)}</div>
           </div>
           <button class="icon-btn sm" id="theme-btn" title="主题外观" aria-label="主题外观">${icon('sun', 17)}</button>
         </div>
@@ -907,8 +907,8 @@ function jumpCalTo(date) {
     return;
   }
   calState.selected = date;
+  calState.dayExpanded = false;
   paintCal();
-  loadDay(date);
 }
 
 /* 日历广播过来的日期同步到事项卡抬头。
@@ -1108,11 +1108,12 @@ async function exportCalendar() {
 }
 
 /* 日历 */
-let calState = { month: '', data: null, selected: '', view: 'month' };
+let calState = { month: '', data: null, selected: '', view: 'month', dayExpanded: false, dayLoadSeq: 0 };
 async function loadCal(monthDay) {
   const month = String(monthDay).slice(0, 7);
   calState.month = month;
   calState.selected = monthDay;
+  calState.dayExpanded = false;
   let data;
   if (month === String(homeData?.date || '').slice(0, 7) && homeData.courses_month) {
     data = {
@@ -1180,8 +1181,8 @@ function paintCal() {
   grid.querySelectorAll('[data-day]').forEach((b) => {
     b.onclick = () => {
       calState.selected = b.dataset.day;
+      calState.dayExpanded = true;
       paintCal();
-      loadDay(b.dataset.day);
       /* 反过来也要成立：点日历那一天，左边事项区要给出回应。
          左边只显示「今天」的事项，所以不能真的过滤成那一天（会变成空列表），
          但可以把选中日期画在事项卡标题上，让两边的「当前日期」始终一致。
@@ -1196,14 +1197,15 @@ function paintCal() {
 async function loadDay(date) {
   const box = document.getElementById('cal-day');
   if (!box) return;
-  const collapsed = calFoldPref('calendar-day-collapsed') === '1';
+  const requestId = ++calState.dayLoadSeq;
+  const collapsed = !calState.dayExpanded;
   box.classList.toggle('is-collapsed', collapsed);
   box.innerHTML = `${calDayHeaderHTML(date, '…', collapsed)}
     <div class="cal-day-content"><div class="cal-day-empty">正在加载…</div></div>`;
   bindCalDayControls(box, date);
 
   const d = await api.get('/calendar/day', { date }).catch(() => null);
-  if (!box.isConnected) return;
+  if (!box.isConnected || requestId !== calState.dayLoadSeq || date !== calState.selected) return;
   if (!d) {
     const content = box.querySelector('.cal-day-content');
     if (content) content.innerHTML = '<div class="cal-day-empty">加载失败</div>';
@@ -1229,13 +1231,14 @@ async function loadDay(date) {
       </div>
     </div>`).join('');
 
-  box.innerHTML = `${calDayHeaderHTML(date, evs.length, collapsed)}
+  const collapsedNow = !calState.dayExpanded;
+  box.innerHTML = `${calDayHeaderHTML(date, evs.length, collapsedNow)}
     <div class="cal-day-content">
       ${evs.length
         ? `<div class="cal-day-list">${rows}</div>`
         : '<div class="cal-day-empty">这一天还没有安排<br><span class="tiny">点右上「＋ 添加」记一件事项</span></div>'}
     </div>`;
-  box.classList.toggle('is-collapsed', collapsed);
+  box.classList.toggle('is-collapsed', collapsedNow);
   bindCalDayControls(box, date);
 }
 
@@ -1268,7 +1271,7 @@ function bindCalDayControls(box, date) {
   toggle.onclick = () => {
     const collapsed = !box.classList.contains('is-collapsed');
     box.classList.toggle('is-collapsed', collapsed);
-    calFoldPref('calendar-day-collapsed', collapsed ? '1' : '0');
+    calState.dayExpanded = !collapsed;
     toggle.setAttribute('aria-expanded', String(!collapsed));
     toggle.setAttribute('aria-label', collapsed ? '展开当天安排' : '收起当天安排');
     toggle.title = collapsed ? '展开当天安排' : '收起当天安排';
