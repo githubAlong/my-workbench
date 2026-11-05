@@ -848,19 +848,79 @@ async function renderTimetable(box) {
           return `${lunchRow}<tr><td><b>第${p}节</b><div class="tiny muted mono">${per ? per.start_time + '-' + per.end_time : '未设置'}</div></td>
             ${wd.map((d) => {
               const c = get(d, p);
-              return `<td data-cell="${d}-${p}" style="cursor:pointer;min-width:104px;height:52px;background:${c ? colorBg(c.class_name) : 'transparent'}">
-                ${c ? `<div class="small bold">${esc(c.class_name)}</div><div class="tiny muted">${esc(c.subject)} ${esc(c.room || '')}</div>` : '<span class="tiny muted">＋</span>'}
+              return `<td data-cell="${d}-${p}" ${c ? `data-course-id="${esc(c.id)}" draggable="true"` : ''} style="cursor:${c ? 'grab' : 'pointer'};min-width:104px;height:52px;background:${c ? colorBg(c.class_name) : 'transparent'}">
+                ${c ? `<div class="tt-course-chip"><span class="tt-drag-handle" aria-hidden="true">⠿</span><div><div class="small bold">${esc(c.class_name)}</div><div class="tiny muted">${esc(c.subject)} ${esc(c.room || '')}</div></div></div>` : '<span class="tiny muted">＋</span>'}
               </td>`;
             }).join('')}
           </tr>`;
         }).join('')}</tbody>
       </table></div>
       <div class="small muted" style="margin-top:10px">课时统计：本表每周共 ${courses.length} 节，按 4.3 周/月估算约 ${Math.round(courses.length * 4.3)} 节。实际以「上课」中的记录为准。</div>`;
+    let draggedCourseId = null;
+    let suppressCellClick = false;
     box.querySelectorAll('[data-cell]').forEach((td) => {
       td.onclick = () => {
+        if (suppressCellClick) { suppressCellClick = false; return; }
         const [d, p] = td.dataset.cell.split('-').map(Number);
         courseEditor(get(d, p) || { weekday: d, period_no: p }, load);
       };
+      td.addEventListener('dragover', (event) => {
+        if (!draggedCourseId) return;
+        event.preventDefault();
+        td.classList.add('tt-drop-target');
+      });
+      td.addEventListener('dragleave', () => td.classList.remove('tt-drop-target'));
+      td.addEventListener('drop', async (event) => {
+        event.preventDefault();
+        td.classList.remove('tt-drop-target');
+        const source = courses.find((item) => String(item.id) === String(draggedCourseId));
+        draggedCourseId = null;
+        if (!source) return;
+        const [toDay, toPeriod] = td.dataset.cell.split('-').map(Number);
+        if (Number(source.weekday) === toDay && Number(source.period_no) === toPeriod) return;
+        const target = get(toDay, toPeriod);
+        const periodMap = new Map(periods.map((item) => [Number(item.period_no), item]));
+        const sourceTime = periodMap.get(Number(source.period_no)) || {};
+        const targetTime = periodMap.get(toPeriod) || {};
+        try {
+          const sourcePayload = {
+            weekday: target ? Number(target.weekday) : toDay,
+            period_no: target ? Number(target.period_no) : toPeriod,
+            start_time: target ? (target.start_time || targetTime.start_time || '') : (source.start_time || targetTime.start_time || ''),
+            end_time: target ? (target.end_time || targetTime.end_time || '') : (source.end_time || targetTime.end_time || '')
+          };
+          const writes = [];
+          if (target) writes.push(api.patch('/courses/' + target.id, {
+            weekday: Number(source.weekday), period_no: Number(source.period_no),
+            start_time: target.start_time || sourceTime.start_time || '',
+            end_time: target.end_time || sourceTime.end_time || ''
+          }));
+          writes.push(api.patch('/courses/' + source.id, sourcePayload));
+          await Promise.all(writes);
+          suppressCellClick = true;
+          toast(target ? '已交换两门课程的位置' : '课程已移动');
+          await load();
+        } catch (error) {
+          toast(error.message || '拖动失败，原课表未完成更新', 'err');
+          await load();
+        }
+      });
+    });
+    box.querySelectorAll('[data-course-id]').forEach((td) => {
+      td.addEventListener('dragstart', (event) => {
+        draggedCourseId = td.dataset.courseId;
+        suppressCellClick = false;
+        td.classList.add('tt-dragging');
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', draggedCourseId);
+        }
+      });
+      td.addEventListener('dragend', () => {
+        draggedCourseId = null;
+        td.classList.remove('tt-dragging');
+        box.querySelectorAll('.tt-drop-target').forEach((node) => node.classList.remove('tt-drop-target'));
+      });
     });
     box.querySelector('#add-course').onclick = () => courseEditor(null, load);
     box.querySelector('#import-tt').onclick = () => importTimetableDialog(load);
@@ -1146,8 +1206,10 @@ async function importTimetableDialog(reload) {
     };
     work.querySelector('#tt-rows').onclick = () => {
       // 按格子在原图里所在的行重新推节次（表头下方第几行 = 第几节）
-      const base = R.headerRow >= 0 ? R.headerRow + 1 : 0;
-      assign.forEach((a) => { a.period = a.row - base + 1; });
+      assign.forEach((a) => {
+        const mapped = R.periodByRow?.[a.row];
+        if (mapped) a.period = mapped;
+      });
       paintImagePreview(work);
     };
   };
