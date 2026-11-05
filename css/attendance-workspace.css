@@ -524,3 +524,62 @@
   .agd-sheet{min-height:78px}
   .agd-new-card{min-height:185px}
 }
+
+
+/* ===== 年级考勤卡片：强化「进入考勤工作台」主入口 ===== */
+.agd-grade-foot {
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  gap:10px;
+  margin-top:auto;
+  padding-top:16px;
+  border-top:1px solid #edf1f7;
+}
+.agd-grade-foot>span {
+  color:#8798b0;
+  font-size:11px;
+  line-height:1.45;
+  text-align:center;
+  white-space:normal;
+}
+.agd-grade-foot>b {
+  display:flex;
+  width:100%;
+  min-height:50px;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  padding:0 18px;
+  border-radius:12px;
+  background:linear-gradient(110deg,#2874f7,#155fe6);
+  color:#fff;
+  font-size:15px;
+  font-weight:800;
+  letter-spacing:.2px;
+  box-shadow:0 7px 16px rgba(37,99,235,.20);
+  transition:transform .18s ease,box-shadow .18s ease,filter .18s ease;
+}
+.agd-grade-card:nth-child(2) .agd-grade-foot>b {
+  background:linear-gradient(110deg,#8b70f6,#6555e9);
+  box-shadow:0 7px 16px rgba(111,86,231,.20);
+}
+.agd-grade-card:nth-child(3) .agd-grade-foot>b {
+  background:linear-gradient(110deg,#22b6c6,#168cae);
+  box-shadow:0 7px 16px rgba(22,156,178,.18);
+}
+.agd-grade-card:hover .agd-grade-foot>b {
+  transform:translateY(-1px);
+  filter:saturate(1.08);
+  box-shadow:0 10px 21px rgba(37,99,235,.24);
+}
+.agd-grade-card:focus-visible {
+  outline:3px solid rgba(37,99,235,.30);
+  outline-offset:3px;
+}
+.agd-grade-foot>b svg { flex:0 0 auto; }
+@media(max-width:680px) {
+  .agd-grade-foot { gap:8px;padding-top:13px; }
+  .agd-grade-foot>span { font-size:10px; }
+  .agd-grade-foot>b { min-height:48px;font-size:14px;border-radius:11px; }
+}
