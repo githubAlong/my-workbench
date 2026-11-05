@@ -92,7 +92,7 @@ export function importSheet(kind, reload) {
 
 /* ================= 工作（二级导航分发） ================= */
 /* 路由：work/<tab>，tab 取自 ui.js 的 NAV.work.sub。
-   课件（materials）下面还有第三级 work/materials/<third>：
+   小助手（materials）下面还有子级入口 work/materials/<third>：
      selfstudy 自习 · textbook 教材 · pick 抽人 · mystery 盲盒
    这四项对应的是**学生看到的那个页面**（student.html）里的模块，
    老师这边需要的是「发链接、配内容、看谁用了」，所以第三级不是把学生页
@@ -109,7 +109,7 @@ registerView(async function work(main, { tab, third }) {
     attendance: ['考勤', '按年级分开管：花名册、每日三张表、统计'],
     invigilation: ['监考', '监考场次、时间、补贴，一场不漏'],
     trips: ['出差', '行程、报销、补贴，按天自动算'],
-    materials: ['课件', '发给学生的那个页面：自习、教材、抽人、盲盒都在这里配'],
+    materials: ['小助手', '学生端互动工具统一管理：自习、教材、抽人、盲盒'],
     notes: ['笔记', '随手记的教学笔记，可搜索、可归档'],
   }[t] || ['工作', ''];
 
@@ -2650,7 +2650,7 @@ function askStatus() {
   });
 }
 
-/* ================= 学生页面的三个模块（课件下面的第三级） =================
+/* ================= 学生页面的三个模块（小助手下面的子级入口） =================
    教材 / 抽人 / 盲盒，对应 student.html 顶部的三个页签：
      material → 老师在「课件」里上传、勾了「学生可见」的资料
      roll     → 抽人（按号码或按名单，不重复）

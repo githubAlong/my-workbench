@@ -103,12 +103,14 @@ export const state = {
    现在收成三层：
      一级 6 格：首页 / 工作 / 日常 / 学习 / 回收站 / 我的
      二级挂在「工作」下：上课、课表、备课、维修、考勤、监考、出差、课件、笔记
-     三级挂在「课件」下（也就是学生看到的那个页面）：自习、教材、抽人、盲盒
+     三级挂在「小助手」下（也就是学生看到的那个页面）：自习、教材、抽人、盲盒
 
    为什么自习在课件下面而不是在「工作」的二级里：
      它记录的是给学生的那个页面（student.html）里的模块，和电子教材、抽人、
      盲盒放在同一个出口，用户才找得到「我给学生看的页面上到底有什么」。
-     记自己看哪个班的自习的入口没丢，在「课件 → 自习」页里单独一块。 */
+     记自己看哪个班的自习的入口没丢，在「小助手 → 自习」页里单独一块。 */
+const navGroupOverrides = new Map();
+
 export const NAV = [
   { id: 'home', label: '首页', icon: 'home' },
   {
@@ -124,7 +126,7 @@ export const NAV = [
       { id: 'invigilation', label: '监考', icon: 'shield' },
       { id: 'trips', label: '出差', icon: 'car' },
       {
-        id: 'materials', label: '课件', icon: 'folder',
+        id: 'materials', label: '小助手', icon: 'folder',
         sub: [
           { id: 'selfstudy', label: '自习', icon: 'clock' },
           { id: 'textbook', label: '教材', icon: 'book' },
@@ -291,15 +293,47 @@ const views = {};
 function navHTML(n, cls) {
   const active = isActive(n.id) ? 'active' : '';
   const badge = n.id === 'me' && state.unread ? `<span class="badge-dot">${state.unread > 99 ? '99+' : state.unread}</span>` : '';
-  const caret = (n.sub && cls === 'nav-item') ? `<span class="nav-caret">${icon(isOpen(n.id) ? 'down' : 'right', 13)}</span>` : '';
-  return `<button class="${cls} ${active}" data-nav="${n.id}">
+  const isGroup = !!n.sub && cls === 'nav-item';
+  const caret = isGroup ? `<span class="nav-caret">${icon(isOpen(n.id) ? 'down' : 'right', 13)}</span>` : '';
+  const action = isGroup
+    ? `data-nav-toggle="${n.id}" aria-expanded="${isOpen(n.id)}"`
+    : `data-nav="${n.id}"`;
+  return `<button class="${cls} ${active}" ${action}>
     ${cls === 'bn-item' ? icon(n.icon, 22) : `<span class="ni">${icon(n.icon, 20)}</span>`}
     <span class="nav-label">${n.label}</span>${caret}${badge}</button>`;
 }
-/* 有二级的子菜单：展开状态跟随当前路由，不在当前模块时默认收起。
-   用 data-open 而不是每次折叠都重绘整页，滚动位置不会丢。 */
+
+/* 折叠状态优先于路由默认值：
+   当前页面即使仍在「工作 / 小助手」中，用户也可以主动收起菜单；
+   页面路由变化时会清除临时覆盖，再按新路由展开对应分组。 */
+function routeIsInNavGroup(groupKey, route = state.route) {
+  const current = String(route || '');
+  return current === groupKey || current.startsWith(groupKey + '/');
+}
+function isNavGroupOpen(groupKey) {
+  if (navGroupOverrides.has(groupKey)) return navGroupOverrides.get(groupKey);
+  return routeIsInNavGroup(groupKey);
+}
+function setNavGroupOpen(groupKey, open) {
+  const expanded = !!open;
+  navGroupOverrides.set(groupKey, expanded);
+  const nested = groupKey.includes('/');
+  const box = document.querySelector(nested
+    ? `[data-sub3-of="${groupKey}"]`
+    : `[data-sub-of="${groupKey}"]`);
+  if (box) {
+    box.hidden = !expanded;
+    box.classList.toggle('open', expanded);
+  }
+  const button = document.querySelector(`[data-nav-toggle="${groupKey}"]`);
+  if (button) {
+    button.setAttribute('aria-expanded', String(expanded));
+    const caret = button.querySelector('.nav-caret');
+    if (caret) caret.innerHTML = icon(expanded ? 'down' : 'right', nested ? 12 : 13);
+  }
+}
 function isOpen(rootId) {
-  return String(state.route || '').split('/')[0] === rootId;
+  return isNavGroupOpen(rootId);
 }
 function subNavHTML(n) {
   if (!n.sub) return '';
@@ -308,12 +342,16 @@ function subNavHTML(n) {
   return `<div class="nav-sub${open ? ' open' : ''}" data-sub-of="${n.id}"${open ? '' : ' hidden'}>
     ${n.sub.map((s) => {
     const on = cur === s.id ? 'on' : '';
-    /* 课件下面还有第三级：在侧栏里缩进显示，不用点进去才知道有自习/教材/抽人/盲盒 */
-    const hasThird = !!s.sub;
-    return `<button class="nav-subitem ${on}" data-nav="${n.id}/${s.id}">
-        ${icon(s.icon, 15)}<span class="nav-label">${s.label}</span>${hasThird ? `<span class="nav-caret">${icon(cur === s.id ? 'down' : 'right', 12)}</span>` : ''}
+    const hasThird = Array.isArray(s.sub) && s.sub.length > 0;
+    const groupKey = `${n.id}/${s.id}`;
+    const nestedOpen = hasThird && isNavGroupOpen(groupKey);
+    const action = hasThird
+      ? `data-nav-toggle="${groupKey}" aria-expanded="${nestedOpen}"`
+      : `data-nav="${n.id}/${s.id}"`;
+    return `<button class="nav-subitem ${on}" ${action}>
+        ${icon(s.icon, 15)}<span class="nav-label">${s.label}</span>${hasThird ? `<span class="nav-caret">${icon(nestedOpen ? 'down' : 'right', 12)}</span>` : ''}
       </button>
-      ${hasThird && cur === s.id ? `<div class="nav-sub3">${s.sub.map((t) => `
+      ${hasThird ? `<div class="nav-sub3" data-sub3-of="${groupKey}"${nestedOpen ? '' : ' hidden'}>${s.sub.map((t) => `
         <button class="nav-subitem lv3 ${String(state.route || '').endsWith('/' + t.id) ? 'on' : ''}" data-nav="${n.id}/${s.id}/${t.id}">
           ${icon(t.icon, 14)}<span class="nav-label">${t.label}</span></button>`).join('')}</div>` : ''}`;
   }).join('')}
@@ -325,39 +363,34 @@ function isActive(id) {
   if (id === 'work') return r.startsWith('work') || r === 'selfstudy' || r === 'repairs';
   if (id === 'daily') return r.startsWith('daily');
   if (id === 'study') return r.startsWith('study');
-  if (id === 'me') return r === 'me' || r === 'messages' || r === 'profile' || r.startsWith('me/');
+  if (id === 'me') return r === 'me' || r === 'messages' || r === 'profile';
   if (id === 'recycle') return r === 'recycle';
   return false;
 }
 
 function bindShell() {
+  /* 只有真正的页面入口才走路由；分组按钮只负责展开/收起，
+     避免一次点击同时触发 go() 和折叠事件，导致菜单刚收起又被路由重绘打开。 */
   document.querySelectorAll('[data-nav]').forEach((b) => { b.onclick = () => go(b.dataset.nav); });
-  /* 点一级导航时展开它的二级菜单（不跳页），再点一次收起。
-     没有这一步的话「工作」永远是直接跳到上课，用户看不到下面还有什么。 */
-  document.querySelectorAll('.sidebar [data-nav]').forEach((b) => {
-    const id = b.dataset.nav;
-    if (id.includes('/')) return;
-    const node = NAV.find((n) => n.id === id);
-    if (!node?.sub) return;
-    b.addEventListener('click', (e) => {
+  document.querySelectorAll('.sidebar [data-nav-toggle]').forEach((b) => {
+    b.onclick = (e) => {
       e.preventDefault();
-      const box = document.querySelector(`[data-sub-of="${id}"]`);
-      if (!box) return;
-      const willOpen = box.hidden || !box.classList.contains('open');
-      document.querySelectorAll('.nav-sub').forEach((x) => {
-        if (x === box) return;
-        x.classList.remove('open');
-        x.hidden = true;
-      });
-      box.classList.toggle('open', willOpen);
-      box.hidden = !willOpen;
-      b.classList.toggle('active', willOpen);
-      const c = b.querySelector('.nav-caret');
-      if (c) c.innerHTML = icon(willOpen ? 'down' : 'right', 13);
-      if (willOpen && String(state.route || '').split('/')[0] !== id) {
-        go(id + '/' + node.sub[0].id);
+      e.stopPropagation();
+      const key = b.dataset.navToggle;
+      const willOpen = !isNavGroupOpen(key);
+      setNavGroupOpen(key, willOpen);
+
+      if (willOpen && !key.includes('/')) {
+        document.querySelectorAll('.sidebar [data-nav-toggle]').forEach((other) => {
+          const otherKey = other.dataset.navToggle;
+          if (other !== b && otherKey && !otherKey.includes('/')) setNavGroupOpen(otherKey, false);
+        });
       }
-    });
+
+      /* 小助手既是分组入口也是管理页：从其他页面首次展开时进入管理页；
+         在小助手内部再次点击则只收起/展开子菜单，不打断当前页面。 */
+      if (key.includes('/') && willOpen && !routeIsInNavGroup(key)) go(key);
+    };
   });
   const st = document.getElementById('side-theme');
   if (st) st.onclick = () => openThemeSheet();
@@ -430,7 +463,9 @@ export async function render() {
   const mySeq = ++renderSeq;
   if (viewCleanup) { try { viewCleanup(); } catch {} viewCleanup = null; }
   let { path, query } = parseHash();
+  const previousRoute = state.route;
   state.route = path;
+  if (previousRoute !== path) navGroupOverrides.clear();
   let [seg, tab, third] = path.split('/');
 
   /* 【旧地址兼容】

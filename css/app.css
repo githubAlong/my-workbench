@@ -283,6 +283,7 @@ img { max-width: 100%; }
 .nav-subitem.on svg { opacity: 1; }
 .nav-subitem .nav-caret { margin-left: auto; display: grid; place-items: center; color: var(--text-3); }
 .nav-sub3 { display: flex; flex-direction: column; gap: 1px; margin: 1px 0 3px 14px; padding-left: 8px; border-left: 1.5px dashed var(--line-2); }
+.nav-sub3[hidden] { display: none; }
 .nav-subitem.lv3 { font-size: 13px; padding: 6px 9px; }
 
 /* ---------- 二级导航（手机顶部横条） ----------
