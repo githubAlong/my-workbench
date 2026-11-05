@@ -128,7 +128,7 @@ function applyRemote(payload) {
 
 /* ---------------- 账户级自动同步 ---------------- */
 const REV_KEY = 'wb_account_revision';
-let _revision = 0, _uid = '', _pending = false, _writing = Promise.resolve(), _retryDelay = 1500, _remoteBound = false;
+let _revision = 0, _uid = '', _pending = false, _changeSeq = 0, _writing = Promise.resolve(), _retryDelay = 1500, _remoteBound = false;
 function revisionStorageKey(uid) { return REV_KEY + ':' + uid; }
 function writeRevision(uid, value) {
   _revision = Number(value) || 0;
@@ -155,9 +155,10 @@ async function pushSnapshot() {
   const cloud = await import('./cloud.js');
   const raw = localStorage.getItem(DB_KEY);
   if (!raw) throw new Error('本机工作台数据尚未初始化');
+  const savingSeq = _changeSeq;
   const saved = await cloud.saveWorkbenchSnapshot(safeSnapshot(JSON.parse(raw)), _revision);
   writeRevision(_uid, saved.revision);
-  _pending = false;
+  _pending = _changeSeq !== savingSeq;
   _retryDelay = 1500;
   window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved', at: saved.updated_at } }));
   return saved;
@@ -166,6 +167,7 @@ export async function initializeAccountSync() {
   const cloud = await import('./cloud.js');
   const uid = cloud.session()?.uid || '';
   if (!uid || uid !== activeAccountId()) return false;
+  if (_uid === uid && _revision > 0) return true;
   _uid = uid;
   const remote = await cloud.getWorkbenchSnapshot();
   if (remote?.payload) {
@@ -206,6 +208,7 @@ function bindRemoteSnapshotEvents() {
 export function hookSave() {
   if (!_uid || _uid !== activeAccountId()) return;
   _pending = true;
+  _changeSeq += 1;
   window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saving' } }));
   clearTimeout(_debounce);
   _debounce = setTimeout(() => {
