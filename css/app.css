@@ -3798,3 +3798,104 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   .profile-fields { grid-template-columns:1fr;gap:0; }
   .profile-account-panel { padding:19px 16px; }
 }
+
+
+/* ================= 我的页面最终确认稿：独立页面 + 返回首页 ================= */
+.me-page-toolbar { display:flex;align-items:center;margin:0 0 14px; }
+.me-back-home {
+  display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 16px;
+  border:1px solid color-mix(in srgb,var(--primary) 28%,var(--line));
+  border-radius:999px;background:var(--card);color:var(--primary);
+  font-size:13px;font-weight:700;cursor:pointer;transition:.16s;
+}
+.me-back-home:hover { background:var(--primary-weak);border-color:var(--primary); }
+.me-back-home > span { font-size:19px;line-height:1; }
+.page-me-profile,.page-me-account-settings { width:100%;max-width:1460px;margin:0 auto; }
+.profile-layout { display:block; }
+.profile-shell-single { width:100%; }
+.profile-shell-single .profile-banner { min-height:156px; }
+.profile-shell-single .profile-content { padding:26px 34px 24px; }
+.account-security-shell {
+  width:100%;overflow:hidden;border:1px solid color-mix(in srgb,var(--primary) 13%,var(--line));
+  border-radius:20px;box-shadow:0 10px 30px rgba(40,92,160,.08);
+}
+.account-security-banner {
+  min-height:130px;display:flex;align-items:center;gap:22px;padding:26px 34px;
+  background:
+    radial-gradient(ellipse at 85% 20%,rgba(255,255,255,.8),transparent 32%),
+    linear-gradient(112deg,#eaf5ff 0%,#cfe6ff 52%,#a9d1fb 100%);
+}
+.account-security-banner-icon {
+  width:76px;height:76px;display:grid;place-items:center;flex:0 0 auto;
+  border-radius:22px;background:rgba(255,255,255,.45);color:#1674e9;
+  box-shadow:0 8px 20px rgba(45,123,218,.12);
+}
+.account-security-banner-copy { min-width:0; }
+.account-security-banner-title { color:#12335f;font-size:26px;font-weight:800; }
+.account-security-banner-subtitle { margin-top:8px;color:#48698e;font-size:14px; }
+.account-security-content { padding:26px 30px 24px; }
+.account-security-row {
+  display:flex;align-items:center;gap:18px;width:100%;min-height:96px;
+  margin:0 0 18px;padding:18px 22px;text-align:left;
+  border:1px solid color-mix(in srgb,var(--primary) 18%,var(--line));
+  border-radius:17px;background:var(--card);color:var(--text);
+}
+.account-security-password-row { cursor:pointer;transition:border-color .16s,box-shadow .16s,transform .16s; }
+.account-security-password-row:hover {
+  border-color:color-mix(in srgb,var(--primary) 55%,var(--line));
+  box-shadow:0 7px 18px rgba(37,99,235,.08);transform:translateY(-1px);
+}
+.account-security-row-icon {
+  width:62px;height:62px;display:grid;place-items:center;flex:0 0 auto;
+  border-radius:18px;background:var(--primary-weak);color:var(--primary);
+}
+.account-security-row-copy { display:flex;flex:1;min-width:0;flex-direction:column;gap:7px; }
+.account-security-row-copy strong { color:var(--text);font-size:20px;font-weight:800; }
+.account-security-row-copy small { color:var(--text-2);font-size:14px;line-height:1.5; }
+.account-security-row-value {
+  flex:0 0 auto;color:var(--text);font-size:21px;font-weight:650;
+  font-variant-numeric:tabular-nums;letter-spacing:.3px;
+}
+.account-security-chevron { display:grid;place-items:center;flex:0 0 auto;color:var(--text-3); }
+.account-security-art {
+  position:relative;display:grid;place-items:center;height:190px;margin:18px auto 0;
+}
+.account-security-orbit {
+  position:absolute;width:245px;height:82px;border:2px solid rgba(73,157,246,.27);
+  border-radius:50%;transform:rotate(-12deg);
+}
+.account-security-orbit-inner {
+  width:190px;height:62px;border-width:1px;opacity:.7;transform:rotate(-12deg);
+}
+.account-security-shield {
+  position:relative;display:grid;place-items:center;width:112px;height:124px;
+  color:#fff;filter:drop-shadow(0 12px 17px rgba(43,130,222,.24));
+}
+.account-security-shield > svg {
+  width:112px;height:124px;padding:18px;fill:rgba(65,153,244,.2);
+  stroke:#4b9cf1;stroke-width:1.45;
+}
+.account-security-shield i {
+  position:absolute;display:grid;place-items:center;width:48px;height:48px;
+  border-radius:50%;color:#fff;background:linear-gradient(145deg,#7fc1ff,#2879e7);
+  font-style:normal;box-shadow:0 5px 12px rgba(38,112,211,.25);
+}
+.account-security-caption {
+  text-align:center;color:var(--text-2);font-size:15px;letter-spacing:.5px;margin-bottom:8px;
+}
+@media (max-width:760px) {
+  .me-page-toolbar { margin-bottom:10px; }
+  .profile-shell-single .profile-content { padding:21px 17px; }
+  .account-security-banner { min-height:110px;padding:20px 18px;gap:14px; }
+  .account-security-banner-icon { width:58px;height:58px;border-radius:17px; }
+  .account-security-banner-title { font-size:21px; }
+  .account-security-banner-subtitle { font-size:12px;line-height:1.6; }
+  .account-security-content { padding:18px 14px; }
+  .account-security-row { min-height:78px;gap:12px;padding:13px 12px;margin-bottom:12px; }
+  .account-security-row-icon { width:46px;height:46px;border-radius:14px; }
+  .account-security-row-copy strong { font-size:16px; }
+  .account-security-row-copy small { font-size:11px; }
+  .account-security-row-value { font-size:15px; }
+  .account-security-art { height:145px; }
+  .account-security-caption { font-size:13px; }
+}
