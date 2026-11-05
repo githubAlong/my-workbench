@@ -2414,10 +2414,12 @@ on('POST', '/attendance', ({ body }) => {
   const month = body?.month || String(body?.sheet_date || todayStr()).slice(0, 7);
   const meta = { periods: body?.periods || '', year: String(body?.sheet_date || '').slice(0, 4) || String(new Date().getFullYear()), weekday: body?.weekday || '', ...(body?.meta || {}) };
   const id = T('attendance_tables').reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
+  const grade = String(body?.grade || '').trim();
+  if (!grade) fail(400, '请先创建年级');
   const row = {
     id, kind: sheetType, name: body?.name || '新建考勤表', month,
     columns: JSON.stringify(cols), meta: JSON.stringify(meta),
-    grade: body?.grade || '高一', sheet_type: sheetType,
+    grade, sheet_type: sheetType,
     sheet_date: body?.sheet_date || '', weekday: body?.weekday || '',
     periods: body?.periods || '', subject: body?.subject || '',
     created_at: nowISO(), updated_at: nowISO(), deleted_at: null,
@@ -2771,7 +2773,8 @@ function commitAttendanceSheet(body) {
   db.attendance_tables = db.attendance_tables || [];
   db.attendance_rows = db.attendance_rows || [];
   const sheetType = body?.sheet_type === 'research' ? 'research' : 'seat';
-  const grade = String(body?.grade || '高一').trim();
+  const grade = String(body?.grade || '').trim();
+  if (!grade) fail(400, '请先创建年级');
   const year = body?.year || String(new Date().getFullYear());
   const month = String(body?.month || '').padStart(2, '0') || pad2(new Date().getMonth() + 1);
   const day = String(body?.day || '').padStart(2, '0') || pad2(new Date().getDate());
@@ -3001,7 +3004,7 @@ on('POST', '/invig/school-paid', ({ body }) => {
 });
 
 /* ---- 年级 & 教师名册 ---- */
-const DEFAULT_GRADES = ['高一', '高二'];
+const DEFAULT_GRADES = [];
 on('GET', '/grades', () => {
   /* 名册预置放在这里，而不是只放在 seedIfEmpty 里：
      seedIfEmpty 只在「空库」时跑一次，老师这台设备上早就有课程表、
@@ -4461,13 +4464,15 @@ async function cloudRoute(method, clean, query, body) {
         weekday: body?.weekday || '',
         ...(body?.meta || {}),
       };
+      const grade = String(body?.grade || '').trim();
+      if (!grade) throw new Error('请先创建年级');
       const row = await m.createRow('attendance_tables', {
         ...body,
         kind: sheetType,
         sheet_type: sheetType,
         name: body?.name || '新建考勤表',
         month: body?.month || String(body?.sheet_date || todayStr()).slice(0, 7),
-        grade: body?.grade || '高一',
+        grade,
         sheet_date: body?.sheet_date || '',
         weekday: body?.weekday || '',
         periods: body?.periods || '',
@@ -4709,7 +4714,8 @@ async function commitAttendanceCloud(m, body) {
   const rows = Array.isArray(body?.rows) ? body.rows : [];
   if (!rows.length) throw new Error('没有可导入的数据');
   const sheetType = body?.sheet_type === 'research' ? 'research' : 'seat';
-  const grade = String(body?.grade || '高一').trim();
+  const grade = String(body?.grade || '').trim();
+  if (!grade) throw new Error('请先创建年级');
   const year = String(body?.year || new Date().getFullYear());
   const month = String(body?.month || '').padStart(2, '0') || String(new Date().getMonth() + 1).padStart(2, '0');
   const day = String(body?.day || '').padStart(2, '0') || String(new Date().getDate()).padStart(2, '0');
