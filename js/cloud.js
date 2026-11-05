@@ -241,11 +241,30 @@ export function cloudEmail() {
   return t && t.email ? t.email : '';
 }
 
+/* 统一把用户输入或历史会话中的手机号转成 Supabase 所需的 E.164 格式。
+   兼容三种历史数据：11 位本地号、86 开头、+86 开头，以及旧数据中的 0086。 */
 export function normalizePhone(phone) {
   const value = String(phone || '').trim().replace(/[\s()-]/g, '');
-  if (/^1[3-9]\d{9}$/.test(value)) return '+86' + value;
-  if (/^\+861[3-9]\d{9}$/.test(value)) return value;
+  if (!/^\+?\d+$/.test(value)) throw new Error('请输入正确的中国大陆手机号');
+  const digits = value.replace(/^\+/, '');
+  const national = digits.startsWith('0086') && digits.length === 15
+    ? digits.slice(4)
+    : digits.startsWith('86') && digits.length === 13
+      ? digits.slice(2)
+      : digits;
+  if (/^1[3-9]\d{9}$/.test(national)) return '+86' + national;
   throw new Error('请输入正确的中国大陆手机号');
+}
+
+/* 仅用于界面展示：账号底层仍保留原始号码，所有手机号展示统一去掉国家区号。 */
+export function displayPhone(phone) {
+  const raw = String(phone || '').trim();
+  if (!raw || raw.includes('@')) return raw;
+  const digits = raw.replace(/\D/g, '');
+  if (/^00861[3-9]\d{9}$/.test(digits)) return digits.slice(4);
+  if (/^86(1[3-9]\d{9})$/.test(digits)) return digits.slice(2);
+  if (/^1[3-9]\d{9}$/.test(digits)) return digits;
+  return raw;
 }
 
 function authError(j, status, operation = '登录') {
