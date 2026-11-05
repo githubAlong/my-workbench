@@ -18,7 +18,7 @@ function dateText(date) {
 function tableState(tables, grade, type, periods, classConfirmed) {
   const matches = (periods || ['']).map((period) => {
     const candidates = tables.filter((t) =>
-      (t.grade || '高一') === grade
+      t.grade === grade
       && (t.sheet_type || t.kind) === type
       && (type !== 'seat' || String(t.periods || '') === String(period || ''))
       && !t.deleted_at);
