@@ -3140,9 +3140,9 @@ function rosterPhotoDialog(grade, reload) {
       <img id="pimg" alt="花名册照片" style="width:100%;border-radius:12px;border:1px solid var(--line);max-height:240px;object-fit:contain;background:var(--card-2)">
       <div class="tiny muted" id="pstate" style="margin-top:6px"></div>
     </div>
-    <div class="field"><label class="field-label">名单（一行一位：姓名 学科）</label>
+    <div class="field"><label class="field-label">识别结果（请核对：姓名 学科，一行一位）</label>
       <textarea class="input" id="ptext" rows="8" placeholder="张三国 语文&#10;李四 数学"></textarea>
-      <div class="field-hint">对着上面的照片敲；敲完点下面的按钮，重名的会自动跳过。</div></div>
+      <div class="field-hint">系统会自动识别照片并填入这里；识别结果可以修改，确认姓名和学科无误后再加入名册。</div></div>
     <div class="confirm-actions">
       <button class="btn ghost" id="c">取消</button>
       <button class="btn primary" id="k">加入「${esc(grade)}」名册</button>
@@ -3157,23 +3157,24 @@ function rosterPhotoDialog(grade, reload) {
   $('#c').onclick = () => { cleanup(); s.close(); };
   $('#pfile').onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
+    e.target.value = ''; // 允许用户选择同一张照片重新识别
     cleanup();
     previewUrl = URL.createObjectURL(f);
     $('#pimg').src = previewUrl;
     $('#pprev').hidden = false;
     const st = $('#pstate');
-    const ocr = window.WB_OCR;
-    if (ocr && typeof ocr.recognize === 'function') {
-      st.textContent = '正在识别…';
-      try {
-        const text = await ocr.recognize(f);
-        $('#ptext').value = String(text || '').trim();
-        st.textContent = '识别完了。请逐条核对，改好再入库。';
-      } catch (err) {
-        st.textContent = '识别没成功（' + (err.message || err) + '）。照片还在，对着它敲进去也一样。';
-      }
-    } else {
-      st.textContent = '这台设备上没有文字识别引擎。照片已经摆在这儿，对着它把姓名敲进下面就行。';
+    $('#ptext').value = '';
+    st.textContent = '正在加载中文识别引擎；首次使用需要下载识别模型，请稍候…';
+    try {
+      const { recognizeRosterPhoto } = await import('./ocr.js');
+      const result = await recognizeRosterPhoto(f, (message) => { st.textContent = message; });
+      $('#ptext').value = result.text;
+      const direction = result.rotation ? '，已自动旋转 ' + result.rotation + '°' : '';
+      st.textContent = '识别完成：' + result.count + ' 条候选内容' + direction
+        + '。请逐条核对姓名和学科，确认后再加入名册。';
+    } catch (err) {
+      st.textContent = '自动识别失败：' + (err.message || err)
+        + '。照片仍保留，可以重新选择照片再试。';
     }
   };
   $('#k').onclick = async () => {
