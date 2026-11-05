@@ -103,7 +103,7 @@ registerView(async function work(main, { tab, third }) {
      点进「考勤」看到的还是「工作」，会让人怀疑自己点错了。 */
   const meta = {
     lessons: ['上课记录', '记录授课进度，管理课时与代课结算'],
-    timetable: ['课表', '这周几节课、哪个班、哪间教室'],
+    timetable: ['课表', '这周几节课、哪个班、上课地点在哪里'],
     prep: ['备课', '课前备什么、讲到哪了、下次接着讲什么'],
     repairs: ['维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底'],
     attendance: ['考勤', '按年级分开管：花名册、每日三张表、统计'],
@@ -1440,7 +1440,7 @@ function courseEditor(row, reload) {
     <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(row?.grade || '')}" data-hist="grade"></div>
     <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(row?.class_name || '')}" data-hist="class_name"></div>
     <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}" data-hist="subject"></div>
-    <div class="field"><label class="field-label">教室</label><input class="input" id="room" value="${esc(row?.room || '')}" data-hist="room"></div>
+    <div class="field"><label class="field-label">地点</label><input class="input" id="room" value="${esc(row?.room || '')}" placeholder="例如：教学楼A栋101、大操场、机房" autocomplete="off"></div>
     <div class="field"><label class="field-label">生效开始日</label><input class="input" type="date" id="sd" value="${esc(row?.start_date || '')}"></div>
     <div class="field"><label class="field-label">生效结束日</label><input class="input" type="date" id="ed" value="${esc(row?.end_date || '')}"></div>
   </div>
@@ -1450,7 +1450,7 @@ function courseEditor(row, reload) {
 
   /* 历史值异步补上：失败就静默，手填照常可用 */
   api.get('/courses').then((all) => {
-    for (const k of ['grade', 'class_name', 'subject', 'room']) {
+    for (const k of ['grade', 'class_name', 'subject']) {
       const vals = [...new Set(all.map((c) => String(c[k] || '').trim()).filter(Boolean))].slice(0, 40);
       if (!vals.length) continue;
       const input = body.querySelector(`[data-hist="${k}"]`);
