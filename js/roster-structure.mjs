@@ -187,10 +187,6 @@ function parseRowItems(items, side, rowIndex, options) {
     needsReview: serialMismatch || !name || !subject || confidence < 0.65
   };
 }
-}
-
-function parseWideLine
-}
 
 function parseWideLine(item, options) {
   const text = normalizeDigits(item.text).replace(/\s+/g, "");
