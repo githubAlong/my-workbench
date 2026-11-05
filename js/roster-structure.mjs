@@ -226,7 +226,11 @@ export function extractRosterRowsFromPaddle(items, imageWidth, imageHeight, conf
       poly: item?.poly,
       bounds
     };
-  }).filter((item) => item.text && item.bounds);
+  }).filter((item) =>
+    item.text
+    && item.bounds
+    && !["序号", "编号", "姓名", "名字", "学科"].includes(item.text.replace(/\\s+/g, ""))
+  );
 
   if (!normalized.length || !(imageWidth > 0) || !(imageHeight > 0)) return [];
 
