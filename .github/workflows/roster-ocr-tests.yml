@@ -6,6 +6,7 @@ on:
       - dev
     paths:
       - "js/ocr.js"
+      - "js/attendance.js"
       - "js/roster-structure.mjs"
       - "tests/**"
       - ".github/workflows/roster-ocr-tests.yml"
@@ -31,5 +32,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Check browser module syntax
+        run: |
+          node --check js/ocr.js
+          node --check js/attendance.js
+          node --check js/roster-structure.mjs
       - name: Run roster OCR structure tests
         run: node --test tests/roster-structure.test.mjs
