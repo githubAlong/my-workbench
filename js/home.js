@@ -593,6 +593,7 @@ function renderHome() {
   const brand = workbenchBrand();
   const g1 = brand.title || defaultG1;
   const g2 = brand.subtitle || defaultG2;
+  const profileMeta = [state.user?.nickname, state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
   const todayCourses = d.courses.filter((c) => c.date === d.date);
 
   main.innerHTML = `
@@ -639,6 +640,7 @@ function renderHome() {
             <div class="clk-hello-t">
               <div class="clk-greet" id="greet-line">${esc(g1)}</div>
               <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
+              <div class="clk-profile-meta" id="home-profile-meta">${esc(profileMeta)}</div>
             </div>
           </div>
           <button class="icon-btn sm" id="theme-btn" title="主题外观" aria-label="主题外观">${icon('sun', 17)}</button>
@@ -842,6 +844,9 @@ function startClock() {
       if (g && g.textContent !== title) g.textContent = title;
       const sub = document.getElementById('greet-sub');
       if (sub) sub.textContent = brand.subtitle ? subtitle : `${greetIcon()} ${subtitle}`;
+      const profile = document.getElementById('home-profile-meta');
+      const profileMeta = [state.user?.nickname, state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
+      if (profile && profile.textContent !== profileMeta) profile.textContent = profileMeta;
     }
   };
   paint();
