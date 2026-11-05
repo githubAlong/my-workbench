@@ -395,12 +395,3 @@ export function scoreRosterExtraction(rows, expectedCount = DEFAULT_ROSTER_EXPEC
     - validation.missingSerials.length * 2
     - validation.duplicateSerials.length * 100;
 }
-rows, expectedCount = DEFAULT_ROSTER_EXPECTED_COUNT) {
-  const validation = validateRosterRows(rows, { expectedCount });
-  const detectedSerials = (rows || []).filter((row) => row.serialSource === "ocr").length;
-  return validation.completeCount * 1000
-    + detectedSerials * 2
-    - validation.inferredSerials.length * 5
-    - validation.missingSerials.length * 2
-    - validation.duplicateSerials.length * 100;
-}
