@@ -58,5 +58,13 @@ jobs:
           exit 1
       - name: Run desktop tablet and mobile browser smoke tests
         run: npx playwright test tests/browser/homepage-smoke.spec.mjs --reporter=line
+      - name: Upload desktop tablet and mobile screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: homepage-browser-screenshots
+          path: artifacts/homepage-*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: Run repository integrity checks
         run: npm run check
