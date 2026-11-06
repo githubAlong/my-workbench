@@ -749,15 +749,15 @@ function renderAccountSettings(main) {
       </header>
 
       <div class="account-security-content">
-        <div class="account-security-row account-security-login-row">
+        <button class="account-security-row account-security-login-row" id="account-login-change" type="button">
           <span class="account-security-row-icon">${icon('phone', 26)}</span>
           <span class="account-security-row-copy">
             <strong>登录账号</strong>
-            <small>管理用于登录系统的账号</small>
+            <small>点击修改用于登录系统的11位数字账号</small>
           </span>
           <span class="account-security-row-value">${esc(account)}</span>
           <span class="account-security-chevron" aria-hidden="true">${icon('right', 18)}</span>
-        </div>
+        </button>
 
         <button class="account-security-row account-security-password-row" id="account-password-change" type="button">
           <span class="account-security-row-icon">${icon('lock', 26)}</span>
@@ -778,7 +778,99 @@ function renderAccountSettings(main) {
     </section>`;
 
   bindMeBackButton(main);
+  main.querySelector('#account-login-change').onclick = () => accountLoginSheet();
   main.querySelector('#account-password-change').onclick = () => accountPwdSheet(null);
+}
+
+/* ================= 修改登录账号 ================= */
+function accountLoginSheet() {
+  const currentAccount = displayLoginAccount(state.user?.account || cloud.session()?.phone, '');
+  const body = el(`<div class="sheet-body">
+    <div class="account-login-current">
+      <span class="tiny muted">当前登录账号</span>
+      <strong>${esc(currentAccount)}</strong>
+    </div>
+    <div class="field">
+      <label class="field-label" for="account-new">新的登录账号</label>
+      <input class="input" id="account-new" type="text" inputmode="numeric" autocomplete="off"
+        maxlength="11" placeholder="请输入新的11位数字账号">
+    </div>
+    <div class="field">
+      <label class="field-label" for="account-new-confirm">确认新账号</label>
+      <input class="input" id="account-new-confirm" type="text" inputmode="numeric" autocomplete="off"
+        maxlength="11" placeholder="请再次输入新的11位数字账号">
+    </div>
+    <div class="field">
+      <label class="field-label" for="account-current-password">当前登录密码</label>
+      <input class="input" id="account-current-password" type="password" autocomplete="current-password"
+        maxlength="72" placeholder="请输入当前登录密码">
+    </div>
+    <div class="tiny muted" style="line-height:1.7;margin:4px 0 12px">
+      修改后，其他设备需要使用新的账号和原密码登录。不会发送短信，原有个人资料、权限和工作台数据都会保留。
+    </div>
+    <button class="btn primary block" id="account-login-save" type="button">确认修改</button>
+  </div>`);
+  const sh = sheet({ title: '修改登录账号', body });
+  const field = (id) => body.querySelector('#' + id);
+  const save = field('account-login-save');
+
+  save.onclick = async () => {
+    const next = field('account-new').value.trim();
+    const confirm = field('account-new-confirm').value.trim();
+    const password = field('account-current-password').value;
+    if (!/^1[3-9]\\d{9}$/.test(next)) {
+      toast('新登录账号必须是11位数字，请检查后重试', 'warn');
+      field('account-new').focus();
+      return;
+    }
+    if (next === currentAccount) {
+      toast('新账号不能与当前账号相同', 'warn');
+      return;
+    }
+    if (next !== confirm) {
+      toast('两次输入的新账号不一致，请重新确认', 'warn');
+      field('account-new-confirm').focus();
+      return;
+    }
+    if (!password) {
+      toast('请输入当前登录密码', 'warn');
+      field('account-current-password').focus();
+      return;
+    }
+    if (!cloud.session()?.uid) {
+      toast('当前账号尚未连接云端认证，暂时无法安全修改登录账号', 'err', 6000);
+      return;
+    }
+
+    save.disabled = true;
+    save.textContent = '正在验证并修改…';
+    try {
+      const changed = await cloud.changeLoginAccount(next, password);
+      const local = await api.post('/auth/login-cloud', {
+        account: next,
+        phone: changed.phone,
+        uid: changed.uid,
+        email: cloud.session()?.email || '',
+      }, { silent: true });
+      if (!local?.user || local.user.account !== next) {
+        throw new Error('云端账号已更新，本机资料正在重新同步；请刷新页面确认');
+      }
+      state.user = local.user;
+      toast('登录账号修改成功，原有数据和权限均已保留', 'ok', 5000);
+      sh.close();
+      render();
+    } catch (error) {
+      save.disabled = false;
+      save.textContent = '确认修改';
+      toast(error.message || '修改登录账号失败，请稍后重试', 'err', 6000);
+    }
+  };
+
+  body.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') save.click();
+    });
+  });
 }
 
 /* ================= 账号安全（本机 PIN 锁） =================
