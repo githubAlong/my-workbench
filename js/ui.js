@@ -120,7 +120,7 @@ export const NAV = [
       /* 上课之后紧跟课表：先知道今天上什么，再记上没上。 */
       { id: 'timetable', label: '课表', icon: 'cal' },
       /* 备课紧接课表：课前看图、课后备课，动线是连着的。 */
-      { id: 'prep', label: '电子备课', icon: 'book' },
+      { id: 'prep', label: '备课', icon: 'book' },
       { id: 'repairs', label: '维修', icon: 'wrench' },
       { id: 'attendance', label: '考勤', icon: 'users' },
       { id: 'invigilation', label: '监考', icon: 'shield' },
@@ -279,10 +279,20 @@ export function openThemeSheet() {
   return s;
 }
 function syncThemeButton() {
-  const b = document.getElementById('side-theme');
-  if (!b) return;
-  const t = THEME_MAP[state.theme] || THEMES[0];
-  b.innerHTML = `<span class="theme-dot" style="background:${t.sw.pri}"></span><span>主题外观</span><span class="theme-now">${esc(t.name)}</span>`;
+  const value = document.getElementById('me-theme-value');
+  if (!value) return;
+  value.textContent = themeName(state.theme);
+}
+
+/* 平铺整页是设备级显示偏好，由「我的」页面统一管理。 */
+export function isWideMode() {
+  try { return localStorage.getItem('wb.wide') === '1'; } catch { return false; }
+}
+export function setWideMode(on) {
+  const enabled = !!on;
+  document.body.classList.toggle('is-wide', enabled);
+  try { localStorage.setItem('wb.wide', enabled ? '1' : '0'); } catch { }
+  return enabled;
 }
 
 /* ---------------- 注册 / 订阅 ---------------- */
@@ -377,6 +387,16 @@ function bindShell() {
       e.preventDefault();
       e.stopPropagation();
       const key = b.dataset.navToggle;
+      /* 分组标题本身也是一级/二级页面入口：
+         点文字进入该分组默认页；只有点右侧箭头才单独折叠/展开。
+         之前整行都只执行 toggle，用户点「工作」时页面不切换，
+         容易误以为一级导航失效。 */
+      if (!e.target.closest('.nav-caret')) {
+        setNavGroupOpen(key, true);
+        go(key === 'work' ? 'work/lessons' : key);
+        return;
+      }
+
       const willOpen = !isNavGroupOpen(key);
       setNavGroupOpen(key, willOpen);
 
@@ -387,44 +407,16 @@ function bindShell() {
         });
       }
 
-      /* 小助手既是分组入口也是管理页：从其他页面首次展开时进入管理页；
-         在小助手内部再次点击则只收起/展开子菜单，不打断当前页面。 */
-      if (key.includes('/') && willOpen && !routeIsInNavGroup(key)) go(key);
+      /* 点击箭头只负责折叠/展开，不改变当前页面。 */
     };
   });
-  const st = document.getElementById('side-theme');
-  if (st) st.onclick = () => openThemeSheet();
   const su = document.getElementById('side-user');
   if (su) su.onclick = () => go('me');
   /* 拖拽一定要配一个「恢复默认」。
      没有退路的功能用户不敢用——尤其手机上拖到一半松手，卡片落在奇怪的位置，
      找不回来的话下次就不拖了。这里延后导入，避免 home.js ↔ ui.js 循环依赖。 */
-  /* 平铺整页：把 body 挂上 .is-wide，CSS 里 .main 的 max-width 放开。
-     存在 localStorage 就够了——这是「这台机器看起来多宽」的偏好，不必跨端同步。 */
-  const sw = document.getElementById('side-wide');
-  const applyWide = (on) => {
-    document.body.classList.toggle('is-wide', !!on);
-    const now = document.getElementById('wide-now');
-    if (now) now.textContent = on ? '开' : '关';
-    if (sw) sw.classList.toggle('on', !!on);
-  };
-  applyWide(localStorage.getItem('wb.wide') === '1');
-  if (sw) sw.onclick = () => {
-    const on = !document.body.classList.contains('is-wide');
-    localStorage.setItem('wb.wide', on ? '1' : '0');
-    applyWide(on);
-    toast(on ? '已平铺整页，再点一次恢复舒适宽度' : '已恢复舒适宽度', 'ok', 3000);
-  };
-  const sl = document.getElementById('side-layout');
-  if (sl) sl.onclick = async () => {
-    try {
-      const m = await import('./home.js');
-      /* 必须 await：重置现在会先弹确认框，不 await 就会「确认框还在，
-         页面已经跳走了」，用户点确定的时候弹层已经被清掉。 */
-      await m.restoreHomeLayout();
-      go('home');
-    } catch { /* 首页模块加载失败时静默，重置本身不关键 */ }
-  };
+  /* 在应用壳层恢复用户保存的整页宽度偏好；开关入口统一放在「我的」。 */
+  setWideMode(isWideMode());
 }
 
 /* ---------------- 路由 ---------------- */
@@ -517,13 +509,17 @@ export async function render() {
   }
   const fn = views[viewName];
   const app = document.getElementById('app');
+  // 所有页面统一读取后台工作台设计；没有配置的字段分别使用系统默认值。
+  // 不依赖 enabled 标记，兼容此前已经保存的品牌配置。
   const brandData = loadLocalDB()?.meta?.workbenchBrand || {};
   const brandTitle = String(brandData.title || '').trim() || '我的工作台';
   const brandSubtitle = String(brandData.subtitle || '').trim() || 'Workbench';
-  const brandImage = typeof brandData.image === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(brandData.image)
-    ? brandData.image : '';
-  // 与「工作台设置」的实时预览共用同一默认图标；未上传自定义图片时也不再显示文字占位。
-  const brandLogo = '<img src="' + esc(brandImage || './icons/icon-192.png') + '" alt="" loading="eager">';
+  const brandImage = typeof brandData.image === 'string'
+    && /^data:image\/(png|jpeg|webp);base64,/i.test(brandData.image) ? brandData.image : '';
+  const defaultBrandLogo = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4.5" y="4.5" width="15" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v8M8 12h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  const brandLogo = brandImage
+    ? '<img src="' + esc(brandImage) + '" alt="" loading="eager">'
+    : defaultBrandLogo;
   const pageShell = `<div class="app">
     <aside class="sidebar">
       <div class="brand brand-static" id="side-brand" aria-label="${esc(brandTitle)}">
@@ -532,9 +528,6 @@ export async function render() {
       </div>
       <div class="side-nav">${NAV.filter((n) => n.id !== 'me').map((n) => navHTML(n, 'nav-item') + subNavHTML(n)).join('')}</div>
       <div class="sidebar-foot">
-        <button class="nav-item" id="side-theme" title="切换主题外观"><span class="theme-dot" style="background:${(THEME_MAP[state.theme] || THEMES[0]).sw.pri}"></span><span>主题外观</span><span class="theme-now">${esc(themeName(state.theme))}</span></button>
-        <button class="nav-item" id="side-wide" title="让正文铺满整个屏幕宽度"><span class="ni">${icon('expand', 18)}</span><span>平铺整页</span><span class="theme-now" id="wide-now">关</span></button>
-        <button class="nav-item" id="side-layout" title="把首页卡片恢复到默认位置"><span class="ni">${icon('grid', 18)}</span><span>重置首页布局</span></button>
         <button class="nav-item side-user-entry${isActive('me') ? ' active' : ''}" id="side-user" data-nav="me" title="打开个人中心" aria-label="我的，${esc(state.user?.nickname || '用户')}"><span class="ni side-user-avatar">${esc((state.user?.nickname || '师').slice(0, 1))}</span><span class="side-user-label"><strong>我的</strong><small>${esc(state.user?.nickname || '个人中心')}</small></span></button>
       </div>
     </aside>

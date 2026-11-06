@@ -55,6 +55,25 @@
 </script>
 <div id="app"></div>
 <div id="alarm-root"></div>
+<script>
+  /* TEST 启动前更新检查：即使旧 JS 模块无法加载，也能先发现并激活新版 SW。 */
+  (function () {
+    if (!('serviceWorker' in navigator)) return;
+    var hadController = !!navigator.serviceWorker.controller;
+    var reloadKey = 'wb_sw_controller_reloaded';
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController) return;
+      try {
+        if (sessionStorage.getItem(reloadKey) === '1') return;
+        sessionStorage.setItem(reloadKey, '1');
+      } catch (e) { return; }
+      location.reload();
+    });
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+      .then(function (registration) { return registration.update(); })
+      .catch(function (error) { console.warn('[sw] 启动前更新检查失败', error); });
+  })();
+</script>
 <script type="module" src="js/main.js"></script>
 <script>
   /* 【加载失败兜底：别让人对着一片空白】
@@ -84,15 +103,36 @@
     function rendered() {
       return app && app.children.length > 0 && app.innerText.trim().length > 20;
     }
+    function showStartupError(message) {
+      if (rendered()) return;
+      var detail = String(message || '未知启动错误').slice(0, 220);
+      box('工作台启动遇到问题<br><span style="font-size:12px;color:#8b93a3">'
+        + detail.replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]; })
+        + '</span>', true);
+      console.error('[startup] 页面启动失败：', message);
+    }
+    window.addEventListener('error', function (event) {
+      if (event && (event.message || (event.target && event.target.tagName === 'SCRIPT'))) {
+        showStartupError(event.message || ('脚本加载失败：' + (event.target.src || '未知模块')));
+      }
+    }, true);
+    window.addEventListener('unhandledrejection', function (event) {
+      var reason = event && event.reason;
+      showStartupError(reason && (reason.message || reason) || '异步初始化失败');
+    });
+    window.addEventListener('wb:booted', function () {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    });
     t1 = setTimeout(function () {
       if (!rendered()) box('正在加载…', false);
-    }, 4000);
+    }, 5000);
     t2 = setTimeout(function () {
       if (rendered()) return;
       box('页面没能加载出来<br>多半是网络卡了一下，或者浏览器里存着旧版本。', true);
       /* 不要自动刷新：云端超时期间刷新会重复触发账户初始化请求，
          造成请求风暴。让用户手动点击重试，避免放大 Supabase 压力。 */
-    }, 12000);
+    }, 30000);
     /* main.js 自己跑通了会调用 window.__wbBooted */
     window.addEventListener('load', function () {
       setTimeout(function () {
