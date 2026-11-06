@@ -6,10 +6,10 @@
    换台设备要重新输一把 32 位的密钥，改完还得记得点上传。
    那不是云端，那是「带手动备份按钮的单机软件」。
 
-   统一使用 Supabase 手机号 + 密码登录；本地工作台数据按 Supabase 用户隔离。
+   统一使用 Supabase 11位数字账号 + 密码登录；Supabase 内部标识仅作账号键，不验证号码归属；本地工作台数据按 Supabase 用户隔离。
 
    【首次使用只有一步】
-   用户从工作台登录页注册或登录；手机号归属在本阶段不通过短信验证。
+   用户从工作台登录页注册或登录；11位数字账号不做号码归属验证，也不发送短信。
 
    【为什么还要保留旧的手动同步】
    旧数据还在 localStorage 里（29 张表）。这一版只把「课时」搬上云，
@@ -23,29 +23,13 @@ import * as cloud from './cloud.js';
 import { setActiveAccount } from './localdb.js';
 import { migrateLessons, previewMigration, migrateInvigilations, migrateAttendance, migrateAttachments } from './migrate.js';
 
-/* ---------------------------------------------------------------------------
-   ★★★ 部署前要填这两个值 ★★★
-   Supabase 后台 → Settings → API：
-     Project URL      → SUPA_URL
-     anon / publishable key → SUPA_ANON
-   这两个都是「公开信息」，写进前端不丢人（它没有读取权限，
-   真正管权限的是 RLS 和登录账号）。但 URL 填错就整站连不上，
-   所以这里留一个显眼的注释，日后换项目别漏改。
-   --------------------------------------------------------------------------- */
-/* 内置的云端地址与 key 放在 cloud.js 里（见那边的注释：谁先加载都要能用）。
-   这里只是取过来继续用，不再各存一份 —— 两份地址最容易改了一处忘了另一处。 */
-const SUPA_URL = cloud.BUILTIN_URL;
-const SUPA_ANON = cloud.BUILTIN_ANON;
+/* 云端地址和公开 key 由 environment-config.mjs 的固定 hostname 配置提供，
+   再由 cloud.js 统一校验；这里不保存第二份地址。 */
 
-/* 把内置配置写进 localStorage，cloud.js 只认 localStorage 里的，
-   这样「换一个项目」只要改上面两行，不需要用户做任何事。
-
-   【故意不覆盖的情况】地址里带了 ?supa=<地址>。
-   这是留给测试用的口子：本地起一个假 Supabase，靠它把前端指过去。
-   正常访问（没有这个参数）永远用上面的生产地址，
-   所以用户手里残留的旧配置、别人给的错误地址，都会被强制纠正回来。 */
+/* 正式 Supabase 地址只由 cloud.js 的可信配置解析器提供。
+   URL 参数和旧 localStorage 配置都不能改变认证请求目标。 */
 function ensureCfg() {
-  /* 纠正与 ?supa= 的处理都挪到 cloud.cfg() 里了 ——
+  /* 地址校验统一收口在 cloud.cfg() 里 ——
      那里是唯一的入口，所有模块读到的配置一定是同一份。 */
   return cloud.cfg();
 }
@@ -107,11 +91,12 @@ export async function makeDeviceLink() {
     throw new Error(tj.msg || tj.message || '生成一次性凭证失败');
   }
 
-  /* 拼链接要连「查询串」一起带上。
-     线上是 /my-workbench/ 这种目录地址，但本地/预览常见 /index.html，
-     只取 origin+pathname 会把 ?supa=… 这类参数丢掉，
-     在测试环境和多参数部署下指向就错了。 */
-  const base = location.origin + location.pathname + location.search;
+  /* 保留部署所需的查询参数，但不把最终会被忽略的 supa 参数继续传播。 */
+  const baseUrl = new URL(location.origin + location.pathname);
+  for (const [key, value] of new URLSearchParams(location.search)) {
+    if (key !== 'supa') baseUrl.searchParams.append(key, value);
+  }
+  const base = baseUrl.href;
   return `${base}#k=${encodeURIComponent(tj.token_hash)}&t=${encodeURIComponent(j.access_token)}`;
 }
 
@@ -189,9 +174,9 @@ export function loginSheet(opts = {}) {
   if (!s) {
     const body = el(`<div class="sheet-body">
       <div class="tiny muted" style="line-height:1.7">
-        手机号登录是工作台的统一登录方式。请先返回登录页完成登录，再进入云同步。
+        账号密码登录是工作台的统一登录方式。请先返回登录页完成登录，再进入云同步。
       </div>
-      <button class="btn primary block" id="cl-phone-login" style="margin-top:14px;justify-content:center">前往手机号登录</button>
+      <button class="btn primary block" id="cl-phone-login" style="margin-top:14px;justify-content:center">前往账号登录</button>
     </div>`);
     const sh = sheet({ title: '登录云同步', body });
     body.querySelector('#cl-phone-login').onclick = () => {
@@ -205,7 +190,7 @@ export function loginSheet(opts = {}) {
     <div class="cl-hero">
       <div class="cl-ico">${icon('cloud', 26)}</div>
       <div>
-        <div class="bold">手机号账号已连接</div>
+        <div class="bold">账号已连接</div>
         <div class="tiny muted" style="margin-top:3px">
           当前只有已接入云同步的内容会跨设备同步，其余模块保存在本机。
         </div>
@@ -236,7 +221,7 @@ export function loginSheet(opts = {}) {
     <div class="cl-tip">
       <b>没有账号？</b> 不用再去后台建了 ——
       打开工作台的登录页，点「还没有账号？注册一个」，自己设账号和密码就行。
-      请先返回工作台登录页，用手机号和密码注册或登录。
+      请先返回工作台登录页，用11位数字账号和密码注册或登录。
     </div>
 
     ${(() => {
@@ -323,7 +308,12 @@ export function loginSheet(opts = {}) {
     if (!u) return;
     const a = prompt('anon / publishable key', cloud.cfg()?.anon || '');
     if (!a) return;
-    cloud.saveCfg(u, a);
+    try {
+      cloud.saveCfg(u, a);
+    } catch (e) {
+      toast(e.message || '只能连接当前正式 Supabase 项目', 'err');
+      return;
+    }
     toast('已切换项目，请重新登录', 'ok');
     sh.close();
     setTimeout(() => loginSheet(opts), 200);

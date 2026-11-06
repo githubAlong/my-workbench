@@ -634,7 +634,7 @@ const QQ_G = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor
      siteQrLogin —— 本站自己的扫码登录（自己的二维码 + 手机确认）。
    以前只有一个 qrEnabled，看到 false 就以为「扫码登录不能用」，
    于是界面上真能用的扫码 tab 被一行「未开通」误导了很久。 */
-/* 登录页在「手机号登录」和「手机号注册」之间切换。 */
+/* 登录页在「账号登录」和「账号注册」之间切换。 */
 let authMode = 'login';
 
 export const AUTH_CFG = { allowRegister: true, demoMode: false, smsEnabled: false, qrEnabled: false, siteQrLogin: true, wbEnabled: false, testPasscode: false };
@@ -647,8 +647,8 @@ export async function loadAuthConfig() {
   return AUTH_CFG;
 }
 
-/* Phone/password is the single app-wide Supabase Auth flow. Registration does
-   not verify ownership of the supplied phone number because SMS is disabled. */
+/* 11位数字账号 + 密码是工作台统一登录方式。Supabase 内部沿用既有 Phone Auth
+   标识字段，但只把它当账号键使用；不验证号码归属、不发送短信、不使用 OTP。 */
 const ALLOW_SIGNUP = true;
 
 function authTabsHTML() {
@@ -782,16 +782,16 @@ function authPassword() {
   const isReg = authMode === 'register';
   const body = document.getElementById('auth-body');
   body.innerHTML = `
-    <div class="auth-input"><input id="acct" type="tel" inputmode="numeric" autocomplete="tel"
-      placeholder="手机号" maxlength="11"></div>
+    <div class="auth-input"><input id="acct" type="text" inputmode="numeric" autocomplete="username"
+      placeholder="账号（11位数字）" maxlength="11"></div>
     <div class="auth-input"><input id="pwd" type="password" autocomplete="${isReg ? 'new-password' : 'current-password'}"
       placeholder="${isReg ? '设置密码（至少 8 位）' : '密码'}" maxlength="72"></div>
     <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册并登录' : '登录'}</button>
     <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6"></div>
     <div class="small muted" style="margin-top:6px;line-height:1.6">
       ${isReg
-      ? '手机号作为账号，注册后即可登录。本版本不验证手机号归属，请使用你本人持有的号码。'
-      : '使用手机号和密码登录。忘记密码请联系管理员重置；本机数据按账号隔离。'}
+      ? '使用11位数字作为账号，设置密码后即可登录。不发送短信，也不验证号码归属。'
+      : '使用11位数字账号和密码登录。忘记密码请联系管理员重置；数据按账号隔离。'}
     </div>`;
 
   const hint = document.getElementById('auth-hint');
@@ -799,9 +799,9 @@ function authPassword() {
 
   const submit = async () => {
     if (!checkAgree()) return;
-    const phone = document.getElementById('acct').value.trim();
+    const account = document.getElementById('acct').value.trim();
     const pwd = document.getElementById('pwd').value;
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的 11 位手机号', 'warn');
+    if (!/^\d{11}$/.test(account)) return toast('请输入11位数字账号', 'warn');
     if (!pwd || (isReg && pwd.length < 8)) return toast(isReg ? '密码至少 8 位' : '请填写密码', 'warn');
     const btn = document.getElementById('do-login');
     btn.disabled = true; btn.textContent = isReg ? '注册中…' : '登录中…';
@@ -809,9 +809,9 @@ function authPassword() {
     try {
       const cloud = await import('./cloud.js');
       const session = isReg
-        ? await cloud.signUpPhone(phone, pwd)
-        : await cloud.loginPhone(phone, pwd);
-      if (!session?.uid) throw new Error('Supabase 未返回有效账号，请检查手机号认证配置');
+        ? await cloud.signUpPhone(account, pwd)
+        : await cloud.loginPhone(account, pwd);
+      if (!session?.uid) throw new Error('Supabase 未返回有效账号，请检查账号密码认证配置');
       setActiveAccount(session.uid);
       if (location.hash.includes('#import=')) {
         try {
@@ -822,7 +822,8 @@ function authPassword() {
         }
       }
       const local = await api.post('/auth/login-cloud', {
-        phone: session.phone || cloud.normalizePhone(phone),
+        account,
+        phone: session.phone || cloud.normalizePhone(account),
         uid: session.uid,
         email: session.email || '',
       }, { silent: true });
@@ -837,7 +838,7 @@ function authPassword() {
       btn.disabled = false; btn.textContent = isReg ? '注册并登录' : '登录';
       let message = e.message || (isReg ? '注册失败，请稍后重试。' : '登录失败，请稍后重试。');
       if (isReg) {
-        console.warn('[auth] 手机号注册失败', e);
+        console.warn('[auth] 账号注册失败', e);
         try {
           const cloud = await import('./cloud.js');
           message = cloud.registrationError(e);

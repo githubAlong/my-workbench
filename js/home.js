@@ -31,7 +31,7 @@ function greetFor(name) {
   const h = new Date().getHours();
   let cur = GREETS[6];
   for (const g of GREETS) if (h >= g[0]) cur = g;
-  return [`${name}，${cur[1]}`, cur[2]];
+  return [`${cur[1]}，${name}老师`, cur[2]];
 }
 /* 按小时取时段名，用来给问候语配一个对应的小图标 */
 function greetIcon() {
@@ -59,6 +59,24 @@ function homeAvatarHTML(size = 52) {
     style="width:${size}px;height:${size}px">${inner}</button>`;
 }
 
+function applyHomeSidebar() {
+  const app=document.querySelector('.app'), sidebar=app?.querySelector('.sidebar');
+  if(!app||!sidebar)return;
+  app.classList.add('home-redesign-app'); sidebar.classList.add('home-sidebar');
+  const user=state.user||{}, nickname=user.nickname||'老师';
+  const schoolSubject=[user.school,user.subject].filter(Boolean).join(' · '), role=[user.title,user.grade_group].filter(Boolean).join(' · ');
+  const brand=sidebar.querySelector('#side-brand');
+  if(brand){brand.classList.add('home-side-profile');brand.setAttribute('aria-label',nickname+'个人信息');
+    brand.innerHTML='<div class="home-side-avatar">'+homeAvatarHTML(92)+'</div>'
+      +'<div class="home-side-name">'+esc(nickname)+'</div>'
+      +'<div class="home-side-motto">'+esc(user.signature||'看山又是山，看山又不是山')+'</div>'
+      +'<div class="home-side-meta" id="home-profile-meta">'+esc(schoolSubject)+'</div>'
+      +'<div class="home-side-role" id="home-profile-role">'+esc(role)+'</div>';}
+  const footer=sidebar.querySelector('.sidebar-foot');
+  if(footer&&!footer.querySelector('#home-side-layout-edit')){const theme=footer.querySelector('#side-theme');
+    const button='<button class="nav-item home-side-layout-edit" id="home-side-layout-edit" type="button" title="编辑首页卡片布局"><span class="ni">'+icon('edit',18)+'</span><span>编辑布局</span></button>';
+    if(theme)theme.insertAdjacentHTML('afterend',button);else footer.insertAdjacentHTML('afterbegin',button);}
+}
 /* ================= 天气 ================= */
 const WX = {
   0: ['☀️', '晴'], 1: ['🌤️', '大部晴朗'], 2: ['⛅', '多云'], 3: ['☁️', '阴'],
@@ -585,177 +603,75 @@ function renderHome() {
   const [defaultG1, defaultG2] = greetFor(name);
   const g1 = defaultG1;
   const g2 = defaultG2;
-  const profileMeta = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
+  const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
+  const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
   const todayCourses = d.courses.filter((c) => c.date === d.date);
 
+  main.classList.add('home-redesign');
   main.innerHTML = `
-  <!-- 固定区 ①：搜索框。它回答的是「我要找东西」，
-       位置天天一样才好找，所以不参与拖拽。 -->
-  <div class="teacher-toolbar"><div class="searchbar" id="searchbar">
-    <span class="sb-ico">${icon('search', 17)}</span>
-    <input id="gsearch" placeholder="搜索事项、任务、上课、出差、笔记…" autocomplete="off" enterkeyhint="search">
-    <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close', 15)}</button>
-    <button class="sb-go" id="search-go" title="执行搜索" aria-label="执行搜索">${icon('right', 17)}</button>
+  <div class="teacher-toolbar home-topbar">
+    <div class="searchbar" id="searchbar"><span class="sb-ico">${icon('search',17)}</span><input id="gsearch" placeholder="搜索课程、监考、待办、笔记" autocomplete="off" enterkeyhint="search"><button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close',15)}</button><button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search',17)}</button></div>
+    <div class="home-top-actions">
+      <button class="home-action home-action-outline teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false">${icon('grid',16)}<span>编辑布局</span></button>
+      <button class="home-action home-action-primary" id="home-new-item" type="button">${icon('plus',16)}<span>新建事项</span></button>
+      <button class="home-action home-action-blue" id="home-new-timetable" type="button">${icon('cal',16)}<span>新建课表</span></button>
+      <button class="home-action home-action-orange" id="home-new-invig" type="button">${icon('shield',16)}<span>新建监考</span></button>
+      <button class="home-action home-action-green" id="home-calendar-view" type="button">${icon('cal',16)}<span>日历视图</span></button>
+    </div>
   </div>
-  <button class="btn soft" id="teacher-layout">编辑布局</button></div>
-  <div class="sr-scrim" id="search-scrim" hidden></div>
-  <div class="sr-panel" id="search-result" hidden></div>
-
-  <!-- 固定区 ②：倒计时通栏。同样不参与拖拽。 -->
-  <section class="cd-bar" id="cd-card">
-    <div class="cdb-body" id="cd-body"></div>
-  </section>
-
-  <!-- 编辑模式的顶部操作栏。显式保存，不做自动保存：
-       拖拽是试错型操作，自动保存会把「拖歪了」的中间态也写进账号。 -->
-  <div class="hg-toolbar" id="hg-toolbar" hidden>
-    <span class="hg-tb-hint">拖动卡片换位置 · 拖右下角调大小</span>
-    <span style="flex:1"></span>
-    <button class="btn ghost sm" id="hg-manage">卡片管理</button>
-    <button class="btn ghost sm" id="hg-reset">恢复默认</button>
-    <button class="btn ghost sm" id="hg-cancel">取消</button>
-    <button class="btn primary sm" id="hg-save">保存布局</button>
+  <div class="sr-scrim" id="search-scrim" hidden></div><div class="sr-panel" id="search-result" hidden></div>
+  <nav class="home-shortcuts" aria-label="常用功能快捷入口">
+    <a class="home-shortcut" href="#/work/lessons" data-home-shortcut="work/lessons"><span class="shortcut-icon blue">${icon('book',24)}</span><b>上课记录</b><small>课时与进度</small></a>
+    <a class="home-shortcut" href="#/work/timetable" data-home-shortcut="work/timetable"><span class="shortcut-icon orange">${icon('cal',24)}</span><b>课程表</b><small>每日课程安排</small></a>
+    <a class="home-shortcut" href="#/work/attendance" data-home-shortcut="work/attendance"><span class="shortcut-icon violet">${icon('users',24)}</span><b>考勤管理</b><small>花名册与考勤</small></a>
+    <a class="home-shortcut" href="#/work/prep" data-home-shortcut="work/prep"><span class="shortcut-icon green">${icon('book',24)}</span><b>备课教研</b><small>教学准备</small></a>
+    <a class="home-shortcut" href="#/work/invigilation" data-home-shortcut="work/invigilation"><span class="shortcut-icon amber">${icon('shield',24)}</span><b>监考任务</b><small>考试安排</small></a>
+    <a class="home-shortcut" href="#/work/materials" data-home-shortcut="work/materials"><span class="shortcut-icon cyan">${icon('folder',24)}</span><b>教学小助手</b><small>课堂互动工具</small></a>
+    <a class="home-shortcut" href="#/study" data-home-shortcut="study"><span class="shortcut-icon indigo">${icon('study',24)}</span><b>学习资源</b><small>资料与学习</small></a>
+    <a class="home-shortcut" href="#/work/notes" data-home-shortcut="work/notes"><span class="shortcut-icon pink">${icon('edit',24)}</span><b>教学笔记</b><small>记录与整理</small></a>
+  </nav>
+  <div class="hg-toolbar home-layout-toolbar" id="hg-toolbar" role="region" aria-label="首页布局编辑工具" hidden>
+    <span class="hg-tb-title">${icon('grid',15)}<b>布局编辑</b></span><span class="hg-tb-hint">拖动卡片换位置 · 拖右下角调大小</span><span class="hg-tb-spacer"></span>
+    <button class="btn ghost sm" id="hg-manage" type="button">卡片管理</button><button class="btn ghost sm" id="hg-reset" type="button">恢复默认</button><button class="btn ghost sm" id="hg-cancel" type="button">取消</button><button class="btn primary sm" id="hg-save" type="button">保存布局</button>
   </div>
-
-  <!-- 可拖拽区：6 张卡片。位置全部由 data 决定（见 homegrid.js），
-       DOM 顺序不代表视觉顺序，改布局只改 style，不搬节点。 -->
-  <div class="hg-grid" id="home-grid">
-
-    <div class="hg-item" data-hcard="profile">
-      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
-      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
-      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
-      <section class="card clk-card">
-        <div class="clk-head">
-          <div class="clk-hello">
-            ${homeAvatarHTML(52)}
-            <div class="clk-hello-t">
-              <div class="clk-greet" id="greet-line">${esc(g1)}</div>
-              <div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div>
-              <div class="clk-profile-meta" id="home-profile-meta">${esc(profileMeta)}</div>
-            </div>
-          </div>
-          <button class="icon-btn sm" id="theme-btn" title="主题外观" aria-label="主题外观">${icon('sun', 17)}</button>
-        </div>
-        <div class="clk-main">
-          <div class="clock-row">
-            <div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div>
-            <button class="icon-btn msg-bell" data-msg title="消息中心" aria-label="消息中心">${icon('bell', 19)}
-              ${d.unread ? `<span class="badge-dot msg-bell-dot">${d.unread > 99 ? '99+' : d.unread}</span>` : ''}
-            </button>
-          </div>
-          <div class="clk-date-panel">
-            <div class="clock-date" id="clock-date"></div>
-            <div class="clk-date-caption">今天也要稳稳推进</div>
-          </div>
-        </div>
-        <div class="clk-foot" id="clk-foot"></div>
+  <div class="hg-grid home-dashboard-grid" id="home-grid">
+    <div class="hg-item" data-hcard="timeline"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card home-timeline-card"><div class="home-card-head"><div class="home-card-title">${icon('clock',19)}<span>今日时间轴</span></div><button class="home-card-link" data-goto2="work/timetable" type="button">全天时间轴 ${icon('right',13)}</button></div><div class="home-timeline-times" id="home-timeline-times"></div><div class="home-timeline-track" id="home-timeline-track"></div><div class="home-timeline-legend"><span><i class="timeline-dot course"></i>上课</span><span><i class="timeline-dot invig"></i>监考</span><span><i class="timeline-dot task"></i>待办</span><span><i class="timeline-dot meeting"></i>教研</span></div></section>
+    </div>
+    <div class="hg-item" data-hcard="profile"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card home-welcome-card">
+        <div class="home-welcome-top"><div class="home-welcome-copy"><div class="clk-greet" id="greet-line">${esc(g1)}</div><div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div></div><button class="icon-btn sm" id="theme-btn" title="主题外观" aria-label="主题外观">${icon('sun',17)}</button></div>
+        <div class="clock-date home-welcome-date" id="clock-date"></div>
+        <div class="home-welcome-clock-row"><div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div><button class="icon-btn msg-bell" data-msg title="消息中心" aria-label="消息中心">${icon('bell',18)}${d.unread?'<span class="badge-dot msg-bell-dot">'+(d.unread>99?'99+':d.unread)+'</span>':''}</button></div>
+        <div class="home-welcome-stats">
+          <button type="button" data-goto2="work/timetable"><span class="welcome-stat-icon blue">${icon('book',18)}</span><span class="welcome-stat-copy"><small>今日课程</small><b>${todayCourses.length} 节</b></span></button>
+          <button type="button" data-goto2="work/invigilation"><span class="welcome-stat-icon orange">${icon('shield',18)}</span><span class="welcome-stat-copy"><small>监考</small><b>${(d.invigilations||[]).length} 场</b></span></button>
+          <button type="button" data-goto2="daily/notes"><span class="welcome-stat-icon green">${icon('check',18)}</span><span class="welcome-stat-copy"><small>待办</small><b>${(d.items||[]).filter(t=>t.status!=='done').length} 项</b></span></button>
+          <button type="button" data-msg><span class="welcome-stat-icon red">${icon('bell',18)}</span><span class="welcome-stat-copy"><small>提醒</small><b>${(d.upcoming||[]).length} 个</b></span></button>
+        </div><div class="clk-foot" id="clk-foot"></div>
       </section>
     </div>
-
-    <div class="hg-item" data-hcard="dailyQuote">
-      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
-      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
-      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
-      <section class="card quote quote-top">
-        <div class="qt-head">
-          <div class="card-title" style="margin-bottom:0">${icon('sun', 15)} 每日一句</div>
-          <span style="flex:1"></span>
-          <button class="btn ghost sm" id="quote-next" title="换一句，不打断今天已定的那句">${icon('refresh', 14)} 换一句</button>
-        </div>
-        <div class="quote-en">
-          <span class="qt" id="q-en">${esc(d.quote.en)}</span>
-          <button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak', 15)}</button>
-        </div>
-        <div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div>
-
-      </section>
+    <div class="hg-item" data-hcard="todayCourse"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card home-card home-course-card"><div class="home-card-head"><div class="home-card-title">${icon('book',20)}<span>今日课程</span><span class="home-count-chip">${todayCourses.length}</span></div><button class="home-card-link" data-goto2="work/timetable" type="button">查看完整课表 ${icon('right',13)}</button></div><div class="card-pad hc-body" id="today-courses"></div><div class="home-course-footer"><button class="btn ghost sm" data-goto2="work/timetable">${icon('sliders',14)} 课表设置</button><button class="btn ghost sm" data-goto2="work/lessons">${icon('plus',14)} 快速添加代课</button></div></section>
     </div>
-
-    <div class="hg-item" data-hcard="weather">
-      <section class="card wx-card" id="wx-card">
-      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
-      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
-      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
-        <div class="wx-body">
-          <div id="wx-brief">${weatherBriefHTML()}</div>
-        </div>
-        <button class="wx-more" id="wx-more" aria-expanded="false">
-          <span>${icon('down', 13)} <b>详细信息</b></span>
-        </button>
-      </section>
+    <div class="hg-item" data-hcard="weather"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card wx-card home-weather-card" id="wx-card"><div class="wx-body"><div id="wx-brief">${weatherBriefHTML()}</div></div><button class="wx-more" id="wx-more" aria-expanded="false"><span>${icon('down',13)} <b>详细信息</b></span></button></section>
     </div>
-
-    <div class="hg-item" data-hcard="todayTodo">
-      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
-      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
-      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
-      <section class="card home-card">
-        <div class="hc-head">
-          <div class="card-title">${icon('check', 16)} 今日事项 <span class="chip blue" style="margin-left:4px">${d.items.length}</span>
-            <button class="more" data-add-item2>＋ 新增</button></div>
-        </div>
-        <div class="card-pad hc-body" style="padding-top:2px" id="today-items"></div>
-        <div class="card-pad quick-inline">
-          <div class="qi-row">
-            <span class="qi-ico">${icon('edit', 15)}</span>
-            <input id="quick-input" placeholder="想到什么先记一笔，回车保存…" autocomplete="off">
-            <button class="qi-time" id="quick-time" title="加时间提醒">${icon('clock', 14)}</button>
-            <button class="btn primary sm" id="quick-save">保存</button>
-          </div>
-          <div class="qi-hint" id="quick-hint"></div>
-        </div>
-      </section>
+    <div class="hg-item" data-hcard="todayTodo"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card home-card home-todo-card"><div class="home-card-head"><div class="home-card-title">${icon('check',19)}<span>今日事项 &amp; 快速便签</span><span class="home-count-chip">${d.items.length}</span></div><button class="home-card-link" data-add-item2 type="button">＋ 新增</button></div><div class="card-pad hc-body" id="today-items"></div><div class="card-pad quick-inline"><div class="qi-row"><span class="qi-ico">${icon('edit',15)}</span><input id="quick-input" placeholder="快速记一笔，回车保存…" autocomplete="off"><button class="qi-time" id="quick-time" title="加时间提醒">${icon('clock',14)}</button><button class="btn primary sm" id="quick-save">保存</button></div><div class="qi-hint" id="quick-hint"></div></div></section>
     </div>
-
-    <div class="hg-item" data-hcard="todayCourse">
-      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
-      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
-      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
-      <section class="card home-card">
-        <div class="hc-head">
-          <div class="card-title">${icon('book', 16)} 今日课程 <span class="chip teal" style="margin-left:4px">${todayCourses.length}</span>
-            <button class="more" data-goto2="work/timetable">课表 ›</button></div>
-        </div>
-        <div class="card-pad hc-body" style="padding-top:2px" id="today-courses"></div>
-      </section>
+    <div class="hg-item" data-hcard="dailyQuote"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card quote quote-top home-quote-card"><div class="home-card-head"><div class="home-card-title">${icon('sun',19)}<span>每日一句</span></div><button class="btn ghost sm" id="quote-next" title="换一句">${icon('refresh',14)} 换一句</button></div><div class="quote-en"><span class="qt" id="q-en">${esc(d.quote.en)}</span><button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak',15)}</button></div><div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div><div class="quote-author" id="q-author">— ${esc(d.quote.author||'')}</div></section>
     </div>
-
-    <div class="hg-item" data-hcard="calendar">
-      <span class="hg-grip" data-hg-grip title="拖动调整位置" aria-label="拖动调整位置">${icon('grid', 14)}</span>
-      <button class="hg-hide" data-hg-hide title="隐藏这张卡片" aria-label="隐藏">${icon('close', 13)}</button>
-      <span class="hg-resize" data-hg-resize title="拖动调整大小" aria-label="调整大小"></span>
-      <section class="card card-pad calendar-card home-card">
-        <div class="hc-head hc-head-cal">
-          <div class="cal-head" style="flex:1;margin:0">
-            <div class="cal-title" id="cal-title"></div>
-            <span style="flex:1"></span>
-            <button class="cal-nav" id="cal-prev" title="上个月" aria-label="上个月">${icon('left', 18)}</button>
-            <button class="cal-nav" id="cal-next" title="下个月" aria-label="下个月">${icon('right', 18)}</button>
-            <button class="btn ghost sm" id="cal-fold" title="收起成这一周">${icon('up', 14)} <span id="cal-fold-txt">周</span></button>
-            <button class="btn ghost sm" id="cal-today" style="margin-left:2px">今天</button>
-            <button class="month-btn" id="cal-jump" title="选择年月">${icon('cal', 15)}<span>年月</span></button>
-            <input type="month" id="cal-month-input" class="month-hidden" aria-hidden="true" tabindex="-1">
-          </div>
-        </div>
-        <div class="cal-week">${['日', '一', '二', '三', '四', '五', '六'].map((x, i) => `<span class="${i === 0 || i === 6 ? 'we' : ''}">${x}</span>`).join('')}</div>
-        <div class="cal-grid" id="cal-grid"></div>
-        <div class="cal-legend">
-          <span><i style="background:var(--primary)"></i>事项</span>
-          <span><i style="background:var(--teal)"></i>上课</span>
-          <span><i style="background:var(--amber)"></i>监考/出差</span>
-          <span><i style="background:var(--purple)"></i>提醒</span>
-        </div>
-        <div class="cal-day" id="cal-day"></div>
-        <div class="cal-collapse-row">
-          <button class="btn ghost sm" id="cal-collapse" type="button" aria-expanded="true" title="收起日历">
-            ${icon('up', 14)} <span>收起日历</span>
-          </button>
-        </div>
-      </section>
+    <div class="hg-item" data-hcard="calendar"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card card-pad calendar-card home-card home-calendar-card"><div class="hc-head hc-head-cal"><div class="cal-head" style="flex:1;margin:0"><div class="cal-title" id="cal-title"></div><span style="flex:1"></span><button class="cal-nav" id="cal-prev" title="上个月" aria-label="上个月">${icon('left',18)}</button><button class="cal-nav" id="cal-next" title="下个月" aria-label="下个月">${icon('right',18)}</button><button class="btn ghost sm" id="cal-fold" title="收起成这一周">${icon('up',14)} <span id="cal-fold-txt">周</span></button><button class="btn ghost sm" id="cal-today">今天</button><button class="month-btn" id="cal-jump" title="选择年月">${icon('cal',15)}<span>年月</span></button><input type="month" id="cal-month-input" class="month-hidden" aria-hidden="true" tabindex="-1"></div></div><div class="cal-week">${['日','一','二','三','四','五','六'].map((x,i)=>'<span class="'+(i===0||i===6?'we':'')+'">'+x+'</span>').join('')}</div><div class="cal-grid" id="cal-grid"></div><div class="cal-legend"><span><i style="background:var(--primary)"></i>上课</span><span><i style="background:var(--amber)"></i>监考/出差</span><span><i style="background:var(--green)"></i>教研</span><span><i style="background:var(--red)"></i>提醒</span></div><div class="cal-day" id="cal-day"></div><div class="cal-collapse-row"><button class="btn ghost sm" id="cal-collapse" type="button" aria-expanded="true" title="收起日历">${icon('up',14)} <span>收起日历</span></button></div></section>
     </div>
-
+    <div class="hg-item" data-hcard="weekLessons"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span><section class="card home-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('book',20)}</span><b>本周课时</b><button class="home-card-link" data-goto2="work/lessons" type="button">详情</button></div><div class="home-mini-body" id="home-week-lessons"><span class="mini-loading">正在统计…</span></div></section></div>
+    <div class="hg-item" data-hcard="invigilation"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span><section class="card home-mini-card invig-mini-card"><div class="home-mini-head"><span class="home-mini-icon orange">${icon('shield',20)}</span><b>监考任务</b><button class="home-card-link" data-goto2="work/invigilation" type="button">详情</button></div><div class="home-mini-body" id="home-invig-summary"><span class="mini-loading">正在统计…</span></div></section></div>
+    <div class="hg-item" data-hcard="prepDeadline"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span><section class="card home-mini-card prep-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('file',20)}</span><b>备课截止</b><button class="home-card-link" data-goto2="work/prep" type="button">备课</button></div><div class="home-mini-body" id="home-prep-deadline"><span class="mini-loading">正在检查…</span></div></section></div>
+    <div class="hg-item" data-hcard="recentNotes"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span><section class="card home-mini-card notes-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('edit',20)}</span><b>最近笔记</b><button class="home-card-link" data-goto2="work/notes" type="button">全部</button></div><div class="home-mini-body" id="home-recent-notes"><span class="mini-loading">正在读取…</span></div></section></div>
   </div>`;
+  applyHomeSidebar();
   bindHome();
   /* 卡片位置、拖拽、缩放、隐藏全部交给 homegrid。
      renderHome 每次都重建 DOM，所以这里必须每次重挂一次，
@@ -767,10 +683,14 @@ function renderHome() {
   lastGreetKey = '';
   cdKey = '';
   startClock();
+  renderTimeline();
+  renderTimeline();
   renderTodayItems();
   renderTodayCourses();
   loadCal(ymd(today));
   loadHomeMsgs();
+  loadHomeExtras();
+  loadHomeExtras();
 }
 
 /* 一年中的第几周（ISO 周，周一为一周第一天） */
@@ -798,8 +718,9 @@ function startClock() {
     if (dEl) {
       const wd = now.getDay();
       const weekend = wd === 0 || wd === 6;
-      dEl.innerHTML = `<span>${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日</span>`
-        + `<span class="wd-badge${weekend ? ' weekend' : ''}">${WD_CN[wd]}</span>`;
+      dEl.innerHTML = `<span class="home-date-full">${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}</span>`
+        + `<span class="wd-badge${weekend ? ' weekend' : ''}">星期${WD_CN[wd]}</span>`
+        + `<span class="home-week-badge">第 ${isoWeek(now)} 周</span>`;
     }
     // 周数 / 本月剩余天数：一天只变一次，用 key 挡住，别每秒重算
     const footKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
@@ -827,8 +748,11 @@ function startClock() {
       const sub = document.getElementById('greet-sub');
       if (sub) sub.textContent = `${greetIcon()} ${subtitle}`;
       const profile = document.getElementById('home-profile-meta');
-      const profileMeta = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
-      if (profile && profile.textContent !== profileMeta) profile.textContent = profileMeta;
+      const profileRoleEl = document.getElementById('home-profile-role');
+      const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
+      const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
+      if (profile && profile.textContent !== profileSchoolSubject) profile.textContent = profileSchoolSubject;
+      if (profileRoleEl && profileRoleEl.textContent !== profileRole) profileRoleEl.textContent = profileRole;
     }
   };
   paint();
@@ -840,6 +764,45 @@ function startClock() {
     clockTimer = setInterval(paint, 1000);
   }, 1000 - (Date.now() % 1000));
   clockTimer = setInterval(paint, 1000);
+}
+
+
+function timelineTime(value){const m=String(value||'').match(/(?:T|^)(\d{1,2}):(\d{2})/);return m?Number(m[1])*60+Number(m[2]):null;}
+function renderTimeline(){
+ const times=document.getElementById('home-timeline-times'),track=document.getElementById('home-timeline-track');if(!times||!track||!homeData)return;
+ const day=homeData.date,startMin=480,endMin=1080,span=600;
+ times.innerHTML=Array.from({length:11},(_,i)=>'<span>'+String(8+i).padStart(2,'0')+':00</span>').join('');
+ const events=[],add=e=>{if(e.start==null)return;const finish=e.end==null||e.end<=e.start?e.start+45:e.end;if(finish<startMin||e.start>endMin)return;events.push(Object.assign({},e,{end:finish}));};
+ for(const c of homeData.courses||[])if(c.date===day)add({kind:'course',start:timelineTime(c.start_time),end:timelineTime(c.end_time),title:c.class_name||'课程',sub:[c.subject,c.room].filter(Boolean).join(' · '),period:c.period_no,className:c.class_name,subject:c.subject});
+ for(const g of homeData.invigilations||[]){const date=g.date||String(g.start_at||'').slice(0,10);if(date===day)add({kind:'invig',start:timelineTime(g.start_time||g.start_at),end:timelineTime(g.end_time||g.end_at),title:g.exam_name||g.subject||'监考',sub:['监考',g.room||g.place].filter(Boolean).join(' · '),id:g.id});}
+ for(const item of homeData.items||[])if(item.status!=='done'&&item.start_at&&String(item.start_at).slice(0,10)===day)add({kind:/教研|会议/.test(String(item.title||'')+' '+String(item.kind||''))?'meeting':'task',start:timelineTime(item.start_at),end:timelineTime(item.end_at),title:item.title||'待办',sub:item.kind||'待办',id:item.id});
+ events.sort((a,b)=>a.start-b.start||a.end-b.end);const lanes=[-1,-1];
+ const html=events.map(e=>{let lane=lanes.findIndex(x=>e.start>=x);if(lane<0)lane=lanes[0]<=lanes[1]?0:1;lanes[lane]=e.end;
+  const left=Math.max(0,(Math.max(e.start,startMin)-startMin)/span*100),right=Math.min(100,(Math.min(e.end,endMin)-startMin)/span*100),width=Math.max(5.5,right-left);
+  const time=String(Math.floor(e.start/60)).padStart(2,'0')+':'+String(e.start%60).padStart(2,'0');
+  const attrs=e.kind==='course'?'data-timeline-kind="course" data-period="'+esc(e.period)+'" data-class="'+esc(e.className)+'" data-subject="'+esc(e.subject)+'"':'data-timeline-kind="'+e.kind+'" data-id="'+esc(e.id||'')+'"';
+  return '<button class="timeline-event '+e.kind+'" '+attrs+' style="--event-left:'+left+'%;--event-width:'+Math.min(width,100-left)+'%;--event-lane:'+lane+'" type="button" title="'+esc(time+' '+e.title+' '+e.sub)+'"><b>'+time+'</b><span>'+esc(e.title)+'</span></button>';}).join('');
+ const now=new Date(),minute=now.getHours()*60+now.getMinutes(),marker=minute>=startMin&&minute<=endMin&&day===ymd(now)?'<div class="timeline-now" id="home-timeline-now" style="left:'+((minute-startMin)/span*100)+'%"><i></i></div>':'';
+ track.innerHTML=events.length?marker+html:'<div class="timeline-empty">今天暂无固定时间安排，点击右上角新建事项或课表</div>';
+ track.querySelectorAll('[data-timeline-kind]').forEach(b=>{b.onclick=()=>{const k=b.dataset.timelineKind;if(k==='course')return go('work/timetable');if(k==='invig')return go('work/invigilation');if(k==='task'||k==='meeting'){const item=(homeData.items||[]).find(x=>String(x.id)===b.dataset.id);if(item)editItem(item);}};});
+}
+let homeExtraSeq=0;
+async function loadHomeExtras(){
+ const seq=++homeExtraSeq,anchor=new Date((homeData?.date||ymd())+'T00:00:00'),offset=(anchor.getDay()+6)%7,weekStart=new Date(anchor);
+ weekStart.setDate(anchor.getDate()-offset);const weekEnd=new Date(weekStart);weekEnd.setDate(weekStart.getDate()+6);
+ const dk=d=>d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()),mk=d=>d.getFullYear()+'-'+pad2(d.getMonth()+1),from=dk(weekStart),to=dk(weekEnd),months=[...new Set([mk(weekStart),mk(weekEnd)])];
+ const [bundles,preps,notes,items]=await Promise.all([
+  Promise.all(months.map(async month=>{const [calendar,lessons,invig]=await Promise.all([month===String(homeData?.date||'').slice(0,7)?Promise.resolve({courses:homeData?.courses_month||[]}):api.get('/calendar',{month}).catch(()=>({courses:[]})),api.get('/lessons?month='+month).catch(()=>[]),api.get('/invig/summary?month='+month).catch(()=>({rows:[]}))]);return{courses:calendar?.courses||[],lessons:Array.isArray(lessons)?lessons:[],invigilations:invig?.rows||[]};})),
+  api.get('/preps').catch(()=>[]),api.get('/notes').catch(()=>[]),api.get('/items').catch(()=>[])
+ ]);
+ if(seq!==homeExtraSeq||!document.getElementById('home-week-lessons'))return;
+ const inWeek=v=>{const d=String(v||'').slice(0,10);return d>=from&&d<=to;},courses=bundles.flatMap(x=>x.courses).filter(x=>inWeek(x.date)),lessons=bundles.flatMap(x=>x.lessons).filter(x=>inWeek(x.date)),invigs=bundles.flatMap(x=>x.invigilations).filter(x=>inWeek(x.date));
+ const done=lessons.length,planned=courses.length,left=Math.max(0,planned-done),pct=planned?Math.min(100,Math.round(done/planned*100)):0,week=document.getElementById('home-week-lessons');
+ if(week)week.innerHTML=planned?'<div class="mini-number-row"><span>已上 <b>'+done+'</b> 节</span><span>剩余 <b>'+left+'</b> 节</span></div><div class="mini-progress"><i style="width:'+pct+'%"></i></div><div class="mini-foot">周课时进度 '+pct+'% · 计划 '+planned+' 节</div>':'<div class="mini-empty">本周暂无课表安排</div>';
+ const inv=document.getElementById('home-invig-summary');if(inv){const next=[...invigs].sort((a,b)=>String(a.date+a.start_time).localeCompare(String(b.date+b.start_time)))[0];inv.innerHTML='<div class="mini-number-row"><span>本周 <b>'+invigs.length+'</b> 场</span></div><div class="mini-foot">'+(next?'下一场：'+esc(String(next.date||'').slice(5))+' '+esc(next.start_time||'')+' '+esc(next.exam_name||next.subject||'监考'):'本周暂无监考安排')+'</div>';}
+ const now=Date.now(),deadlines=(Array.isArray(items)?items:[]).filter(x=>x.status!=='done'&&/备课|课件|教案|提交/.test(String(x.title||'')+' '+String(x.kind||''))).map(item=>({item,at:item.due_at||item.end_at||item.start_at})).filter(x=>x.at&&Number.isFinite(new Date(x.at).getTime())&&new Date(x.at).getTime()>=now).sort((a,b)=>new Date(a.at)-new Date(b.at));
+ const prep=document.getElementById('home-prep-deadline');if(prep){if(deadlines.length){const item=deadlines[0].item;prep.innerHTML='<div class="mini-primary-line">'+esc(item.title)+'</div><div class="mini-foot">截止时间：'+esc(fmtDateTime(deadlines[0].at))+'</div>';}else{const next=(Array.isArray(preps)?preps:[]).filter(p=>(p.status||'doing')!=='done'&&String(p.date||'')>=from).sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')))[0];prep.innerHTML=next?'<div class="mini-primary-line">'+esc(next.topic||'备课记录')+'</div><div class="mini-foot">最近备课：'+esc(next.date||'日期未定')+' · 尚无单独截止时间</div>':'<div class="mini-empty">暂无待提交课件</div>';}}
+ const recent=document.getElementById('home-recent-notes');if(recent){const list=(Array.isArray(notes)?notes:[]).sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||''))).slice(0,2);recent.innerHTML=list.length?list.map(n=>'<button class="recent-note-row" type="button" data-open-recent-notes><span>•</span><b>'+esc(n.title||'未命名笔记')+'</b></button>').join(''):'<div class="mini-empty">还没有笔记，写下第一条灵感吧</div>';recent.querySelectorAll('[data-open-recent-notes]').forEach(b=>{b.onclick=()=>go('work/notes');});}
 }
 
 function renderTodayItems() {
@@ -896,8 +859,8 @@ function jumpCalTo(date) {
     return;
   }
   calState.selected = date;
+  calState.dayExpanded = false;
   paintCal();
-  loadDay(date);
 }
 
 /* 日历广播过来的日期同步到事项卡抬头。
@@ -1097,11 +1060,12 @@ async function exportCalendar() {
 }
 
 /* 日历 */
-let calState = { month: '', data: null, selected: '', view: 'month' };
+let calState = { month: '', data: null, selected: '', view: 'month', dayExpanded: false, dayLoadSeq: 0 };
 async function loadCal(monthDay) {
   const month = String(monthDay).slice(0, 7);
   calState.month = month;
   calState.selected = monthDay;
+  calState.dayExpanded = false;
   let data;
   if (month === String(homeData?.date || '').slice(0, 7) && homeData.courses_month) {
     data = {
@@ -1169,8 +1133,8 @@ function paintCal() {
   grid.querySelectorAll('[data-day]').forEach((b) => {
     b.onclick = () => {
       calState.selected = b.dataset.day;
+      calState.dayExpanded = true;
       paintCal();
-      loadDay(b.dataset.day);
       /* 反过来也要成立：点日历那一天，左边事项区要给出回应。
          左边只显示「今天」的事项，所以不能真的过滤成那一天（会变成空列表），
          但可以把选中日期画在事项卡标题上，让两边的「当前日期」始终一致。
@@ -1181,13 +1145,25 @@ function paintCal() {
   loadDay(calState.selected);
 }
 
+
 async function loadDay(date) {
   const box = document.getElementById('cal-day');
   if (!box) return;
-  box.innerHTML = `<div class="cal-day-head"><span class="cal-day-date">${esc(date)}</span></div><div class="cal-day-empty">正在加载…</div>`;
+  const requestId = ++calState.dayLoadSeq;
+  const collapsed = !calState.dayExpanded;
+  box.classList.toggle('is-collapsed', collapsed);
+  box.innerHTML = `${calDayHeaderHTML(date, '…', collapsed)}
+    <div class="cal-day-content"><div class="cal-day-empty">正在加载…</div></div>`;
+  bindCalDayControls(box, date);
+
   const d = await api.get('/calendar/day', { date }).catch(() => null);
-  if (!box.isConnected) return;
-  if (!d) { box.innerHTML = '<div class="cal-day-empty">加载失败</div>'; return; }
+  if (!box.isConnected || requestId !== calState.dayLoadSeq || date !== calState.selected) return;
+  if (!d) {
+    const content = box.querySelector('.cal-day-content');
+    if (content) content.innerHTML = '<div class="cal-day-empty">加载失败</div>';
+    return;
+  }
+
   const evs = [];
   for (const c of d.courses) evs.push({ s: c.start_time, e: c.end_time, k: 'course', title: `${c.class_name} ${c.subject}`, sub: `第${c.period_no}节${c.room ? ' · ' + c.room : ''}`, color: 'var(--teal)' });
   for (const i of d.items) {
@@ -1197,8 +1173,7 @@ async function loadDay(date) {
   for (const g of d.invigilations || []) evs.push({ s: String(g.start_at || '').slice(11, 16), e: String(g.end_at || '').slice(11, 16), k: 'inv', title: `${g.subject} 监考`, sub: `${g.type}${g.place ? ' · ' + g.place : ''}`, color: 'var(--amber)' });
   for (const l of d.lessons || []) evs.push({ s: l.start_time || '', e: l.end_time || '', k: 'lesson', title: `${l.class_name} ${l.content || '已上课'}`, sub: l.progress || '已完成课时', color: 'var(--purple)' });
   evs.sort((a, b) => (a.s || '99').localeCompare(b.s || '99'));
-  const wd = WD_CN[new Date(date + 'T00:00').getDay()];
-  const isToday = date === ymd(new Date());
+
   const rows = evs.map((e) => `<div class="cal-day-row">
       <span class="cal-day-t">${e.s ? esc(e.s + (e.e ? '–' + e.e : '')) : '全天'}</span>
       <span class="cal-day-dot" style="background:${e.color}"></span>
@@ -1207,18 +1182,54 @@ async function loadDay(date) {
         ${e.sub ? `<div class="cal-day-sub">${esc(e.sub)}</div>` : ''}
       </div>
     </div>`).join('');
-  box.innerHTML = `
-    <div class="cal-day-head">
-      <span class="cal-day-date">${mNum(date)}月${Number(date.slice(8, 10))}日</span>
-      <span class="cal-day-wd">${wd}${isToday ? ' · 今天' : ''}</span>
-      <span class="cal-day-count">${evs.length} 项</span>
-      <span style="flex:1"></span>
-      <button class="btn soft sm" data-add-day="${date}" style="padding:4px 10px;font-size:12px">＋ 添加</button>
-    </div>
-    ${evs.length ? `<div class="cal-day-list">${rows}</div>` : `<div class="cal-day-empty">这一天还没有安排<br><span class="tiny">点右上「＋ 添加」记一件事项</span></div>`}`;
-  box.querySelectorAll('[data-add-day]').forEach((b) => { b.onclick = () => editItem(null, date); });
+
+  const collapsedNow = !calState.dayExpanded;
+  box.innerHTML = `${calDayHeaderHTML(date, evs.length, collapsedNow)}
+    <div class="cal-day-content">
+      ${evs.length
+        ? `<div class="cal-day-list">${rows}</div>`
+        : '<div class="cal-day-empty">这一天还没有安排<br><span class="tiny">点右上「＋ 添加」记一件事项</span></div>'}
+    </div>`;
+  box.classList.toggle('is-collapsed', collapsedNow);
+  bindCalDayControls(box, date);
 }
 
+function calDayHeaderHTML(date, count, collapsed) {
+  const day = new Date(date + 'T00:00');
+  const wd = WD_CN[day.getDay()];
+  const isToday = date === ymd(new Date());
+  const label = Number(date.slice(5, 7)) + '月' + Number(date.slice(8, 10)) + '日';
+  return `<div class="cal-day-head">
+      <span class="cal-day-date">${label}</span>
+      <span class="cal-day-wd">${wd}${isToday ? ' · 今天' : ''}</span>
+      <span class="cal-day-count">${esc(String(count))} 项</span>
+      <span class="cal-day-head-spacer" aria-hidden="true"></span>
+      <button class="btn soft sm" data-add-day="${esc(date)}" type="button" style="padding:4px 10px;font-size:12px">＋ 添加</button>
+      <button class="cal-day-toggle" data-cal-day-toggle type="button"
+        aria-expanded="${String(!collapsed)}"
+        aria-label="${collapsed ? '展开当天安排' : '收起当天安排'}"
+        title="${collapsed ? '展开当天安排' : '收起当天安排'}">
+        ${icon(collapsed ? 'down' : 'up', 13)}<span>${collapsed ? '展开' : '收起'}</span>
+      </button>
+    </div>`;
+}
+
+function bindCalDayControls(box, date) {
+  const add = box.querySelector('[data-add-day]');
+  if (add) add.onclick = () => editItem(null, date);
+
+  const toggle = box.querySelector('[data-cal-day-toggle]');
+  if (!toggle) return;
+  toggle.onclick = () => {
+    const collapsed = !box.classList.contains('is-collapsed');
+    box.classList.toggle('is-collapsed', collapsed);
+    calState.dayExpanded = !collapsed;
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute('aria-label', collapsed ? '展开当天安排' : '收起当天安排');
+    toggle.title = collapsed ? '展开当天安排' : '收起当天安排';
+    toggle.innerHTML = `${icon(collapsed ? 'down' : 'up', 13)}<span>${collapsed ? '展开' : '收起'}</span>`;
+  };
+}
 const mNum = (s) => Number(String(s).slice(5, 7));
 
 /* 消息
@@ -1560,6 +1571,11 @@ export function restoreHomeLayout() {
 function bindHome() {
   const q = (s) => document.querySelector(s);
   q('#theme-btn').onclick = () => { import('./ui.js').then((m) => m.openThemeSheet()); };
+  q('#home-new-item').onclick = () => editItem(null, homeData.date);
+  q('#home-new-timetable').onclick = () => { go('work/timetable'); let n=0; const open=()=>{const b=document.getElementById('add-course');if(b)b.click();else if(++n<80)setTimeout(open,100);};setTimeout(open,80); };
+  q('#home-new-invig').onclick = () => { go('work/invigilation'); let n=0; const open=()=>{const b=document.getElementById('iv-add');if(b)b.click();else if(++n<80)setTimeout(open,100);};setTimeout(open,80); };
+  q('#home-calendar-view').onclick = () => { calState.view='month';paintCal();const card=document.querySelector('.hg-item[data-hcard="calendar"]');if(card?.classList.contains('is-collapsed'))q('#cal-collapse')?.click();card?.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const sideLayoutEdit=q('#home-side-layout-edit');if(sideLayoutEdit)sideLayoutEdit.onclick=()=>q('#teacher-layout')?.click();
   document.querySelectorAll('[data-msg]').forEach((b) => { b.onclick = () => go('messages'); });
   document.querySelectorAll('[data-goto2]').forEach((b) => { b.onclick = () => go(b.dataset.goto2); });
   /* data-goto 在搜索结果面板里是由 srBind 绑的，顶栏头像虽然也用这个属性名，
@@ -1744,9 +1760,8 @@ function bindHome() {
     mi.value = calState.month || String(ymd(new Date())).slice(0, 7);
     try { mi.showPicker ? mi.showPicker() : mi.click(); } catch { mi.click(); }
   };
-  paintCountdown();
+  /* 新首页以时间轴呈现安排，不再运行旧版横幅倒计时。 */
   clearInterval(cdTimer);
-  cdTimer = setInterval(paintCountdown, 1000);
 }
 function shiftMonth(delta) {
   const [y, m] = calState.month.split('-').map(Number);

@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v112-phone-display-normalize';
+const CACHE = 'wb-v124-v1-attendance-triple';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -53,8 +53,11 @@ const ASSETS = [
   './js/core.js',
   './js/cloudsync.js',
   './js/cloud.js',
+  './js/environment-config.mjs',
+  './js/auth-identifier.mjs',
   './js/auth.js',
   './js/migrate.js',
+  './js/startup-safety.mjs',
   /* 实时同步：这两个不进预缓存也不会坏（它们是用 import() 按需拉的），
      但进了清单离线时才有「一端改了另一端自己变」的正经体验 */
   './js/realtime.js',
@@ -73,6 +76,7 @@ const ASSETS = [
   './js/selfstudy.js',
   /* 功能模块 */
   './js/attendance.js',
+  './js/ocr.js',
   './js/alarm.js',
   './js/qrdecode.js',
   './js/pdfprint.js',
@@ -85,9 +89,14 @@ const ASSETS = [
   './js/attvoice.js',
   './js/attstats.js',
   './js/attday.js',
+  './js/attendance-domain.mjs',
+  './js/attendance-export.mjs',
   './js/attgrade.js',
   './js/attindex.js',
   './js/attreset.js',
+  './js/roster-import.mjs',
+  './js/roster-photo-parser.mjs',
+  './js/roster-structure.mjs',
 ];
 
 /* 【预缓存的超时】

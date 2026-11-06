@@ -103,7 +103,7 @@ registerView(async function work(main, { tab, third }) {
      点进「考勤」看到的还是「工作」，会让人怀疑自己点错了。 */
   const meta = {
     lessons: ['上课记录', '记录授课进度，管理课时与代课结算'],
-    timetable: ['课表', '这周几节课、哪个班、哪间教室'],
+    timetable: ['课表', '这周几节课、哪个班、上课地点在哪里'],
     prep: ['备课', '课前备什么、讲到哪了、下次接着讲什么'],
     repairs: ['维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底'],
     attendance: ['考勤', '按年级分开管：花名册、每日三张表、统计'],
@@ -848,19 +848,92 @@ async function renderTimetable(box) {
           return `${lunchRow}<tr><td><b>第${p}节</b><div class="tiny muted mono">${per ? per.start_time + '-' + per.end_time : '未设置'}</div></td>
             ${wd.map((d) => {
               const c = get(d, p);
-              return `<td data-cell="${d}-${p}" style="cursor:pointer;min-width:104px;height:52px;background:${c ? colorBg(c.class_name) : 'transparent'}">
-                ${c ? `<div class="small bold">${esc(c.class_name)}</div><div class="tiny muted">${esc(c.subject)} ${esc(c.room || '')}</div>` : '<span class="tiny muted">＋</span>'}
+              return `<td data-cell="${d}-${p}" ${c ? `data-course-id="${esc(c.id)}" draggable="true"` : ''} style="cursor:${c ? 'grab' : 'pointer'};min-width:104px;height:52px;background:${c ? colorBg(c.class_name) : 'transparent'}">
+                ${c ? `<div class="tt-course-chip"><span class="tt-drag-handle" aria-hidden="true">⠿</span><div><div class="small bold">${esc(c.class_name)}</div><div class="tiny muted">${esc(c.subject)} ${esc(c.room || '')}</div></div></div>` : '<span class="tiny muted">＋</span>'}
               </td>`;
             }).join('')}
           </tr>`;
         }).join('')}</tbody>
       </table></div>
       <div class="small muted" style="margin-top:10px">课时统计：本表每周共 ${courses.length} 节，按 4.3 周/月估算约 ${Math.round(courses.length * 4.3)} 节。实际以「上课」中的记录为准。</div>`;
+    let draggedCourseId = null;
+    let suppressCellClick = false;
     box.querySelectorAll('[data-cell]').forEach((td) => {
       td.onclick = () => {
+        if (suppressCellClick) { suppressCellClick = false; return; }
         const [d, p] = td.dataset.cell.split('-').map(Number);
         courseEditor(get(d, p) || { weekday: d, period_no: p }, load);
       };
+      td.addEventListener('dragover', (event) => {
+        if (!draggedCourseId) return;
+        event.preventDefault();
+        td.classList.add('tt-drop-target');
+      });
+      td.addEventListener('dragleave', () => td.classList.remove('tt-drop-target'));
+      td.addEventListener('drop', async (event) => {
+        event.preventDefault();
+        td.classList.remove('tt-drop-target');
+        const source = courses.find((item) => String(item.id) === String(draggedCourseId));
+        draggedCourseId = null;
+        if (!source) return;
+        const [toDay, toPeriod] = td.dataset.cell.split('-').map(Number);
+        if (Number(source.weekday) === toDay && Number(source.period_no) === toPeriod) return;
+        const target = get(toDay, toPeriod);
+        const periodMap = new Map(periods.map((item) => [Number(item.period_no), item]));
+        const sourceTime = periodMap.get(Number(source.period_no)) || {};
+        const targetTime = periodMap.get(toPeriod) || {};
+        try {
+          const sourcePayload = {
+            weekday: target ? Number(target.weekday) : toDay,
+            period_no: target ? Number(target.period_no) : toPeriod,
+            start_time: targetTime.start_time || (target ? target.start_time : '') || '',
+            end_time: targetTime.end_time || (target ? target.end_time : '') || ''
+          };
+          const targetPayload = target ? {
+            weekday: Number(source.weekday), period_no: Number(source.period_no),
+            start_time: sourceTime.start_time || target.start_time || '',
+            end_time: sourceTime.end_time || target.end_time || ''
+          } : null;
+          let targetUpdated = false;
+          try {
+            if (target) {
+              await api.patch('/courses/' + target.id, targetPayload);
+              targetUpdated = true;
+            }
+            await api.patch('/courses/' + source.id, sourcePayload);
+          } catch (error) {
+            if (target && targetUpdated) {
+              await api.patch('/courses/' + target.id, {
+                weekday: Number(target.weekday), period_no: Number(target.period_no),
+                start_time: target.start_time || '', end_time: target.end_time || ''
+              }).catch(() => {});
+            }
+            throw error;
+          }
+          suppressCellClick = true;
+          toast(target ? '已交换两门课程的位置' : '课程已移动');
+          await load();
+        } catch (error) {
+          toast(error.message || '拖动失败，原课表未完成更新', 'err');
+          await load();
+        }
+      });
+    });
+    box.querySelectorAll('[data-course-id]').forEach((td) => {
+      td.addEventListener('dragstart', (event) => {
+        draggedCourseId = td.dataset.courseId;
+        suppressCellClick = false;
+        td.classList.add('tt-dragging');
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', draggedCourseId);
+        }
+      });
+      td.addEventListener('dragend', () => {
+        draggedCourseId = null;
+        td.classList.remove('tt-dragging');
+        box.querySelectorAll('.tt-drop-target').forEach((node) => node.classList.remove('tt-drop-target'));
+      });
     });
     box.querySelector('#add-course').onclick = () => courseEditor(null, load);
     box.querySelector('#import-tt').onclick = () => importTimetableDialog(load);
@@ -1146,8 +1219,10 @@ async function importTimetableDialog(reload) {
     };
     work.querySelector('#tt-rows').onclick = () => {
       // 按格子在原图里所在的行重新推节次（表头下方第几行 = 第几节）
-      const base = R.headerRow >= 0 ? R.headerRow + 1 : 0;
-      assign.forEach((a) => { a.period = a.row - base + 1; });
+      assign.forEach((a) => {
+        const mapped = R.periodByRow?.[a.row];
+        if (mapped) a.period = mapped;
+      });
       paintImagePreview(work);
     };
   };
@@ -1365,7 +1440,7 @@ function courseEditor(row, reload) {
     <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(row?.grade || '')}" data-hist="grade"></div>
     <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(row?.class_name || '')}" data-hist="class_name"></div>
     <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}" data-hist="subject"></div>
-    <div class="field"><label class="field-label">教室</label><input class="input" id="room" value="${esc(row?.room || '')}" data-hist="room"></div>
+    <div class="field"><label class="field-label">地点</label><input class="input" id="room" value="${esc(row?.room || '')}" placeholder="例如：教学楼A栋101、大操场、机房" autocomplete="off"></div>
     <div class="field"><label class="field-label">生效开始日</label><input class="input" type="date" id="sd" value="${esc(row?.start_date || '')}"></div>
     <div class="field"><label class="field-label">生效结束日</label><input class="input" type="date" id="ed" value="${esc(row?.end_date || '')}"></div>
   </div>
@@ -1375,7 +1450,7 @@ function courseEditor(row, reload) {
 
   /* 历史值异步补上：失败就静默，手填照常可用 */
   api.get('/courses').then((all) => {
-    for (const k of ['grade', 'class_name', 'subject', 'room']) {
+    for (const k of ['grade', 'class_name', 'subject']) {
       const vals = [...new Set(all.map((c) => String(c[k] || '').trim()).filter(Boolean))].slice(0, 40);
       if (!vals.length) continue;
       const input = body.querySelector(`[data-hist="${k}"]`);

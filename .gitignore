@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.wrangler/
+supabase/.temp/
+.env
+.env.*
+!.env.example
+*.log

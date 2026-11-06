@@ -3447,6 +3447,7 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 /* ---------- 年级管理 ---------- */
 .gm-list { display: flex; flex-direction: column; gap: 8px; }
 .gm-row { display: flex; align-items: center; gap: 8px; }
+.gm-row.is-selected { padding: 7px; border: 1px solid color-mix(in srgb, var(--primary) 34%, var(--line)); border-radius: 10px; background: var(--primary-weak); }
 .gm-row .gm-name { flex: 1; min-width: 0; }
 .gm-meta { font-size: 12px; color: var(--text-3); white-space: nowrap; }
 
@@ -4076,3 +4077,82 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   .wb-brand-settings-footer { align-items:stretch;flex-direction:column;gap:12px; }
   .wb-brand-settings-footer .btn { width:100%;justify-content:center; }
 }
+
+
+/* Sidebar footer must stay visible on every route, including when a nested menu is expanded. */
+.sidebar {
+  overflow: hidden;
+}
+.side-nav {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.sidebar-foot {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex: 0 0 auto;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 9px;
+}
+.sidebar-foot > .nav-item {
+  min-width: 0;
+  min-height: 38px;
+  margin: 0;
+  padding: 7px 8px;
+  gap: 6px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.sidebar-foot > #side-user {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 48px;
+  margin: 0;
+  padding: 7px 10px;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.sidebar-foot > #side-user .side-user-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+.sidebar-foot > #side-user .side-user-label {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.sidebar-foot > #side-user .side-user-label strong {
+  font-size: 12px;
+  font-weight: 750;
+}
+.sidebar-foot > #side-user .side-user-label small {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* timetable drag-and-drop */
+.tt-course-chip{display:flex;align-items:center;gap:7px;min-width:0}
+.tt-drag-handle{display:inline-grid;place-items:center;flex:0 0 18px;width:18px;height:24px;border-radius:5px;color:#66839e;background:rgba(255,255,255,.62);font-size:17px;line-height:1;cursor:grab;user-select:none}
+[data-course-id][draggable="true"]{cursor:grab!important;user-select:none}
+[data-course-id].tt-dragging{opacity:.42;outline:2px dashed var(--primary);outline-offset:-3px}
+[data-cell].tt-drop-target{outline:3px solid var(--primary)!important;outline-offset:-3px;background:color-mix(in srgb,var(--primary) 13%,var(--card))!important}
+@media(hover:hover){[data-course-id][draggable="true"]:hover{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--primary) 45%,transparent)}}

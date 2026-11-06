@@ -20,7 +20,15 @@ import {
   listTable, createRow, updateRow, deleteRow,
   randomCode, nowISO, pad2, ymd, hydrate,
 } from './localdb.js';
+import { accountIdentifierFromPhone } from './auth-identifier.mjs';
 import { attRowState } from './att-parse.js';
+import {
+  dedupeAttendanceRows,
+  dayKeyOf as attendanceDayKey,
+  normalizeAttendanceType,
+  prepareRosterEntries,
+  tableTypeOf,
+} from './attendance-domain.mjs';
 
 /* ============================ 基础工具 ============================ */
 
@@ -38,6 +46,13 @@ const fail = (code, msg, extra) => { throw new ApiError(code, msg, extra); };
 const n2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 const pad2s = (n) => String(n).padStart(2, '0');
+const attendanceType = (...values) => {
+  for (const value of values) {
+    const type = normalizeAttendanceType(value);
+    if (type) return type;
+  }
+  return 'seat';
+};
 const todayStr = () => ymd(new Date());
 
 /* 北京时区日期：与原服务端 cnDate() 口径一致。
@@ -856,11 +871,7 @@ function defaultCols(kind) {
     ];
   }
   if (kind === 'class') {
-    return [
-      ...Array.from({ length: 4 }, (_, i) => ({ key: `k_p${i + 1}`, label: `第${i + 1}节`, type: 'check', w: 66 })),
-      { key: 'k_请假', label: '请假', type: 'check', w: 62 },
-      { key: 'k_remark', label: '备注', type: 'text', w: 150 },
-    ];
+    return defaultCols('seat');
   }
   return [
     { key: 'k_上课', label: '上课', type: 'check', w: 62 },
@@ -874,7 +885,10 @@ function defaultCols(kind) {
 
 function attTablesList(q = {}) {
   const out = rowsOf('attendance_tables')
-    .filter((t) => (!q.kind || t.kind === q.kind) && (!q.grade || t.grade === q.grade))
+    .filter((t) => (!q.kind || tableTypeOf(t) === q.kind)
+      && (!q.sheet_type || tableTypeOf(t) === q.sheet_type)
+      && (!q.sheet_date || String(t.sheet_date || '') === String(q.sheet_date))
+      && (!q.grade || t.grade === q.grade))
     .sort((a, b) => String(b.sheet_date || '').localeCompare(String(a.sheet_date || '')) || b.id - a.id);
   return out.map((t) => {
     const rows = (load().attendance_rows || []).filter((r) => !r.deleted_at && String(r.table_id) === String(t.id));
@@ -895,7 +909,7 @@ function attTablesList(q = {}) {
     const confirm_state = t.confirmed_at ? (num(t.confirm_dirty) ? 'modified' : 'confirmed') : 'none';
     return {
       ...t,
-      sheet_type: t.sheet_type || t.kind,
+      sheet_type: tableTypeOf(t),
       confirm_state,
       columns: cols,
       meta: safeJSON(t.meta, {}),
@@ -929,8 +943,11 @@ function attTableDetail(id) {
   const photoCount = (load().attachments || []).filter((a) => !a.deleted_at && a.owner_type === 'attendance' && String(a.owner_id) === String(t.id)).length;
   return {
     ...t,
+    sheet_type: tableTypeOf(t),
     columns: attCols(t),
     meta: safeJSON(t.meta, {}),
+    confirm_state: t.confirmed_at ? (num(t.confirm_dirty) ? 'modified' : 'confirmed') : 'none',
+    confirmed_at: t.confirmed_at || '',
     photo_count: photoCount,
     rows,
   };
@@ -1609,16 +1626,19 @@ on('POST', '/auth/register-cloud', async ({ body }) => {
    RLS + 云端 token 控制 —— 所以就算有人伪造这个请求，
    拿到的也只是个空的本地主题设置，读不到任何云端数据。 */
 on('POST', '/auth/login-cloud', async ({ body }) => {
+  const account = String(body?.account || '').trim();
   const email = String(body?.email || '').trim().toLowerCase();
   const phone = String(body?.phone || '').trim();
   const uid = String(body?.uid || '');
   const password = String(body?.password || '');
-  if (!email && !phone) fail(400, '缺少手机号或邮箱');
+  if (!account && !email && !phone) fail(400, '缺少账号或邮箱');
 
   const u = currentUser();
-  /* Phone accounts use their canonical E.164 number as the local account key. */
+  /* 用户看到和输入的是11位账号；Supabase 内部的 E.164 标识只用于兼容旧认证记录。 */
   const local = (email.split('@')[0] || '').replace(/[^A-Za-z0-9_]/g, '');
-  const acct = phone || (local.length >= 3 ? local.slice(0, 20) : email);
+  const acct = /^\d{11}$/.test(account)
+    ? account
+    : (phone ? accountIdentifierFromPhone(phone) : (local.length >= 3 ? local.slice(0, 20) : email));
 
   /* 已经用过别的账号：不再改账号名，避免把本机历史数据挂到新人头上 */
   if (!u.account) {
@@ -1633,6 +1653,9 @@ on('POST', '/auth/login-cloud', async ({ body }) => {
     u.nickname = u.nickname && u.nickname !== '老师'
       ? u.nickname
       : (phone ? '用户' + phone.slice(-4) : (local || email));
+  } else if (u.account === phone && /^\d{11}$/.test(account)) {
+    /* 只把同一 Supabase 用户原先保存的 +86 标识改为可见的11位账号，不改变 UID 或数据命名空间。 */
+    u.account = account;
   } else if (u.account === acct && password.length >= 6 && !u.pwd) {
     /* 本机有账号但没密码摘要（正是上面那种历史遗留），顺手补上 */
     u.pwd = await hashPwd(password);
@@ -2409,13 +2432,27 @@ on('GET', '/attendance/:id', ({ params }) => attTableDetail(params.id));
 on('POST', '/attendance', ({ body }) => {
   const db = load();
   db.attendance_tables = db.attendance_tables || [];
-  const sheetType = body?.sheet_type || (body?.kind === 'research' ? 'research' : 'seat');
+  const sheetType = attendanceType(body?.sheet_type, body?.kind);
   const cols = body?.columns || defaultCols(sheetType);
   const month = body?.month || String(body?.sheet_date || todayStr()).slice(0, 7);
-  const meta = { periods: body?.periods || '', year: String(body?.sheet_date || '').slice(0, 4) || String(new Date().getFullYear()), weekday: body?.weekday || '', ...(body?.meta || {}) };
+  const dateValue = String(body?.sheet_date || '');
+  const meta = {
+    periods: body?.periods || '',
+    year: dateValue.slice(0, 4) || String(new Date().getFullYear()),
+    weekday: body?.weekday || '',
+    ...(body?.meta || {}),
+    ...(dateValue ? { day_key: attendanceDayKey(dateValue, String(body?.grade || '').trim(), sheetType) } : {}),
+  };
   const id = T('attendance_tables').reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
   const grade = String(body?.grade || '').trim();
   if (!grade) fail(400, '请先创建年级');
+  const existing = dateValue && T('attendance_tables').find((table) => !table.deleted_at
+    && String(table.grade || '') === grade
+    && String(table.sheet_date || '') === dateValue
+    && tableTypeOf(table) === sheetType);
+  if (existing) {
+    return { ...existing, columns: attCols(existing), meta: safeJSON(existing.meta, {}) };
+  }
   const row = {
     id, kind: sheetType, name: body?.name || '新建考勤表', month,
     columns: JSON.stringify(cols), meta: JSON.stringify(meta),
@@ -2431,13 +2468,21 @@ on('POST', '/attendance', ({ body }) => {
 on('PATCH', '/attendance/:id', ({ params, body }) => {
   const t = byId('attendance_tables', params.id);
   if (!t) fail(404, '考勤表不存在');
+  if (body?.expected_updated_at !== undefined
+    && String(t.updated_at || '') !== String(body.expected_updated_at || '')) {
+    fail(409, 'WB_ATTENDANCE_CONFLICT: 表头已被另一台设备修改');
+  }
   /* 哪些字段的内容真的变了？只看"传没传"会把「保存时顺手带上 columns」
      当成改表头，确认完点个保存就跳成待确认。 */
   const before = { ...t };
   for (const k of ['name', 'month', 'kind', 'grade', 'sheet_date', 'weekday', 'periods', 'sheet_type', 'subject']) {
     if (k in (body || {})) t[k] = body[k];
   }
-  if ('sheet_type' in (body || {})) t.kind = body.sheet_type === 'research' ? 'research' : 'seat';
+  if ('sheet_type' in (body || {})) {
+    const normalized = attendanceType(body.sheet_type, body.kind);
+    t.sheet_type = normalized;
+    t.kind = normalized;
+  }
   if (body?.columns) t.columns = JSON.stringify(body.columns);
   if (body?.meta) t.meta = JSON.stringify(body.meta);
   /* 确认过又改了表头（日期/节次/列），状态回「已修改·待确认」 */
@@ -2479,6 +2524,21 @@ on('POST', '/attendance/:id/rows', ({ params, body }) => {
   db.attendance_rows = db.attendance_rows || [];
   const list = Array.isArray(body?.rows) ? body.rows : [body];
   const ids = [];
+  /* Optimistic concurrency: verify every row version before changing any row.
+     This makes the local save atomic and prevents one device from silently
+     overwriting another device's newer value. */
+  for (const row of list) {
+    if (!row?.id || row.expected_updated_at === undefined) continue;
+    const currentRow = T('attendance_rows').find((item) => (
+      String(item.id) === String(row.id)
+      && String(item.table_id) === String(t.id)
+      && !item.deleted_at
+    ));
+    if (!currentRow) fail(409, `WB_ATTENDANCE_CONFLICT: 第${ids.length + 1}行已被另一台设备删除`);
+    if (String(currentRow.updated_at || '') !== String(row.expected_updated_at || '')) {
+      fail(409, 'WB_ATTENDANCE_CONFLICT: 这张考勤表已被另一台设备修改');
+    }
+  }
   /* 【快照，不能边算边看】
      T('attendance_rows') 是 load() 里的活数组，循环里 push 之后
      再 reduce 求最大 id，每一行算出来都是「当前最大值 + 1」，
@@ -2767,12 +2827,13 @@ async function detectAttendanceSheet(body, useCloud = false) {
 }
 
 function commitAttendanceSheet(body) {
-  const rows = Array.isArray(body?.rows) ? body.rows : [];
+  const incomingRows = Array.isArray(body?.rows) ? body.rows : [];
+  const rows = dedupeAttendanceRows(incomingRows).rows;
   if (!rows.length) fail(400, '没有可导入的数据');
   const db = load();
   db.attendance_tables = db.attendance_tables || [];
   db.attendance_rows = db.attendance_rows || [];
-  const sheetType = body?.sheet_type === 'research' ? 'research' : 'seat';
+  const sheetType = attendanceType(body?.sheet_type, body?.kind);
   const grade = String(body?.grade || '').trim();
   if (!grade) fail(400, '请先创建年级');
   const year = body?.year || String(new Date().getFullYear());
@@ -2780,27 +2841,36 @@ function commitAttendanceSheet(body) {
   const day = String(body?.day || '').padStart(2, '0') || pad2(new Date().getDate());
   const dateStr = body?.sheet_date || `${year}-${month}-${day}`;
   const periods = String(body?.periods || '');
-  const name = String(body?.name || '').trim() || `${year}年${grade}${sheetType === 'seat' ? '老师坐班表' : '老师教研签到表'}${periods ? ' · 第' + periods + '节' : ''}`;
+  const typeName = sheetType === 'research' ? '老师教研签到表' : sheetType === 'class' ? '老师上课检查表' : '老师坐班表';
+  const name = String(body?.name || '').trim() || `${year}年${grade}${typeName}`;
   const columns = Array.isArray(body?.columns) && body.columns.length ? body.columns : defaultCols(sheetType);
   const meta = {
     periods, year, weekday: body?.weekday || '', source: body?.source || 'upload',
     filename: body?.filename || '', imported_at: nowISO(), imported_rows: rows.length,
+    day_key: attendanceDayKey(dateStr, grade, sheetType),
   };
 
   let tableId = Number(body?.table_id) || 0;
+  if (!tableId) {
+    const existing = T('attendance_tables').find((table) => !table.deleted_at
+      && String(table.grade || '') === grade
+      && String(table.sheet_date || '') === dateStr
+      && tableTypeOf(table) === sheetType);
+    if (existing) tableId = Number(existing.id) || 0;
+  }
   let sortBase = 0;
   if (tableId) {
     const t = byId('attendance_tables', tableId);
     if (!t) fail(404, '目标表不存在');
     const exist = T('attendance_rows').filter((r) => !r.deleted_at && String(r.table_id) === String(tableId));
-    const byName = new Map(exist.map((r) => [r.teacher, r]));
+    const byName = new Map(exist.map((r) => [`${String(r.teacher || '').trim()}\u0000${String(r.subject || '').trim()}`, r]));
     let updated = 0; let added = 0;
     let sort = exist.reduce((mx, r) => Math.max(mx, num(r.sort)), 0);
     let maxRowId2 = T('attendance_rows').reduce((mx, r) => Math.max(mx, num(r.id)), 0);
     for (const row of rows) {
       const nm = String(row.teacher || '').trim();
       if (!nm) continue;
-      const old = byName.get(nm);
+      const old = byName.get(`${nm}\u0000${String(row.subject || '').trim()}`);
       if (old) {
         const merged = { ...safeJSON(old.data, {}), ...(row.data || {}) };
         old.data = JSON.stringify(merged);
@@ -2830,7 +2900,9 @@ function commitAttendanceSheet(body) {
     created_at: nowISO(), updated_at: nowISO(), deleted_at: null,
   });
   db.teachers = db.teachers || [];
-  const inRoster = new Set(T('teachers').filter((x) => !x.deleted_at && x.grade === grade).map((x) => x.name));
+  const inRoster = new Set(T('teachers').filter((x) => !x.deleted_at && x.grade === grade).map((x) => {
+    return `${x.name}\u0000${String(x.subject || '').trim()}`;
+  }));
   let tSort = T('teachers').filter((x) => x.grade === grade).reduce((mx, x) => Math.max(mx, num(x.sort)), 0);
   const tSort0 = tSort;
   /* 插入循环里的两个 id 也先取快照，理由同 /teachers：活数组边 push 边取最大会撞号 */
@@ -2843,8 +2915,11 @@ function commitAttendanceSheet(body) {
     maxRowId3 += 1;
     const id = maxRowId3;
     T('attendance_rows').push({ id, table_id: tableId, teacher: nm, subject: String(row.subject || ''), data: JSON.stringify(row.data || {}), sort: sortBase, created_at: nowISO(), updated_at: nowISO(), deleted_at: null });
-    if (!inRoster.has(nm)) {
-      inRoster.add(nm);
+    /* Class sheets may legitimately contain temporary / cross-grade teachers.
+       A class import must never promote them into the permanent roster. */
+    const nmSubject = `${nm}\u0000${String(row.subject || '').trim()}`;
+    if (sheetType !== 'class' && !inRoster.has(nmSubject) && String(row.subject || '').trim()) {
+      inRoster.add(nmSubject);
       tSort += 1;
       maxTid += 1;
       const tid = maxTid;
@@ -3028,7 +3103,7 @@ on('POST', '/grades', ({ body }) => {
   return { grades: [...new Set([...DEFAULT_GRADES, ...u.settings.grades])] };
 });
 /* 年级改名（PRD FR-GRADE-2）：名册、考勤表的归属一起迁过去 */
-on('PATCH', '/grades/:name', ({ params, body }) => {
+on('PATCH', '/grades/:name', async ({ params, body }) => {
   const old = decodeURIComponent(params.name);
   const name = String(body?.name || '').trim();
   if (!name || name.length > 12) fail(400, '年级名不能为空且不超过 12 个字');
@@ -3039,13 +3114,25 @@ on('PATCH', '/grades/:name', ({ params, body }) => {
   const visible = [...new Set([...DEFAULT_GRADES.filter((g) => !off.includes(g)), ...extra])];
   if (!visible.includes(old)) fail(404, '没有这个年级');
   if (name !== old && visible.includes(name)) fail(400, '已经有叫这个名字的年级了');
+  let cloudTables = 0;
+  if (name !== old && await cloudReady()) {
+    const m = await import('./cloud.js');
+    cloudTables = await m.renameAttendanceGrade(old, name);
+  }
   let teachers = 0;
   for (const r of rowsOf('teachers')) {
     if (r.grade === old) { r.grade = name; r.updated_at = nowISO(); teachers++; }
   }
   let tables = 0;
   for (const r of T('attendance_tables')) {
-    if (r.grade === old) { r.grade = name; r.updated_at = nowISO(); tables++; }
+    if (r.grade === old) {
+      r.grade = name;
+      const meta = safeJSON(r.meta, {});
+      if (r.sheet_date) meta.day_key = attendanceDayKey(r.sheet_date, name, tableTypeOf(r));
+      r.meta = JSON.stringify(meta);
+      r.updated_at = nowISO();
+      tables++;
+    }
   }
   if (name !== old) {
     u.settings.grades = [...new Set(extra.map((g) => (g === old ? name : g)).concat(extra.includes(old) ? [] : [name]))];
@@ -3053,11 +3140,11 @@ on('PATCH', '/grades/:name', ({ params, body }) => {
   }
   saveUser(u);
   save();
-  return { ok: true, migrated: { teachers, tables } };
+  return { ok: true, migrated: { teachers, tables: tables + cloudTables } };
 });
 /* 年级删除（PRD FR-GRADE-3）：花名册软删；考勤表软删（回收站可找回）；
    行跟着表一起软删。删除后在年级列表里消失。 */
-on('DELETE', '/grades/:name', ({ params }) => {
+on('DELETE', '/grades/:name', async ({ params }) => {
   const name = decodeURIComponent(params.name);
   const u = currentUser();
   u.settings = u.settings || {};
@@ -3065,6 +3152,11 @@ on('DELETE', '/grades/:name', ({ params }) => {
   const extra = u.settings.grades = u.settings.grades || [];
   const visible = [...new Set([...DEFAULT_GRADES.filter((g) => !off.includes(g)), ...extra])];
   if (!visible.includes(name)) fail(404, '没有这个年级');
+  let cloudDeleted = { tables: 0, rows: 0 };
+  if (await cloudReady()) {
+    const m = await import('./cloud.js');
+    cloudDeleted = await m.deleteAttendanceGrade(name);
+  }
   let teachers = 0;
   for (const r of rowsOf('teachers')) {
     if (r.grade === name && !r.deleted_at) { r.deleted_at = nowISO(); teachers++; }
@@ -3082,7 +3174,14 @@ on('DELETE', '/grades/:name', ({ params }) => {
   if (DEFAULT_GRADES.includes(name) && !off.includes(name)) off.push(name);
   saveUser(u);
   save();
-  return { ok: true, deleted: { teachers, tables, rows: attRows } };
+  return {
+    ok: true,
+    deleted: {
+      teachers,
+      tables: tables + (Number(cloudDeleted.tables) || 0),
+      rows: attRows + (Number(cloudDeleted.rows) || 0),
+    },
+  };
 });
 
 /* ============================ 学科管理 ============================ */
@@ -3172,7 +3271,7 @@ function attAggregate(grade, year, roster, tabs, detailOf) {
     const cols = detail.columns.filter((c) => c.type === 'check');
     /* 到岗/教研/请假三类的认列方式跟纸表一致：
        坐班表里「上课」是到岗，「教研」是去教研组；教研签到表里「签到」算一次教研。 */
-    const kClass = cols.filter((c) => /上课|准时|按时/.test(c.label));
+    const kClass = type === 'class' ? cols.filter((c) => /上课|准时|按时/.test(c.label)) : [];
     const kResearch = cols.filter((c) => (type === 'research' ? /签到|出席/ : /^教研$/).test(c.label));
     /* 缺勤只认两种：老师在格子上明确划了 ×，或者这张表已经确认过却仍然全空。
        刚建出来还没填的表不能算缺勤，否则统计一亮全是"未到"，没人敢用。 */
@@ -3272,7 +3371,17 @@ on('POST', '/teachers', ({ body }) => {
   if (!grade) fail(400, '请先选择年级');
   const db = load();
   db.teachers = db.teachers || [];
-  const items = Array.isArray(body?.items) ? body.items : [{ name: body?.name, subject: body?.subject }];
+  let items = Array.isArray(body?.items) ? body.items : [{ name: body?.name, subject: body?.subject }];
+  const existingTeachers = T('teachers').filter((teacher) => !teacher.deleted_at && teacher.grade === grade);
+  const prepared = prepareRosterEntries(items, { existing: existingTeachers });
+  if (prepared.invalid.length || prepared.duplicates.length) {
+    const detail = [
+      ...prepared.invalid.map((item) => `第${item.index + 1}条${item.reason}`),
+      ...prepared.duplicates.map((item) => `第${item.index + 1}条${item.reason}`),
+    ].slice(0, 8).join('；');
+    fail(400, `名册校验未通过：${detail}`);
+  }
+  items = prepared.accepted;
   /* 【为什么用快照算 sort，不用 T('teachers')】
      load() 返回的是同一个缓存对象，T('teachers') 拿到的是「活的」数组，
      所以循环里每 push 一条，reduce 就多看到一条，sort 一路水涨船高：
@@ -3313,7 +3422,16 @@ on('POST', '/teachers', ({ body }) => {
 on('PATCH', '/teachers/:id', ({ params, body }) => {
   const t = byId('teachers', params.id);
   if (!t) fail(404, '教师不存在');
-  for (const k of ['name', 'subject', 'grade']) if (k in (body || {})) t[k] = String(body[k]).trim();
+  const next = { ...t };
+  for (const k of ['name', 'subject', 'grade']) if (k in (body || {})) next[k] = String(body[k]).trim();
+  if (['name', 'subject', 'grade'].some((key) => key in (body || {}))) {
+    const sameGrade = T('teachers').filter((teacher) => !teacher.deleted_at
+      && String(teacher.id) !== String(t.id)
+      && String(teacher.grade || '') === String(next.grade || ''));
+    const validation = prepareRosterEntries([next], { existing: sameGrade });
+    if (!validation.ok) fail(400, validation.invalid[0]?.reason || validation.duplicates[0]?.reason || '教师信息不完整');
+  }
+  for (const k of ['name', 'subject', 'grade']) if (k in (body || {})) t[k] = next[k];
   if ('active' in (body || {})) t.active = body.active ? 1 : 0;
   if ('sort' in (body || {})) t.sort = Number(body.sort) || 0;
   t.updated_at = nowISO();
@@ -4208,7 +4326,7 @@ async function cloudAttendanceDetail(id) {
    考勤表和明细从云端一次性取回来，再交给同一个 attAggregate 算。
    注意别退化成「一张表算一次」——一次请求循环几十次 REST 会慢到转圈。 */
 async function cloudAttendanceStats(m, grade, year) {
-  const { tables, rows } = await m.listAttendance({ grade });
+  const { tables, rows } = await m.listAttendance({ grade, year });
   const byTable = new Map();
   for (const r of rows || []) {
     const k = String(r.table_id);
@@ -4310,6 +4428,9 @@ async function cloudRoute(method, clean, query, body) {
         return rows.map(attRowShape);
       }
       if (method === 'POST') {
+        if (typeof m.saveAttendanceRows === 'function') {
+          return m.saveAttendanceRows(tid, body?.rows || [], { dirty: body?.dirty !== false });
+        }
         /* 前端只用批量形式 { rows: [...] }，单条也兼容一下 */
         const list = Array.isArray(body?.rows) ? body.rows : [body || {}];
         const ids = [];
@@ -4449,7 +4570,7 @@ async function cloudRoute(method, clean, query, body) {
 
     /* ---- 新建：/attendance ---- */
     if (method === 'POST' && !second) {
-      const sheetType = body?.sheet_type || (body?.kind === 'research' ? 'research' : 'seat');
+      const sheetType = attendanceType(body?.sheet_type, body?.kind);
       const cols = Array.isArray(body?.columns) && body.columns.length
         ? body.columns : defaultCols(sheetType);
       const meta = {
@@ -4457,6 +4578,9 @@ async function cloudRoute(method, clean, query, body) {
         year: String(body?.sheet_date || '').slice(0, 4) || String(new Date().getFullYear()),
         weekday: body?.weekday || '',
         ...(body?.meta || {}),
+        ...(body?.sheet_date && String(body?.grade || '').trim()
+          ? { day_key: attendanceDayKey(body.sheet_date, String(body.grade).trim(), sheetType) }
+          : {}),
       };
       const grade = String(body?.grade || '').trim();
       if (!grade) throw new Error('请先创建年级');
@@ -4481,9 +4605,15 @@ async function cloudRoute(method, clean, query, body) {
     /* ---- 改表：/attendance/:id ---- */
     if ((method === 'PATCH' || method === 'PUT') && second) {
       const patch = { ...(body || {}) };
+      const expectedUpdatedAt = patch.expected_updated_at;
+      delete patch.expected_updated_at;
       /* 前端改类型时只送 sheet_type，DB 里的 kind 要跟着变：
          列表页按 sheet_type 分组、统计页按 kind 分支，不同步就会打架。 */
-      if ('sheet_type' in patch) patch.kind = patch.sheet_type === 'research' ? 'research' : 'seat';
+      if ('sheet_type' in patch || 'kind' in patch) {
+        const normalized = attendanceType(patch.sheet_type, patch.kind);
+        patch.sheet_type = normalized;
+        patch.kind = normalized;
+      }
       /* 确认过的表改了表头（日期/节次/列）→ 回到「已修改·待确认」。
          【必须比较内容而不是"有没有传这个字段"】
          前端每次保存都会顺手 PATCH 一次 {columns}（列定义随保存一起落库），
@@ -4500,7 +4630,10 @@ async function cloudRoute(method, clean, query, body) {
           patch.meta = { ...pm, confirm_dirty: 1 };
         }
       }
-      const row = await m.updateRow('attendance_tables', decodeURIComponent(second), patch);
+      const id = decodeURIComponent(second);
+      const row = expectedUpdatedAt !== undefined
+        ? await m.updateAttendanceTable(id, patch, expectedUpdatedAt)
+        : await m.updateRow('attendance_tables', id, patch);
       return { ...row, columns: attCols(row), meta: safeJSON(row.meta, {}) };
     }
 
@@ -4669,7 +4802,7 @@ function attListShape(tables, rows) {
     const meta = safeJSON(t.meta, {});
     return {
       ...t,
-      sheet_type: t.sheet_type || t.kind,
+      sheet_type: tableTypeOf(t),
       columns: cols,
       meta,
       confirm_state: attConfirmState(meta),
@@ -4686,7 +4819,7 @@ function attDetailShape(t, rows, photoCount) {
   const meta = safeJSON(t.meta, {});
   return {
     ...t,
-    sheet_type: t.sheet_type || t.kind,
+    sheet_type: tableTypeOf(t),
     columns: attCols(t),
     meta,
     confirm_state: attConfirmState(meta),
@@ -4705,9 +4838,9 @@ function attDetailShape(t, rows, photoCount) {
    云端 id 由数据库发，算 id 反而会撞。所以这里只保留业务规则：
    同名教师合并、新建表时顺手补教师名册、meta 记来源文件名。 */
 async function commitAttendanceCloud(m, body) {
-  const rows = Array.isArray(body?.rows) ? body.rows : [];
+  const rows = dedupeAttendanceRows(Array.isArray(body?.rows) ? body.rows : []).rows;
   if (!rows.length) throw new Error('没有可导入的数据');
-  const sheetType = body?.sheet_type === 'research' ? 'research' : 'seat';
+  const sheetType = attendanceType(body?.sheet_type, body?.kind);
   const grade = String(body?.grade || '').trim();
   if (!grade) throw new Error('请先创建年级');
   const year = String(body?.year || new Date().getFullYear());
@@ -4715,28 +4848,34 @@ async function commitAttendanceCloud(m, body) {
   const day = String(body?.day || '').padStart(2, '0') || String(new Date().getDate()).padStart(2, '0');
   const dateStr = body?.sheet_date || `${year}-${month}-${day}`;
   const periods = String(body?.periods || '');
-  const name = String(body?.name || '').trim()
-    || `${year}年${grade}${sheetType === 'seat' ? '老师坐班表' : '老师教研签到表'}${periods ? ' · 第' + periods + '节' : ''}`;
+  const typeName = sheetType === 'research' ? '老师教研签到表' : sheetType === 'class' ? '老师上课检查表' : '老师坐班表';
+  const name = String(body?.name || '').trim() || `${year}年${grade}${typeName}`;
   const columns = Array.isArray(body?.columns) && body.columns.length ? body.columns : defaultCols(sheetType);
   const meta = {
     periods, year, weekday: body?.weekday || '', source: body?.source || 'upload',
     filename: body?.filename || '', imported_at: nowISO(), imported_rows: rows.length,
+    day_key: attendanceDayKey(dateStr, grade, sheetType),
   };
 
-  const tableId = Number(body?.table_id) || 0;
+  let tableId = Number(body?.table_id) || 0;
+  if (!tableId) {
+    const current = await m.listAttendance({ grade, sheet_date: dateStr });
+    const existing = current.tables.find((table) => tableTypeOf(table) === sheetType);
+    if (existing) tableId = Number(existing.id) || 0;
+  }
 
   if (tableId) {
     /* ---- 往已有表里追加 / 覆盖 ---- */
     const t = await m.getRow('attendance_tables', tableId);
     if (!t) throw new Error('目标表不存在');
     const exist = await m.listRows('attendance_rows', { table_id: tableId });
-    const byName = new Map(exist.map((r) => [r.teacher, r]));
+    const byName = new Map(exist.map((r) => [`${String(r.teacher || '').trim()}\u0000${String(r.subject || '').trim()}`, r]));
     let sort = exist.reduce((mx, r) => Math.max(mx, num(r.sort)), 0);
     let updated = 0; let added = 0;
     for (const row of rows) {
       const nm = String(row.teacher || '').trim();
       if (!nm) continue;
-      const old = byName.get(nm);
+      const old = byName.get(`${nm}\u0000${String(row.subject || '').trim()}`);
       if (old) {
         /* 合并而不是覆盖：老表里已经勾过的格子要留住，
            新导入只补它带来的那几列。 */
@@ -4772,16 +4911,18 @@ async function commitAttendanceCloud(m, body) {
      顺手把他表里的人补进当前年级名册，下次建表就能一键铺名单。 */
   let rosterAdded = 0;
   try {
-    const teachers = await m.listRows('teachers', { grade }).catch(() => []);
+    const teachers = sheetType === 'class' ? [] : await m.listRows('teachers', { grade }).catch(() => []);
     if (Array.isArray(teachers) && teachers.length >= 0 && m.TABLES?.teachers) {
-      const have = new Set(teachers.map((x) => x.name));
+      const have = new Set(teachers.map((x) => `${String(x.name || '').trim()}\u0000${String(x.subject || '').trim()}`));
       let sort = teachers.reduce((mx, x) => Math.max(mx, num(x.sort)), 0);
       const add = [];
       for (const row of rows) {
         const nm = String(row.teacher || '').trim();
-        if (!nm || have.has(nm)) continue;
-        have.add(nm); sort += 1;
-        add.push({ grade, name: nm, subject: String(row.subject || ''), sort, active: 1 });
+        const subject = String(row.subject || '').trim();
+        const identity = `${nm}\u0000${subject}`;
+        if (!nm || !subject || have.has(identity)) continue;
+        have.add(identity); sort += 1;
+        add.push({ grade, name: nm, subject, sort, active: 1 });
       }
       if (add.length) { await m.createRows('teachers', add); rosterAdded = add.length; }
     }

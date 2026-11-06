@@ -384,6 +384,7 @@
 .att-work-shell{--aw-ink:#172b4d;--aw-muted:#71829d;--aw-line:#e5ebf4;--aw-blue:#2563eb;color:var(--aw-ink);padding:8px 2px 24px}
 .att-work-crumb{margin:0 0 10px;padding:0 2px;color:#91a0b5;font-size:11px;letter-spacing:.02em}
 .att-work-head{gap:14px;margin:0 0 14px;padding:0 2px}
+.att-work-head-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
 .att-work-head h2{color:#142746;font-size:24px;font-weight:800;letter-spacing:-.6px}
 .att-work-sync{padding:5px 10px;border:1px solid #d7f0e1;border-radius:999px;background:#f0fbf4;color:#16834a;font-size:11px;font-weight:650}
 .att-work-grade{height:38px!important;min-width:112px!important;border:1px solid #dce5f1!important;border-radius:10px!important;background:#fff!important;color:#263b5b!important;font-size:13px!important;box-shadow:0 2px 5px rgba(30,64,112,.035)!important}
@@ -452,17 +453,30 @@
 .aw-roster-table td{height:50px}
 @media(max-width:1100px){.att-work-stats{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}.att-work-panel{min-height:calc(100vh - 270px)}.att-work-table-scroll{max-height:calc(100vh - 400px)}}
 @media(max-width:760px){
- .att-work-shell{padding:4px 0 18px}
+ .att-work-shell{padding:4px 0 18px;width:100%;min-width:0;max-width:100%;overflow-x:hidden}
  .att-work-head{flex-wrap:wrap;gap:8px}
  .att-work-head>div:first-child{flex:1 1 100%}
+ .att-work-head-actions{display:grid;grid-template-columns:minmax(0,1fr) 96px;width:100%;min-width:0;margin-left:0}
+ .att-work-head-actions .btn{width:100%;min-width:0}
+ .att-work-head-actions .att-work-grade{width:96px!important;min-width:0!important;max-width:100%}
  .att-work-meta-controls{align-items:flex-start;gap:9px;padding:10px}
+ .att-work-meta-controls .att-work-date{display:grid;grid-template-columns:34px minmax(0,1fr) 34px auto;gap:6px;width:100%;margin:0}
+ .att-work-meta-controls .att-work-date label{min-width:0;overflow:hidden}
+ .att-work-meta-controls .att-work-date label input{width:100%!important;max-width:100%!important;flex:1 1 auto;min-width:0}
+ .att-work-meta-controls .att-work-date label span{display:none}
  .att-work-meta-hint{width:100%;margin-left:0}
  .att-work-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
  .aw-stat{min-height:60px;padding:9px}
  .aw-stat b{font-size:21px}
- .att-work-panel{min-height:auto;padding:11px;border-radius:13px}
- .att-work-toolbar{gap:7px}
+ .att-work-panel{min-width:0;max-width:100%;min-height:auto;padding:11px;border-radius:13px;overflow:hidden}
+ .att-work-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));max-width:100%;gap:4px;overflow:visible}
+ .att-work-tabs button{min-width:0;padding-inline:0;font-size:12px;white-space:nowrap}
+ .att-work-toolbar{min-width:0;gap:7px;flex-wrap:wrap}
  .att-work-toolbar .aw-search,.att-work-toolbar select#att-work-subject{width:100%;flex:1 1 100%}
+ .att-work-toolbar .btn{flex:1 1 calc(50% - 7px);min-width:0;justify-content:center}
+ .att-work-toolbar .att-work-spacer{display:none}
+ .att-work-export-wrap{width:100%;margin-left:0}
+ .att-work-export-wrap .btn{width:100%}
  .att-work-table-scroll{max-height:65vh;min-height:260px}
  .att-work-table.att-work-sheet-table{min-width:760px}
  .att-work-sheet-table th{height:42px}
@@ -524,3 +538,164 @@
   .agd-sheet{min-height:78px}
   .agd-new-card{min-height:185px}
 }
+
+
+/* ===== 年级考勤卡片：强化「进入考勤工作台」主入口 ===== */
+.agd-grade-foot {
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  gap:10px;
+  margin-top:auto;
+  padding-top:16px;
+  border-top:1px solid #edf1f7;
+}
+.agd-grade-foot>span {
+  color:#8798b0;
+  font-size:11px;
+  line-height:1.45;
+  text-align:center;
+  white-space:normal;
+}
+.agd-grade-foot>b {
+  display:flex;
+  width:100%;
+  min-height:50px;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  padding:0 18px;
+  border-radius:12px;
+  background:linear-gradient(110deg,#2874f7,#155fe6);
+  color:#fff;
+  font-size:15px;
+  font-weight:800;
+  letter-spacing:.2px;
+  box-shadow:0 7px 16px rgba(37,99,235,.20);
+  transition:transform .18s ease,box-shadow .18s ease,filter .18s ease;
+}
+.agd-grade-card:nth-child(2) .agd-grade-foot>b {
+  background:linear-gradient(110deg,#8b70f6,#6555e9);
+  box-shadow:0 7px 16px rgba(111,86,231,.20);
+}
+.agd-grade-card:nth-child(3) .agd-grade-foot>b {
+  background:linear-gradient(110deg,#22b6c6,#168cae);
+  box-shadow:0 7px 16px rgba(22,156,178,.18);
+}
+.agd-grade-card:hover .agd-grade-foot>b {
+  transform:translateY(-1px);
+  filter:saturate(1.08);
+  box-shadow:0 10px 21px rgba(37,99,235,.24);
+}
+.agd-grade-card:focus-visible {
+  outline:3px solid rgba(37,99,235,.30);
+  outline-offset:3px;
+}
+.agd-grade-foot>b svg { flex:0 0 auto; }
+@media(max-width:680px) {
+  .agd-grade-foot { gap:8px;padding-top:13px; }
+  .agd-grade-foot>span { font-size:10px; }
+  .agd-grade-foot>b { min-height:48px;font-size:14px;border-radius:11px; }
+}
+
+
+/* ===== 教师花名册：照片智能建册弹窗 ===== */
+.roster-ocr-sheet .sheet{max-width:900px;border:1px solid rgba(148,163,184,.18);border-radius:22px}
+.roster-ocr-sheet .sheet-head{padding:19px 24px 14px;border-bottom:1px solid #edf1f7;gap:12px}
+.roster-ocr-sheet .sheet-title{font-size:17px;font-weight:800;color:#172b49}
+.roster-ocr-sheet .sheet-close{width:34px;height:34px;border-radius:10px;background:#f3f6fb;color:#667892}
+.roster-ocr-sheet .sheet-body{padding:18px 22px 22px;max-height:calc(88vh - 70px);overflow:auto}
+.roster-ocr{display:flex;flex-direction:column;gap:16px;color:#20334f}
+.roster-ocr-intro{display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid #e4edf7;border-radius:15px;background:linear-gradient(110deg,#f4f9ff,#f8fbff)}
+.roster-ocr-intro-icon{display:grid;place-items:center;width:44px;height:44px;flex:0 0 44px;border-radius:13px;background:#e3f0ff;color:#2672d9}
+.roster-ocr-intro-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}
+.roster-ocr-intro-copy strong{font-size:15px;font-weight:800;color:#193252}
+.roster-ocr-intro-copy span{font-size:12px;color:#8293aa;line-height:1.5}
+.roster-ocr-grade{padding:6px 11px;border-radius:9px;background:#e8f2ff;color:#2467c8;font-size:12px;font-weight:800;white-space:nowrap}
+.roster-ocr-grid{display:grid;grid-template-columns:minmax(260px,.88fr) minmax(320px,1.12fr);gap:14px;align-items:stretch}
+.roster-ocr-card{min-width:0;padding:16px;border:1px solid #e8edf4;border-radius:16px;background:#fff;box-shadow:0 3px 12px rgba(25,48,78,.035)}
+.roster-ocr-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.roster-ocr-card-head>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.roster-ocr-card-head strong{font-size:13px;font-weight:800;color:#29415f}
+.roster-ocr-card-head span{font-size:11px;color:#91a0b4}
+.roster-ocr-step,.roster-ocr-count{padding:5px 9px;border-radius:20px;background:#f1f6fc;color:#66809f!important;font-size:11px!important;font-weight:700;white-space:nowrap}
+.roster-ocr-drop{display:flex;width:100%;min-height:260px;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:22px 14px;border:1.5px dashed #b9d3ed;border-radius:14px;background:linear-gradient(145deg,#f8fbff,#f2f8ff);color:#5e7794;cursor:pointer;transition:border-color .18s,background .18s,transform .18s}
+.roster-ocr-drop:hover,.roster-ocr-drop.is-dragover{border-color:#3985df;background:#edf6ff;transform:translateY(-1px)}
+.roster-ocr-drop[hidden]{display:none}
+.roster-ocr-drop-icon{display:grid;place-items:center;width:54px;height:54px;border-radius:16px;background:#e5f1ff;color:#2677d5}
+.roster-ocr-drop strong{font-size:14px;color:#294765}
+.roster-ocr-drop>span:not(.roster-ocr-drop-icon){font-size:11px;line-height:1.6;text-align:center}
+.roster-ocr-drop-action{margin-top:4px;padding:8px 18px;border-radius:9px;background:#2475d0;color:#fff!important;font-size:12px!important;font-weight:700;box-shadow:0 5px 12px rgba(36,117,208,.18)}
+.roster-ocr-preview[hidden]{display:none}
+.roster-ocr-preview-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.roster-ocr-preview-head strong{font-size:12px;color:#526982}
+.roster-ocr-link{padding:5px 0;background:none;border:0;color:#2475d0;font-size:11px;font-weight:700;cursor:pointer}
+.roster-ocr-preview-stage{height:260px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid #e4ebf3;border-radius:12px;background:repeating-linear-gradient(45deg,#f8fafc,#f8fafc 8px,#f2f5f9 8px,#f2f5f9 16px)}
+.roster-ocr-preview-stage img{display:block;max-width:none;max-height:none;object-fit:contain;transition:transform .2s ease;filter:drop-shadow(0 5px 10px rgba(26,42,64,.14))}
+.roster-ocr-photo-tools{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.roster-ocr-tool{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:0 10px;border:1px solid #e1e9f2;border-radius:9px;background:#fff;color:#5f7691;font-size:11px;font-weight:700;cursor:pointer}
+.roster-ocr-tool:hover{border-color:#b6d2f1;background:#f5faff;color:#246fc7}
+.roster-ocr-tool:disabled{opacity:.45;cursor:not-allowed}
+.roster-ocr-tool-primary{margin-left:auto;border-color:#c7def8;background:#edf6ff;color:#246fc7}
+.roster-ocr-tip{display:flex;align-items:flex-start;gap:7px;margin-top:12px;color:#8a9bb0;font-size:11px;line-height:1.6}
+.roster-ocr-tip svg{flex:0 0 auto;margin-top:1px;color:#e3a33a}
+.roster-ocr-status{display:flex;align-items:flex-start;gap:8px;min-height:38px;padding:10px 11px;border-radius:10px;background:#f3f7fc;color:#6c819a;font-size:11px;line-height:1.55}
+.roster-ocr-status-dot{width:7px;height:7px;flex:0 0 7px;margin-top:4px;border-radius:50%;background:#93a7bd}
+.roster-ocr-status.is-success{background:#effaf4;color:#278253}
+.roster-ocr-status.is-success .roster-ocr-status-dot{background:#28a66a}
+.roster-ocr-status.is-error{background:#fff5f2;color:#b95d4d}
+.roster-ocr-status.is-error .roster-ocr-status-dot{background:#e07861}
+.roster-ocr-quality{display:flex;flex-direction:column;gap:6px;padding:11px 12px;border:1px solid #f2d7cd;border-radius:10px;background:#fff8f5;color:#986253;font-size:11px;line-height:1.6}
+.roster-ocr-quality[hidden]{display:none}
+.roster-ocr-quality strong{display:flex;align-items:center;gap:6px;color:#ad5947;font-size:12px}
+.roster-ocr-label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 7px;color:#435b76;font-size:12px;font-weight:800}
+.roster-ocr-label span{color:#96a4b7;font-size:10px;font-weight:500}
+.roster-ocr-textarea{display:block;width:100%;min-height:260px;padding:13px 14px;border:1px solid #dce6f1;border-radius:11px;outline:none;background:#fbfdff;color:#20344f;font:13px/1.9 inherit;resize:vertical;transition:border-color .15s,box-shadow .15s}
+.roster-ocr-textarea:focus{border-color:#77aee9;box-shadow:0 0 0 3px rgba(59,130,210,.10);background:#fff}
+.roster-ocr-textarea::placeholder{color:#a7b4c4}
+.roster-ocr-result-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;color:#91a0b3;font-size:10px}
+.roster-ocr-result-foot>span:first-child{display:flex;align-items:center;gap:5px}
+.roster-ocr-result-foot svg{color:#2c9b69}
+.roster-ocr-footer{display:flex;align-items:center;justify-content:space-between;gap:14px;padding-top:14px;border-top:1px solid #edf1f6}
+.roster-ocr-footer-note{display:flex;align-items:center;gap:7px;color:#8c9bb0;font-size:10px;line-height:1.5}
+.roster-ocr-footer-note svg{flex:0 0 auto;color:#7d9cbd}
+.roster-ocr-footer-actions{display:flex;align-items:center;gap:9px;flex:0 0 auto}
+.roster-ocr-footer-actions .btn{min-height:40px;padding:0 16px;border-radius:10px;font-size:12px;font-weight:750}
+.roster-ocr-footer-actions #k{display:inline-flex;align-items:center;gap:7px;box-shadow:0 5px 12px rgba(31,111,196,.18)}
+.roster-ocr-footer-actions #k:disabled{opacity:.45;box-shadow:none;cursor:not-allowed}
+@media(max-width:760px){
+ .roster-ocr-sheet .sheet{max-width:calc(100vw - 20px);max-height:94vh;border-radius:17px}
+ .roster-ocr-sheet .sheet-head{padding:14px 16px 10px}
+ .roster-ocr-sheet .sheet-body{padding:13px 13px 16px;max-height:calc(94vh - 58px)}
+ .roster-ocr{gap:12px}
+ .roster-ocr-intro{padding:11px;gap:10px}
+ .roster-ocr-intro-icon{width:38px;height:38px;flex-basis:38px}
+ .roster-ocr-intro-copy strong{font-size:13px}
+ .roster-ocr-intro-copy span{font-size:10px}
+ .roster-ocr-grid{grid-template-columns:1fr;gap:11px}
+ .roster-ocr-card{padding:12px}
+ .roster-ocr-drop{min-height:180px}
+ .roster-ocr-preview-stage{height:210px}
+ .roster-ocr-textarea{min-height:180px}
+ .roster-ocr-footer{align-items:stretch;flex-direction:column}
+ .roster-ocr-footer-actions{justify-content:flex-end}
+ .roster-ocr-footer-note{font-size:10px}
+}
+
+
+/* ===== 花名册结构化识别审核表 ===== */
+.roster-review-summary{margin:2px 0 9px;padding:9px 11px;border:1px solid #e2eaf5;border-radius:9px;background:#f5f8fd;color:#627894;font-size:11px;line-height:1.55}
+.roster-review-scroll{max-height:390px;overflow:auto;border:1px solid #e2eaf2;border-radius:10px;background:#fff}
+.roster-review-table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;font-size:11px}
+.roster-review-table th{position:sticky;top:0;z-index:2;height:34px;padding:7px 9px;background:#f2f6fc;color:#60738d;text-align:left;font-weight:750;border-bottom:1px solid #e2eaf2}
+.roster-review-table th:first-child,.roster-review-table td:first-child{width:48px;text-align:center}
+.roster-review-table th:last-child,.roster-review-table td:last-child{width:68px}
+.roster-review-table td{height:39px;padding:4px 7px;border-bottom:1px solid #eef2f7;color:#435873}
+.roster-review-table tr:last-child td{border-bottom:0}
+.roster-review-table td input{display:block;width:100%;min-width:0;height:29px;padding:4px 7px;border:1px solid #e3eaf3;border-radius:7px;background:#fff;color:#20344f;font:inherit;outline:none}
+.roster-review-table td input:focus{border-color:#77aee9;box-shadow:0 0 0 2px rgba(59,130,210,.1)}
+.roster-review-table tr.is-incomplete{background:#fffaf3}
+.roster-review-table tr.is-incomplete td:last-child{color:#bd7a28}
+.roster-review-table td:last-child{font-size:10px;white-space:nowrap}
+.roster-review-serial{font-variant-numeric:tabular-nums;color:#8191a6!important;font-weight:700}
+.roster-review-empty{text-align:center!important;color:#94a3b8!important;padding:28px!important}
