@@ -9,60 +9,84 @@ const [home, grid, styles, ui] = await Promise.all([
   readFile(new URL('../js/ui.js', import.meta.url), 'utf8'),
 ]);
 
-test('首页包含八个设计稿快捷入口且路由有效', () => {
-  const shortcuts = [...home.matchAll(/class="home-shortcut" href="#\/([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(shortcuts.length, 8);
-  for (const route of ['work/lessons', 'work/timetable', 'work/attendance', 'work/prep',
-    'work/invigilation', 'work/materials', 'study', 'work/notes']) {
-    assert.ok(shortcuts.includes(route), `缺少快捷入口路由：${route}`);
+test('精简首页只保留五张核心卡片的页面结构', () => {
+  for (const id of ['profile', 'todayCourse', 'todayTodo', 'weather', 'calendar']) {
+    assert.ok(home.includes(`data-hcard="${id}"`), `缺少核心卡片：${id}`);
+  }
+  assert.doesNotMatch(home, /class="home-shortcut"/);
+  assert.match(home, /id="greet-line"/);
+  assert.match(home, /id="clock-date"/);
+  assert.match(home, /id="clock"/);
+});
+
+test('顶部只保留搜索、新建事项和新建课表', () => {
+  assert.match(home, /id="gsearch"/);
+  assert.match(home, /id="home-new-item"/);
+  assert.match(home, /id="home-new-timetable"/);
+  assert.doesNotMatch(home, /id="home-new-invig"/);
+  assert.doesNotMatch(home, /id="home-calendar-view"/);
+});
+
+test('天气卡保留城市切换、刷新和详细天气入口', () => {
+  assert.match(home, /id="wx-card"/);
+  assert.match(home, /data-pick-city/);
+  assert.match(home, /data-wx-refresh/);
+  assert.match(home, /id="wx-more"/);
+  assert.match(home, /function weatherBriefHTML\(/);
+  assert.match(home, /function openWeatherSheet\(/);
+});
+
+test('课程、待办和日历保留真实业务渲染节点与联动', () => {
+  for (const marker of ['id="today-courses"', 'id="today-items"', 'id="cal-grid"',
+    'id="cal-prev"', 'id="cal-next"', 'id="cal-today"']) {
+    assert.ok(home.includes(marker), `缺少业务节点：${marker}`);
+  }
+  assert.match(home, /function renderTodayCourses\(/);
+  assert.match(home, /function renderTodayItems\(/);
+  assert.match(home, /function paintCal\(/);
+  assert.match(home, /syncDay\(/);
+});
+
+test('V4 默认布局只显示五张核心卡片，其余卡片仍可管理恢复', () => {
+  assert.match(grid, /version:\s*4,/);
+  assert.match(grid, /const DEFAULT_HIDDEN = \['timeline', 'dailyQuote', 'weekLessons', 'invigilation', 'prepDeadline', 'recentNotes'\]/);
+  assert.match(grid, /hidden:\s*\[\.\.\.DEFAULT_HIDDEN\]/);
+  for (const id of ['profile', 'todayCourse', 'todayTodo', 'weather', 'calendar']) {
+    assert.ok(grid.includes(`['${id}'`), `默认布局缺少：${id}`);
+  }
+  for (const id of ['timeline', 'dailyQuote', 'weekLessons', 'invigilation', 'prepDeadline', 'recentNotes']) {
+    assert.ok(grid.includes(`{ id: '${id}'`), `卡片管理中未保留：${id}`);
   }
 });
 
-test('所有快捷入口都指向项目导航中真实存在的页面', () => {
-  const routeIds = new Set([...ui.matchAll(/id:\s*'([^']+)'/g)].map((m) => m[1]));
-  const routes = [...home.matchAll(/class="home-shortcut" href="#\/([^"]+)"/g)].map((m) => m[1]);
-  for (const route of routes) {
-    const segments = route.split('/');
-    assert.ok(routeIds.has(segments[0]), `一级导航不存在：${segments[0]}`);
-    if (segments[0] === 'work') assert.ok(routeIds.has(segments[1]), `工作模块不存在：${segments[1]}`);
-  }
+test('旧布局迁移到 V4 时保留用户隐藏偏好且默认隐藏辅助卡片', () => {
+  assert.match(grid, /if\s*\(rawVersion\s*<\s*4\)/);
+  assert.match(grid, /\.\.\.DEFAULT_HIDDEN/);
+  assert.match(grid, /raw\.breakpoints\.desktop\?\.hidden/);
+  assert.match(grid, /out\.version = 4;/);
+  assert.match(grid, /不触碰任何业务数据/);
 });
 
-test('快捷入口使用项目已注册的图标名称', () => {
-  const iconKeys = new Set([...ui.matchAll(/^  ([a-zA-Z0-9_-]+):\s*['"]/gm)].map((m) => m[1]));
-  const usedIcons = [...home.matchAll(/class="shortcut-icon [^"]+">\$\{icon\('([^']+)'/g)].map((m) => m[1]);
-  assert.equal(usedIcons.length, 8);
-  for (const name of usedIcons) assert.ok(iconKeys.has(name), `图标未注册：${name}`);
+test('精简首页在桌面、平板和手机使用响应式布局', () => {
+  assert.match(styles, /精简首页 V4/);
+  assert.match(styles, /\.home-redesign #home-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(12/);
+  assert.match(styles, /@media\(max-width:900px\)/);
+  assert.match(styles, /@media\(max-width:640px\)/);
+  assert.match(styles, /home-weather-card/);
 });
 
-test('桌面、平板和手机均有新版首页默认布局', () => {
-  for (const bp of ['desktop', 'tablet', 'mobile']) {
-    assert.match(grid, new RegExp(`\\b${bp}:\\s*\\[`));
-  }
-  for (const card of ['profile', 'weather', 'todayCourse', 'todayTodo', 'dailyQuote',
-    'calendar', 'timeline', 'weekLessons', 'invigilation', 'prepDeadline', 'recentNotes']) {
-    assert.ok(grid.includes(`['${card}'`), `默认布局缺少卡片：${card}`);
-  }
-});
-
-test('旧版用户布局会升级到新版默认排布并保留隐藏偏好', () => {
-  assert.match(grid, /version:\s*3,/);
-  assert.match(grid, /if\s*\(rawVersion\s*<\s*3\)/);
-  assert.match(grid, /const hidden = \[\.\.\.new Set\(\(raw\.breakpoints\.desktop\?\.hidden/);
-  assert.match(grid, /out\.version = 3;/);
-  assert.match(grid, /首次升级新版首页/);
-});
-
-test('快捷入口具备平板和手机响应式样式', () => {
-  assert.match(styles, /\.home-shortcuts\s*\{[\s\S]*?grid-template-columns:\s*repeat\(8/);
-  assert.match(styles, /@media\s*\(max-width:\s*1180px\)[\s\S]*?\.home-shortcuts/);
-  assert.match(styles, /@media\s*\(max-width:\s*520px\)[\s\S]*?\.home-shortcuts/);
-});
-
-test('首页原有布局编辑和数据模块未被快捷入口替代', () => {
-  for (const marker of ['id="home-grid"', 'id="hg-toolbar"', 'id="today-courses"',
-    'id="today-items"', 'id="cal-grid"', 'id="home-week-lessons"', 'id="home-invig-summary"']) {
-    assert.ok(home.includes(marker), `首页原有功能节点缺失：${marker}`);
-  }
+test('首页布局编辑和卡片管理仍然可用', () => {
+  assert.match(home, /id="hg-toolbar"/);
   assert.match(home, /mountGrid\(document\.getElementById\('home-grid'\)\)/);
+  assert.match(grid, /function openManager\(/);
+  assert.match(grid, /function saveEdit\(/);
+  assert.match(grid, /function resetAll\(/);
+});
+
+test('导航路由仍使用项目已注册的模块', () => {
+  const ids = new Set([...ui.matchAll(/id:\s*'([^']+)'/g)].map((m) => m[1]));
+  for (const route of ['work/timetable', 'work/invigilation', 'messages']) {
+    const root = route.split('/')[0];
+    assert.ok(ids.has(root), `导航模块不存在：${root}`);
+  }
 });
