@@ -18,6 +18,16 @@ test('首页包含八个设计稿快捷入口且路由有效', () => {
   }
 });
 
+test('所有快捷入口都指向项目导航中真实存在的页面', () => {
+  const routeIds = new Set([...ui.matchAll(/id:\s*'([^']+)'/g)].map((m) => m[1]));
+  const routes = [...home.matchAll(/class="home-shortcut" href="#\/([^"]+)"/g)].map((m) => m[1]);
+  for (const route of routes) {
+    const segments = route.split('/');
+    assert.ok(routeIds.has(segments[0]), `一级导航不存在：${segments[0]}`);
+    if (segments[0] === 'work') assert.ok(routeIds.has(segments[1]), `工作模块不存在：${segments[1]}`);
+  }
+});
+
 test('快捷入口使用项目已注册的图标名称', () => {
   const iconKeys = new Set([...ui.matchAll(/^  ([a-zA-Z0-9_-]+):\s*['"]/gm)].map((m) => m[1]));
   const usedIcons = [...home.matchAll(/class="shortcut-icon [^"]+">\$\{icon\('([^']+)'/g)].map((m) => m[1]);
