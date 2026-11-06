@@ -59,27 +59,28 @@ export const cardTitle = (id) => CARD_MAP.get(id)?.title || id;
      第一行：个人信息 / 每日一句 / 天气
      第二行：今日事项 / 今日课程 / 日历 */
 const DEFAULTS = {
+  /* 首页新版默认排布：欢迎信息 / 天气 → 课程 / 待办 → 日历 / 教学内容 → 时间轴与统计 */
   desktop: [
-    ['timeline', 0, 0, 7, 2], ['profile', 7, 0, 5, 2],
-    ['todayCourse', 0, 2, 7, 4], ['weather', 7, 2, 5, 2],
-    ['todayTodo', 0, 6, 4, 3], ['dailyQuote', 4, 6, 3, 3],
-    ['calendar', 7, 4, 5, 5],
-    ['weekLessons', 0, 9, 3, 2], ['invigilation', 3, 9, 3, 2],
-    ['prepDeadline', 6, 9, 3, 2], ['recentNotes', 9, 9, 3, 2],
+    ['profile', 0, 0, 8, 3], ['weather', 8, 0, 4, 3],
+    ['todayCourse', 0, 3, 7, 5], ['todayTodo', 7, 3, 5, 5],
+    ['dailyQuote', 0, 8, 4, 3], ['calendar', 4, 8, 8, 5],
+    ['timeline', 0, 13, 12, 2],
+    ['weekLessons', 0, 15, 3, 2], ['invigilation', 3, 15, 3, 2],
+    ['prepDeadline', 6, 15, 3, 2], ['recentNotes', 9, 15, 3, 2],
   ],
   tablet: [
-    ['timeline', 0, 0, 6, 3], ['profile', 6, 0, 6, 3],
-    ['todayCourse', 0, 3, 6, 4], ['weather', 6, 3, 6, 3],
-    ['todayTodo', 0, 7, 6, 4], ['dailyQuote', 6, 6, 6, 3],
-    ['calendar', 6, 9, 6, 5],
-    ['weekLessons', 0, 11, 3, 2], ['invigilation', 3, 11, 3, 2],
-    ['prepDeadline', 0, 13, 6, 2], ['recentNotes', 6, 14, 6, 2],
+    ['profile', 0, 0, 7, 3], ['weather', 7, 0, 5, 3],
+    ['todayCourse', 0, 3, 7, 5], ['todayTodo', 7, 3, 5, 5],
+    ['calendar', 0, 8, 7, 5], ['dailyQuote', 7, 8, 5, 3],
+    ['timeline', 0, 13, 12, 2],
+    ['weekLessons', 0, 15, 6, 2], ['invigilation', 6, 15, 6, 2],
+    ['prepDeadline', 0, 17, 6, 2], ['recentNotes', 6, 17, 6, 2],
   ],
   mobile: [
-    ['timeline', 0, 0, 12, 3], ['profile', 0, 3, 12, 3],
-    ['todayCourse', 0, 6, 12, 5], ['weather', 0, 11, 12, 3],
-    ['todayTodo', 0, 14, 12, 5], ['dailyQuote', 0, 19, 12, 3],
-    ['calendar', 0, 22, 12, 6],
+    ['profile', 0, 0, 12, 3], ['weather', 0, 3, 12, 3],
+    ['todayCourse', 0, 6, 12, 5], ['todayTodo', 0, 11, 12, 5],
+    ['calendar', 0, 16, 12, 6], ['dailyQuote', 0, 22, 12, 3],
+    ['timeline', 0, 25, 12, 3],
     ['weekLessons', 0, 28, 12, 2], ['invigilation', 0, 30, 12, 2],
     ['prepDeadline', 0, 32, 12, 2], ['recentNotes', 0, 34, 12, 2],
   ],
@@ -94,7 +95,7 @@ function defaultSeg(bp) {
 
 export function defaultState() {
   return {
-    version: 2,
+    version: 3,
     /* 【为什么这里是空串而不是 new Date()】
        updatedAt 用来判断「云端和本地谁更新」。如果默认状态取"现在"，
        那一个从没排过布局的新设备，其本地时间永远比云端那次保存更晚，
@@ -185,10 +186,14 @@ function normalize(raw) {
   const out = defaultState();
   if (!raw || typeof raw !== 'object' || !raw.breakpoints) return out;
   const rawVersion = Number(raw.version) || 1;
-  if (rawVersion < 2) {
+  /* v3 首次升级新版首页：重置旧的卡片坐标，采用新版默认排布；
+     用户主动隐藏的卡片仍保留，避免升级后被隐藏的内容突然出现。
+     这是纯展示配置迁移，不触碰课程、待办、日历等业务数据。 */
+  if (rawVersion < 3) {
     const hidden = [...new Set((raw.breakpoints.desktop?.hidden || []).map(String).filter((id) => CARD_MAP.has(id)))];
     for (const bp of Object.keys(out.breakpoints)) out.breakpoints[bp].hidden = hidden;
     out.updatedAt = raw.updatedAt || '';
+    out.version = 3;
     return out;
   }
   out.version = rawVersion;
