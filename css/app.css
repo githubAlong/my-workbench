@@ -4194,14 +4194,15 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
-/* 个人信息页：严格按确认截图排列字段，不显示邮箱字段。 */
+/* 个人信息页：三行双列排列，移动端改为单列。 */
 .profile-shell-single .profile-fields {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-areas:
     "name gender"
-    "phone ."
-    "subject title"
-    "grade .";
+    "phone subject"
+    "title grade";
+  align-items: start;
+  gap: 12px 28px;
 }
 .profile-shell-single .profile-field-name { grid-area: name; }
 .profile-shell-single .profile-field-gender { grid-area: gender; }
@@ -4220,6 +4221,7 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
       "subject"
       "title"
       "grade";
+    gap: 0;
   }
 }
 
@@ -4257,15 +4259,6 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 }
 .profile-shell-single .profile-content { padding:24px 30px 22px; }
 .profile-shell-single .profile-section-title { margin-bottom:14px; }
-.profile-shell-single .profile-fields {
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  grid-template-areas:
-    "name gender"
-    "phone subject"
-    "title grade";
-  align-items:start;
-  gap:12px 28px;
-}
 .profile-shell-single .profile-fields .field { min-width:0; margin-bottom:0; }
 .profile-shell-single .profile-fields .input,
 .profile-shell-single .profile-work-section .input {
@@ -4289,17 +4282,6 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 @media (max-width:760px) {
   .profile-shell-single .profile-banner { min-height:128px; padding:19px 17px; }
   .profile-shell-single .profile-content { padding:20px 16px; }
-  .profile-shell-single .profile-fields {
-    grid-template-columns:minmax(0,1fr);
-    grid-template-areas:
-      "name"
-      "gender"
-      "phone"
-      "subject"
-      "title"
-      "grade";
-    gap:0;
-  }
   .profile-shell-single .profile-fields .field { margin-bottom:12px; }
   .profile-shell-single .profile-work-section { margin-top:12px; padding:15px 14px 16px; }
 }
