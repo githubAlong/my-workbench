@@ -6,6 +6,8 @@ on:
       - feature/attendance-ui-v1.0
     paths:
       - "js/attendance.js"
+      - "js/attendance-domain.mjs"
+      - "tests/attendance-domain.test.mjs"
       - "js/realtime.js"
       - "sw.js"
       - "css/attendance-workspace.css"
@@ -16,6 +18,8 @@ on:
       - test
     paths:
       - "js/attendance.js"
+      - "js/attendance-domain.mjs"
+      - "tests/attendance-domain.test.mjs"
       - "js/realtime.js"
       - "sw.js"
       - "css/attendance-workspace.css"

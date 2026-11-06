@@ -36,6 +36,7 @@ import { ensureDay, createSlot, dayKeyOf, ymd as dayStr } from './attday.js';
 import {
   ATTENDANCE_TYPES,
   applyResearchSubjectBatch,
+  mergeAttendanceRosterRows,
   prepareRosterEntries,
 } from './attendance-domain.mjs';
 import {
@@ -204,23 +205,13 @@ export async function renderAttendance(box, opts = {}) {
       if (detail && activeTab !== 'roster') {
         // Each table gets its own roster-shaped empty rows. This never copies
         // attendance data between seat and class and never promotes temps.
-        const activeTeachers = roster.filter((teacher) => teacher.active && String(teacher.name || '').trim());
+        const activeTeachers = roster.filter((teacher) => Number(teacher.active ?? 1) === 1 && String(teacher.name || '').trim());
         const existingRows = detail.rows || [];
-        const rowByName = new Map(existingRows.map((row) => [String(row.teacher || '').trim(), row]));
-        const rosterNames = new Set(activeTeachers.map((teacher) => String(teacher.name).trim()));
-        // 按花名册顺序排列全体在册教师；已存在的行沿用原数据，新教师补空白行。
-        const orderedRosterRows = activeTeachers.map((teacher) => {
-          const name = String(teacher.name).trim();
-          return rowByName.get(name) || {
-            teacher: name,
-            subject: teacher.subject || '',
-            data: {},
-            _uiKey: `roster:${String(teacher.id || name)}`,
-          };
+        // 用「姓名 + 学科」匹配行，避免同名不同学科的老师共用考勤状态。
+        // 当天已从花名册删除的老师从当前列表隐藏；历史记录仍保留，临时老师始终保留。
+        detail.rows = mergeAttendanceRosterRows(existingRows, activeTeachers, {
+          hideUnlisted: String(detail.sheet_date || viewDate) === dayStr(),
         });
-        // 临时教师及不在当前有效名册中的历史行保留在末尾，避免丢失历史记录。
-        const otherRows = existingRows.filter((row) => !rosterNames.has(String(row.teacher || '').trim()));
-        detail.rows = [...orderedRosterRows, ...otherRows];
         // 给旧数据/新补入的无 ID 行一个仅供本次页面定位的键，不写入接口字段。
         detail.rows.forEach((row, index) => {
           if (!row.id && !row._uiKey) row._uiKey = `existing:${index}:${String(row.teacher || '').trim()}`;

@@ -167,6 +167,42 @@ export function attendanceRowIdentity(row) {
   return rosterIdentity({ name: row?.teacher, subject: row?.subject });
 }
 
+/**
+ * Rebuild a daily attendance row list from the current roster without confusing
+ * teachers who share a name but teach different subjects. On today's sheet,
+ * unlisted permanent teachers are hidden after roster deletion; temporary
+ * cross-grade rows remain visible. Historical sheets keep their old rows.
+ */
+export function mergeAttendanceRosterRows(existingRows, roster, { hideUnlisted = false } = {}) {
+  const existing = Array.isArray(existingRows) ? existingRows : [];
+  const activeRoster = (Array.isArray(roster) ? roster : []).filter((teacher) => (
+    Number(teacher?.active ?? 1) === 1 && normalizeTeacherName(teacher?.name) && normalizeSubject(teacher?.subject)
+  ));
+  const byIdentity = new Map();
+  for (const row of existing) {
+    const identity = attendanceRowIdentity(row);
+    if (identity && !byIdentity.has(identity)) byIdentity.set(identity, row);
+  }
+  const rosterIdentities = new Set();
+  const ordered = activeRoster.map((teacher) => {
+    const identity = rosterIdentity(teacher);
+    if (identity) rosterIdentities.add(identity);
+    return (identity && byIdentity.get(identity)) || {
+      teacher: String(teacher.name || '').trim(),
+      subject: String(teacher.subject || '').trim(),
+      data: {},
+      _uiKey: `roster:${String(teacher.id || `${teacher.name}:${teacher.subject}`)}`,
+    };
+  });
+  const other = existing.filter((row) => {
+    const identity = attendanceRowIdentity(row);
+    if (identity && rosterIdentities.has(identity)) return false;
+    if (row?.data?.__temp) return true;
+    return !hideUnlisted;
+  });
+  return [...ordered, ...other];
+}
+
 export function dedupeAttendanceRows(rows) {
   const out = [];
   const byIdentity = new Map();
