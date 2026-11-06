@@ -6,10 +6,10 @@
    换台设备要重新输一把 32 位的密钥，改完还得记得点上传。
    那不是云端，那是「带手动备份按钮的单机软件」。
 
-   统一使用 Supabase 手机号 + 密码登录；本地工作台数据按 Supabase 用户隔离。
+   统一使用 Supabase 11位数字账号 + 密码登录；Supabase 内部标识仅作账号键，不验证号码归属；本地工作台数据按 Supabase 用户隔离。
 
    【首次使用只有一步】
-   用户从工作台登录页注册或登录；手机号归属在本阶段不通过短信验证。
+   用户从工作台登录页注册或登录；11位数字账号不做号码归属验证，也不发送短信。
 
    【为什么还要保留旧的手动同步】
    旧数据还在 localStorage 里（29 张表）。这一版只把「课时」搬上云，
@@ -174,9 +174,9 @@ export function loginSheet(opts = {}) {
   if (!s) {
     const body = el(`<div class="sheet-body">
       <div class="tiny muted" style="line-height:1.7">
-        手机号登录是工作台的统一登录方式。请先返回登录页完成登录，再进入云同步。
+        账号密码登录是工作台的统一登录方式。请先返回登录页完成登录，再进入云同步。
       </div>
-      <button class="btn primary block" id="cl-phone-login" style="margin-top:14px;justify-content:center">前往手机号登录</button>
+      <button class="btn primary block" id="cl-phone-login" style="margin-top:14px;justify-content:center">前往账号登录</button>
     </div>`);
     const sh = sheet({ title: '登录云同步', body });
     body.querySelector('#cl-phone-login').onclick = () => {
@@ -190,7 +190,7 @@ export function loginSheet(opts = {}) {
     <div class="cl-hero">
       <div class="cl-ico">${icon('cloud', 26)}</div>
       <div>
-        <div class="bold">手机号账号已连接</div>
+        <div class="bold">账号已连接</div>
         <div class="tiny muted" style="margin-top:3px">
           当前只有已接入云同步的内容会跨设备同步，其余模块保存在本机。
         </div>
@@ -221,7 +221,7 @@ export function loginSheet(opts = {}) {
     <div class="cl-tip">
       <b>没有账号？</b> 不用再去后台建了 ——
       打开工作台的登录页，点「还没有账号？注册一个」，自己设账号和密码就行。
-      请先返回工作台登录页，用手机号和密码注册或登录。
+      请先返回工作台登录页，用11位数字账号和密码注册或登录。
     </div>
 
     ${(() => {
