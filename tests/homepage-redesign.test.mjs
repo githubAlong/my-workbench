@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [home, grid, styles, ui] = await Promise.all([
+const [home, grid, styles, ui, me] = await Promise.all([
   readFile(new URL('../js/home.js', import.meta.url), 'utf8'),
   readFile(new URL('../js/homegrid.js', import.meta.url), 'utf8'),
   readFile(new URL('../css/teacher-ui.css', import.meta.url), 'utf8'),
   readFile(new URL('../js/ui.js', import.meta.url), 'utf8'),
+  readFile(new URL('../js/me.js', import.meta.url), 'utf8'),
 ]);
 
 test('精简首页只保留五张核心卡片的页面结构', () => {
@@ -90,4 +91,29 @@ test('首页保留的工作与个人中心导航目标已注册', () => {
   assert.match(ui, /id: 'me', label: '我的'/);
   assert.match(ui, /seg === 'messages' \\|\\| seg === 'profile'/);
   assert.ok(home.includes("go('work/timetable')"));
+});
+
+
+test('我的个人中心统一收纳侧栏底部工具并移除重复分组', () => {
+  for (const id of ['side-theme', 'side-wide', 'side-layout']) {
+    assert.doesNotMatch(ui, new RegExp('id="' + id + '"'), `侧栏不应再显示独立入口：${id}`);
+  }
+  assert.match(ui, /id="side-user"/);
+  assert.match(ui, /export function isWideMode\(/);
+  assert.match(ui, /export function setWideMode\(/);
+
+  assert.match(me, /me-home-settings-unified/);
+  assert.doesNotMatch(me, /<h2>个人设置<\\/h2>/);
+  assert.doesNotMatch(me, /<h2>消息与偏好<\\/h2>/);
+  for (const marker of [
+    "row('user', '个人信息'",
+    "row('bell', '消息中心'",
+    "row('sun', '主题外观'",
+    "row('expand', '平铺整页'",
+    "row('grid', '重置首页布局'",
+  ]) assert.ok(me.includes(marker), `「我的」页面缺少统一设置入口：${marker}`);
+  assert.match(me, /id="me-theme-value"/);
+  assert.match(me, /id="me-wide-value"/);
+  assert.match(me, /setWideMode\(!isWideMode\(\)\)/);
+  assert.match(me, /restoreHomeLayout/);
 });

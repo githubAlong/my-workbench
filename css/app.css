@@ -3969,6 +3969,11 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 }
 .me-identity-edit:hover { border-color:var(--primary);background:var(--primary-weak); }
 .me-home-sections { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start; }
+/* 「我的」统一设置卡片：不再拆分重复的「个人设置 / 消息与偏好」分组。 */
+.me-home-sections.me-home-settings-unified { grid-template-columns:minmax(0,1fr); }
+.me-home-settings-card .me-settings-list { padding:8px 16px 12px; }
+.me-home-settings-card .me-setting-row:first-child { border-top:0; }
+.me-home-settings-card .me-setting-row { min-height:68px; }
 .me-home-section { min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:18px;background:var(--card);box-shadow:var(--shadow-s); }
 .me-home-section-head { display:flex;align-items:center;gap:12px;padding:18px 18px 14px; }
 .me-home-section-icon { display:grid;place-items:center;width:42px;height:42px;flex:0 0 auto;border-radius:13px; }

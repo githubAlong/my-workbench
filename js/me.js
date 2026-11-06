@@ -1,7 +1,7 @@
 import {
   api, el, esc, toast, sheet, confirmDialog, fmtDateTime, download, saveBlob, ls, ymd,
 } from './core.js';
-import { registerView, onViewLeave, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, paintUnread, refreshUnread } from './ui.js';
+import { registerView, onViewLeave, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, isWideMode, setWideMode, paintUnread, refreshUnread } from './ui.js';
 import { AUTH_CFG } from './ui.js';
 import { makeShareLink } from './cloudsync.js';
 import { loginSheet, cloudOn } from './auth.js';
@@ -50,6 +50,7 @@ async function renderMe(main) {
   const msgs = await api.get('/messages').catch(() => ({ unread: 0, counts: {} }));
   const needProfile = !u.school || !u.subject;
   const account = displayLoginAccount(u.account || u.phone, '暂未绑定登录账号');
+  const wideEnabled = isWideMode();
   const meta = [u.title, u.grade_group].filter(Boolean).join(' · ') || '完善个人资料，让工作台更懂你的工作';
   const schoolSubject = [u.school, u.subject].filter(Boolean).join(' · ');
   const bindings = [
@@ -62,7 +63,7 @@ async function renderMe(main) {
   main.innerHTML =
     '<header class="me-home-head">' +
       '<div><div class="me-home-eyebrow">PERSONAL CENTER</div><h1>我的</h1>' +
-      '<p>在这里管理个人资料、工作台展示和账号安全</p></div>' +
+      '<p>在这里统一管理个人资料、工作台设置与消息通知</p></div>' +
       '<span class="me-home-live"><i></i> 个人中心</span>' +
     '</header>' +
     '<section class="me-identity-card">' +
@@ -82,23 +83,19 @@ async function renderMe(main) {
       '</div>' +
       '<button type="button" class="me-identity-edit" data-act="profile">' + icon('edit', 15) + '<span>编辑个人资料</span></button>' +
     '</section>' +
-    '<div class="me-home-sections">' +
-      '<section class="me-home-section">' +
-        '<header class="me-home-section-head"><span class="me-home-section-icon blue">' + icon('user', 19) + '</span>' +
-          '<div><h2>个人设置</h2><p>维护个人资料与工作台品牌信息</p></div></header>' +
+    '<div class="me-home-sections me-home-settings-unified">' +
+      '<section class="me-home-section me-home-settings-card">' +
         '<div class="me-settings-list">' +
           row('user', '个人信息', '头像、姓名、学校、学科及职务', 'profile') +
           row('sliders', '工作台设置', '左上角名称、副标题和品牌图片', 'workbench-settings') +
           row('shield', '账号设置', '管理登录账号和修改密码', 'account-settings') +
-        '</div>' +
-      '</section>' +
-      '<section class="me-home-section">' +
-        '<header class="me-home-section-head"><span class="me-home-section-icon violet">' + icon('sun', 19) + '</span>' +
-          '<div><h2>消息与偏好</h2><p>查看通知并调整工作台外观</p></div></header>' +
-        '<div class="me-settings-list">' +
           row('bell', '消息中心', msgs.unread ? (msgs.unread + ' 条未读消息') : '暂无未读消息', 'messages',
             msgs.unread ? '<span class="me-setting-badge">' + (msgs.unread > 99 ? '99+' : msgs.unread) + '</span>' : '') +
-          row('sun', '主题外观', '当前：' + themeName(state.theme), 'theme', '<span class="me-setting-extra">共 6 套</span>') +
+          row('sun', '主题外观', '调整工作台整体颜色主题', 'theme',
+            '<span class="me-setting-extra" id="me-theme-value">' + esc(themeName(state.theme)) + '</span>') +
+          row('expand', '平铺整页', wideEnabled ? '当前已开启，页面内容铺满屏幕' : '当前已关闭，使用舒适内容宽度', 'wide',
+            '<span class="me-setting-extra" id="me-wide-value">' + (wideEnabled ? '开' : '关') + '</span>') +
+          row('grid', '重置首页布局', '恢复首页卡片的默认排列', 'reset-layout') +
         '</div>' +
       '</section>' +
     '</div>' +
@@ -117,6 +114,22 @@ async function renderMe(main) {
     if (a === 'account-settings') return go('me/account-settings');
     if (a === 'recycle') return go('recycle');
     if (a === 'theme') return openThemeSheet();
+    if (a === 'wide') {
+      const enabled = setWideMode(!isWideMode());
+      toast(enabled ? '已平铺整页，再点一次恢复舒适宽度' : '已恢复舒适宽度', 'ok', 3000);
+      await render();
+      return;
+    }
+    if (a === 'reset-layout') {
+      try {
+        const m = await import('./home.js');
+        await m.restoreHomeLayout();
+        go('home');
+      } catch (e) {
+        toast('重置首页布局失败：' + (e.message || e), 'err');
+      }
+      return;
+    }
     if (a === 'logout') {
       if (await confirmDialog('确定退出登录？')) window.dispatchEvent(new Event('wb:signout'));
       return;
