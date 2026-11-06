@@ -103,8 +103,8 @@ test('我的个人中心统一收纳侧栏底部工具并移除重复分组', ()
   assert.match(ui, /export function setWideMode\(/);
 
   assert.match(me, /me-home-settings-unified/);
-  assert.doesNotMatch(me, /<h2>个人设置<\\/h2>/);
-  assert.doesNotMatch(me, /<h2>消息与偏好<\\/h2>/);
+  assert.doesNotMatch(me, /个人设置/);
+  assert.doesNotMatch(me, /消息与偏好/);
   for (const marker of [
     "row('user', '个人信息'",
     "row('bell', '消息中心'",
