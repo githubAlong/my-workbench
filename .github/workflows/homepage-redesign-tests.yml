@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/homepage-redesign
+      - feature/clean-homepage-weather
     paths:
       - "js/home.js"
       - "js/homegrid.js"
