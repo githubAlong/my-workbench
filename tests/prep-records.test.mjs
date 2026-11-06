@@ -86,6 +86,6 @@ test('备课页面展示电子记录表、类型筛选、备课内容和旧记�
   assert.match(work, /id="p-type"/);
   assert.match(work, /id="p-content"/);
   assert.match(work, /待分类（旧记录）/);
-  assert.match(nav, /label: '电子备课'/);
+  assert.match(nav, /label: '备课'/);
   assert.match(api, /请选择备课类型/);
 });
