@@ -83,10 +83,11 @@ test('首页布局编辑和卡片管理仍然可用', () => {
   assert.match(grid, /function resetAll\(/);
 });
 
-test('导航路由仍使用项目已注册的模块', () => {
-  const ids = new Set([...ui.matchAll(/id:\s*'([^']+)'/g)].map((m) => m[1]));
-  for (const route of ['work/timetable', 'work/invigilation', 'messages']) {
-    const root = route.split('/')[0];
-    assert.ok(ids.has(root), `导航模块不存在：${root}`);
-  }
+test('首页保留的工作与个人中心导航目标已注册', () => {
+  assert.match(ui, /id: 'work', label: '工作'/);
+  assert.match(ui, /id: 'timetable', label: '课表'/);
+  assert.match(ui, /id: 'invigilation', label: '监考'/);
+  assert.match(ui, /id: 'me', label: '我的'/);
+  assert.match(ui, /seg === 'messages' \\|\\| seg === 'profile'/);
+  assert.match(home, /go\('work\\/timetable'\)/);
 });
