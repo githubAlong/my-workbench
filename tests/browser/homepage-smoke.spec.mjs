@@ -26,6 +26,10 @@ for (const viewport of [
     await expect(page.locator('#side-user .side-user-label strong')).toHaveText('我的');
     await expect(page.locator('[data-hcard="profile"]')).toBeVisible({ timeout: 20000 });
     await expect(page.locator('#home-grid')).toBeVisible();
+    await expect(page.locator('.home-top-actions #teacher-layout')).toBeVisible();
+    await expect(page.locator('#home-new-item')).toBeVisible();
+    await expect(page.locator('#home-new-timetable')).toHaveCount(0);
+    await expect(page.locator('.sidebar-foot #teacher-layout')).toHaveCount(0);
     await expect(page.locator('[data-hcard]')).toHaveCount(11);
     await expect(page.locator('[data-hcard]:visible')).toHaveCount(5);
     for (const id of ['profile', 'todayCourse', 'todayTodo', 'weather', 'calendar']) {
@@ -69,7 +73,7 @@ test('我的页面统一管理外观与布局设置，侧栏不再重复显示',
   await expect(page.locator('.me-home-section-head')).toHaveCount(0);
 
   for (const action of ['profile', 'workbench-settings', 'account-settings', 'messages', 'theme', 'wide', 'reset-layout']) {
-    await expect(page.locator('[data-act="' + action + '"]')).toBeVisible();
+    await expect(page.locator('.me-home-settings-card [data-act="' + action + '"]')).toBeVisible();
   }
   await expect(page.locator('[data-act="theme"]')).toContainText('主题外观');
   await expect(page.locator('[data-act="messages"]')).toContainText('消息中心');
@@ -93,5 +97,31 @@ test('我的页面统一管理外观与布局设置，侧栏不再重复显示',
   }));
   expect(metrics.document, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.viewport + 1);
   expect(metrics.body, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.viewport + 1);
+  await context.close();
+});
+
+
+test('首页右上角布局编辑按钮可进入和退出编辑状态', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const page = await context.newPage();
+  await page.goto(`${baseURL}?e2e=1#/home`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#home-grid')).toBeVisible({ timeout: 20000 });
+
+  const editButton = page.locator('.home-top-actions #teacher-layout');
+  await expect(editButton).toBeVisible();
+  await expect(editButton).toHaveAttribute('aria-pressed', 'false');
+  await expect(editButton).toContainText('编辑布局');
+  await expect(page.locator('#home-new-timetable')).toHaveCount(0);
+  await expect(page.locator('.sidebar-foot #teacher-layout')).toHaveCount(0);
+
+  await editButton.click();
+  await expect(page.locator('#hg-toolbar')).toBeVisible();
+  await expect(editButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(editButton).toContainText('退出编辑');
+
+  await editButton.click();
+  await expect(page.locator('#hg-toolbar')).toBeHidden();
+  await expect(editButton).toHaveAttribute('aria-pressed', 'false');
+  await expect(editButton).toContainText('编辑布局');
   await context.close();
 });

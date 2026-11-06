@@ -20,10 +20,14 @@ test('精简首页只保留五张核心卡片的页面结构', () => {
   assert.match(home, /id="clock"/);
 });
 
-test('顶部只保留搜索、新建事项和新建课表', () => {
+test('首页顶栏保留搜索、新建事项和编辑布局，不再显示新建课表', () => {
   assert.match(home, /id="gsearch"/);
   assert.match(home, /id="home-new-item"/);
-  assert.match(home, /id="home-new-timetable"/);
+  assert.match(home, /<div class="home-top-actions">[\\s\\S]*?id="home-new-item"[\\s\\S]*?id="teacher-layout"/);
+  assert.match(home, /id="teacher-layout"/);
+  assert.doesNotMatch(home, /id="home-new-timetable"/);
+  assert.doesNotMatch(home, /home-side-layout-edit/);
+  assert.doesNotMatch(home, /q\('#home-new-timetable'\)/);
   assert.doesNotMatch(home, /id="home-new-invig"/);
   assert.doesNotMatch(home, /id="home-calendar-view"/);
 });
@@ -76,7 +80,8 @@ test('精简首页在桌面、平板和手机使用响应式布局', () => {
   assert.match(styles, /home-weather-card/);
 });
 
-test('首页布局编辑和卡片管理仍然可用', () => {
+test('首页布局编辑入口位于顶栏且卡片管理仍然可用', () => {
+  assert.match(home, /id="teacher-layout"/);
   assert.match(home, /id="hg-toolbar"/);
   assert.match(home, /mountGrid\(document\.getElementById\('home-grid'\)\)/);
   assert.match(grid, /function openManager\(/);

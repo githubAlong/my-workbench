@@ -72,10 +72,6 @@ function applyHomeSidebar() {
       +'<div class="home-side-motto">'+esc(user.signature||'看山又是山，看山又不是山')+'</div>'
       +'<div class="home-side-meta" id="home-profile-meta">'+esc(schoolSubject)+'</div>'
       +'<div class="home-side-role" id="home-profile-role">'+esc(role)+'</div>';}
-  const footer=sidebar.querySelector('.sidebar-foot');
-  if(footer&&!footer.querySelector('#teacher-layout')){const theme=footer.querySelector('#side-theme');
-    const button='<button class="nav-item home-side-layout-edit" id="teacher-layout" type="button" aria-pressed="false" title="编辑首页卡片布局"><span class="ni">'+icon('edit',18)+'</span><span>编辑布局</span></button>';
-    if(theme)theme.insertAdjacentHTML('afterend',button);else footer.insertAdjacentHTML('afterbegin',button);}
 }
 /* ================= 天气 ================= */
 const WX = {
@@ -613,7 +609,7 @@ function renderHome() {
     <div class="searchbar" id="searchbar"><span class="sb-ico">${icon('search',17)}</span><input id="gsearch" placeholder="搜索课程、监考、待办、笔记" autocomplete="off" enterkeyhint="search"><button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close',15)}</button><button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search',17)}</button></div>
     <div class="home-top-actions">
       <button class="home-action home-action-primary" id="home-new-item" type="button">${icon('plus',16)}<span>新建事项</span></button>
-      <button class="home-action home-action-blue" id="home-new-timetable" type="button">${icon('cal',16)}<span>新建课表</span></button>
+      <button class="home-action teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false" title="编辑首页卡片布局">${icon('edit',16)}<span>编辑布局</span></button>
     </div>
   </div>    </div>
   </div>
@@ -1568,7 +1564,6 @@ function bindHome() {
   const q = (s) => document.querySelector(s);
   q('#theme-btn').onclick = () => { import('./ui.js').then((m) => m.openThemeSheet()); };
   q('#home-new-item').onclick = () => editItem(null, homeData.date);
-  q('#home-new-timetable').onclick = () => { go('work/timetable'); let n=0; const open=()=>{const b=document.getElementById('add-course');if(b)b.click();else if(++n<80)setTimeout(open,100);};setTimeout(open,80); };
   document.querySelectorAll('[data-msg]').forEach((b) => { b.onclick = () => go('messages'); });
   document.querySelectorAll('[data-goto2]').forEach((b) => { b.onclick = () => go(b.dataset.goto2); });
   /* data-goto 在搜索结果面板里是由 srBind 绑的，顶栏头像虽然也用这个属性名，
