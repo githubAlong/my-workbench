@@ -3841,7 +3841,16 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   border:1px solid color-mix(in srgb,var(--primary) 18%,var(--line));
   border-radius:17px;background:var(--card);color:var(--text);
 }
-.account-security-password-row { cursor:pointer;transition:border-color .16s,box-shadow .16s,transform .16s; }
+.account-security-password-row,
+.account-security-login-row {
+  cursor:pointer;transition:border-color .16s,box-shadow .16s,transform .16s;
+  font:inherit;color:var(--text);background:var(--card);
+}
+.account-security-password-row:hover,
+.account-security-login-row:hover {
+  border-color:color-mix(in srgb,var(--primary) 55%,var(--line));
+  box-shadow:0 7px 18px rgba(37,99,235,.08);transform:translateY(-1px);
+}
 .account-security-password-row:hover {
   border-color:color-mix(in srgb,var(--primary) 55%,var(--line));
   box-shadow:0 7px 18px rgba(37,99,235,.08);transform:translateY(-1px);
@@ -3856,6 +3865,13 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .account-security-row-value {
   flex:0 0 auto;color:var(--text);font-size:21px;font-weight:650;
   font-variant-numeric:tabular-nums;letter-spacing:.3px;
+}
+.account-login-current {
+  display:flex;flex-direction:column;gap:7px;margin:0 0 16px;padding:13px 15px;
+  border:1px solid var(--line);border-radius:12px;background:var(--bg-soft,var(--surface));
+}
+.account-login-current strong {
+  color:var(--text);font-size:19px;font-weight:750;font-variant-numeric:tabular-nums;
 }
 .account-security-chevron { display:grid;place-items:center;flex:0 0 auto;color:var(--text-3); }
 .account-security-art {
