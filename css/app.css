@@ -3851,10 +3851,6 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   border-color:color-mix(in srgb,var(--primary) 55%,var(--line));
   box-shadow:0 7px 18px rgba(37,99,235,.08);transform:translateY(-1px);
 }
-.account-security-password-row:hover {
-  border-color:color-mix(in srgb,var(--primary) 55%,var(--line));
-  box-shadow:0 7px 18px rgba(37,99,235,.08);transform:translateY(-1px);
-}
 .account-security-row-icon {
   width:62px;height:62px;display:grid;place-items:center;flex:0 0 auto;
   border-radius:18px;background:var(--primary-weak);color:var(--primary);
