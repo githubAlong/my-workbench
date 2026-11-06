@@ -58,44 +58,46 @@ export const cardTitle = (id) => CARD_MAP.get(id)?.title || id;
 /* 默认布局：和需求里的那张图一一对应
      第一行：个人信息 / 每日一句 / 天气
      第二行：今日事项 / 今日课程 / 日历 */
+const DEFAULT_HIDDEN = ['timeline', 'dailyQuote', 'weekLessons', 'invigilation', 'prepDeadline', 'recentNotes'];
 const DEFAULTS = {
-  /* 首页新版默认排布：欢迎信息 / 天气 → 课程 / 待办 → 日历 / 教学内容 → 时间轴与统计 */
+  /* 精简首页：只默认显示欢迎横幅、今日课程、今日待办、天气和日历。
+     其他模块保留在卡片管理中，默认隐藏，不删除数据或业务入口。 */
   desktop: [
-    ['profile', 0, 0, 8, 3], ['weather', 8, 0, 4, 3],
-    ['todayCourse', 0, 3, 7, 5], ['todayTodo', 7, 3, 5, 5],
-    ['dailyQuote', 0, 8, 4, 3], ['calendar', 4, 8, 8, 5],
-    ['timeline', 0, 13, 12, 2],
-    ['weekLessons', 0, 15, 3, 2], ['invigilation', 3, 15, 3, 2],
-    ['prepDeadline', 6, 15, 3, 2], ['recentNotes', 9, 15, 3, 2],
+    ['profile', 0, 0, 12, 3],
+    ['todayCourse', 0, 3, 6, 4], ['todayTodo', 6, 3, 6, 4],
+    ['weather', 0, 7, 6, 3], ['calendar', 6, 7, 6, 6],
+    ['dailyQuote', 0, 13, 4, 3], ['timeline', 4, 13, 8, 2],
+    ['weekLessons', 0, 16, 3, 2], ['invigilation', 3, 16, 3, 2],
+    ['prepDeadline', 6, 16, 3, 2], ['recentNotes', 9, 16, 3, 2],
   ],
   tablet: [
-    ['profile', 0, 0, 7, 3], ['weather', 7, 0, 5, 3],
-    ['todayCourse', 0, 3, 7, 5], ['todayTodo', 7, 3, 5, 5],
-    ['calendar', 0, 8, 7, 5], ['dailyQuote', 7, 8, 5, 3],
-    ['timeline', 0, 13, 12, 2],
-    ['weekLessons', 0, 15, 6, 2], ['invigilation', 6, 15, 6, 2],
-    ['prepDeadline', 0, 17, 6, 2], ['recentNotes', 6, 17, 6, 2],
+    ['profile', 0, 0, 12, 3],
+    ['todayCourse', 0, 3, 12, 4], ['todayTodo', 0, 7, 12, 4],
+    ['weather', 0, 11, 12, 3], ['calendar', 0, 14, 12, 6],
+    ['dailyQuote', 0, 20, 12, 3], ['timeline', 0, 23, 12, 2],
+    ['weekLessons', 0, 25, 6, 2], ['invigilation', 6, 25, 6, 2],
+    ['prepDeadline', 0, 27, 6, 2], ['recentNotes', 6, 27, 6, 2],
   ],
   mobile: [
-    ['profile', 0, 0, 12, 3], ['weather', 0, 3, 12, 3],
-    ['todayCourse', 0, 6, 12, 5], ['todayTodo', 0, 11, 12, 5],
-    ['calendar', 0, 16, 12, 6], ['dailyQuote', 0, 22, 12, 3],
-    ['timeline', 0, 25, 12, 3],
-    ['weekLessons', 0, 28, 12, 2], ['invigilation', 0, 30, 12, 2],
-    ['prepDeadline', 0, 32, 12, 2], ['recentNotes', 0, 34, 12, 2],
+    ['profile', 0, 0, 12, 3], ['todayCourse', 0, 3, 12, 4],
+    ['todayTodo', 0, 7, 12, 4], ['weather', 0, 11, 12, 3],
+    ['calendar', 0, 14, 12, 6], ['dailyQuote', 0, 20, 12, 3],
+    ['timeline', 0, 23, 12, 3], ['weekLessons', 0, 26, 12, 2],
+    ['invigilation', 0, 28, 12, 2], ['prepDeadline', 0, 30, 12, 2],
+    ['recentNotes', 0, 32, 12, 2],
   ],
 };
 
 function defaultSeg(bp) {
   return {
     layout: DEFAULTS[bp].map(([id, x, y, w, h]) => ({ id, x, y, w, h })),
-    hidden: [],
+    hidden: [...DEFAULT_HIDDEN],
   };
 }
 
 export function defaultState() {
   return {
-    version: 3,
+    version: 4,
     /* 【为什么这里是空串而不是 new Date()】
        updatedAt 用来判断「云端和本地谁更新」。如果默认状态取"现在"，
        那一个从没排过布局的新设备，其本地时间永远比云端那次保存更晚，
@@ -186,14 +188,17 @@ function normalize(raw) {
   const out = defaultState();
   if (!raw || typeof raw !== 'object' || !raw.breakpoints) return out;
   const rawVersion = Number(raw.version) || 1;
-  /* v3 首次升级新版首页：重置旧的卡片坐标，采用新版默认排布；
-     用户主动隐藏的卡片仍保留，避免升级后被隐藏的内容突然出现。
-     这是纯展示配置迁移，不触碰课程、待办、日历等业务数据。 */
-  if (rawVersion < 3) {
-    const hidden = [...new Set((raw.breakpoints.desktop?.hidden || []).map(String).filter((id) => CARD_MAP.has(id)))];
+  /* v4 精简首页：将旧版布局升级为五张核心卡片。
+     保留用户此前隐藏的卡片偏好；其余辅助卡片默认隐藏，仍可从卡片管理恢复。
+     仅修改展示布局，不触碰任何业务数据。 */
+  if (rawVersion < 4) {
+    const hidden = [...new Set([
+      ...DEFAULT_HIDDEN,
+      ...(raw.breakpoints.desktop?.hidden || []).map(String).filter((id) => CARD_MAP.has(id)),
+    ])];
     for (const bp of Object.keys(out.breakpoints)) out.breakpoints[bp].hidden = hidden;
     out.updatedAt = raw.updatedAt || '';
-    out.version = 3;
+    out.version = 4;
     return out;
   }
   out.version = rawVersion;
