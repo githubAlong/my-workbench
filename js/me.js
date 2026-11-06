@@ -580,6 +580,13 @@ function bindMeBackButton(main) {
   if (back) back.onclick = () => go('me');
 }
 
+function meMessagesHeader(sub, actions = '') {
+  return '<div class="me-page-toolbar">' +
+    '<button type="button" class="me-back-home" id="me-back-home"><span aria-hidden="true">←</span> 返回我的</button>' +
+    '</div>' +
+    pageHead('消息中心', sub, actions);
+}
+
 function displayLoginAccount(value, fallback = '未设置') {
   const raw = String(value || '').trim();
   return raw ? (cloud.displayPhone(raw) || fallback) : fallback;
@@ -1141,20 +1148,22 @@ async function renderMessages(main) {
     try {
       r = await api.get('/messages', { type });
     } catch (e) {
-      main.innerHTML = pageHead('消息中心', '', '')
+      main.innerHTML = meMessagesHeader('', '')
         + `<div class="empty" style="padding:40px 20px">${esc(e.message || '加载失败')}<br>
            <span class="tiny muted">如果是登录过期，刷新页面重新登录即可</span></div>`;
+      bindMeBackButton(main);
       return;
     }
     const counts = r.counts || {};
     const rows = r.rows || [];
-    main.innerHTML = pageHead('消息中心', r.unread ? `${r.unread} 条未读` : '都看完了',
+    main.innerHTML = meMessagesHeader(r.unread ? `${r.unread} 条未读` : '都看完了',
       `<button class="btn ghost sm" id="read-all" ${r.unread ? '' : 'disabled'}>全部已读</button>`) + `
       <div class="seg msg-seg" style="margin-bottom:14px">
         ${TYPES.map(([v, l]) => `<button class="${type === v ? 'on' : ''}" data-t="${v}">${l}${counts[v] ? `<b class="seg-dot">${counts[v]}</b>` : ''}</button>`).join('')}
       </div>
       <div class="card">${rows.length ? rows.map((m) => msgItem(m)).join('') : '<div class="empty">这里还没有消息<br><span class="tiny">事项到期、系统变更时会出现</span></div>'}</div>
       ${rows.length ? '<button class="btn ghost block" id="clear-read" style="margin-top:12px">清空已读消息</button>' : ''}`;
+    bindMeBackButton(main);
 
     main.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { type = b.dataset.t; load(); }; });
     const ra = main.querySelector('#read-all');
