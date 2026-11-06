@@ -20,6 +20,7 @@ import {
   listTable, createRow, updateRow, deleteRow,
   randomCode, nowISO, pad2, ymd, hydrate,
 } from './localdb.js';
+import { accountIdentifierFromPhone } from './auth-identifier.mjs';
 import { attRowState } from './att-parse.js';
 import {
   dedupeAttendanceRows,
@@ -1625,16 +1626,19 @@ on('POST', '/auth/register-cloud', async ({ body }) => {
    RLS + 云端 token 控制 —— 所以就算有人伪造这个请求，
    拿到的也只是个空的本地主题设置，读不到任何云端数据。 */
 on('POST', '/auth/login-cloud', async ({ body }) => {
+  const account = String(body?.account || '').trim();
   const email = String(body?.email || '').trim().toLowerCase();
   const phone = String(body?.phone || '').trim();
   const uid = String(body?.uid || '');
   const password = String(body?.password || '');
-  if (!email && !phone) fail(400, '缺少手机号或邮箱');
+  if (!account && !email && !phone) fail(400, '缺少账号或邮箱');
 
   const u = currentUser();
-  /* Phone accounts use their canonical E.164 number as the local account key. */
+  /* 用户看到和输入的是11位账号；Supabase 内部的 E.164 标识只用于兼容旧认证记录。 */
   const local = (email.split('@')[0] || '').replace(/[^A-Za-z0-9_]/g, '');
-  const acct = phone || (local.length >= 3 ? local.slice(0, 20) : email);
+  const acct = /^\d{11}$/.test(account)
+    ? account
+    : (phone ? accountIdentifierFromPhone(phone) : (local.length >= 3 ? local.slice(0, 20) : email));
 
   /* 已经用过别的账号：不再改账号名，避免把本机历史数据挂到新人头上 */
   if (!u.account) {
@@ -1649,6 +1653,9 @@ on('POST', '/auth/login-cloud', async ({ body }) => {
     u.nickname = u.nickname && u.nickname !== '老师'
       ? u.nickname
       : (phone ? '用户' + phone.slice(-4) : (local || email));
+  } else if (u.account === phone && /^\d{11}$/.test(account)) {
+    /* 只把同一 Supabase 用户原先保存的 +86 标识改为可见的11位账号，不改变 UID 或数据命名空间。 */
+    u.account = account;
   } else if (u.account === acct && password.length >= 6 && !u.pwd) {
     /* 本机有账号但没密码摘要（正是上面那种历史遗留），顺手补上 */
     u.pwd = await hashPwd(password);
