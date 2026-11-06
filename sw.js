@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v112-phone-display-normalize';
+const CACHE = 'wb-test-v128-network-first-startup-recovery';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -53,8 +53,11 @@ const ASSETS = [
   './js/core.js',
   './js/cloudsync.js',
   './js/cloud.js',
+  './js/environment-config.mjs',
+  './js/auth-identifier.mjs',
   './js/auth.js',
   './js/migrate.js',
+  './js/startup-safety.mjs',
   /* 实时同步：这两个不进预缓存也不会坏（它们是用 import() 按需拉的），
      但进了清单离线时才有「一端改了另一端自己变」的正经体验 */
   './js/realtime.js',
@@ -62,6 +65,7 @@ const ASSETS = [
   /* 数据层 */
   './js/localapi.js',
   './js/localdb.js',
+  './js/prep-domain.mjs',
   /* 各业务页面 */
   './js/home.js',
   './js/work.js',
@@ -73,6 +77,7 @@ const ASSETS = [
   './js/selfstudy.js',
   /* 功能模块 */
   './js/attendance.js',
+  './js/ocr.js',
   './js/alarm.js',
   './js/qrdecode.js',
   './js/pdfprint.js',
@@ -85,9 +90,14 @@ const ASSETS = [
   './js/attvoice.js',
   './js/attstats.js',
   './js/attday.js',
+  './js/attendance-domain.mjs',
+  './js/attendance-export.mjs',
   './js/attgrade.js',
   './js/attindex.js',
   './js/attreset.js',
+  './js/roster-import.mjs',
+  './js/roster-photo-parser.mjs',
+  './js/roster-structure.mjs',
 ];
 
 /* 【预缓存的超时】
@@ -179,7 +189,7 @@ const OFFLINE_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf
   <h1>页面没能加载出来</h1>
   <p>多半是网络卡了一下，或者浏览器里存着旧的版本。<br>点下面按钮再试一次。</p>
   <button onclick="location.reload()">重新加载</button>
-  <div class="sub">还不行就换个网络，或在浏览器设置里清除本站数据</div>
+  <div class="sub">请检查网络后重试。本提示不会清除本机资料或登录信息。</div>
 </div></body></html>`;
 
 function offlineResponse() {
@@ -208,49 +218,24 @@ self.addEventListener('fetch', (e) => {
   if (e.request.mode === 'navigate') {
     const base = self.registration.scope;
     e.respondWith((async () => {
-      /* 【查缓存要用绝对地址】
-         caches.match('./index.html') 的相对路径按 SW 自己的 scope 解析，
-         而缓存里的键是 fetch('./index.html') 得到的完整 URL。
-         两者在某些浏览器能对上、有些对不上。显式拼 scope 最稳。 */
-      let cached = null;
+      /* TEST：优先取线上最新 HTML，避免旧缓存 HTML 与新 JS 模块错配。
+         网络失败时才回退缓存；不会清除 localStorage / IndexedDB 或业务数据。 */
       try {
-        cached = (await caches.match(base + 'index.html'))
+        const response = await withTimeout(fetch(e.request, { cache: 'no-store' }), 20000, 'navigate-network');
+        if (response && response.ok) {
+          const cache = await caches.open(CACHE);
+          await cache.put(base + 'index.html', response.clone());
+          await cache.put(base, response.clone());
+          return response;
+        }
+        throw new Error('HTTP ' + (response && response.status));
+      } catch (error) {
+        console.warn('[sw] 导航网络请求失败，尝试使用缓存页面：', error && error.message);
+        const cached = (await caches.match(base + 'index.html'))
           || (await caches.match(base))
           || (await caches.match('./index.html'))
           || (await caches.match('./'));
-      } catch (err) {
-        cached = null;
-      }
-
-      /* 后台更新：不 await，用户不用等它。
-         拉到了就覆盖缓存；拉不到（断网/源站挂）就算了，反正手上这份能用。 */
-      const revalidate = (async () => {
-        try {
-          const r = await withTimeout(fetch(e.request), 15000, 'revalidate');
-          if (r && r.ok) {
-            const c = await caches.open(CACHE);
-            await c.put(base + 'index.html', r.clone());
-            await c.put(base, r.clone());
-          }
-        } catch (err) { /* 静默：离线或超时都正常 */ }
-      })();
-
-      if (cached) {
-        e.waitUntil(revalidate);
-        return cached;
-      }
-      /* 第一次来，缓存是空的：只能等网络 */
-      try {
-        const r = await withTimeout(fetch(e.request), 12000, 'navigate-first');
-        if (r && r.ok) {
-          const c = await caches.open(CACHE);
-          await c.put(base + 'index.html', r.clone());
-          e.waitUntil(c.put(base, r.clone()));
-          return r;
-        }
-        throw new Error('HTTP ' + (r && r.status));
-      } catch (err) {
-        return offlineResponse();
+        return cached || offlineResponse();
       }
     })());
     return;

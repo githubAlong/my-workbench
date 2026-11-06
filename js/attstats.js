@@ -12,6 +12,7 @@
 import { api, el, esc, toast, sheet, saving, saveBlob } from './core.js';
 import { icon } from './ui.js';
 import { makeXlsx } from './attendance.js';
+import { recentMonthKeys } from './attendance-export.mjs';
 
 const pad2 = (n) => String(n).padStart(2, '0');
 const ymKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
@@ -19,13 +20,7 @@ const monthCN = (k) => `${Number(k.slice(5))}`; /* '2026-03' → '3' */
 
 /* 最近 n 个月（含本月），从旧到新 */
 function recentMonths(n) {
-  const out = [];
-  const now = new Date();
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    out.push(ymKey(d));
-  }
-  return out;
+  return recentMonthKeys(new Date(), n);
 }
 
 const COLS = [
@@ -79,7 +74,23 @@ export async function statsSheet(grade) {
     paintBar();
     $('#stt-note').textContent = '读取中…';
     try {
-      data = await api.get('/attendance/stats', { grade, year });
+      if (mode === 'recent') {
+        const previous = String(Number(year) - 1);
+        const [currentYearData, previousYearData] = await Promise.all([
+          api.get('/attendance/stats', { grade, year }),
+          api.get('/attendance/stats', { grade, year: previous }),
+        ]);
+        const byMonth = new Map();
+        for (const row of [...(previousYearData.months || []), ...(currentYearData.months || [])]) {
+          byMonth.set(row.month, row);
+        }
+        data = {
+          ...currentYearData,
+          months: [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month)),
+        };
+      } else {
+        data = await api.get('/attendance/stats', { grade, year });
+      }
     } catch (e) {
       data = null;
       toast(e.message || '统计读取失败', 'err');

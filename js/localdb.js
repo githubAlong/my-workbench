@@ -37,7 +37,7 @@ export const TABLES = {
   trips: ['start_date', 'end_date', 'from_place', 'to_place', 'reason', 'companions', 'km', 'toll', 'parking', 'other', 'status', 'approve_note', 'remark', 'days', 'hotel', 'transport', 'taxi', 'subsidy_food', 'subsidy_local', 'advance', 'reimb_status', 'paid_at'],
   materials: ['category_id', 'title', 'grade', 'class_name', 'descr', 'public'],
   notes: ['category_id', 'title', 'content', 'tags', 'pinned'],
-  preps: ['date', 'class_name', 'subject', 'topic', 'progress', 'next_step', 'minutes', 'status', 'lesson_id', 'remark'],
+  preps: ['date', 'class_name', 'subject', 'prep_type', 'topic', 'content', 'progress', 'next_step', 'minutes', 'status', 'lesson_id', 'remark'],
   categories: ['scope', 'name', 'sort'],
   homework: ['title', 'grade', 'class_name', 'subject', 'assign_date', 'due_date', 'content'],
   studies: ['date', 'category_id', 'title', 'content', 'minutes', 'source', 'tags'],

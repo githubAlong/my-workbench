@@ -1,6 +1,7 @@
 import { state, loadMe, render, parseHash, loadAuthConfig } from './ui.js';
 import { ls, toast, STATIC, api } from './core.js';
-import { setActiveAccount, activeAccountId, blank, replaceAll, load as loadDb } from './localdb.js';
+import { setActiveAccount, activeAccountId } from './localdb.js';
+import { takeRetiredResetParam } from './startup-safety.mjs';
 
 /* 【第 30 条 · 白屏】
    原来这里是 9 行串行 import：
@@ -22,7 +23,7 @@ import './repairs.js';
 import './me.js';
 import './recycle.js';
 import './alarm.js';
-import { hookSave, tryImportFromHash, initializeAccountSync, pushNow } from './cloudsync.js';
+import { hookSave, tryImportFromHash, initializeAccountSync } from './cloudsync.js';
 
 /* 云同步：本地一改就排队上传（内部有防抖）；启动时看一眼云端有没有新数据。
    没绑定云存储时 hookSave 是空操作，autoSync 直接返回，零开销。 */
@@ -44,6 +45,13 @@ function paintSkeleton() {
 }
 paintSkeleton();
 
+/* 旧维护入口已停用。URL 清理不接触数据库、同步元数据或云端数据。 */
+const retiredReset = takeRetiredResetParam(location.href);
+if (retiredReset.requested) {
+  try { history.replaceState(null, '', retiredReset.next); } catch { }
+  setTimeout(() => toast('旧的数据重置链接已停用，现有数据没有变化', 'warn', 7000), 600);
+}
+
 /* 【换设备登录 #k=…】必须在 render 之前跑完：
    先把 token 换到手，后面课时页一渲染就是已登录状态，
    不会出现「先闪一下未登录提示条、再跳成已登录」的抖动。 */
@@ -59,22 +67,6 @@ const cloudAuth = await import('./cloud.js');
 let cloudSession = cloudAuth.session();
 setActiveAccount(cloudSession?.uid || '');
 
-/* 一次性开发环境重置：仅在明确带 ?reset-dev-data=1 且已登录时执行。
-   清空当前账号的本机工作台缓存和同步版本号，保留 Supabase 登录身份；
-   云端当前账号快照由维护操作先行清理，随后正常初始化会重新生成示例数据。 */
-const resetDevData = !!(cloudSession?.uid && new URLSearchParams(location.search).get('reset-dev-data') === '1');
-if (resetDevData) {
-  const emptyDb = blank();
-  emptyDb.meta.seeded = true; // 本次明确要求空库初始化，不再灌入演示数据
-  replaceAll(emptyDb);
-  try {
-    localStorage.removeItem('wb_account_revision:' + cloudSession.uid);
-    localStorage.removeItem('wb_before_account_sync:' + cloudSession.uid);
-    localStorage.removeItem('wb_cloud_meta:' + cloudSession.uid);
-  } catch (e) {
-    console.warn('[reset] 清理本机同步缓存时出现提示', e);
-  }
-}
 let accountSyncReady = !cloudSession?.uid;
 if (cloudSession?.uid) {
   try {
@@ -97,22 +89,6 @@ if (cloudSession?.uid) {
       email: cloudSession.email || '',
       uid: cloudSession.uid,
     }, { silent: true });
-    /* login-cloud 会触发历史兼容 seedIfEmpty。为避免旧设备缓存或旧 SW
-       在启动阶段重新灌入示例课表，重置标记在账号资料初始化完成后再执行一次，
-       保留登录资料和工作台品牌设置，只清空业务数据，并立即推送云端。 */
-    if (resetDevData) {
-      const current = loadDb();
-      const clean = blank();
-      clean.meta.seeded = true;
-      if (current.meta?.user) clean.meta.user = current.meta.user;
-      if (current.meta?.workbenchBrand) clean.meta.workbenchBrand = current.meta.workbenchBrand;
-      if (current.workbenchBrand) clean.workbenchBrand = current.workbenchBrand;
-      replaceAll(clean);
-      await pushNow();
-      const cleanUrl = new URL(location.href);
-      cleanUrl.searchParams.delete('reset-dev-data');
-      history.replaceState(null, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
-    }
   } catch (e) {
     console.warn('[auth] 本机账号初始化失败', e);
     toast('账号数据初始化失败：' + (e.message || e), 'err', 7000);
@@ -121,7 +97,21 @@ if (cloudSession?.uid) {
     cloudSession = null;
   }
 }
-state.user = cloudSession?.uid ? await loadMe() : null;
+/* 仅供本地 Playwright 使用的隔离登录夹具。
+   必须同时满足 localhost/127.0.0.1 与显式 ?e2e=1；不写 Supabase token、
+   不请求云端认证、不在任何线上域名启用。每个浏览器 context 使用全新存储。 */
+const E2E_LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname)
+  && new URLSearchParams(location.search).get('e2e') === '1'
+  && !cloudSession?.uid;
+let e2eLocalUser = null;
+if (E2E_LOCAL) {
+  e2eLocalUser = await api.post('/auth/login-cloud', {
+    account: '12345678901',
+    email: 'e2e@workbench.local',
+    uid: 'e2e-local-only',
+  }, { silent: true });
+}
+state.user = E2E_LOCAL ? (e2eLocalUser?.user || null) : (cloudSession?.uid ? await loadMe() : null);
 if (!location.hash) location.hash = '#/home';
 window.addEventListener('hashchange', () => render());
 
@@ -142,6 +132,8 @@ window.addEventListener('wb:signout', async () => {
 });
 
 await render();
+window.__wbBooted = true;
+window.dispatchEvent(new Event('wb:booted'));
 
 /* ============================================================================
    实时同步（一端改动，另一端自己变）
@@ -159,7 +151,17 @@ try {
   const live = await import('./live.js');
   live.startLiveRefresh();
   live.bindLiveDot();
-  window.addEventListener('wb:snapshot-applied', () => { render().catch((e) => console.warn('[sync] 远端数据刷新失败', e)); });
+  window.addEventListener('wb:snapshot-applied', async () => {
+    try {
+      /* 云端快照已经写入本地库，必须同步刷新内存中的用户对象。
+         否则「我的」首页仍拿旧 state.user 渲染，顶部资料卡片会显示旧信息。 */
+      await loadMe();
+      /* profileDraft 会保留当前正在编辑的未保存输入；重绘可让资料表单与顶部卡片一起读取最新 state.user。 */
+      await render();
+    } catch (e) {
+      console.warn('[sync] 远端资料刷新失败', e);
+    }
+  });
   rt.syncWithAuth();
   /* 登录框是浮层，登录成功不会重新加载页面，所以这里要主动补一次连接。
      用事件解耦：auth.js 登录/退出后派发 wb:auth-changed，不必反向 import。 */

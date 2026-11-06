@@ -1,7 +1,7 @@
 import {
   api, el, esc, toast, sheet, confirmDialog, fmtDateTime, download, saveBlob, ls, ymd,
 } from './core.js';
-import { registerView, onViewLeave, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, paintUnread, refreshUnread } from './ui.js';
+import { registerView, onViewLeave, state, icon, go, pageHead, parseHash, render, themeName, openThemeSheet, isWideMode, setWideMode, paintUnread, refreshUnread } from './ui.js';
 import { AUTH_CFG } from './ui.js';
 import { makeShareLink } from './cloudsync.js';
 import { loginSheet, cloudOn } from './auth.js';
@@ -50,6 +50,7 @@ async function renderMe(main) {
   const msgs = await api.get('/messages').catch(() => ({ unread: 0, counts: {} }));
   const needProfile = !u.school || !u.subject;
   const account = displayLoginAccount(u.account || u.phone, '暂未绑定登录账号');
+  const wideEnabled = isWideMode();
   const meta = [u.title, u.grade_group].filter(Boolean).join(' · ') || '完善个人资料，让工作台更懂你的工作';
   const schoolSubject = [u.school, u.subject].filter(Boolean).join(' · ');
   const bindings = [
@@ -62,7 +63,7 @@ async function renderMe(main) {
   main.innerHTML =
     '<header class="me-home-head">' +
       '<div><div class="me-home-eyebrow">PERSONAL CENTER</div><h1>我的</h1>' +
-      '<p>在这里管理个人资料、工作台展示和账号安全</p></div>' +
+      '<p>在这里统一管理个人资料、工作台设置与消息通知</p></div>' +
       '<span class="me-home-live"><i></i> 个人中心</span>' +
     '</header>' +
     '<section class="me-identity-card">' +
@@ -82,23 +83,19 @@ async function renderMe(main) {
       '</div>' +
       '<button type="button" class="me-identity-edit" data-act="profile">' + icon('edit', 15) + '<span>编辑个人资料</span></button>' +
     '</section>' +
-    '<div class="me-home-sections">' +
-      '<section class="me-home-section">' +
-        '<header class="me-home-section-head"><span class="me-home-section-icon blue">' + icon('user', 19) + '</span>' +
-          '<div><h2>个人设置</h2><p>维护个人资料与工作台品牌信息</p></div></header>' +
+    '<div class="me-home-sections me-home-settings-unified">' +
+      '<section class="me-home-section me-home-settings-card">' +
         '<div class="me-settings-list">' +
           row('user', '个人信息', '头像、姓名、学校、学科及职务', 'profile') +
           row('sliders', '工作台设置', '左上角名称、副标题和品牌图片', 'workbench-settings') +
           row('shield', '账号设置', '管理登录账号和修改密码', 'account-settings') +
-        '</div>' +
-      '</section>' +
-      '<section class="me-home-section">' +
-        '<header class="me-home-section-head"><span class="me-home-section-icon violet">' + icon('sun', 19) + '</span>' +
-          '<div><h2>消息与偏好</h2><p>查看通知并调整工作台外观</p></div></header>' +
-        '<div class="me-settings-list">' +
           row('bell', '消息中心', msgs.unread ? (msgs.unread + ' 条未读消息') : '暂无未读消息', 'messages',
             msgs.unread ? '<span class="me-setting-badge">' + (msgs.unread > 99 ? '99+' : msgs.unread) + '</span>' : '') +
-          row('sun', '主题外观', '当前：' + themeName(state.theme), 'theme', '<span class="me-setting-extra">共 6 套</span>') +
+          row('sun', '主题外观', '调整工作台整体颜色主题', 'theme',
+            '<span class="me-setting-extra" id="me-theme-value">' + esc(themeName(state.theme)) + '</span>') +
+          row('expand', '平铺整页', wideEnabled ? '当前已开启，页面内容铺满屏幕' : '当前已关闭，使用舒适内容宽度', 'wide',
+            '<span class="me-setting-extra" id="me-wide-value">' + (wideEnabled ? '开' : '关') + '</span>') +
+          row('grid', '重置首页布局', '恢复首页卡片的默认排列', 'reset-layout') +
         '</div>' +
       '</section>' +
     '</div>' +
@@ -117,6 +114,22 @@ async function renderMe(main) {
     if (a === 'account-settings') return go('me/account-settings');
     if (a === 'recycle') return go('recycle');
     if (a === 'theme') return openThemeSheet();
+    if (a === 'wide') {
+      const enabled = setWideMode(!isWideMode());
+      toast(enabled ? '已平铺整页，再点一次恢复舒适宽度' : '已恢复舒适宽度', 'ok', 3000);
+      await render();
+      return;
+    }
+    if (a === 'reset-layout') {
+      try {
+        const m = await import('./home.js');
+        await m.restoreHomeLayout();
+        go('home');
+      } catch (e) {
+        toast('重置首页布局失败：' + (e.message || e), 'err');
+      }
+      return;
+    }
     if (a === 'logout') {
       if (await confirmDialog('确定退出登录？')) window.dispatchEvent(new Event('wb:signout'));
       return;
@@ -354,10 +367,10 @@ function cropSquare(file, size = 192) {
    focusout 时不抓、input 时才抓 —— 因为 input 事件是「值真的变了」，
    而 focusout 只是「光标走了」，抓了会白存一份同样的值。 */
 let profileDraft = null;
-const PROFILE_FIELDS = ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group'];
+const PROFILE_FIELDS = ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'grade_group'];
 
-/* 把当前页面上四个输入框的值快照到 profileDraft。
-   页面不在个人信息页、或者四个框都不在，就什么都不做。 */
+/* 把当前页面可编辑的个人资料字段快照到 profileDraft。
+   页面不在个人信息页时不执行；未展示的邮箱字段不参与本次编辑。 */
 function captureProfileDraft() {
   const box = document.querySelector('#f-nickname');
   if (!box) return;                       // 不在个人信息页
@@ -382,18 +395,23 @@ function readWorkbenchBrand() {
 
 async function renderWorkbenchSettings(main) {
   main.classList.add('page-me-workbench-settings');
-  const current = readWorkbenchBrand();
+  const stored = readWorkbenchBrand();
+  // 直接读取后台工作台设计；兼容历史已保存配置，不要求额外启用标记。
+  const current = stored;
   let image = typeof current.image === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(current.image)
     ? current.image : '';
   const fallbackTitle = '我的工作台';
   const fallbackSubtitle = 'Workbench';
-  // 默认图标与侧栏完全相同；上传后预览和侧栏都读取同一份品牌图片。
-  const logoMarkup = () => '<img src="' + esc(image || './icons/icon-192.png') + '" alt="工作台图标">';
+  const defaultBrandLogo = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4.5" y="4.5" width="15" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v8M8 12h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  // 预览与侧栏使用同一默认品牌图标；自定义图片只在主动保存后生效。
+  const logoMarkup = () => image
+    ? '<img src="' + esc(image) + '" alt="工作台图标">'
+    : defaultBrandLogo;
 
   main.innerHTML = mePageHeader('workbench') +
     '<section class="card wb-brand-settings">' +
       '<header class="wb-brand-settings-head">' +
-        '<div><h2>工作台品牌设置</h2><p>这里的设置会同步显示在所有页面左上角</p></div>' +
+        '<div><h2>工作台品牌设置</h2><p>此处读取并设置后台工作台设计；未设置的项目自动使用系统默认值</p></div>' +
         '<span class="wb-brand-live"><i></i> 实时预览</span>' +
       '</header>' +
       '<div class="wb-brand-preview-area">' +
@@ -438,7 +456,7 @@ async function renderWorkbenchSettings(main) {
       '</footer>' +
     '</section>';
 
-  bindMeSectionTabs(main);
+  bindMeBackButton(main);
   const title = main.querySelector('#wb-brand-title');
   const subtitle = main.querySelector('#wb-brand-subtitle');
   const previewTitle = main.querySelector('#wb-brand-preview-title');
@@ -532,36 +550,41 @@ async function renderWorkbenchSettings(main) {
 }
 
 /* ================= 个人信息（独立页） ================= */
-function meSectionTabs(active) {
-  return '<div class="me-section-tabs" role="tablist" aria-label="个人设置">' +
-    '<button type="button" class="me-section-tab ' + (active === 'profile' ? 'active' : '') + '" data-me-tab="profile">' +
-      icon('user', 17) + '<span>个人信息</span></button>' +
-    '<button type="button" class="me-section-tab ' + (active === 'workbench' ? 'active' : '') + '" data-me-tab="workbench">' +
-      icon('sliders', 17) + '<span>工作台设置</span></button>' +
-    '<button type="button" class="me-section-tab ' + (active === 'account' ? 'active' : '') + '" data-me-tab="account">' +
-      icon('shield', 17) + '<span>账号设置</span></button>' +
-  '</div>';
-}
+function mePageHeader(section) {
+  const page = {
+    profile: {
+      title: '个人信息',
+      description: '修改头像、姓名、学校、学科及职务等个人资料',
+    },
+    workbench: {
+      title: '工作台设置',
+      description: '设置左上角工作台名称、副标题和品牌图片',
+    },
+    account: {
+      title: '账号设置',
+      description: '管理登录账号、密码及账号安全信息',
+    },
+  }[section] || {
+    title: '个人信息',
+    description: '修改个人资料',
+  };
 
-function mePageHeader(active) {
   return '<div class="me-page-toolbar">' +
       '<button type="button" class="me-back-home" id="me-back-home"><span aria-hidden="true">←</span> 返回我的</button>' +
     '</div>' +
-    pageHead('个人设置', '管理个人资料、工作台品牌与账号安全') +
-    meSectionTabs(active);
+    pageHead(page.title, page.description);
 }
 
-function bindMeSectionTabs(main) {
+function bindMeBackButton(main) {
   const back = main.querySelector('#me-back-home');
   if (back) back.onclick = () => go('me');
-  main.querySelectorAll('[data-me-tab]').forEach((button) => {
-    button.onclick = () => {
-      const tab = button.dataset.meTab;
-      if (tab === 'account') go('me/account-settings');
-      else if (tab === 'workbench') go('me/workbench-settings');
-      else go('profile');
-    };
-  });
+}
+
+function meMessagesHeader(sub, actions = '') {
+  return '<div class="me-page-toolbar">' +
+    '<button type="button" class="me-back-home" id="me-back-home"><span aria-hidden="true">←</span> 返回我的</button>' +
+    '</div>' +
+    pageHead('消息中心', sub, actions);
 }
 
 function displayLoginAccount(value, fallback = '未设置') {
@@ -579,6 +602,8 @@ async function renderProfile(main) {
   main.classList.add('page-me-profile');
   const valueOf = (key) => profileDraft ? (profileDraft[key] ?? '') : (u[key] || '');
   const uv = (key) => esc(valueOf(key));
+  // 旧资料中的「其他」按新选项统一显示为「保密」。
+  const genderValue = valueOf('gender') === '其他' ? '保密' : valueOf('gender');
   const bannerName = valueOf('nickname') || '未设置昵称';
   const bannerMeta = [valueOf('title') || '教师', valueOf('grade_group')].filter(Boolean).join(' · ') || '完善个人资料，让工作台更懂你的工作';
   const session = cloud.session() || {};
@@ -603,56 +628,53 @@ async function renderProfile(main) {
       <div class="profile-content">
         <div class="profile-section-title"><span></span>基本信息</div>
         <div class="profile-fields">
-          <div class="field">
+          <div class="field profile-field-name">
             <label class="field-label" for="f-nickname">姓名 <b class="required-mark">*</b></label>
             <input class="input" id="f-nickname" maxlength="20" value="${uv('nickname')}" placeholder="请输入姓名">
           </div>
-          <div class="field">
+          <div class="field profile-field-gender">
             <label class="field-label" for="f-gender">性别</label>
             <select class="input" id="f-gender">
-              <option value="" ${!valueOf('gender') ? 'selected' : ''}>请选择</option>
-              <option value="男" ${valueOf('gender') === '男' ? 'selected' : ''}>男</option>
-              <option value="女" ${valueOf('gender') === '女' ? 'selected' : ''}>女</option>
-              <option value="其他" ${valueOf('gender') === '其他' ? 'selected' : ''}>其他</option>
+              <option value="" ${!genderValue ? 'selected' : ''}>请选择</option>
+              <option value="男" ${genderValue === '男' ? 'selected' : ''}>男</option>
+              <option value="女" ${genderValue === '女' ? 'selected' : ''}>女</option>
+              <option value="保密" ${genderValue === '保密' ? 'selected' : ''}>保密</option>
             </select>
           </div>
-          <div class="field">
+          <div class="field profile-field-phone">
             <label class="field-label" for="f-contact_phone">联系电话</label>
-            <input class="input" id="f-contact_phone" type="tel" maxlength="24" value="${uv('contact_phone') || uv('phone')}" placeholder="请输入联系电话">
+            <input class="input" id="f-contact_phone" type="tel" maxlength="24" value="${uv('contact_phone') || uv('phone')}" placeholder="请输入联系电话" autocomplete="tel">
           </div>
-          <div class="field">
-            <label class="field-label" for="f-email">邮箱</label>
-            <input class="input" id="f-email" type="email" maxlength="80" value="${uv('email')}" placeholder="请输入邮箱地址">
-          </div>
-          <div class="field">
+          <div class="field profile-field-subject">
             <label class="field-label" for="f-subject">学科</label>
             <input class="input" id="f-subject" maxlength="20" value="${uv('subject')}" placeholder="如：信息技术">
           </div>
-          <div class="field">
+          <div class="field profile-field-title">
             <label class="field-label" for="f-title">职务</label>
             <input class="input" id="f-title" maxlength="30" value="${uv('title')}" placeholder="如：教师">
           </div>
-          <div class="field">
+          <div class="field profile-field-grade">
             <label class="field-label" for="f-grade_group">所属年级组</label>
             <input class="input" id="f-grade_group" maxlength="30" value="${uv('grade_group')}" placeholder="如：高二年级组">
           </div>
         </div>
 
-        <div class="profile-divider"></div>
-        <div class="profile-section-title"><span></span>工作信息</div>
-        <div class="profile-work-field">
-          <label class="field-label" for="f-school">所在学校</label>
-          <input class="input" id="f-school" maxlength="50" value="${uv('school')}" placeholder="请输入学校名称">
-        </div>
+        <section class="profile-work-section" aria-labelledby="profile-work-title">
+          <div class="profile-section-title" id="profile-work-title"><span></span>工作信息</div>
+          <div class="profile-work-field">
+            <label class="field-label" for="f-school">所在学校</label>
+            <input class="input" id="f-school" maxlength="50" value="${uv('school')}" placeholder="请输入学校名称">
+          </div>
+        </section>
 
         <div class="profile-save-row">
           <div class="profile-save-note">修改完成后点击保存，资料会自动同步。</div>
-          <button class="btn primary" id="p-save" type="button">${icon('check', 16)} 保存修改</button>
+          <button class="btn primary" id="p-save" type="button">${icon('check', 16)} 保存</button>
         </div>
       </div>
     </section>`;
 
-  bindMeSectionTabs(main);
+  bindMeBackButton(main);
 
   const updateBanner = () => {
     const nickname = main.querySelector('#f-nickname').value.trim() || '未设置昵称';
@@ -662,7 +684,7 @@ async function renderProfile(main) {
     main.querySelector('#profile-banner-meta').textContent = [title, grade].filter(Boolean).join(' · ');
   };
 
-  for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group']) {
+  for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'grade_group']) {
     const input = main.querySelector('#f-' + key);
     if (!input) continue;
     input.addEventListener('input', updateBanner);
@@ -690,7 +712,7 @@ async function renderProfile(main) {
     button.disabled = true;
     button.textContent = '保存中…';
     const payload = {};
-    for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group']) {
+    for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'grade_group']) {
       payload[key] = main.querySelector('#f-' + key).value.trim();
     }
     try {
@@ -702,7 +724,7 @@ async function renderProfile(main) {
     } catch (error) {
       toast(error.message || '保存失败', 'err');
       button.disabled = false;
-      button.innerHTML = icon('check', 16) + ' 保存修改';
+      button.innerHTML = icon('check', 16) + ' 保存';
     }
   };
 }
@@ -728,15 +750,15 @@ function renderAccountSettings(main) {
       </header>
 
       <div class="account-security-content">
-        <div class="account-security-row account-security-login-row">
+        <button class="account-security-row account-security-login-row" id="account-login-change" type="button">
           <span class="account-security-row-icon">${icon('phone', 26)}</span>
           <span class="account-security-row-copy">
             <strong>登录账号</strong>
-            <small>管理用于登录系统的账号</small>
+            <small>点击修改用于登录系统的11位数字账号</small>
           </span>
           <span class="account-security-row-value">${esc(account)}</span>
           <span class="account-security-chevron" aria-hidden="true">${icon('right', 18)}</span>
-        </div>
+        </button>
 
         <button class="account-security-row account-security-password-row" id="account-password-change" type="button">
           <span class="account-security-row-icon">${icon('lock', 26)}</span>
@@ -756,8 +778,100 @@ function renderAccountSettings(main) {
       </div>
     </section>`;
 
-  bindMeSectionTabs(main);
+  bindMeBackButton(main);
+  main.querySelector('#account-login-change').onclick = () => accountLoginSheet();
   main.querySelector('#account-password-change').onclick = () => accountPwdSheet(null);
+}
+
+/* ================= 修改登录账号 ================= */
+function accountLoginSheet() {
+  const currentAccount = displayLoginAccount(state.user?.account || cloud.session()?.phone, '');
+  const body = el(`<div class="sheet-body">
+    <div class="account-login-current">
+      <span class="tiny muted">当前登录账号</span>
+      <strong>${esc(currentAccount)}</strong>
+    </div>
+    <div class="field">
+      <label class="field-label" for="account-new">新的登录账号</label>
+      <input class="input" id="account-new" type="text" inputmode="numeric" autocomplete="off"
+        maxlength="11" placeholder="请输入新的11位数字账号">
+    </div>
+    <div class="field">
+      <label class="field-label" for="account-new-confirm">确认新账号</label>
+      <input class="input" id="account-new-confirm" type="text" inputmode="numeric" autocomplete="off"
+        maxlength="11" placeholder="请再次输入新的11位数字账号">
+    </div>
+    <div class="field">
+      <label class="field-label" for="account-current-password">当前登录密码</label>
+      <input class="input" id="account-current-password" type="password" autocomplete="current-password"
+        maxlength="72" placeholder="请输入当前登录密码">
+    </div>
+    <div class="tiny muted" style="line-height:1.7;margin:4px 0 12px">
+      修改后，其他设备需要使用新的账号和原密码登录。不会发送短信，原有个人资料、权限和工作台数据都会保留。
+    </div>
+    <button class="btn primary block" id="account-login-save" type="button">确认修改</button>
+  </div>`);
+  const sh = sheet({ title: '修改登录账号', body });
+  const field = (id) => body.querySelector('#' + id);
+  const save = field('account-login-save');
+
+  save.onclick = async () => {
+    const next = field('account-new').value.trim();
+    const confirm = field('account-new-confirm').value.trim();
+    const password = field('account-current-password').value;
+    if (!/^1[3-9]\d{9}$/.test(next)) {
+      toast('新登录账号必须是11位数字，请检查后重试', 'warn');
+      field('account-new').focus();
+      return;
+    }
+    if (next === currentAccount) {
+      toast('新账号不能与当前账号相同', 'warn');
+      return;
+    }
+    if (next !== confirm) {
+      toast('两次输入的新账号不一致，请重新确认', 'warn');
+      field('account-new-confirm').focus();
+      return;
+    }
+    if (!password) {
+      toast('请输入当前登录密码', 'warn');
+      field('account-current-password').focus();
+      return;
+    }
+    if (!cloud.session()?.uid) {
+      toast('当前账号尚未连接云端认证，暂时无法安全修改登录账号', 'err', 6000);
+      return;
+    }
+
+    save.disabled = true;
+    save.textContent = '正在验证并修改…';
+    try {
+      const changed = await cloud.changeLoginAccount(next, password);
+      const local = await api.post('/auth/login-cloud', {
+        account: next,
+        phone: changed.phone,
+        uid: changed.uid,
+        email: cloud.session()?.email || '',
+      }, { silent: true });
+      if (!local?.user || local.user.account !== next) {
+        throw new Error('云端账号已更新，本机资料正在重新同步；请刷新页面确认');
+      }
+      state.user = local.user;
+      toast('登录账号修改成功，原有数据和权限均已保留', 'ok', 5000);
+      sh.close();
+      render();
+    } catch (error) {
+      save.disabled = false;
+      save.textContent = '确认修改';
+      toast(error.message || '修改登录账号失败，请稍后重试', 'err', 6000);
+    }
+  };
+
+  body.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') save.click();
+    });
+  });
 }
 
 /* ================= 账号安全（本机 PIN 锁） =================
@@ -1125,20 +1239,22 @@ async function renderMessages(main) {
     try {
       r = await api.get('/messages', { type });
     } catch (e) {
-      main.innerHTML = pageHead('消息中心', '', '')
+      main.innerHTML = meMessagesHeader('', '')
         + `<div class="empty" style="padding:40px 20px">${esc(e.message || '加载失败')}<br>
            <span class="tiny muted">如果是登录过期，刷新页面重新登录即可</span></div>`;
+      bindMeBackButton(main);
       return;
     }
     const counts = r.counts || {};
     const rows = r.rows || [];
-    main.innerHTML = pageHead('消息中心', r.unread ? `${r.unread} 条未读` : '都看完了',
+    main.innerHTML = meMessagesHeader(r.unread ? `${r.unread} 条未读` : '都看完了',
       `<button class="btn ghost sm" id="read-all" ${r.unread ? '' : 'disabled'}>全部已读</button>`) + `
       <div class="seg msg-seg" style="margin-bottom:14px">
         ${TYPES.map(([v, l]) => `<button class="${type === v ? 'on' : ''}" data-t="${v}">${l}${counts[v] ? `<b class="seg-dot">${counts[v]}</b>` : ''}</button>`).join('')}
       </div>
       <div class="card">${rows.length ? rows.map((m) => msgItem(m)).join('') : '<div class="empty">这里还没有消息<br><span class="tiny">事项到期、系统变更时会出现</span></div>'}</div>
       ${rows.length ? '<button class="btn ghost block" id="clear-read" style="margin-top:12px">清空已读消息</button>' : ''}`;
+    bindMeBackButton(main);
 
     main.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { type = b.dataset.t; load(); }; });
     const ra = main.querySelector('#read-all');

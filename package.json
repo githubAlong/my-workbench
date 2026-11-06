@@ -1,0 +1,12 @@
+{
+  "name": "my-workbench",
+  "version": "1.0.0-attendance-test",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"tests/*.test.mjs\"",
+    "check": "node scripts/check-project.mjs",
+    "preview": "node scripts/preview-server.mjs",
+    "build:pages": "node scripts/build-pages.mjs"
+  }
+}
