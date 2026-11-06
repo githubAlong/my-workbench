@@ -43,5 +43,20 @@ jobs:
           node --check js/homegrid.js
       - name: Run complete Node test suite
         run: npm test
+      - name: Install Chromium browser test dependencies
+        run: |
+          npm install --no-save @playwright/test
+          npx playwright install --with-deps chromium
+      - name: Start local preview server
+        run: |
+          npm run preview > /tmp/homepage-preview.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:4173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/homepage-preview.log
+          exit 1
+      - name: Run desktop tablet and mobile browser smoke tests
+        run: npx playwright test tests/browser/homepage-smoke.spec.mjs --reporter=line
       - name: Run repository integrity checks
         run: npm run check
