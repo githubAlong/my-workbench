@@ -23,7 +23,11 @@ test('精简首页只保留五张核心卡片的页面结构', () => {
 test('首页顶栏保留搜索、新建事项和编辑布局，不再显示新建课表', () => {
   assert.match(home, /id="gsearch"/);
   assert.match(home, /id="home-new-item"/);
-  assert.match(home, /<div class="home-top-actions">[\\s\\S]*?id="home-new-item"[\\s\\S]*?id="teacher-layout"/);
+  const actionsStart = home.indexOf('<div class="home-top-actions">');
+  const actionsEnd = home.indexOf('</div>', actionsStart);
+  const actions = home.slice(actionsStart, actionsEnd);
+  assert.ok(actions.indexOf('id="home-new-item"') >= 0);
+  assert.ok(actions.indexOf('id="teacher-layout"') > actions.indexOf('id="home-new-item"'));
   assert.match(home, /id="teacher-layout"/);
   assert.doesNotMatch(home, /id="home-new-timetable"/);
   assert.doesNotMatch(home, /home-side-layout-edit/);
