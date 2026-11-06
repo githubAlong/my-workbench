@@ -3413,7 +3413,7 @@ on('POST', '/teachers', ({ body }) => {
     }
     sort += 1;
     const id = T('teachers').reduce((mx, t) => Math.max(mx, num(t.id)), 0) + 1;
-    T('teachers').push({ id, grade, name, subject: String(it.subject || '').trim(), sort, active: 1, created_at: nowISO(), updated_at: nowISO(), deleted_at: null });
+    T('teachers').push({ id, grade, name, subject: String(it.subject || '').trim(), phone: String(it.phone || '').trim(), note: String(it.note || '').trim(), sort, active: 1, created_at: nowISO(), updated_at: nowISO(), deleted_at: null });
     ids.push(id);
   }
   save();
@@ -3432,6 +3432,8 @@ on('PATCH', '/teachers/:id', ({ params, body }) => {
     if (!validation.ok) fail(400, validation.invalid[0]?.reason || validation.duplicates[0]?.reason || '教师信息不完整');
   }
   for (const k of ['name', 'subject', 'grade']) if (k in (body || {})) t[k] = next[k];
+  if ('phone' in (body || {})) t.phone = String(body.phone || '').trim();
+  if ('note' in (body || {})) t.note = String(body.note || '').trim();
   if ('active' in (body || {})) t.active = body.active ? 1 : 0;
   if ('sort' in (body || {})) t.sort = Number(body.sort) || 0;
   t.updated_at = nowISO();
