@@ -502,29 +502,8 @@ export async function renderAttendance(box, opts = {}) {
       selectedPeriod=String(e.target.value);sessionStorage.setItem('wb_att_period',selectedPeriod);load({makeToday:false});
     });
     paintCalendar();
-    const changePeriod = (value) => {
-      const n = Number(value);
-      if (!Number.isInteger(n) || n < 1 || n > 9) {
-        toast('节次请输入 1～9 的整数', 'warn');
-        const periodInput = box.querySelector('#att-work-period');
-        if (periodInput) periodInput.value = selectedPeriod;
-        return;
-      }
-      selectedPeriod = String(n);
-      sessionStorage.setItem('wb_att_period', selectedPeriod);
-      const periodInput = box.querySelector('#att-work-period');
-      if (periodInput) periodInput.value = selectedPeriod;
-      if (detail && (activeTab === 'seat' || activeTab === 'class')) {
-        detail.periods = selectedPeriod;
-        detail.meta = { ...(detail.meta || {}), periods: selectedPeriod };
-        dirty = true;
-      }
-    };
-    box.querySelector('#att-work-period')?.addEventListener('change', e => changePeriod(e.target.value));
-    const shiftDate = (n) => { const d = new Date(`${viewDate}T00:00:00`); d.setDate(d.getDate() + n); viewDate = ymd(d); load({ makeToday: viewDate === dayStr() }); };
-    box.querySelector('#att-work-prev').onclick = () => shiftDate(-1);
-    box.querySelector('#att-work-next').onclick = () => shiftDate(1);
-    box.querySelector('#att-work-today').onclick = () => { viewDate = dayStr(); load(); };
+    const shiftDate = (n) => { const d = new Date(`${viewDate}T00:00:00`); d.setDate(d.getDate() + n); viewDate = ymd(d); calendarMonth = viewDate.slice(0,7); load({ makeToday: false }); };
+    box.querySelector('#att-work-today').onclick = () => { viewDate = dayStr(); calendarMonth = viewDate.slice(0,7); load({ makeToday: false }); };
     box.querySelector('#att-work-subject').onchange = (e) => { subjectFilter = e.target.value; paint(); };
     box.querySelector('#att-work-search').oninput = (e) => { searchText = e.target.value; const pos = e.target.selectionStart; paint(); const q = box.querySelector('#att-work-search'); q.focus(); q.setSelectionRange(pos, pos); };
     box.querySelector('#att-work-photo').onclick = () => isRoster ? rosterPhotoDialog(activeGrade, () => load()) : uploadDialog(activeGrade, () => load());
@@ -600,7 +579,7 @@ export async function renderAttendance(box, opts = {}) {
     });
     box.querySelectorAll('[data-mark]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
     box.querySelectorAll('[data-cell-input]').forEach((input) => input.onchange = () => { const row = detail?.rows?.[Number(input.dataset.row)]; if (!row) return; row.data = { ...(row.data || {}), [input.dataset.key]: input.value }; dirty = true; });
-    box.querySelectorAll('.aw-mark[data-row]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
+    box.querySelectorAll('.aw-mark[data-row], .aw-mobile-mark[data-row]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
     box.querySelectorAll('[data-edit-row]').forEach((b) => b.onclick = () => detail && openTable(detail.id, () => load()));
     box.querySelector('#att-work-save')?.addEventListener('click', () => persistWorkspace(false));
     box.querySelector('#att-work-confirm')?.addEventListener('click', () => persistWorkspace(true));
