@@ -1340,3 +1340,260 @@ html[data-theme="dark"] .home-redesign .home-welcome-card .home-welcome-stats bu
   .home-redesign .home-dashboard-grid > .hg-item { min-height:0; }
   .home-redesign .home-dashboard-grid > .hg-item > .card { min-height:0; }
 }
+
+
+/* ==========================================================================
+   精简首页 V4 · 参考用户确认的蓝白天气版
+   默认只呈现：欢迎横幅 / 今日课程 / 今日待办 / 天气 / 日历。
+   其他卡片保留在 DOM 与卡片管理中，但默认隐藏；不改业务数据。
+   ========================================================================== */
+.main:has(#home-grid) {
+  max-width: 1920px;
+  padding: 20px clamp(16px, 2.2vw, 34px) 36px;
+}
+.home-redesign .home-topbar {
+  position: relative;
+  top: auto;
+  margin: 0 0 18px;
+  padding: 8px 12px 8px 18px;
+  min-height: 58px;
+  border: 1px solid #dce8fb;
+  border-radius: 16px;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 5px 18px rgba(35,75,140,.045);
+}
+.home-redesign .home-topbar .searchbar {
+  max-width: 560px;
+  height: 42px;
+  border: 1px solid #d6e3f7;
+  border-radius: 12px;
+  background: #f9fbff;
+}
+.home-redesign .home-top-actions { display:flex; align-items:center; gap:10px; }
+.home-redesign .home-action {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.home-redesign #home-grid {
+  grid-template-columns: repeat(12,minmax(0,1fr));
+  grid-auto-rows: 68px;
+  gap: 14px;
+  align-items: stretch;
+}
+.home-redesign #home-grid > .hg-item { min-width:0; min-height:0; }
+.home-redesign #home-grid > .hg-item > .card {
+  height:100%;
+  min-height:0;
+  overflow:auto;
+  border:1px solid #dfeafb;
+  border-radius:20px;
+  background:#fff;
+  box-shadow:0 7px 24px rgba(42,83,145,.055);
+}
+.home-redesign #home-grid > .hg-item[hidden] { display:none!important; }
+
+/* 欢迎横幅：保留真实问候、日期和时钟，右侧使用项目已有校园插画 */
+.home-redesign .home-welcome-card {
+  position:relative;
+  display:flex;
+  justify-content:center;
+  flex-direction:column;
+  min-height:0;
+  padding:26px 34px!important;
+  background:
+    linear-gradient(90deg,rgba(239,246,255,.98) 0%,rgba(239,246,255,.91) 48%,rgba(239,246,255,.12) 100%),
+    url('../assets/teacher-ui/hero-scene.webp') right center/auto 100% no-repeat,
+    #eaf3ff;
+}
+.home-redesign .home-welcome-copy { max-width:70%; }
+.home-redesign .home-welcome-card .clk-greet {
+  color:#132c4c;
+  font-size:clamp(25px,2.15vw,36px);
+  font-weight:850;
+  line-height:1.3;
+  letter-spacing:-.5px;
+}
+.home-redesign .home-welcome-card .clk-greet-sub {
+  margin-top:7px;
+  color:#617a9d;
+  font-size:15px;
+  line-height:1.5;
+}
+.home-redesign .home-welcome-meta {
+  display:flex;
+  align-items:center;
+  gap:24px;
+  margin-top:18px;
+}
+.home-redesign .home-welcome-date {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  margin:0;
+  color:#526b8d;
+  font-size:14px;
+}
+.home-redesign .home-welcome-clock-row { margin:0; }
+.home-redesign .home-welcome-card .clock {
+  color:#142d4d;
+  font-size:clamp(36px,3.2vw,52px);
+  font-weight:850;
+  letter-spacing:-1.6px;
+  line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+.home-redesign .home-welcome-card .clock .sec { color:#7b91ad;font-size:.38em; }
+.home-redesign .home-theme-btn { position:absolute;right:18px;top:18px;color:#55739b; }
+
+/* 通用卡片标题和留白 */
+.home-redesign .home-card-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:19px 22px 13px;
+}
+.home-redesign .home-card-title {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  color:#183454;
+  font-size:19px;
+  font-weight:800;
+}
+.home-redesign .home-card-title>svg { color:#2672e8; }
+.home-redesign .home-card-link {
+  color:#2672e8;
+  font-size:13px;
+  font-weight:700;
+  white-space:nowrap;
+}
+.home-redesign .home-count-chip {
+  display:inline-grid;
+  place-items:center;
+  min-width:22px;
+  height:22px;
+  padding:0 6px;
+  border-radius:99px;
+  background:#e9f2ff;
+  color:#2672e8;
+  font-size:11px;
+}
+
+/* 今日课程：只保留课程主体，不在首页重复展示多组设置按钮 */
+.home-redesign .home-course-card { display:flex;flex-direction:column;padding:0!important; }
+.home-redesign .home-course-card #today-courses {
+  flex:1 1 auto;
+  min-height:0;
+  padding:0 22px 14px!important;
+  overflow:auto;
+}
+.home-redesign .home-course-card .course-row {
+  display:flex;
+  align-items:center;
+  min-height:68px;
+  padding:10px 6px;
+  border-bottom:1px solid #edf2f9;
+}
+.home-redesign .home-course-card .course-time { width:104px;flex:0 0 104px;color:#1d3859;font-size:14px;font-weight:750;line-height:1.5; }
+.home-redesign .home-course-card .course-name { color:#1b3555;font-size:14px;font-weight:750; }
+.home-redesign .home-course-card .course-meta { margin-top:5px; }
+.home-redesign .home-course-card .course-action { margin-left:auto; }
+
+/* 今日待办：去掉便签输入条，保留事项勾选和新增入口 */
+.home-redesign .home-todo-card { display:flex;flex-direction:column;padding:0!important; }
+.home-redesign .home-todo-card #today-items {
+  flex:1 1 auto;
+  min-height:0;
+  padding:0 22px 16px!important;
+  overflow:auto;
+}
+.home-redesign .home-todo-card .task-row {
+  min-height:58px;
+  padding:10px 5px;
+  border-bottom:1px solid #edf2f9;
+}
+.home-redesign .home-todo-card .task-title { color:#1c3554;font-size:14px;font-weight:650; }
+.home-redesign .home-todo-card .quick-inline { display:none!important; }
+
+/* 天气：显示城市、温度、天气状况和当日高低温；详细预报按需打开 */
+.home-redesign .home-weather-card { display:flex;flex-direction:column;padding:0!important;background:linear-gradient(135deg,#fff 0%,#f1f7ff 100%)!important; }
+.home-redesign .home-weather-card .home-card-head { padding-bottom:4px; }
+.home-redesign .home-weather-card .wx-body { flex:1;min-height:0;padding:4px 22px 18px; }
+.home-redesign .home-weather-card #wx-brief { width:100%; }
+.home-redesign .home-weather-card .wxb-city { display:flex;align-items:center;gap:7px;color:#607b9d;font-size:13px; }
+.home-redesign .home-weather-card .wxb-main { display:flex;align-items:center;gap:18px;margin:10px 0 8px; }
+.home-redesign .home-weather-card .wxb-emoji { font-size:48px; }
+.home-redesign .home-weather-card .wxb-temp { color:#193655;font-size:54px;font-weight:850;letter-spacing:-2px;line-height:1; }
+.home-redesign .home-weather-card .wxb-side { display:flex;flex-direction:column;gap:6px; }
+.home-redesign .home-weather-card .wxb-desc { color:#193655;font-size:18px;font-weight:750; }
+.home-redesign .home-weather-card .wxb-range { color:#7890ad;font-size:13px; }
+.home-redesign .home-weather-card .wxb-outfit { margin-top:7px;padding:8px 11px;border-radius:10px;background:#e9f2ff;color:#58769a;font-size:12px;line-height:1.5; }
+.home-redesign .home-weather-card .wx-more { display:none; }
+
+/* 日历：保持原来的月/周切换、日期联动和事项标记 */
+.home-redesign .home-calendar-card { display:flex;flex-direction:column;padding:0!important; }
+.home-redesign .home-calendar-card .hc-head { padding:19px 20px 12px; }
+.home-redesign .home-calendar-card .cal-grid { gap:7px 3px; }
+.home-redesign .home-calendar-card .cal-day { margin:8px 18px 0;padding-top:9px;border-top:1px solid #edf2f9; }
+.home-redesign .home-calendar-card .cal-collapse-row { padding:0 18px 12px; }
+
+/* 精简侧栏资料区域与编辑入口 */
+.home-redesign-app>.sidebar.home-sidebar { width:240px;flex-basis:240px; }
+.home-redesign-app .home-side-profile { padding-bottom:22px; }
+.home-redesign-app .home-side-motto { max-width:190px; }
+
+/* 深色主题仍可读，不强制改变用户的主题偏好 */
+html[data-theme="dark"] .home-redesign .home-welcome-card {
+  background:linear-gradient(90deg,rgba(20,36,56,.98),rgba(20,36,56,.84) 55%,rgba(20,36,56,.28)),url('../assets/teacher-ui/hero-scene.webp') right center/auto 100% no-repeat,#142438;
+}
+html[data-theme="dark"] .home-redesign .home-welcome-card .clk-greet,
+html[data-theme="dark"] .home-redesign .home-welcome-card .clock,
+html[data-theme="dark"] .home-redesign .home-card-title,
+html[data-theme="dark"] .home-redesign .home-course-card .course-name,
+html[data-theme="dark"] .home-redesign .home-todo-card .task-title { color:#edf5ff; }
+html[data-theme="dark"] .home-redesign .home-weather-card { background:linear-gradient(135deg,#1c2b3e,#17283c)!important; }
+html[data-theme="dark"] .home-redesign .home-weather-card .wxb-temp,
+html[data-theme="dark"] .home-redesign .home-weather-card .wxb-desc { color:#edf5ff; }
+html[data-theme="dark"] .home-redesign .home-weather-card .wxb-outfit { background:#263d59;color:#c5d8f1; }
+
+@media(max-width:1180px) {
+  .home-redesign-app>.sidebar.home-sidebar { width:210px;flex-basis:210px; }
+  .home-redesign .home-topbar { gap:10px; }
+  .home-redesign .home-action { padding:0 11px; }
+}
+@media(max-width:900px) {
+  .home-redesign-app>.main.home-redesign { width:100%;padding:14px 14px 28px; }
+  .home-redesign #home-grid { grid-auto-rows:64px;gap:12px; }
+  .home-redesign .home-welcome-card { padding:22px 24px!important; }
+  .home-redesign .home-calendar-card .cal-grid { gap:5px 2px; }
+}
+@media(max-width:640px) {
+  .home-redesign-app>.main.home-redesign { padding:10px 10px calc(82px + env(safe-area-inset-bottom)); }
+  .home-redesign .home-topbar { flex-wrap:wrap;margin:0 0 12px;padding:8px; }
+  .home-redesign .home-topbar .searchbar { flex:1 1 100%;max-width:none; }
+  .home-redesign .home-top-actions { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%; }
+  .home-redesign .home-action { justify-content:center;min-width:0; }
+  .home-redesign .home-welcome-card { min-height:190px;padding:20px!important;background-position:right bottom;background-size:auto 78%; }
+  .home-redesign .home-welcome-copy { max-width:100%; }
+  .home-redesign .home-welcome-card .clk-greet { font-size:23px; }
+  .home-redesign .home-welcome-card .clk-greet-sub { max-width:240px;font-size:12px; }
+  .home-redesign .home-welcome-meta { align-items:flex-start;flex-direction:column;gap:10px;margin-top:14px; }
+  .home-redesign .home-welcome-card .clock { font-size:38px; }
+  .home-redesign .home-course-card { min-height:250px; }
+  .home-redesign .home-todo-card { min-height:220px; }
+  .home-redesign .home-weather-card { min-height:190px; }
+  .home-redesign .home-calendar-card { min-height:390px; }
+  .home-redesign .home-course-card #today-courses,
+  .home-redesign .home-todo-card #today-items { padding-left:14px!important;padding-right:14px!important; }
+  .home-redesign .home-course-card .course-time { width:76px;flex-basis:76px;font-size:12px; }
+  .home-redesign .home-course-card .course-name,
+  .home-redesign .home-todo-card .task-title { font-size:13px; }
+  .home-redesign .home-weather-card .wxb-temp { font-size:46px; }
+  .home-redesign .home-weather-card .wxb-emoji { font-size:39px; }
+  .home-redesign .home-calendar-card .cal-grid { gap:4px 1px; }
+}
