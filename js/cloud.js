@@ -18,6 +18,9 @@
    每次请求放进 Authorization: Bearer。没有 token 时 RLS 一律拒绝 ——
    这正是「只有我这个账号能看」的实现方式，不再是靠一把可以复制的钥匙。
    ========================================================================== */
+import { resolveEnvironmentProfile, assertTrustedSupabaseConfig } from './environment-config.mjs';
+
+const ENV_PROFILE = resolveEnvironmentProfile(globalThis.location);
 
 const CFG_KEY = 'wb_supa_cfg';    // { url, anon }
 const TOK_KEY = 'wb_supa_tok';    // { access_token, refresh_token, expires_at, email, uid }
@@ -36,46 +39,39 @@ export const SESSION_STORAGE_KEY = TOK_KEY;
    现在把内置配置放在 cloud.js 自己身上（登录相关的代码都在这里），
    auth.js 里的常量改为从这里读。这样无论谁先加载，cfg() 都有值。
 
-   【?supa= 仍然优先】
-   这是留给测试的口子：本地起一个假 Supabase，靠它把前端指过去。
-   正常访问（没有这个参数）永远用内置的生产地址 ——
-   localStorage 里残留的旧配置、别人给的错误地址，都会被纠正回来。
+   【地址来源必须唯一】
+   只接受当前项目正式 Supabase origin。URL 查询参数、历史 localStorage
+   和旧手动同步配置都不能把登录、Token 刷新或数据请求带去其他地址。
+   localStorage 中残留的旧配置、别人给的错误地址，都会被纠正回来。
 --------------------------------------------------------------------------- */
-export const BUILTIN_URL = 'https://gfgxvpvexzcfbujkwsqw.supabase.co';
-export const BUILTIN_ANON = 'sb_publishable_-cCYwAxVzEIioR4rdsmGpw_HThEm8gi';
+export const BUILTIN_URL = ENV_PROFILE.supabaseUrl;
+export const BUILTIN_ANON = ENV_PROFILE.publishableKey;
+const TRUSTED_ORIGIN = new URL(BUILTIN_URL).origin;
+
+/* 云端地址只能来自这份受信任配置。URL 参数、历史 localStorage 和旧手动同步
+   配置都不能把认证凭证带去另一个 origin。 */
+export function trustedSupabaseConfig(url, anon) {
+  return assertTrustedSupabaseConfig(ENV_PROFILE, url, anon);
+}
 
 export function cfg() {
-  /* 优先级：地址栏的 ?supa= （测试用） > localStorage > 内置的正式项目。
-     顺序不能反 —— ?supa= 是用来临时指到别的项目的，被 localStorage 盖掉就失去意义了。 */
-  let forced = '';
-  try { forced = new URLSearchParams(location.search).get('supa') || ''; } catch { }
-  if (forced) {
-    const f = forced.replace(/\/+$/, '');
-    try { localStorage.setItem(CFG_KEY, JSON.stringify({ url: f, anon: BUILTIN_ANON })); } catch { }
-    return { url: f, anon: BUILTIN_ANON };
-  }
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch { }
+  const trusted = trustedSupabaseConfig(stored?.url, stored?.anon);
+  if (trusted) return trusted;
 
-  let c = null;
-  try { c = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch { }
-  if (c && c.url) {
-    const storedUrl = String(c.url).replace(/\/+$/, '');
-    if (storedUrl === BUILTIN_URL) {
-      const current = { url: BUILTIN_URL, anon: BUILTIN_ANON };
-      if (c.anon !== BUILTIN_ANON) {
-        try { localStorage.setItem(CFG_KEY, JSON.stringify(current)); } catch { }
-      }
-      return current;
-    }
-    return c;
-  }
-
-  /* 从没配过：灌内置的正式项目，登录框立刻可用 */
-  try { localStorage.setItem(CFG_KEY, JSON.stringify({ url: BUILTIN_URL, anon: BUILTIN_ANON })); } catch { }
-  return { url: BUILTIN_URL, anon: BUILTIN_ANON };
+  /* 清除历史遗留或手工篡改的配置，并恢复唯一的正式项目地址。 */
+  try { localStorage.removeItem(CFG_KEY); } catch { }
+  const fallback = { url: TRUSTED_ORIGIN, anon: BUILTIN_ANON };
+  try { localStorage.setItem(CFG_KEY, JSON.stringify(fallback)); } catch { }
+  return fallback;
 }
 
 export function saveCfg(url, anon) {
-  localStorage.setItem(CFG_KEY, JSON.stringify({ url: url.replace(/\/+$/, ''), anon }));
+  const trusted = trustedSupabaseConfig(url, anon);
+  if (!trusted) throw new Error('只能连接当前正式 Supabase 项目');
+  localStorage.setItem(CFG_KEY, JSON.stringify(trusted));
+  return trusted;
 }
 export function clearCfg() {
   localStorage.removeItem(CFG_KEY);
@@ -574,7 +570,7 @@ const TABLES = {
   },
   attendance_tables: {
     order: 'order=month.desc.nullslast,id.desc',
-    filter: ['month', 'grade', 'subject', 'kind', 'sheet_type'],
+    filter: ['month', 'grade', 'subject', 'kind', 'sheet_type', 'sheet_date'],
     date: ['sheet_date'],
     json: ['columns', 'meta'],
     jsonDefault: { columns: [], meta: {} },
@@ -664,13 +660,26 @@ function rowOf(table, body) {
 
 function queryOf(table, query) {
   const spec = TABLES[table] || {};
+  if (table === 'attendance_rows' && Array.isArray(query.table_id)) {
+    const ids = query.table_id.map(Number).filter(Number.isInteger);
+    return ids.length ? 'table_id=in.(' + ids.join(',') + ')' : 'id=in.()';
+  }
   if (table === 'attendance_rows' && query.table_id != null && query.table_id !== '') {
     return 'table_id=eq.' + encodeURIComponent(query.table_id);
   }
   const p = new URLSearchParams();
+  if (table === 'attendance_tables' && /^\d{4}$/.test(String(query.year || ''))) {
+    const year = Number(query.year);
+    p.set('sheet_date', `gte.${year}-01-01`);
+    p.append('sheet_date', `lt.${year + 1}-01-01`);
+  }
   for (const [k, v] of Object.entries(query || {})) {
     if (v === undefined || v === null || v === '') continue;
     if (!(spec.filter || []).includes(k)) continue;
+    if (k === 'month' && table === 'attendance_tables') {
+      p.set('month', 'eq.' + v);
+      continue;
+    }
     if (k === 'month' && /^\d{4}-\d{2}$/.test(String(v))) {
       const [y, m] = String(v).split('-').map(Number);
       const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
@@ -691,8 +700,19 @@ export async function listRows(table, query = {}) {
   const parts = ['select=' + (spec.select || '*'), 'deleted_at=is.null'];
   if (spec.order) parts.push(spec.order);
   const extra = queryOf(table, query);
-  const rows = await rest(`${table}?${parts.join('&')}${extra ? '&' + extra : ''}`);
-  return Array.isArray(rows) ? rows : [];
+  const base = `${table}?${parts.join('&')}${extra ? '&' + extra : ''}`;
+  /* PostgREST caps a response at the project's max-rows setting (typically
+     1000). A single day can legitimately reach 1000 attendance rows, so walk
+     pages until a short page is returned. */
+  const out = [];
+  const pageSize = 1000;
+  for (let offset = 0; offset < 1_000_000; offset += pageSize) {
+    const page = await rest(`${base}&limit=${pageSize}&offset=${offset}`);
+    if (!Array.isArray(page) || !page.length) break;
+    out.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return out;
 }
 
 /* ============================================================================
@@ -843,6 +863,73 @@ export async function getRow(table, id) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
+export async function updateAttendanceTable(id, body, expectedUpdatedAt) {
+  const patch = rowOf('attendance_tables', body || {});
+  if (!Object.keys(patch).length) return getRow('attendance_tables', id);
+  const filters = [
+    `id=eq.${encodeURIComponent(id)}`,
+    'deleted_at=is.null',
+    `updated_at=eq.${encodeURIComponent(String(expectedUpdatedAt))}`,
+  ].join('&');
+  const rows = await rest(`attendance_tables?${filters}&select=*`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(patch),
+  });
+  if (!Array.isArray(rows) || !rows.length) {
+    throw new Error('WB_ATTENDANCE_CONFLICT: 表头已被另一台设备修改');
+  }
+  markLocal('attendance_tables', rows[0].id);
+  return rows[0];
+}
+
+/* Atomic row save with optimistic concurrency.
+   The RPC locks the table row, compares every expected_updated_at value before
+   writing anything, and raises WB_ATTENDANCE_CONFLICT on the first mismatch.
+   That makes concurrent multi-device edits visible instead of silently
+   overwriting the other client's work. */
+export async function saveAttendanceRows(tableId, rows, { dirty = true } = {}) {
+  const payload = {
+    p_table_id: Number(tableId),
+    p_rows: (Array.isArray(rows) ? rows : []).map((row) => ({
+      id: row?.id ?? null,
+      teacher: String(row?.teacher || '').trim(),
+      subject: String(row?.subject || '').trim(),
+      data: row?.data && typeof row.data === 'object' ? row.data : {},
+      expected_updated_at: row?.expected_updated_at || null,
+    })),
+    p_mark_dirty: dirty !== false,
+  };
+  const result = await rest('rpc/wb_save_attendance_rows', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(payload),
+  });
+  const value = Array.isArray(result) ? result[0] : result;
+  const saved = value?.result && typeof value.result === 'object' ? value.result : value;
+  return {
+    ids: Array.isArray(saved?.ids) ? saved.ids : [],
+    saved: Number(saved?.saved) || (Array.isArray(saved?.ids) ? saved.ids.length : 0),
+  };
+}
+
+export async function renameAttendanceGrade(oldName, newName) {
+  const result = await rest('rpc/wb_rename_attendance_grade', {
+    method: 'POST',
+    body: JSON.stringify({ p_old: String(oldName), p_new: String(newName) }),
+  });
+  return Number(Array.isArray(result) ? result[0] : result) || 0;
+}
+
+export async function deleteAttendanceGrade(name) {
+  const result = await rest('rpc/wb_delete_attendance_grade', {
+    method: 'POST',
+    body: JSON.stringify({ p_grade: String(name) }),
+  });
+  const value = Array.isArray(result) ? result[0] : result;
+  return value?.result && typeof value.result === 'object' ? value.result : (value || {});
+}
+
 /* 一张考勤表可能带 40~60 行明细。逐条 POST 就是 60 次往返，
    手机上要等十几秒。PostgREST 支持一次提交数组，所以这里必须批量。 */
 export async function createRows(table, list) {
@@ -875,10 +962,11 @@ export async function deleteAttendanceTable(id) {
 /* 一次读齐：主表 + 所有明细。考勤页打开就要这两样，
    分两次请求会多一个来回，也容易出现"表出来了但格子空着"的闪烁。 */
 export async function listAttendance(query = {}) {
-  const [tables, rows] = await Promise.all([
-    listRows('attendance_tables', query),
-    listRows('attendance_rows', {}),
-  ]);
+  const tables = await listRows('attendance_tables', query);
+  const tableIds = tables.map((t) => Number(t.id)).filter(Number.isInteger);
+  const rows = tableIds.length
+    ? await listRows('attendance_rows', { table_id: tableIds })
+    : [];
   const ids = new Set(tables.map((t) => String(t.id)));
   return {
     tables,

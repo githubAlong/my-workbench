@@ -1,6 +1,7 @@
 import { state, loadMe, render, parseHash, loadAuthConfig } from './ui.js';
 import { ls, toast, STATIC, api } from './core.js';
-import { setActiveAccount, activeAccountId, blank, replaceAll, load as loadDb } from './localdb.js';
+import { setActiveAccount, activeAccountId } from './localdb.js';
+import { takeRetiredResetParam } from './startup-safety.mjs';
 
 /* 【第 30 条 · 白屏】
    原来这里是 9 行串行 import：
@@ -22,7 +23,7 @@ import './repairs.js';
 import './me.js';
 import './recycle.js';
 import './alarm.js';
-import { hookSave, tryImportFromHash, initializeAccountSync, pushNow } from './cloudsync.js';
+import { hookSave, tryImportFromHash, initializeAccountSync } from './cloudsync.js';
 
 /* 云同步：本地一改就排队上传（内部有防抖）；启动时看一眼云端有没有新数据。
    没绑定云存储时 hookSave 是空操作，autoSync 直接返回，零开销。 */
@@ -44,6 +45,13 @@ function paintSkeleton() {
 }
 paintSkeleton();
 
+/* 旧维护入口已停用。URL 清理不接触数据库、同步元数据或云端数据。 */
+const retiredReset = takeRetiredResetParam(location.href);
+if (retiredReset.requested) {
+  try { history.replaceState(null, '', retiredReset.next); } catch { }
+  setTimeout(() => toast('旧的数据重置链接已停用，现有数据没有变化', 'warn', 7000), 600);
+}
+
 /* 【换设备登录 #k=…】必须在 render 之前跑完：
    先把 token 换到手，后面课时页一渲染就是已登录状态，
    不会出现「先闪一下未登录提示条、再跳成已登录」的抖动。 */
@@ -59,22 +67,6 @@ const cloudAuth = await import('./cloud.js');
 let cloudSession = cloudAuth.session();
 setActiveAccount(cloudSession?.uid || '');
 
-/* 一次性开发环境重置：仅在明确带 ?reset-dev-data=1 且已登录时执行。
-   清空当前账号的本机工作台缓存和同步版本号，保留 Supabase 登录身份；
-   云端当前账号快照由维护操作先行清理，随后正常初始化会重新生成示例数据。 */
-const resetDevData = !!(cloudSession?.uid && new URLSearchParams(location.search).get('reset-dev-data') === '1');
-if (resetDevData) {
-  const emptyDb = blank();
-  emptyDb.meta.seeded = true; // 本次明确要求空库初始化，不再灌入演示数据
-  replaceAll(emptyDb);
-  try {
-    localStorage.removeItem('wb_account_revision:' + cloudSession.uid);
-    localStorage.removeItem('wb_before_account_sync:' + cloudSession.uid);
-    localStorage.removeItem('wb_cloud_meta:' + cloudSession.uid);
-  } catch (e) {
-    console.warn('[reset] 清理本机同步缓存时出现提示', e);
-  }
-}
 let accountSyncReady = !cloudSession?.uid;
 if (cloudSession?.uid) {
   try {
@@ -97,22 +89,6 @@ if (cloudSession?.uid) {
       email: cloudSession.email || '',
       uid: cloudSession.uid,
     }, { silent: true });
-    /* login-cloud 会触发历史兼容 seedIfEmpty。为避免旧设备缓存或旧 SW
-       在启动阶段重新灌入示例课表，重置标记在账号资料初始化完成后再执行一次，
-       保留登录资料和工作台品牌设置，只清空业务数据，并立即推送云端。 */
-    if (resetDevData) {
-      const current = loadDb();
-      const clean = blank();
-      clean.meta.seeded = true;
-      if (current.meta?.user) clean.meta.user = current.meta.user;
-      if (current.meta?.workbenchBrand) clean.meta.workbenchBrand = current.meta.workbenchBrand;
-      if (current.workbenchBrand) clean.workbenchBrand = current.workbenchBrand;
-      replaceAll(clean);
-      await pushNow();
-      const cleanUrl = new URL(location.href);
-      cleanUrl.searchParams.delete('reset-dev-data');
-      history.replaceState(null, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
-    }
   } catch (e) {
     console.warn('[auth] 本机账号初始化失败', e);
     toast('账号数据初始化失败：' + (e.message || e), 'err', 7000);

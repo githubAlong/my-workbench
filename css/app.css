@@ -3447,6 +3447,7 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 /* ---------- 年级管理 ---------- */
 .gm-list { display: flex; flex-direction: column; gap: 8px; }
 .gm-row { display: flex; align-items: center; gap: 8px; }
+.gm-row.is-selected { padding: 7px; border: 1px solid color-mix(in srgb, var(--primary) 34%, var(--line)); border-radius: 10px; background: var(--primary-weak); }
 .gm-row .gm-name { flex: 1; min-width: 0; }
 .gm-meta { font-size: 12px; color: var(--text-3); white-space: nowrap; }
 

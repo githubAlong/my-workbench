@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>教师工作台 · 考勤 V1 预览</title>
+  <link rel="stylesheet" href="../../css/app.css">
+  <link rel="stylesheet" href="../../css/teacher-ui.css">
+  <link rel="stylesheet" href="../../css/attendance-workspace.css">
+  <style>
+    html,body{min-height:100%;background:#f4f7fc}
+    body{margin:0}
+    .preview-shell{max-width:1500px;margin:0 auto;padding:22px}
+    .preview-brand{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;padding:12px 16px;border:1px solid #e2eaf4;border-radius:14px;background:#fff}
+    .preview-brand b{color:#18304f}.preview-brand span{color:#8190a5;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="preview-shell">
+    <div class="preview-brand"><b>教师工作台 · 考勤管理 V1.0</b><span>本地测试数据，仅用于界面验收</span></div>
+    <main class="main"><div id="app"></div></main>
+  </div>
+  <script type="module">
+    import { api } from '../../js/core.js';
+    import { state } from '../../js/ui.js';
+    import { setActiveAccount } from '../../js/localdb.js';
+    import { renderGradeList } from '../../js/attindex.js';
+    import { renderAttendance } from '../../js/attendance.js';
+
+    const view = new URLSearchParams(location.search).get('view') || 'workspace';
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const names = ['张老师', '李老师', '王老师', '赵老师', '陈老师', '刘老师', '杨老师', '周老师', '吴老师', '郑老师', '孙老师', '钱老师'];
+    const teachers = names.map((name, index) => ({ name, subject: ['语文', '数学', '英语', '物理'][index % 4] }));
+
+    localStorage.clear();
+    setActiveAccount('attendance-v1-preview');
+    state.user = { nickname: '陈老师', settings: {} };
+    await api.post('/grades', { name: '高一' });
+    await api.post('/grades', { name: '高二' });
+    await api.post('/teachers', { grade: '高一', items: teachers });
+    await api.post('/teachers', { grade: '高二', items: teachers.slice(0, 8) });
+
+    const base = { grade: '高一', sheet_date: date, month: date.slice(0, 7), weekday: '五' };
+    const seat = await api.post('/attendance', { ...base, sheet_type: 'seat', periods: '1', name: `${date.slice(0, 4)}年高一教师坐班表` });
+    const research = await api.post('/attendance', { ...base, sheet_type: 'research', periods: '', name: `${date.slice(0, 4)}年高一教师教研签到表` });
+    const classSheet = await api.post('/attendance', { ...base, sheet_type: 'class', periods: '3', name: `${date.slice(0, 4)}年高一教师上课检查表` });
+    const rows = teachers.map((teacher, index) => ({
+      teacher: teacher.name,
+      subject: teacher.subject,
+      data: index === 3
+        ? { k_请假: '1', __leave: { type: '病假', period: '上午', duration: 0.5 } }
+        : { k_坐班: '1' },
+    }));
+    await api.post(`/attendance/${seat.id}/rows`, { rows, dirty: true });
+    await api.post(`/attendance/${research.id}/rows`, {
+      rows: teachers.map((teacher, index) => ({
+        teacher: teacher.name,
+        subject: teacher.subject,
+        data: index % 5 ? { k_签到: '1' } : {},
+      })),
+      dirty: true,
+    });
+    await api.post(`/attendance/${classSheet.id}/rows`, {
+      rows: teachers.map((teacher, index) => ({
+        teacher: teacher.name,
+        subject: teacher.subject,
+        data: index % 4 ? { k_上课: '1' } : {},
+      })).concat([{
+        teacher: '临时甲',
+        subject: '化学',
+        data: { k_上课: '1', __temp: 1, borrow_grade: '高二' },
+      }]),
+      dirty: true,
+    });
+    await api.post(`/attendance/${seat.id}/confirm`);
+    await api.post(`/attendance/${research.id}/confirm`);
+
+    const app = document.getElementById('app');
+    if (view === 'list') {
+      await renderGradeList(app);
+      window.__previewReady = true;
+    } else {
+      await renderAttendance(app, { grade: '高一' });
+      const tab = view === 'roster' ? 'roster' : view === 'research' ? 'research' : view === 'class' ? 'class' : 'seat';
+      app.querySelector(`[data-tab="${tab}"]`)?.click();
+      setTimeout(() => { window.__previewReady = true; }, 500);
+    }
+  </script>
+</body>
+</html>

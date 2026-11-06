@@ -38,16 +38,16 @@ export function addGradeDialog(reload) {
 
 export async function gradeManageDialog(reload, onChanged) {
   let data = await api.get('/grades').catch(() => ({ grades: [], counts: {} }));
+  let selected = String((data.grades || [])[0] || '');
   const body = el(`<div class="sheet-body" id="gm-body"></div>`);
   const s = sheet({ title: '年级管理', body, wide: true });
   const paint = () => {
     const list = data.grades || [];
+    if (!list.includes(selected)) selected = String(list[0] || '');
     body.innerHTML = `<div class="gm-list">
-      ${list.map((g) => `<div class="gm-row" data-g="${esc(g)}">
+      ${list.map((g) => `<div class="gm-row${g === selected ? ' is-selected' : ''}" data-g="${esc(g)}" role="button" tabindex="0" aria-selected="${g === selected}">
         <input class="input gm-name" value="${esc(g)}" aria-label="年级名称">
         <span class="gm-meta">${data.counts?.[g] ?? 0} 位老师</span>
-        <button class="btn ghost sm gm-act" data-rename="${esc(g)}">修改</button>
-        <button class="btn ghost sm gm-act gm-del" data-del="${esc(g)}">删除</button>
       </div>`).join('')}
     </div>
     <div class="att-tip-note" style="margin-top:12px">
@@ -55,40 +55,56 @@ export async function gradeManageDialog(reload, onChanged) {
     </div>
     <div class="confirm-actions">
       <button class="btn ghost" id="gm-add">＋ 新建年级</button>
+      <button class="btn ghost" id="gm-rename">修改</button>
+      <button class="btn ghost gm-del" id="gm-delete">删除</button>
       <button class="btn primary" id="gm-close">关闭</button>
     </div>`;
-    body.querySelectorAll('[data-rename]').forEach((b) => {
-      b.onclick = async () => {
-        const old = b.dataset.rename;
-        const row = b.closest('.gm-row');
-        const name = String(row.querySelector('.gm-name').value || '').trim();
-        if (!name) return toast('年级名不能为空', 'warn');
-        if (name === old) return toast('名字没变', 'warn');
-        try {
-          const r = await api.patch('/grades/' + encodeURIComponent(old), { name });
-          toast(`已改名为「${name}」，${r?.migrated?.teachers ?? 0} 位老师、${r?.migrated?.tables ?? 0} 张表一起迁过去了`, 'ok', 4200);
-          await refresh();
-          onChanged?.();
-        } catch (e) { toast(e.message || '改名失败', 'err'); }
+    body.querySelectorAll('[data-g]').forEach((row) => {
+      const choose = () => {
+        selected = row.dataset.g;
+        body.querySelectorAll('[data-g]').forEach((item) => {
+          const on = item === row;
+          item.classList.toggle('is-selected', on);
+          item.setAttribute('aria-selected', String(on));
+        });
       };
+      row.addEventListener('pointerdown', choose);
+      row.addEventListener('focusin', choose);
+      row.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') choose();
+      });
     });
-    body.querySelectorAll('[data-del]').forEach((b) => {
-      b.onclick = async () => {
-        const g = b.dataset.del;
-        const n = data.counts?.[g] ?? 0;
-        const ok = await confirmDialog(
-          `删除「${g}」？该年级下的 ${n} 位老师、所有考勤表与统计数据会一并删除（可从回收站找回）。`,
-          { title: '删除年级', okText: '删除', danger: true },
-        );
-        if (!ok) return;
-        try {
-          const r = await api.del('/grades/' + encodeURIComponent(g));
-          toast(`已删除「${g}」：${r?.deleted?.teachers ?? 0} 位老师、${r?.deleted?.tables ?? 0} 张表`, 'ok', 4200);
-          await refresh();
-          onChanged?.();
-        } catch (e) { toast(e.message || '删除失败', 'err'); }
-      };
-    });
+    body.querySelector('#gm-rename').onclick = async () => {
+      const old = selected;
+      const row = body.querySelector(`.gm-row[data-g="${CSS.escape(old)}"]`);
+      const name = String(row?.querySelector('.gm-name').value || '').trim();
+      if (!old) return toast('请先选择一个年级', 'warn');
+      if (!name) return toast('年级名不能为空', 'warn');
+      if (name === old) return toast('名字没变', 'warn');
+      try {
+        const r = await api.patch('/grades/' + encodeURIComponent(old), { name });
+        selected = name;
+        toast(`已改名为「${name}」，${r?.migrated?.teachers ?? 0} 位老师、${r?.migrated?.tables ?? 0} 张表一起迁过去了`, 'ok', 4200);
+        await refresh();
+        onChanged?.();
+      } catch (e) { toast(e.message || '改名失败', 'err'); }
+    };
+    body.querySelector('#gm-delete').onclick = async () => {
+      const g = selected;
+      if (!g) return toast('请先选择一个年级', 'warn');
+      const n = data.counts?.[g] ?? 0;
+      const ok = await confirmDialog(
+        `删除「${g}」？该年级下的 ${n} 位老师、所有考勤表与统计数据会一并删除（可从回收站找回）。`,
+        { title: '删除年级', okText: '删除', danger: true },
+      );
+      if (!ok) return;
+      try {
+        const r = await api.del('/grades/' + encodeURIComponent(g));
+        toast(`已删除「${g}」：${r?.deleted?.teachers ?? 0} 位老师、${r?.deleted?.tables ?? 0} 张表`, 'ok', 4200);
+        await refresh();
+        onChanged?.();
+      } catch (e) { toast(e.message || '删除失败', 'err'); }
+    };
     body.querySelector('#gm-add').onclick = () => { s.close(); addGradeDialog(() => { reload?.(); onChanged?.(); }); };
     body.querySelector('#gm-close').onclick = s.close;
   };

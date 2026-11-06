@@ -308,19 +308,25 @@ export async function migrateInvigilations(onProgress = () => {}) {
 function cleanAttTable(t) {
   const cols = parseJSON(t.columns, []);
   const meta = parseJSON(t.meta, {});
-  const sheetType = t.sheet_type === 'research' || t.kind === 'research' ? 'research' : 'seat';
+  const rawType = String(t.sheet_type || t.kind || '');
+  const sheetType = rawType === 'research' || rawType === 'class' ? rawType : 'seat';
+  const grade = toText(t.grade) || '高一';
+  const date = toDate(t.sheet_date);
   return {
     name: toText(t.name) || '未命名考勤表',
     kind: sheetType,
     sheet_type: sheetType,
-    grade: toText(t.grade) || '高一',
+    grade,
     subject: toText(t.subject),
     month: toText(t.month),
-    sheet_date: toDate(t.sheet_date),
+    sheet_date: date,
     weekday: toText(t.weekday),
     periods: toText(t.periods),
     columns: Array.isArray(cols) ? cols : [],
-    meta: meta && typeof meta === 'object' ? meta : {},
+    meta: {
+      ...(meta && typeof meta === 'object' ? meta : {}),
+      ...(date ? { day_key: `${date}|${grade}|${sheetType}` } : {}),
+    },
   };
 }
 

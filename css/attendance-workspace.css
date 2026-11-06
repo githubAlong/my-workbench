@@ -384,6 +384,7 @@
 .att-work-shell{--aw-ink:#172b4d;--aw-muted:#71829d;--aw-line:#e5ebf4;--aw-blue:#2563eb;color:var(--aw-ink);padding:8px 2px 24px}
 .att-work-crumb{margin:0 0 10px;padding:0 2px;color:#91a0b5;font-size:11px;letter-spacing:.02em}
 .att-work-head{gap:14px;margin:0 0 14px;padding:0 2px}
+.att-work-head-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
 .att-work-head h2{color:#142746;font-size:24px;font-weight:800;letter-spacing:-.6px}
 .att-work-sync{padding:5px 10px;border:1px solid #d7f0e1;border-radius:999px;background:#f0fbf4;color:#16834a;font-size:11px;font-weight:650}
 .att-work-grade{height:38px!important;min-width:112px!important;border:1px solid #dce5f1!important;border-radius:10px!important;background:#fff!important;color:#263b5b!important;font-size:13px!important;box-shadow:0 2px 5px rgba(30,64,112,.035)!important}
@@ -452,17 +453,30 @@
 .aw-roster-table td{height:50px}
 @media(max-width:1100px){.att-work-stats{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}.att-work-panel{min-height:calc(100vh - 270px)}.att-work-table-scroll{max-height:calc(100vh - 400px)}}
 @media(max-width:760px){
- .att-work-shell{padding:4px 0 18px}
+ .att-work-shell{padding:4px 0 18px;width:100%;min-width:0;max-width:100%;overflow-x:hidden}
  .att-work-head{flex-wrap:wrap;gap:8px}
  .att-work-head>div:first-child{flex:1 1 100%}
+ .att-work-head-actions{display:grid;grid-template-columns:minmax(0,1fr) 96px;width:100%;min-width:0;margin-left:0}
+ .att-work-head-actions .btn{width:100%;min-width:0}
+ .att-work-head-actions .att-work-grade{width:96px!important;min-width:0!important;max-width:100%}
  .att-work-meta-controls{align-items:flex-start;gap:9px;padding:10px}
+ .att-work-meta-controls .att-work-date{display:grid;grid-template-columns:34px minmax(0,1fr) 34px auto;gap:6px;width:100%;margin:0}
+ .att-work-meta-controls .att-work-date label{min-width:0;overflow:hidden}
+ .att-work-meta-controls .att-work-date label input{width:100%!important;max-width:100%!important;flex:1 1 auto;min-width:0}
+ .att-work-meta-controls .att-work-date label span{display:none}
  .att-work-meta-hint{width:100%;margin-left:0}
  .att-work-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
  .aw-stat{min-height:60px;padding:9px}
  .aw-stat b{font-size:21px}
- .att-work-panel{min-height:auto;padding:11px;border-radius:13px}
- .att-work-toolbar{gap:7px}
+ .att-work-panel{min-width:0;max-width:100%;min-height:auto;padding:11px;border-radius:13px;overflow:hidden}
+ .att-work-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));max-width:100%;gap:4px;overflow:visible}
+ .att-work-tabs button{min-width:0;padding-inline:0;font-size:12px;white-space:nowrap}
+ .att-work-toolbar{min-width:0;gap:7px;flex-wrap:wrap}
  .att-work-toolbar .aw-search,.att-work-toolbar select#att-work-subject{width:100%;flex:1 1 100%}
+ .att-work-toolbar .btn{flex:1 1 calc(50% - 7px);min-width:0;justify-content:center}
+ .att-work-toolbar .att-work-spacer{display:none}
+ .att-work-export-wrap{width:100%;margin-left:0}
+ .att-work-export-wrap .btn{width:100%}
  .att-work-table-scroll{max-height:65vh;min-height:260px}
  .att-work-table.att-work-sheet-table{min-width:760px}
  .att-work-sheet-table th{height:42px}
