@@ -19,6 +19,7 @@
    这正是「只有我这个账号能看」的实现方式，不再是靠一把可以复制的钥匙。
    ========================================================================== */
 import { resolveEnvironmentProfile, assertTrustedSupabaseConfig } from './environment-config.mjs';
+import { normalizeAccountIdentifier } from './auth-identifier.mjs';
 
 const ENV_PROFILE = resolveEnvironmentProfile(globalThis.location);
 
@@ -237,19 +238,11 @@ export function cloudEmail() {
   return t && t.email ? t.email : '';
 }
 
-/* 统一把用户输入或历史会话中的手机号转成 Supabase 所需的 E.164 格式。
-   兼容三种历史数据：11 位本地号、86 开头、+86 开头，以及旧数据中的 0086。 */
-export function normalizePhone(phone) {
-  const value = String(phone || '').trim().replace(/[\s()-]/g, '');
-  if (!/^\+?\d+$/.test(value)) throw new Error('请输入正确的中国大陆手机号');
-  const digits = value.replace(/^\+/, '');
-  const national = digits.startsWith('0086') && digits.length === 15
-    ? digits.slice(4)
-    : digits.startsWith('86') && digits.length === 13
-      ? digits.slice(2)
-      : digits;
-  if (/^1[3-9]\d{9}$/.test(national)) return '+86' + national;
-  throw new Error('请输入正确的中国大陆手机号');
+/* 11位数字账号 → Supabase Phone Auth 使用的内部标识格式。
+   这里只做格式映射，不验证号码归属、不发送短信、不使用 OTP；
+   同时兼容历史账号保存的 +86 / 86 / 0086 格式。 */
+export function normalizePhone(account) {
+  return normalizeAccountIdentifier(account);
 }
 
 /* 仅用于界面展示：账号底层仍保留原始号码，所有手机号展示统一去掉国家区号。 */
@@ -271,11 +264,11 @@ function authError(j, status, operation = '登录') {
     return 'Supabase API 密钥无效或与项目不匹配，请检查项目 URL 和 Publishable key 是否来自同一个项目。';
   }
   if (/signup_disabled|signups not allowed/i.test(detail)) return '当前 Supabase 项目未开放新用户注册，请在 Authentication 设置中启用新用户注册。';
-  if (/phone.*disabled|phone_provider_disabled/i.test(detail)) return 'Supabase 尚未启用手机号登录，请先在 Authentication → Providers 中启用 Phone。';
-  if (/Invalid login credentials|invalid_credentials/i.test(detail)) return '手机号或密码不正确。';
-  if (/already registered|already exists|user_already_exists|phone_exists/i.test(detail)) return '该手机号已注册，请直接登录。';
+  if (/phone.*disabled|phone_provider_disabled/i.test(detail)) return '当前 Supabase 项目尚未启用账号密码登录通道。请管理员在 Authentication → Providers → Phone 开启 Phone，并关闭 Phone confirmations；本系统不发送短信，也不验证号码归属。';
+  if (/Invalid login credentials|invalid_credentials/i.test(detail)) return '账号或密码不正确。';
+  if (/already registered|already exists|user_already_exists|phone_exists/i.test(detail)) return '该账号已注册，请直接登录。';
   if (/weak_password|Password should|password.*characters/i.test(detail)) return '密码强度不足，请设置至少 8 位的密码。';
-  if (/phone.*not.*confirmed|phone_not_confirmed/i.test(detail)) return '该手机号尚未确认。当前不发送短信，请在 Supabase 中关闭 Phone confirmations 后重新注册。';
+  if (/phone.*not.*confirmed|phone_not_confirmed/i.test(detail)) return '当前账号仍要求确认。请管理员关闭 Phone confirmations；本系统不发送短信，也不验证号码归属。';
   if (/over_sms_send_rate_limit|sms.*rate|rate limit/i.test(detail)) return '操作过于频繁，请稍后再试。';
   if (/captcha/i.test(detail)) return '验证码校验失败。请检查 Supabase 验证码配置后重试。';
   if (/user_banned/i.test(detail)) return '该账号已被停用，请联系管理员。';
@@ -285,7 +278,7 @@ function authError(j, status, operation = '登录') {
 export function registrationError(error) {
   const message = String(error?.message || '');
   if (/[\u3400-\u9fff]/.test(message)) return message;
-  return '注册未能完成。请检查网络和 Supabase 项目配置后重试；如果提示手机号已注册，请切换到登录。';
+  return '注册未能完成。请检查网络和 Supabase 账号认证配置后重试；如果提示账号已注册，请切换到登录。';
 }
 
 export async function signUpPhone(phone, password) {
@@ -305,7 +298,7 @@ export async function signUpPhone(phone, password) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(authError(j, r.status, '注册'));
   if (!j.access_token) {
-    throw new Error('账号已提交，但 Supabase 当前要求短信确认。若本期不发送短信，请在 Authentication 设置中关闭 Phone confirmations 后重新注册。');
+    throw new Error('账号已创建，但当前 Supabase 项目仍要求确认。请管理员关闭 Phone confirmations；本系统不发送短信。');
   }
   adoptTokens(j);
   return session();
@@ -328,7 +321,7 @@ export async function loginPhone(phone, password) {
 
 export async function updatePhonePassword(oldPassword, newPassword) {
   const current = session();
-  if (!current?.phone) throw new Error('当前登录账号不是手机号账号');
+  if (!current?.phone) throw new Error('当前登录账号不是数字账号');
   if (String(newPassword || '').length < 8) throw new Error('新密码至少需要 8 位');
   await loginPhone(current.phone, oldPassword);
   const c = cfg();
