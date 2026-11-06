@@ -132,6 +132,8 @@ window.addEventListener('wb:signout', async () => {
 });
 
 await render();
+window.__wbBooted = true;
+window.dispatchEvent(new Event('wb:booted'));
 
 /* ============================================================================
    实时同步（一端改动，另一端自己变）
