@@ -5,8 +5,8 @@ export const ENVIRONMENT_PROFILES = Object.freeze({
     name: 'production',
     supabaseUrl: 'https://gfgxvpvexzcfbujkwsqw.supabase.co',
     publishableKey: 'sb_publishable_-cCYwAxVzEIioR4rdsmGpw_HThEm8gi',
-    hosts: Object.freeze(['githubalong.github.io']),
-    hostSuffixes: Object.freeze([]),
+    hosts: Object.freeze(['githubalong.github.io', 'my-workbench-dev.pages.dev']),
+    hostSuffixes: Object.freeze(['.my-workbench-dev.pages.dev']),
   }),
   test: Object.freeze({
     name: 'test',
@@ -18,7 +18,7 @@ export const ENVIRONMENT_PROFILES = Object.freeze({
 });
 
 function isPrivateIpv4(hostname) {
-  return /^(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/.test(hostname);
+  return /^(?:10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}|172\\.(?:1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3})$/.test(hostname);
 }
 
 export function resolveEnvironmentProfile(input = globalThis.location) {
