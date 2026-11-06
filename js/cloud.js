@@ -340,6 +340,67 @@ export async function updatePhonePassword(oldPassword, newPassword) {
   if (!r.ok) throw new Error(authError(j, r.status));
 }
 
+
+/* Change the Supabase phone-auth identifier without changing the user UUID.
+   The current password is re-checked before the privileged Edge Function runs.
+   The 11-digit account is an identifier only: no SMS or phone-ownership check. */
+export async function changeLoginAccount(newAccount, currentPassword) {
+  const current = session();
+  if (!current?.uid || !current?.phone) {
+    throw new Error('当前登录账号状态不完整，请刷新页面后重试');
+  }
+  if (!String(currentPassword || '')) throw new Error('请输入当前登录密码');
+
+  const currentPhone = normalizePhone(current.phone);
+  const currentAccount = accountIdentifierFromPhone(currentPhone);
+  const nextPhone = normalizePhone(newAccount);
+  if (nextPhone === currentPhone) throw new Error('新账号不能与当前账号相同');
+
+  /* Re-authentication proves the caller knows the current account password. */
+  await loginPhone(currentAccount, currentPassword);
+
+  const c = cfg();
+  const accessToken = await freshToken();
+  if (!accessToken) throw new Error('登录已过期，请重新登录后再试');
+
+  let response;
+  try {
+    response = await fetch(c.url + '/functions/v1/change-login-account', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: c.anon,
+        Authorization: 'Bearer ' + accessToken,
+      },
+      body: JSON.stringify({
+        currentAccount,
+        newAccount: accountIdentifierFromPhone(nextPhone),
+      }),
+    });
+  } catch {
+    throw new Error('暂时无法连接账号修改服务，请检查网络后重试');
+  }
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const code = String(result.error || result.code || '');
+    if (code === 'ACCOUNT_ALREADY_EXISTS') throw new Error('这个登录账号已被其他用户使用，请更换一个账号');
+    if (code === 'CURRENT_ACCOUNT_MISMATCH') throw new Error('当前登录账号已发生变化，请刷新页面后重试');
+    if (code === 'INVALID_ACCOUNT') throw new Error('新登录账号必须是11位数字');
+    if (response.status === 401 || code === 'UNAUTHORIZED') throw new Error('登录状态已过期，请重新登录后再试');
+    throw new Error('修改登录账号失败，请稍后重试（' + (code || '服务异常') + '）');
+  }
+
+  const phone = normalizePhone(result.phone || nextPhone);
+  const stored = tok() || {};
+  setTok({ ...stored, phone });
+  return {
+    uid: stored.uid || current.uid,
+    phone,
+    account: accountIdentifierFromPhone(phone),
+  };
+}
+
 export async function login(email, password) {
   const c = cfg();
   if (!c) throw new Error('还没配置 Supabase 地址');
