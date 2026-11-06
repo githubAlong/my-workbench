@@ -11,7 +11,10 @@ async function walk(directory) {
   const out = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const target = path.join(directory, entry.name);
-    if (entry.isDirectory()) out.push(...await walk(target));
+    if (entry.isDirectory()) {
+      if (['.git', '.wrangler', 'dist', 'node_modules'].includes(entry.name)) continue;
+      out.push(...await walk(target));
+    }
     else out.push(target);
   }
   return out;
