@@ -743,3 +743,18 @@
  .att-work-panel .att-work-foot{position:sticky;bottom:0;background:#fff;z-index:30;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
 }
 @media(min-width:681px){.att-work-mobile-list{display:none}}
+
+.aw-unseated{display:inline-flex;align-items:center;padding:4px 9px;border-radius:999px;background:#f2f3f5;color:#4e5969;font-size:11px;font-weight:650}
+.aw-unseated.hidden{display:none}
+.aw-roster-table th:first-child,.aw-roster-table td:first-child{width:60px;text-align:center}
+.aw-roster-table th:nth-child(2),.aw-roster-table td:nth-child(2){min-width:140px}
+.aw-roster-table th:nth-child(3),.aw-roster-table td:nth-child(3){min-width:140px}
+.aw-roster-table th{height:48px!important}
+.aw-roster-table td{height:44px!important}
+.aw-roster-table tbody tr:hover{background:#f7faff}
+.att-work-sheet-table thead th{position:sticky;top:0;z-index:8;height:48px}
+.att-work-sheet-table th:nth-child(1),.att-work-sheet-table td:nth-child(1){position:sticky;left:0;z-index:10;background:#fff;min-width:60px}
+.att-work-sheet-table th:nth-child(2),.att-work-sheet-table td:nth-child(2){position:sticky;left:60px;z-index:10;background:#fff;min-width:140px}
+.att-work-sheet-table th:nth-child(3),.att-work-sheet-table td:nth-child(3){position:sticky;left:200px;z-index:10;background:#fff;min-width:140px}
+.att-work-sheet-table thead th:nth-child(-n+3){z-index:12;background:#f2f3f5}
+.att-work-sheet-table tbody tr:hover td:nth-child(-n+3){background:#f7faff}
