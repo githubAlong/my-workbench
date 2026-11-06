@@ -57,7 +57,6 @@ const TYPE_SHORT = { seat: '坐班表', research: '教研签到表', class: '上
 /* V1.0 always builds all three independent daily tables. */
 const TYPE_ORDER = ['seat', 'research', 'class'];
 let attendanceWorkspaceLiveOff = null;
-let attendanceWorkspacePresenceOff = null;
 
 /* 两个主 tab。学校的考勤只管高一高二；要加年级走「＋」那个按钮。
    常量与排序规则在 attgrade.js，列表页和详情页共用一份。 */
@@ -148,8 +147,6 @@ function dateChip(t) {
 export async function renderAttendance(box, opts = {}) {
   attendanceWorkspaceLiveOff?.();
   attendanceWorkspaceLiveOff = null;
-  attendanceWorkspacePresenceOff?.();
-  attendanceWorkspacePresenceOff = null;
   const want = String(opts.grade || '').trim();
   if (!want) return renderGradeList(box);
 
@@ -172,93 +169,6 @@ export async function renderAttendance(box, opts = {}) {
   let searchText = '';
   let subjectFilter = '';
   let busy = false;
-  let presenceUsers = [];
-  let presenceStatus = 'idle';
-  const paintPresence = () => {
-    const host = box.querySelector('#att-work-online');
-    if (!host) return;
-    const users = presenceUsers.filter((user) => String(user.grade || '') === String(activeGrade) && String(user.view || '') === '考勤管理');
-    if (presenceStatus !== 'live') {
-      host.innerHTML = `<i class="aw-online-dot offline"></i><span>协作未连接</span>`;
-      host.title = '实时在线状态暂不可用';
-      return;
-    }
-    if (!users.length) {
-      host.innerHTML = `<i class="aw-online-dot"></i><span>暂无在线教师</span>`;
-      host.title = `${activeGrade}考勤暂时没有在线查看者`;
-      return;
-    }
-    host.innerHTML = users.slice(0, 3).map((user) => `<span class="aw-online-person"><i></i>${esc(user.name || '老师')}</span>`).join('')
-      + (users.length > 3 ? `<span class="aw-online-more">+${users.length - 3}</span>` : '');
-    host.title = users.map((user) => `${user.name || '老师'}正在查看${activeGrade}考勤`).join('；');
-  };
-  const onPresence = (event) => { presenceUsers = Array.isArray(event.detail?.users) ? event.detail.users : []; presenceStatus = event.detail?.status || presenceStatus; paintPresence(); };
-  const onRealtimeStatus = (event) => { presenceStatus = event.detail?.status || 'idle'; paintPresence(); };
-  window.addEventListener('wb:attendance-presence', onPresence);
-  window.addEventListener('wb:realtime-status', onRealtimeStatus);
-  attendanceWorkspacePresenceOff = () => { window.removeEventListener('wb:attendance-presence', onPresence); window.removeEventListener('wb:realtime-status', onRealtimeStatus); };
-
-  const typeForTab = { seat: 'seat', research: 'research', class: 'class' };
-  const tabTitle = { seat: '坐班考勤表', research: '教研考勤表', class: '上课考勤表' };
-  const dateLabel = (v) => {
-    const d = new Date(`${v}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? v : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（星期${WD[d.getDay()]}）`;
-  };
-  const listFor = (type) => tables.filter((t) => t.grade === activeGrade
-    && String(t.sheet_date || '') === viewDate && (t.sheet_type || t.kind) === type && !t.deleted_at);
-  const listForSelected = (type) => listFor(type);
-  const getPeriodCols = (t) => {
-    const cols = (t?.columns || []).filter((c) => c.type === 'check' && /^第\s*\d+\s*节/.test(c.label || ''));
-    if (cols.length) return cols.sort((a, b) => Number((a.label.match(/\d+/) || [0])[0]) - Number((b.label.match(/\d+/) || [0])[0]));
-    const legacy = (t?.columns || []).find((c) => c.key === 'k_准时' || /按时上课/.test(c.label || ''));
-    return legacy ? [{ ...legacy, label: '第1节' }] : [];
-  };
-
-  const ensureSeatColumns = async (t) => {
-    if (!t || (t.sheet_type || t.kind) !== 'seat') return t;
-    const expected = seatCols(), current = t.columns || [], used = new Set();
-    const merged = expected.map((col) => {
-      const found = current.find((old) => !used.has(old.key) && (old.key === col.key || old.label === col.label));
-      if (found) used.add(found.key);
-      return found ? { ...col, ...found, label: col.label, type: col.type } : col;
-    });
-    current.filter((col) => !used.has(col.key) && !merged.some((x) => x.key === col.key)).forEach((col) => merged.push(col));
-    const same = merged.length === current.length && merged.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label && c.type === current[i]?.type);
-    if (same) return t;
-    await api.patch(`/attendance/${t.id}`, { columns: merged, migration: true });
-    return { ...t, columns: merged };
-  };
-
-  const ensureClassColumns = async (t) => {
-    if (!t || (t.sheet_type || t.kind) !== 'class') return t;
-    const expected = classCols();
-    const current = t.columns || [];
-    const merged = expected.map((col) => {
-      const found = current.find((old) => old.key === col.key || old.label === col.label);
-      return found ? { ...col, ...found, label: col.label, type: col.type } : col;
-    });
-    const same = merged.length === current.length
-      && merged.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label && c.type === current[i]?.type);
-    if (same) return t;
-    await api.patch(`/attendance/${t.id}`, { columns: merged, migration: true });
-    return { ...t, columns: merged };
-  };
-
-  const ensureResearchColumns = async (t) => {
-    if (!t || (t.sheet_type || t.kind) !== 'research') return t;
-    const current = t.columns || [];
-    const next = [
-      current.find((c) => c.key === 'k_签到' || /签到|教研|出席/.test(c.label || '')) || { key: 'k_签到', label: '教研', type: 'check', w: 120 },
-      current.find((c) => c.key === 'k_请假' || /请假/.test(c.label || '')) || { key: 'k_请假', label: '请假', type: 'check', w: 120 },
-      current.find((c) => c.key === 'k_remark' || /备注/.test(c.label || '')) || { key: 'k_remark', label: '备注', type: 'text', w: 200 },
-    ].map((col, i) => ({ ...col, key: ['k_签到','k_请假','k_remark'][i], label: ['教研','请假','备注'][i], type: i === 2 ? 'text' : 'check' }));
-    const same = next.length === current.length
-      && next.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label && c.type === current[i]?.type);
-    if (same) return t;
-    await api.patch(`/attendance/${t.id}`, { columns: next, migration: true });
-    return { ...t, columns: next };
-  };
-
   const load = async ({ makeToday = true } = {}) => {
     if (busy) return;
     busy = true;
@@ -281,7 +191,6 @@ export async function renderAttendance(box, opts = {}) {
       }
       if (!gradesData.tabs.includes(activeGrade)) activeGrade = gradesData.tabs[0];
       sessionStorage.setItem('wb_att_grade', activeGrade);
-      window.dispatchEvent(new CustomEvent('wb:attendance-context', { detail: { grade: activeGrade, view: '考勤管理' } }));
       sessionStorage.setItem('wb_att_date', viewDate);
       // 进入工作台或切换日期时只读取已有记录，不自动创建正式/草稿考勤表。
       // 当天表格应由用户明确操作生成，并在人工确认后成为正式记录。
@@ -465,7 +374,7 @@ export async function renderAttendance(box, opts = {}) {
         <div class="att-work-crumb">工作模块 <span>/</span> 考勤 <span>/</span> ${esc(activeGrade)}</div>
         <div class="att-work-head att-work-sticky">
           <div><button class="btn ghost sm" id="att-work-back">‹ 返回</button><h2>考勤管理 - ${esc(activeGrade)}</h2><div class="att-work-sync"><i></i> ${detail?.confirm_state === 'confirmed' ? '已生成' : '待生成'}</div></div>
-          <div class="att-work-head-actions"><select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select><div class="att-work-online" id="att-work-online" aria-live="polite"></div><button class="btn ghost sm" id="att-work-create-group">补齐三张表</button></div>
+          <div class="att-work-head-actions"><select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select><div class="att-work-online" id="att-work-online" title="在线人员名单需完成账号隔离的实时协作授权后启用"><i class="aw-online-dot offline"></i><span>在线协作待配置</span></div><button class="btn ghost sm" id="att-work-create-group">补齐三张表</button></div>
         </div>
         <div class="att-work-meta-controls">
           <div class="att-work-date">
@@ -498,7 +407,6 @@ export async function renderAttendance(box, opts = {}) {
           ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；姓名和学科必填，重复记录会在确认前拦截。</span></div>` : `<div class="att-work-foot"><span>${isClass ? 'ⓘ 上课表独立记录当天数据；临时教师不进入永久花名册，次日不会自动出现。' : activeTab === 'seat' ? 'ⓘ 坐班表独立记录并确认，不参与上课表内容。' : 'ⓘ 教研表独立记录签到、请假与备注，可按学科批量签到。'}</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? `重新确认${TYPE_SHORT[activeTab]}` : `确认生成${TYPE_SHORT[activeTab]}`}</button></div></div>`}
         </section>
       </div>`;
-    paintPresence();
 
     box.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => {
       const tab = b.dataset.tab;

@@ -28,12 +28,11 @@ test('teacher add dialog supports selecting a grade and cross-grade class entry'
   assert.match(source, /新增上课老师/);
 });
 
-test('attendance presence tracks viewers and exposes presence state changes', async () => {
-  const source = await read('../js/realtime.js');
-  assert.match(source, /presence_state/);
-  assert.match(source, /presence_diff/);
-  assert.match(source, /event: 'presence'/);
-  assert.match(source, /wb:attendance-presence/);
+test('online presence names remain disabled until a private authorization channel exists', async () => {
+  const attendance = await read('../js/attendance.js');
+  const realtime = await read('../js/realtime.js');
+  assert.match(attendance, /在线协作待配置/);
+  assert.doesNotMatch(realtime, /presence_state|presence_diff|event: 'presence'/);
 });
 
 test('attendance PRD layout freezes roster columns and uses cards through tablet widths', async () => {

@@ -762,11 +762,8 @@
 /* Attendance PRD V1.0 — result summary, online presence, roster frozen columns */
 .att-work-filter-summary{margin:-5px 0 10px;color:#4e5969;font-size:12px;line-height:1.5}
 .att-work-online{display:flex;align-items:center;gap:7px;min-width:0;max-width:300px;padding:6px 9px;border:1px solid #e5e6eb;border-radius:999px;background:#fff;color:#4e5969;font-size:11px;white-space:nowrap;overflow:hidden}
-.aw-online-dot,.aw-online-person i{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#00b42a;display:inline-block}
+.aw-online-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#00b42a;display:inline-block}
 .aw-online-dot.offline{background:#ff7d00}
-.aw-online-person{display:inline-flex;align-items:center;gap:5px}
-.aw-online-person i{width:6px;height:6px;flex-basis:6px}
-.aw-online-more{color:#165dff;font-weight:700}
 .aw-result-card{margin:16px 0 2px;padding:14px 16px;border:1px solid #d9eadf;border-radius:12px;background:#f7fcf8}
 .aw-result-card.is-modified{border-color:#f4dfc0;background:#fffaf2}
 .aw-result-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;color:#16834a}

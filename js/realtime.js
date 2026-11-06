@@ -22,7 +22,6 @@
    ========================================================================== */
 
 import { cfg as cloudCfg, SESSION_STORAGE_KEY } from './cloud.js';
-import { load as loadLocalDB } from './localdb.js';
 
 /* 需要实时的表。加表只改这里一行 ——
    SQL 那边也要把同名表加进 supabase_realtime 发布，两处必须对得上。 */
@@ -94,10 +93,6 @@ const st = {
   lastBeat: 0,
   lastMsgAt: 0,
   tokAtJoin: '',
-  presenceKey: `wb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
-  presenceTracked: false,
-  presenceState: {},
-  presenceContext: { grade: '', view: '' },
 };
 
 export function status() {
@@ -109,7 +104,6 @@ function setStatus(s) {
   st.status = s;
   st.since = Date.now();
   emit('wb:realtime-status', { status: s, tries: st.tries });
-  emitPresence();
 }
 
 /* st.since 有两个用途：一是状态起始时间（给界面展示），
@@ -145,50 +139,6 @@ function send(obj) {
 
 function nextRef() { st.ref += 1; return String(st.ref); }
 
-const ATTENDANCE_PRESENCE_TOPIC = 'realtime:public:attendance_tables';
-
-function attendancePresenceMeta() {
-  let nickname = '老师';
-  try { nickname = String(loadLocalDB()?.meta?.user?.nickname || '老师').trim() || '老师'; } catch { }
-  return { name: nickname, grade: st.presenceContext.grade, view: st.presenceContext.view || '考勤管理' };
-}
-
-function flattenPresence(state) {
-  const users = [];
-  for (const [key, entries] of Object.entries(state || {})) for (const entry of Array.isArray(entries) ? entries : []) users.push({ ...entry, presence_key: key });
-  return users;
-}
-
-function emitPresence() { emit('wb:attendance-presence', { users: flattenPresence(st.presenceState), status: st.status, grade: st.presenceContext.grade }); }
-
-function sendPresence(action) {
-  const payload = action === 'track' ? { event: 'track', payload: attendancePresenceMeta() } : { event: 'untrack' };
-  return send({ topic: ATTENDANCE_PRESENCE_TOPIC, event: 'presence', payload, ref: nextRef() });
-}
-
-function setAttendancePresenceContext(context = {}) {
-  const grade = String(context.grade || '').trim();
-  st.presenceContext = { grade, view: grade ? String(context.view || '考勤管理') : '' };
-  if (st.presenceTracked) {
-    if (grade) sendPresence('track');
-    else { sendPresence('untrack'); st.presenceTracked = false; }
-  }
-  emitPresence();
-}
-
-function syncAttendancePresenceFromRoute() {
-  try {
-    const route = String(window.location.hash || '').replace(/^#\/?/, '').split('/');
-    const grade = route[0] === 'work' && route[1] === 'attendance' && route[2] ? decodeURIComponent(route[2]) : '';
-    setAttendancePresenceContext({ grade, view: '考勤管理' });
-  } catch { setAttendancePresenceContext({}); }
-}
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('wb:attendance-context', (event) => setAttendancePresenceContext(event.detail || {}));
-  window.addEventListener('hashchange', syncAttendancePresenceFromRoute);
-  syncAttendancePresenceFromRoute();
-}
 /* 停掉所有定时器。重连过程中要反复调，漏一个就会出现两条连接并存 */
 function clearTimers() {
   for (const k of Object.keys(st.timers)) {
@@ -202,9 +152,6 @@ function hardClose() {
   clearTimers();
   const ws = st.ws;
   st.ws = null;
-  st.presenceTracked = false;
-  st.presenceState = {};
-  emitPresence();
   if (ws) {
     try { ws.onclose = null; ws.onerror = null; ws.onmessage = null; } catch { }
     try { ws.close(); } catch { }
@@ -228,7 +175,7 @@ function joinAll(at) {
            少了 postgres_changes，服务端不会推任何行变更，而且不报错 */
         config: {
           broadcast: { self: false },
-          presence: { key: table === 'attendance_tables' ? st.presenceKey : '' },
+          presence: { key: '' },
           postgres_changes: [
             /* 不带 filter：一张表就一个用户的数据量（几十到几百行），
                在前端筛反而更省事；RLS 已经保证推不到别人的行。 */
@@ -293,9 +240,6 @@ function handleOne(m) {
         st.tries = 0;
         setStatus('live');
       }
-      if (m.topic === ATTENDANCE_PRESENCE_TOPIC && m.payload?.status === 'ok' && st.presenceContext.grade) {
-        if (sendPresence('track')) st.presenceTracked = true;
-      }
       return;
 
     /* 服务端主动关频道（比如没权限、表没加进发布）。
@@ -304,31 +248,6 @@ function handleOne(m) {
     case 'phx_close':
       /* 订阅被拒的典型原因：这张表没加到 supabase_realtime 里 */
       emit('wb:realtime-denied', { topic: m.topic });
-      return;
-
-    case 'presence_state':
-      if (m.topic === ATTENDANCE_PRESENCE_TOPIC) { st.presenceState = m.payload || {}; emitPresence(); }
-      return;
-
-    case 'presence_diff':
-      if (m.topic === ATTENDANCE_PRESENCE_TOPIC) {
-        const next = { ...(st.presenceState || {}) };
-        const joins = m.payload?.joins || {};
-        const leaves = m.payload?.leaves || {};
-        for (const [key, entries] of Object.entries(joins)) {
-          const current = Array.isArray(next[key]) ? next[key] : [];
-          const byRef = new Map(current.map((entry, index) => [entry.presence_ref || `${key}:${index}`, entry]));
-          (Array.isArray(entries) ? entries : []).forEach((entry, index) => byRef.set(entry.presence_ref || `${key}:join:${index}`, entry));
-          next[key] = [...byRef.values()];
-        }
-        for (const [key, entries] of Object.entries(leaves)) {
-          const remove = new Set((Array.isArray(entries) ? entries : []).map((entry) => entry.presence_ref).filter(Boolean));
-          next[key] = (Array.isArray(next[key]) ? next[key] : []).filter((entry) => !remove.has(entry.presence_ref));
-          if (!next[key].length) delete next[key];
-        }
-        st.presenceState = next;
-        emitPresence();
-      }
       return;
 
     /* 真正的数据变更 */
