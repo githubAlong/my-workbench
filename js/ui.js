@@ -377,6 +377,16 @@ function bindShell() {
       e.preventDefault();
       e.stopPropagation();
       const key = b.dataset.navToggle;
+      /* 分组标题本身也是一级/二级页面入口：
+         点文字进入该分组默认页；只有点右侧箭头才单独折叠/展开。
+         之前整行都只执行 toggle，用户点「工作」时页面不切换，
+         容易误以为一级导航失效。 */
+      if (!e.target.closest('.nav-caret')) {
+        setNavGroupOpen(key, true);
+        go(key === 'work' ? 'work/lessons' : key);
+        return;
+      }
+
       const willOpen = !isNavGroupOpen(key);
       setNavGroupOpen(key, willOpen);
 
@@ -387,9 +397,7 @@ function bindShell() {
         });
       }
 
-      /* 小助手既是分组入口也是管理页：从其他页面首次展开时进入管理页；
-         在小助手内部再次点击则只收起/展开子菜单，不打断当前页面。 */
-      if (key.includes('/') && willOpen && !routeIsInNavGroup(key)) go(key);
+      /* 点击箭头只负责折叠/展开，不改变当前页面。 */
     };
   });
   const st = document.getElementById('side-theme');
