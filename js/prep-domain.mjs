@@ -35,7 +35,7 @@ export function filterPrepRecords(records, {
   if (type) result = result.filter((record) => normalizePrepType(record?.prep_type) === type);
   if (className) result = result.filter((record) => String(record?.class_name || '').trim() === className);
   if (status) {
-    result = result.filter((record) => ((record?.status || 'doing') === 'done') === (status === 'done');
+    result = result.filter((record) => ((record?.status || 'doing') === 'done') === (status === 'done'));
   }
   if (keyword) {
     const query = String(keyword).trim().toLocaleLowerCase();
