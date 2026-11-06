@@ -19,6 +19,7 @@ test('attendance confirmation shows the required confirmation and result summary
   assert.match(source, /操作人：/);
   assert.match(source, /未坐班人数/);
   assert.match(source, /mergeAttendanceRosterRows/);
+  assert.match(source, /const rowsNow = visibleRows\(\)/);
 });
 
 test('teacher add dialog supports selecting a grade and cross-grade class entry', async () => {

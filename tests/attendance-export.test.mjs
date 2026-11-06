@@ -13,11 +13,14 @@ test('PDF/PNG/Excel export source keeps each attendance table separate', () => {
     { key: 'k_上课', label: '上课', type: 'check' },
     { key: 'k_请假', label: '请假', type: 'check' },
   ];
-  const seat = attendanceExportGrid({ grade: '高一', date: '2026-11-06', type: 'seat', columns, rows });
-  const classSheet = attendanceExportGrid({ grade: '高一', date: '2026-11-06', type: 'class', columns, rows });
-  assert.match(seat[0][0], /坐班表/);
-  assert.match(classSheet[0][0], /上课表/);
-  assert.notDeepEqual(seat[0], classSheet[0]);
+  const seat = attendanceExportGrid({ grade: '高一', date: '2026-11-06', type: 'seat', period: '第1节', timeRange: '08:00-08:40', columns, rows });
+  const classSheet = attendanceExportGrid({ grade: '高一', date: '2026-11-06', type: 'class', period: '第1节', timeRange: '08:00-08:40', columns, rows });
+  assert.equal(seat[0][0], '高一考勤表');
+  assert.deepEqual(seat[1], ['表类型：坐班表', '日期：2026-11-06', '时间段：08:00-08:40', '节次：第1节']);
+  assert.equal(classSheet[1][0], '表类型：上课表');
+  assert.notDeepEqual(seat[1], classSheet[1]);
+  assert.equal(seat[2][0], '序号');
+  assert.equal(seat[3][3], '✓');
   assert.equal(
     attendanceExportFileName({ grade: '高一', date: '2026-11-06', type: 'class', extension: 'xlsx' }),
     '高一上课表_2026-11-06.xlsx',

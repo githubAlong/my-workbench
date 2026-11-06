@@ -504,18 +504,21 @@ export async function renderAttendance(box, opts = {}) {
     }
     box.querySelectorAll('[data-export]').forEach((b) => b.onclick = async () => {
       if (!detail) return toast('没有可导出的考勤表', 'warn');
-      const rowsNow = getRows();
+      const rowsNow = visibleRows();
       const title = `${activeGrade}${tabTitle[activeTab]}_${viewDate}`;
-      if (b.dataset.export === 'pdf') return saveThenPdf(detail, rowsNow);
-      if (b.dataset.export === 'png') return shotTable(detail.id);
       const exportCols = displayColumns;
+      const exportView = { rows: rowsNow, columns: exportCols, title, timeRange: activeTab === 'research' ? '全天' : timeRange };
+      if (b.dataset.export === 'pdf') return saveThenPdf(detail, null, exportView);
+      if (b.dataset.export === 'png') return shotTable(detail.id, exportView);
       const grid = attendanceExportGrid({
         grade: activeGrade,
         date: viewDate,
         type: activeTab,
+        period: activeTab === 'research' ? '教研' : `第${selectedPeriod}节`,
+        timeRange: activeTab === 'research' ? '全天' : timeRange,
         columns: exportCols,
         rows: rowsNow,
-      }).slice(1);
+      });
       saveBlob(makeXlsx({ title, grid }), attendanceExportFileName({
         grade: activeGrade,
         date: viewDate,
@@ -993,7 +996,7 @@ async function saveThenPdf(t, rows, view = null) {
       grade: detail.grade || '',
       date_text: dateText,
       weekday: d && !Number.isNaN(d.getTime()) ? '星期' + WD[d.getDay()] : (detail.weekday ? '星期' + detail.weekday : ''),
-      periods: detail.periods ? `第 ${detail.periods} 节` : '',
+      periods: detail.periods ? `第 ${detail.periods} 节${detail.meta?.time_range ? ' · ' + detail.meta.time_range : ''}` : ((detail.sheet_type || detail.kind) === 'research' ? '教研' : ''),
       columns: cols,
       rows: outRows,
       summary,
@@ -3685,8 +3688,10 @@ async function shotTable(id, view = null) {
   const rows = view?.rows || t.rows || [];
   const isSeat = (t.sheet_type || t.kind) === 'seat';
   const d = t.sheet_date ? new Date(t.sheet_date + 'T00:00:00') : null;
+  const periodLine = t.periods ? '　第 ' + t.periods + ' 节' : '';
+  const rangeLine = view?.timeRange || t.meta?.time_range || '';
   const dateLine = d && !Number.isNaN(d.getTime())
-    ? `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日　星期${WD[d.getDay()]}${t.periods ? '　第 ' + t.periods + ' 节' : ''}`
+    ? `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日　星期${WD[d.getDay()]}${periodLine}${rangeLine ? '　' + rangeLine : ''}`
     : '';
 
   try {
@@ -3709,7 +3714,9 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat, wm = '' }) 
   const PAD = 28;
   const colW = isSeat ? [44, 104, 70] : [44, 104, 70];
   const chkW = 62;
-  const tableW = colW.reduce((a, b) => a + b, 0) + cols.length * chkW;
+  const textW = 150;
+  const colWidths = cols.map((column) => column.type === 'check' ? chkW : textW);
+  const tableW = colW.reduce((a, b) => a + b, 0) + colWidths.reduce((a, b) => a + b, 0);
   const W = Math.max(tableW, isSeat ? 860 : 560) + PAD * 2;
   const HEAD_H = 34;
   const ROW_H = 34;
@@ -3739,7 +3746,7 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat, wm = '' }) 
   }
 
   const heads = ['序号', '姓名', '学科', ...cols.map((c) => c.label.replace(/^[左右]栏·/, ''))];
-  const widths = [...colW, ...cols.map(() => chkW)];
+  const widths = [...colW, ...colWidths];
   const left = (W - widths.reduce((a, b) => a + b, 0)) / 2;
   const top = PAD + TOP - PAD;
 
@@ -3775,33 +3782,42 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat, wm = '' }) 
       cx += widths[i];
     });
     /* 勾选列：画勾/叉，不画字 —— 和纸表一致，也避免字体里没有 ✓ 的机器显示成方块 */
-    cols.forEach((c) => {
+    cols.forEach((c, index) => {
       const v = r.data?.[c.key];
+      const cellW = colWidths[index];
       ctx.strokeStyle = '#d8d8dc';
-      ctx.strokeRect(cx + 0.5, y + 0.5, chkW, ROW_H);
-      const mx = cx + chkW / 2;
-      const my = y + ROW_H / 2;
-      if (v === '1') {
-        ctx.strokeStyle = '#1a7f37';
-        ctx.lineWidth = 2.4;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(mx - 9, my + 1);
-        ctx.lineTo(mx - 3, my + 8);
-        ctx.lineTo(mx + 10, my - 8);
-        ctx.stroke();
-        ctx.lineWidth = 1;
-      } else if (v === '0') {
-        ctx.strokeStyle = '#c62828';
-        ctx.lineWidth = 2.4;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(mx - 8, my - 8); ctx.lineTo(mx + 8, my + 8);
-        ctx.moveTo(mx + 8, my - 8); ctx.lineTo(mx - 8, my + 8);
-        ctx.stroke();
-        ctx.lineWidth = 1;
+      ctx.strokeRect(cx + 0.5, y + 0.5, cellW, ROW_H);
+      if (c.type !== 'check') {
+        ctx.fillStyle = '#4e5969';
+        ctx.font = `11px ${FONT}`;
+        ctx.textAlign = 'center';
+        ctx.fillText(String(v ?? ''), cx + cellW / 2, y + ROW_H / 2, cellW - 8);
+        ctx.font = `13px ${FONT}`;
+      } else {
+        const mx = cx + cellW / 2;
+        const my = y + ROW_H / 2;
+        if (v === '1') {
+          ctx.strokeStyle = '#1a7f37';
+          ctx.lineWidth = 2.4;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(mx - 9, my + 1);
+          ctx.lineTo(mx - 3, my + 8);
+          ctx.lineTo(mx + 10, my - 8);
+          ctx.stroke();
+          ctx.lineWidth = 1;
+        } else if (v === '0') {
+          ctx.strokeStyle = '#c62828';
+          ctx.lineWidth = 2.4;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(mx - 8, my - 8); ctx.lineTo(mx + 8, my + 8);
+          ctx.moveTo(mx + 8, my - 8); ctx.lineTo(mx - 8, my + 8);
+          ctx.stroke();
+          ctx.lineWidth = 1;
+        }
       }
-      cx += chkW;
+      cx += cellW;
     });
   });
 

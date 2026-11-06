@@ -3,11 +3,12 @@ import {
   normalizeAttendanceType,
 } from './attendance-domain.mjs';
 
-export function attendanceExportGrid({ grade, date, type, columns = [], rows = [] }) {
+export function attendanceExportGrid({ grade, date, type, period = '', timeRange = '', columns = [], rows = [] }) {
   const normalizedType = normalizeAttendanceType(type) || 'seat';
   const safeColumns = Array.isArray(columns) ? columns : [];
   return [
-    [`${grade || ''}${ATTENDANCE_TYPE_SHORT[normalizedType]} · ${date || ''}`],
+    [`${grade || ''}考勤表`],
+    [`表类型：${ATTENDANCE_TYPE_SHORT[normalizedType]}`, `日期：${date || '—'}`, `时间段：${timeRange || '—'}`, `节次：${period || '—'}`],
     ['序号', '姓名', '学科', ...safeColumns.map((column) => column.label)],
     ...(Array.isArray(rows) ? rows : []).map((row, index) => [
       index + 1,
