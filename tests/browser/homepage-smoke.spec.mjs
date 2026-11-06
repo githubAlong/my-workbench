@@ -18,6 +18,9 @@ for (const viewport of [
     await expect(page.locator('#app')).not.toBeEmpty({ timeout: 20000 });
     await expect(page.locator('#side-brand .brand-name')).toHaveText('我的工作台');
     await expect(page.locator('#side-brand .brand-sub')).toHaveText('Workbench');
+    await expect(page.locator('#side-brand')).not.toHaveClass(/home-side-profile/);
+    await expect(page.locator('#side-brand')).not.toContainText('用户');
+
     if (viewport.width > 900) {
       await expect(page.locator('#side-brand .brand-logo svg')).toBeVisible();
     } else {
@@ -123,5 +126,21 @@ test('首页右上角布局编辑按钮可进入和退出编辑状态', async ({
   await expect(page.locator('#hg-toolbar')).toBeHidden();
   await expect(editButton).toHaveAttribute('aria-pressed', 'false');
   await expect(editButton).toContainText('编辑布局');
+  await context.close();
+});
+
+test('首页和工作页面共用后台品牌，首页不把品牌替换为个人资料', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const page = await context.newPage();
+  await page.goto(`${baseURL}?e2e=1#/home`, { waitUntil: 'domcontentloaded' });
+  const brand = page.locator('#side-brand');
+  await expect(brand.locator('.brand-name')).toHaveText('我的工作台', { timeout: 20000 });
+  await expect(brand.locator('.brand-sub')).toHaveText('Workbench');
+  await expect(brand).not.toHaveClass(/home-side-profile/);
+  await page.locator('.sidebar [data-nav="work"]').click();
+  await expect(page.locator('#main')).not.toBeEmpty();
+  await expect(brand.locator('.brand-name')).toHaveText('我的工作台');
+  await expect(brand.locator('.brand-sub')).toHaveText('Workbench');
+  await expect(brand).not.toHaveClass(/home-side-profile/);
   await context.close();
 });

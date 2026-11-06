@@ -396,8 +396,8 @@ function readWorkbenchBrand() {
 async function renderWorkbenchSettings(main) {
   main.classList.add('page-me-workbench-settings');
   const stored = readWorkbenchBrand();
-  // 旧版保存的个人昵称/签名不再默认覆盖产品品牌；仅在用户主动保存自定义品牌后启用。
-  const current = stored.enabled === true ? stored : {};
+  // 直接读取后台工作台设计；兼容历史已保存配置，不要求额外启用标记。
+  const current = stored;
   let image = typeof current.image === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(current.image)
     ? current.image : '';
   const fallbackTitle = '我的工作台';
@@ -411,7 +411,7 @@ async function renderWorkbenchSettings(main) {
   main.innerHTML = mePageHeader('workbench') +
     '<section class="card wb-brand-settings">' +
       '<header class="wb-brand-settings-head">' +
-        '<div><h2>工作台品牌设置</h2><p>默认显示「我的工作台 / Workbench」；保存自定义名称或图片后会应用到左上角</p></div>' +
+        '<div><h2>工作台品牌设置</h2><p>此处读取并设置后台工作台设计；未设置的项目自动使用系统默认值</p></div>' +
         '<span class="wb-brand-live"><i></i> 实时预览</span>' +
       '</header>' +
       '<div class="wb-brand-preview-area">' +
@@ -538,7 +538,6 @@ async function renderWorkbenchSettings(main) {
       title: title.value.trim().slice(0, 40),
       subtitle: subtitle.value.trim().slice(0, 60),
       image,
-      enabled: true,
       updatedAt: new Date().toISOString(),
     };
     if (!saveLocalDB()) {

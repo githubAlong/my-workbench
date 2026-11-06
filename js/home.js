@@ -60,18 +60,13 @@ function homeAvatarHTML(size = 52) {
 }
 
 function applyHomeSidebar() {
-  const app=document.querySelector('.app'), sidebar=app?.querySelector('.sidebar');
-  if(!app||!sidebar)return;
-  app.classList.add('home-redesign-app'); sidebar.classList.add('home-sidebar');
-  const user=state.user||{}, nickname=user.nickname||'老师';
-  const schoolSubject=[user.school,user.subject].filter(Boolean).join(' · '), role=[user.title,user.grade_group].filter(Boolean).join(' · ');
-  const brand=sidebar.querySelector('#side-brand');
-  if(brand){brand.classList.add('home-side-profile');brand.setAttribute('aria-label',nickname+'个人信息');
-    brand.innerHTML='<div class="home-side-avatar">'+homeAvatarHTML(92)+'</div>'
-      +'<div class="home-side-name">'+esc(nickname)+'</div>'
-      +'<div class="home-side-motto">'+esc(user.signature||'看山又是山，看山又不是山')+'</div>'
-      +'<div class="home-side-meta" id="home-profile-meta">'+esc(schoolSubject)+'</div>'
-      +'<div class="home-side-role" id="home-profile-role">'+esc(role)+'</div>';}
+  const app = document.querySelector('.app');
+  const sidebar = app?.querySelector('.sidebar');
+  if (!app || !sidebar) return;
+  // 首页只应用首页布局样式，不得把品牌区域替换成个人资料。
+  // 品牌标题、说明和图标由 ui.js 统一读取后台 workbenchBrand 配置。
+  app.classList.add('home-redesign-app');
+  sidebar.classList.add('home-sidebar');
 }
 /* ================= 天气 ================= */
 const WX = {
