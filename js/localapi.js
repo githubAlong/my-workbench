@@ -4118,6 +4118,7 @@ for (const table of CRUD_TABLES) {
        挑的都是「空着这条记录就没意义」的字段，不做格式校验，不打扰正常录入。 */
     const REQUIRED = {
       lessons: [['class_name', '班级不能为空']],
+      preps: [['topic', '请填写备课主题'], ['prep_type', '请选择备课类型']],
       trips: [['to_place', '目的地不能为空']],
       invigilations: [['__atLeastOne', '考试名称 / 考场 / 开始时间至少填一个']],
     }[table];
@@ -4130,6 +4131,9 @@ for (const table of CRUD_TABLES) {
           fail(422, msg);
         }
       }
+    }
+    if (table === 'preps' && !['information', 'specialty'].includes(String(b.prep_type || '').trim())) {
+      fail(422, '请选择备课类型');
     }
     // 监考表旧列 type 是 NOT NULL，新逻辑用 duty_type，这里补一份映射
     if (table === 'invigilations' && !b.type) {
@@ -4146,11 +4150,22 @@ for (const table of CRUD_TABLES) {
     if (table === 'materials') { b.views = b.views ?? 0; b.downloads = b.downloads ?? 0; }
     return createRow(table, normalizeBody(b));
   });
-  on('PATCH', `/${table}/:id`, ({ params, body }) => updateRow(table, params.id, normalizeBody(body || {})));
+  on('PATCH', `/${table}/:id`, ({ params, body }) => {
+    const b = normalizeBody(body || {});
+    if (table === 'preps' && b.prep_type !== undefined
+      && !['information', 'specialty', 'unclassified'].includes(String(b.prep_type).trim())) {
+      fail(422, '备课类型不正确');
+    }
+    return updateRow(table, params.id, b);
+  });
   on('POST', `/${table}/bulk`, ({ body }) => {
     const rows = Array.isArray(body?.rows) ? body.rows : [];
     const ids = [];
     for (const item of rows) {
+      if (table === 'preps' && !item?.id) {
+        if (!String(item?.topic || '').trim()) fail(422, '请填写备课主题');
+        if (!['information', 'specialty'].includes(String(item?.prep_type || '').trim())) fail(422, '请选择备课类型');
+      }
       if (item && item.id) { updateRow(table, item.id, normalizeBody(item)); ids.push(item.id); }
       else { ids.push(createRow(table, normalizeBody(item || {})).id); }
     }
