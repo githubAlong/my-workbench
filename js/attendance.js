@@ -392,7 +392,8 @@ export async function renderAttendance(box, opts = {}) {
         <td><button class="btn ghost sm" data-roster-save="${esc(r.id)}">保存</button><button class="btn ghost sm aw-danger" data-roster-delete="${esc(r.id)}">删除</button></td>
       </tr>`).join('')}</tbody>
     </table></div>${rosterRows.length ? '' : `<div class="att-work-empty"><b>暂无教师名单</b><p>请点击新增老师或导入名单。</p></div>`}`;
-    const classViewNote = isClass ? `<div class="att-work-locked-note">上课表独立保存、独立确认。可录入跨年级临时教师；临时记录只保留在当天这张表，不写入花名册。</div>` : '';
+    const classViewNote = isClass ? `<div class="att-work-locked-note">上课表独立保存、独立确认。可录入跨年级教师，年级标签会标明来源；临时记录不会自动加入花名册。</div>` : '';
+    const mobileRowsHTML = !isRoster && detail ? `<div class="att-work-mobile-list">${rows.map((r)=>{const ix=detail.rows.findIndex(x=>(r.id&&String(x.id)===String(r.id))||(r._uiKey&&x._uiKey===r._uiKey));return `<article class="aw-mobile-card" data-mobile-row="${ix}"><div class="aw-mobile-card-head"><b>${esc(r.teacher||'')}</b><span class="aw-grade-tag">${esc(r.data?.borrow_grade||r.data?.class_grade||r.grade||activeGrade)}</span><span class="aw-subject-tag">${esc(r.subject||'未填学科')}</span></div><div class="aw-mobile-status">${displayColumns.filter(c=>c.type==='check').map(c=>`<button class="aw-mobile-mark ${r.data?.[c.key]==='1'?'on':''}" data-row="${ix}" data-key="${esc(c.key)}">${esc(c.label)} ${r.data?.[c.key]==='1'?'✓':''}</button>`).join('')}</div><input class="aw-cell-input aw-mobile-remark" data-cell-input data-row="${ix}" data-key="${esc(displayColumns.find(c=>c.type!=='check')?.key||'k_remark')}" value="${esc(r.data?.[displayColumns.find(c=>c.type!=='check')?.key||'k_remark']||'')}" placeholder="备注"></article>`;}).join('')}</div>` : '';
     const tableHTML = isRoster ? rosterHTML : detail ? `
       ${classViewNote}
       <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table">
@@ -440,6 +441,7 @@ export async function renderAttendance(box, opts = {}) {
           </div>
           <div class="att-work-table-title"><div><h3>${isRoster ? '教师花名册' : (tabTitle[activeTab] || '上课考勤表')}</h3><span>${isRoster ? `${esc(activeGrade)} · ${roster.filter((r) => r.active).length} 位教师 · ${subjects.length} 个学科` : `${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${rows.length} 位教师`}</span></div>${isRoster ? `<span class="att-work-confirm ok">名单已加载</span>` : `<span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span>`}</div>
           ${tableHTML}
+          ${mobileRowsHTML}
           ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；姓名和学科必填，重复记录会在确认前拦截。</span></div>` : `<div class="att-work-foot"><span>${isClass ? 'ⓘ 上课表独立记录当天数据；临时教师不进入永久花名册，次日不会自动出现。' : activeTab === 'seat' ? 'ⓘ 坐班表独立记录并确认，不参与上课表内容。' : 'ⓘ 教研表独立记录签到、请假与备注，可按学科批量签到。'}</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? `重新确认${TYPE_SHORT[activeTab]}` : `确认生成${TYPE_SHORT[activeTab]}`}</button></div></div>`}
         </section>
       </div>`;
