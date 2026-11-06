@@ -18,7 +18,11 @@ for (const viewport of [
     await expect(page.locator('#app')).not.toBeEmpty({ timeout: 20000 });
     await expect(page.locator('#side-brand .brand-name')).toHaveText('我的工作台');
     await expect(page.locator('#side-brand .brand-sub')).toHaveText('Workbench');
-    await expect(page.locator('#side-brand .brand-logo svg')).toBeVisible();
+    if (viewport.width > 900) {
+      await expect(page.locator('#side-brand .brand-logo svg')).toBeVisible();
+    } else {
+      await expect(page.locator('.sidebar')).toBeHidden();
+    }
     await expect(page.locator('#side-user .side-user-label strong')).toHaveText('我的');
     await expect(page.locator('[data-hcard="profile"]')).toBeVisible({ timeout: 20000 });
     await expect(page.locator('#home-grid')).toBeVisible();
