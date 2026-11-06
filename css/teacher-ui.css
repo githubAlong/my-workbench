@@ -5,7 +5,8 @@ html[data-theme="light"] { --bg:#f3f7ff; --text:#17263f; --text-2:#657b9d; --tex
    之前只在 :has(#home-grid) 时套用，导致首页与学习/日常页面的侧栏外观不一致。 */
 .sidebar { background:#f5f8ff; border-color:#e5edfb; width:232px; flex-basis:232px; padding:22px 12px; }
 .sidebar .brand { padding:0 0 28px; gap:12px; }
-.sidebar .brand-logo { font-size:0; width:50px; height:50px; border-radius:16px; background:url('../assets/teacher-ui/brand-avatar.png') center/cover; }
+/* 默认图标沿用 app.css 的品牌渐变底色；具体图形由 ui.js 读取后台 workbenchBrand 统一渲染。 */
+.sidebar .brand-logo { font-size:0; width:50px; height:50px; border-radius:16px; }
 
 /* 工作台品牌图标：固定正方形，避免 flex-basis 与 width/height 不一致导致图片被压成椭圆。 */
 .sidebar .brand-static .brand-logo {
