@@ -699,3 +699,47 @@
 .roster-review-table td:last-child{font-size:10px;white-space:nowrap}
 .roster-review-serial{font-variant-numeric:tabular-nums;color:#8191a6!important;font-weight:700}
 .roster-review-empty{text-align:center!important;color:#94a3b8!important;padding:28px!important}
+
+
+/* Attendance PRD V1.0 — restrained palette, sticky toolbar, dense table and mobile cards */
+.att-work-shell{color:#1d2129;--aw-blue:#165dff;--aw-line:#e5e6eb;--aw-muted:#4e5969}
+.att-work-sticky{position:sticky;top:0;z-index:35;background:#f2f3f5;padding:10px 0;border-bottom:1px solid var(--aw-line)}
+.att-work-sticky>div:first-child{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.att-work-sticky h2{font-size:20px;margin:0;color:#1d2129}
+.att-work-grade{width:auto!important;min-width:140px!important;max-width:260px}
+.att-work-meta-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fff;padding:10px 12px;border:1px solid var(--aw-line);border-radius:10px;margin:10px 0}
+.att-work-time-display{font-size:13px;font-weight:650;color:#165dff;background:#eef4ff;padding:7px 10px;border-radius:7px}
+.att-work-calendar{position:relative;z-index:20;background:#fff;border:1px solid var(--aw-line);border-radius:10px;padding:12px;max-width:330px;box-shadow:0 8px 24px rgba(0,0,0,.08)}
+.aw-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.aw-cal-head button{width:32px;height:30px;border:1px solid var(--aw-line);border-radius:7px;background:#fff}
+.aw-cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;text-align:center}
+.aw-cal-grid>*{height:34px;display:grid;place-items:center;border-radius:7px}
+.aw-cal-grid button{background:#fff;color:#1d2129}
+.aw-cal-grid button:hover,.aw-cal-grid button.on{background:#165dff;color:#fff}
+.aw-tab-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#c9cdd4;margin-left:5px;vertical-align:middle}
+.aw-tab-dot.done{background:#00b42a}
+.aw-roster-table th,.aw-roster-table td{white-space:nowrap}
+.aw-roster-input{width:100%;min-width:90px;border:1px solid transparent;border-radius:5px;padding:6px;background:transparent;color:#1d2129}
+.aw-roster-input:focus{outline:1px solid #165dff;background:#fff}
+.aw-grade-tag,.aw-subject-tag{display:inline-flex;padding:3px 8px;border-radius:999px;background:#eef4ff;color:#165dff;font-size:11px;font-weight:650}
+.aw-subject-tag{background:#f2f3f5;color:#4e5969}
+.aw-danger{color:#f53f3f!important}
+.aw-mobile-card{background:#fff;border:1px solid #e5e6eb;border-radius:12px;padding:12px;display:grid;gap:10px}
+.aw-mobile-card-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.aw-mobile-card-head>b{font-size:15px;color:#1d2129}
+.aw-mobile-status{display:flex;gap:7px;flex-wrap:wrap}
+.aw-mobile-mark{border:1px solid #e5e6eb;background:#fff;color:#4e5969;border-radius:8px;padding:7px 10px;font-size:12px}
+.aw-mobile-mark.on{background:#eaf1ff;border-color:#165dff;color:#165dff}
+.aw-mobile-remark{width:100%}
+@media(max-width:680px){
+ .att-work-sticky{top:0;padding:8px 0}
+ .att-work-sticky>div:first-child{gap:6px}
+ .att-work-sticky h2{font-size:17px}
+ .att-work-meta-controls{gap:7px;padding:8px}
+ .att-work-time-display{font-size:11px}
+ .att-work-table-scroll.att-work-sheet-scroll{display:none!important}
+ .att-work-mobile-list{display:grid;gap:9px}
+ .aw-roster-table{min-width:900px}
+ .att-work-panel .att-work-foot{position:sticky;bottom:0;background:#fff;z-index:30;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+}
+@media(min-width:681px){.att-work-mobile-list{display:none}}
