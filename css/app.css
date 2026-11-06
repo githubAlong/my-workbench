@@ -4156,3 +4156,19 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 [data-course-id].tt-dragging{opacity:.42;outline:2px dashed var(--primary);outline-offset:-3px}
 [data-cell].tt-drop-target{outline:3px solid var(--primary)!important;outline-offset:-3px;background:color-mix(in srgb,var(--primary) 13%,var(--card))!important}
 @media(hover:hover){[data-course-id][draggable="true"]:hover{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--primary) 45%,transparent)}}
+
+/* 电子备课记录表：类型标签与详细内容摘要 */
+.prep-type-filter { gap: 6px; margin-bottom: 7px; }
+.prep-type-badge {
+  display: inline-flex; align-items: center; vertical-align: middle;
+  margin-left: 6px; padding: 2px 7px; border-radius: 999px;
+  background: var(--primary-weak); color: var(--primary);
+  font-size: 10.5px; font-weight: 650; line-height: 1.5; white-space: nowrap;
+}
+.prep-type-badge.is-unclassified {
+  background: var(--amber-weak, rgba(240,160,30,.1)); color: var(--amber, #d68a12);
+}
+.pr-content {
+  margin-top: 5px; color: var(--text-2); font-size: 12px; line-height: 1.55;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}

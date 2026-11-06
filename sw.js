@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v124-v1-attendance-triple';
+const CACHE = 'wb-v125-v1-electronic-prep-records';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -65,6 +65,7 @@ const ASSETS = [
   /* 数据层 */
   './js/localapi.js',
   './js/localdb.js',
+  './js/prep-domain.mjs',
   /* 各业务页面 */
   './js/home.js',
   './js/work.js',
