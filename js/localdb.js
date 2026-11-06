@@ -55,7 +55,7 @@ export const TABLES = {
   links: ['code', 'title', 'grades', 'enabled'],
   attendance_tables: ['grade', 'name', 'month', 'kind', 'rows'],
   students_att: ['table_id', 'no', 'name', 'rows'],
-  teachers: ['grade', 'name', 'subject', 'phone'],
+  teachers: ['grade', 'name', 'subject', 'phone', 'note'],
   invig_rules: ['name', 'amount', 'minutes', 'note'],
   trip_rules: ['name', 'km', 'rate', 'note'],
   punish_records: ['date', 'punish_id', 'student_no', 'class_name', 'text'],
