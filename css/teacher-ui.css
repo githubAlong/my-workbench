@@ -1247,3 +1247,96 @@ html[data-theme="dark"] .home-redesign .home-card-title,html[data-theme="dark"] 
 @media(max-width:1100px){.home-redesign-app>.main.home-redesign{width:100%}.home-redesign .home-topbar{flex-wrap:wrap}.home-redesign .home-topbar .searchbar{max-width:none;flex-basis:100%}.home-top-actions{justify-content:flex-start;overflow-x:auto;padding-bottom:2px}}
 @media(max-width:860px){.home-redesign-app>.main.home-redesign{width:100%;padding:0 10px 24px}.home-redesign .home-topbar{margin:0 -10px 12px;padding:10px}.home-redesign .home-dashboard-grid{grid-auto-rows:auto;gap:11px}.home-redesign .home-dashboard-grid>.hg-item{min-height:180px}.home-redesign .home-dashboard-grid>.hg-item>.card{min-height:180px}.home-redesign .home-welcome-card{min-height:220px!important}.home-redesign .home-course-card{min-height:300px!important}.home-redesign .home-calendar-card{min-height:380px!important}.home-redesign .home-mini-card{min-height:150px!important}.home-redesign .home-timeline-card{min-height:170px!important}}
 @media(max-width:520px){.home-redesign .home-top-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.home-action{width:100%}.home-welcome-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.home-timeline-times{font-size:8px}}
+
+/* ==========================================================================
+   首页重构 · 设计稿布局与快捷入口（仅首页）
+   业务节点、数据绑定与既有事件处理保持不变。
+   ========================================================================== */
+.home-redesign .home-shortcuts {
+  display:grid;
+  grid-template-columns:repeat(8,minmax(0,1fr));
+  gap:12px;
+  margin:0 0 18px;
+}
+.home-redesign .home-shortcut {
+  display:flex;
+  min-width:0;
+  min-height:104px;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  padding:12px 8px;
+  border:1px solid rgba(225,234,248,.98);
+  border-radius:18px;
+  background:linear-gradient(155deg,rgba(255,255,255,.98),rgba(247,250,255,.96));
+  box-shadow:0 7px 22px rgba(34,68,125,.045);
+  color:#1b3153;
+  text-decoration:none;
+  transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;
+}
+.home-redesign .home-shortcut:hover {
+  transform:translateY(-2px);
+  border-color:#cbdcff;
+  box-shadow:0 12px 28px rgba(34,68,125,.09);
+}
+.home-redesign .shortcut-icon {
+  display:grid;
+  width:42px;
+  height:42px;
+  place-items:center;
+  border-radius:14px;
+}
+.home-redesign .shortcut-icon.blue { color:#2874e8;background:#e8f1ff; }
+.home-redesign .shortcut-icon.orange { color:#e88a24;background:#fff1df; }
+.home-redesign .shortcut-icon.violet { color:#795ce5;background:#f0ebff; }
+.home-redesign .shortcut-icon.green { color:#1ca66b;background:#e5f8ef; }
+.home-redesign .shortcut-icon.amber { color:#d98a20;background:#fff4df; }
+.home-redesign .shortcut-icon.cyan { color:#168da9;background:#e4f7fb; }
+.home-redesign .shortcut-icon.indigo { color:#5559d8;background:#eeefff; }
+.home-redesign .shortcut-icon.pink { color:#d34c91;background:#ffedf5; }
+.home-redesign .home-shortcut b { font-size:13px;font-weight:750;line-height:1.25;text-align:center; }
+.home-redesign .home-shortcut small { color:#8193ad;font-size:10.5px;line-height:1.25;text-align:center; }
+.home-redesign .home-dashboard-grid { align-items:stretch; }
+.home-redesign .home-dashboard-grid > .hg-item > .card { min-width:0; }
+.home-redesign .home-welcome-card {
+  background:
+    radial-gradient(circle at 86% 5%,rgba(191,219,254,.48),transparent 36%),
+    linear-gradient(135deg,#fff 0%,#f7faff 100%);
+}
+.home-redesign .home-welcome-card .clk-greet { color:#18365f;font-size:clamp(20px,1.55vw,28px);font-weight:800; }
+.home-redesign .home-welcome-card .clock { color:#17365f;font-size:clamp(34px,3vw,52px);font-weight:800; }
+.home-redesign .home-welcome-card .home-welcome-stats { gap:8px; }
+.home-redesign .home-welcome-card .home-welcome-stats button {
+  border:1px solid #e8eef8;border-radius:12px;background:rgba(255,255,255,.78);padding:8px;
+}
+.home-redesign .home-card-head { padding:17px 19px 11px; }
+.home-redesign .home-card-title { font-size:16px;font-weight:780;color:#1b3153; }
+.home-redesign .home-course-card .hc-body { padding:0 16px 12px; }
+.home-redesign .home-todo-card .hc-body { padding:0 16px 8px; }
+.home-redesign .home-mini-card { border-radius:17px; }
+.home-redesign .home-calendar-card { min-height:320px; }
+.home-redesign .home-timeline-card { min-height:145px; }
+html[data-theme="dark"] .home-redesign .home-shortcut {
+  color:#e7f0fb;background:linear-gradient(155deg,#1b2a3e,#18283c);border-color:#314963;
+}
+html[data-theme="dark"] .home-redesign .home-welcome-card { background:radial-gradient(circle at 86% 5%,rgba(37,99,235,.18),transparent 36%),#1b2a3e; }
+html[data-theme="dark"] .home-redesign .home-welcome-card .clk-greet,
+html[data-theme="dark"] .home-redesign .home-welcome-card .clock { color:#eef5ff; }
+html[data-theme="dark"] .home-redesign .home-welcome-card .home-welcome-stats button { background:#22354d;border-color:#344b67; }
+@media(max-width:1180px) {
+  .home-redesign .home-shortcuts { grid-template-columns:repeat(4,minmax(0,1fr)); }
+}
+@media(max-width:860px) {
+  .home-redesign .home-shortcuts { gap:9px;margin-bottom:12px; }
+  .home-redesign .home-shortcut { min-height:92px;padding:10px 5px;border-radius:14px; }
+  .home-redesign .shortcut-icon { width:36px;height:36px;border-radius:12px; }
+  .home-redesign .home-shortcut b { font-size:12px; }
+  .home-redesign .home-shortcut small { font-size:10px; }
+}
+@media(max-width:520px) {
+  .home-redesign .home-shortcuts { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .home-redesign .home-shortcut { min-height:84px;gap:5px; }
+  .home-redesign .home-dashboard-grid > .hg-item { min-height:0; }
+  .home-redesign .home-dashboard-grid > .hg-item > .card { min-height:0; }
+}

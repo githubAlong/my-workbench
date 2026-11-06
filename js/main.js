@@ -97,7 +97,21 @@ if (cloudSession?.uid) {
     cloudSession = null;
   }
 }
-state.user = cloudSession?.uid ? await loadMe() : null;
+/* 仅供本地 Playwright 使用的隔离登录夹具。
+   必须同时满足 localhost/127.0.0.1 与显式 ?e2e=1；不写 Supabase token、
+   不请求云端认证、不在任何线上域名启用。每个浏览器 context 使用全新存储。 */
+const E2E_LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname)
+  && new URLSearchParams(location.search).get('e2e') === '1'
+  && !cloudSession?.uid;
+let e2eLocalUser = null;
+if (E2E_LOCAL) {
+  e2eLocalUser = await api.post('/auth/login-cloud', {
+    account: '12345678901',
+    email: 'e2e@workbench.local',
+    uid: 'e2e-local-only',
+  }, { silent: true });
+}
+state.user = E2E_LOCAL ? (e2eLocalUser?.user || null) : (cloudSession?.uid ? await loadMe() : null);
 if (!location.hash) location.hash = '#/home';
 window.addEventListener('hashchange', () => render());
 
