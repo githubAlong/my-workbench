@@ -120,7 +120,7 @@ export const NAV = [
       /* 上课之后紧跟课表：先知道今天上什么，再记上没上。 */
       { id: 'timetable', label: '课表', icon: 'cal' },
       /* 备课紧接课表：课前看图、课后备课，动线是连着的。 */
-      { id: 'prep', label: '电子备课', icon: 'book' },
+      { id: 'prep', label: '备课', icon: 'book' },
       { id: 'repairs', label: '维修', icon: 'wrench' },
       { id: 'attendance', label: '考勤', icon: 'users' },
       { id: 'invigilation', label: '监考', icon: 'shield' },
