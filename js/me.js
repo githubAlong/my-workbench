@@ -382,18 +382,23 @@ function readWorkbenchBrand() {
 
 async function renderWorkbenchSettings(main) {
   main.classList.add('page-me-workbench-settings');
-  const current = readWorkbenchBrand();
+  const stored = readWorkbenchBrand();
+  // 旧版保存的个人昵称/签名不再默认覆盖产品品牌；仅在用户主动保存自定义品牌后启用。
+  const current = stored.enabled === true ? stored : {};
   let image = typeof current.image === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(current.image)
     ? current.image : '';
   const fallbackTitle = '我的工作台';
   const fallbackSubtitle = 'Workbench';
-  // 默认图标与侧栏完全相同；上传后预览和侧栏都读取同一份品牌图片。
-  const logoMarkup = () => '<img src="' + esc(image || './icons/icon-192.png') + '" alt="工作台图标">';
+  const defaultBrandLogo = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4.5" y="4.5" width="15" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v8M8 12h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  // 预览与侧栏使用同一默认品牌图标；自定义图片只在主动保存后生效。
+  const logoMarkup = () => image
+    ? '<img src="' + esc(image) + '" alt="工作台图标">'
+    : defaultBrandLogo;
 
   main.innerHTML = mePageHeader('workbench') +
     '<section class="card wb-brand-settings">' +
       '<header class="wb-brand-settings-head">' +
-        '<div><h2>工作台品牌设置</h2><p>这里的设置会同步显示在所有页面左上角</p></div>' +
+        '<div><h2>工作台品牌设置</h2><p>默认显示「我的工作台 / Workbench」；保存自定义名称或图片后会应用到左上角</p></div>' +
         '<span class="wb-brand-live"><i></i> 实时预览</span>' +
       '</header>' +
       '<div class="wb-brand-preview-area">' +
@@ -520,6 +525,7 @@ async function renderWorkbenchSettings(main) {
       title: title.value.trim().slice(0, 40),
       subtitle: subtitle.value.trim().slice(0, 60),
       image,
+      enabled: true,
       updatedAt: new Date().toISOString(),
     };
     if (!saveLocalDB()) {

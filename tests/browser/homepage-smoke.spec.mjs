@@ -16,6 +16,10 @@ for (const viewport of [
     await page.goto(`${baseURL}?e2e=1`, { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveTitle(/教师个人工作台/);
     await expect(page.locator('#app')).not.toBeEmpty({ timeout: 20000 });
+    await expect(page.locator('#side-brand .brand-name')).toHaveText('我的工作台');
+    await expect(page.locator('#side-brand .brand-sub')).toHaveText('Workbench');
+    await expect(page.locator('#side-brand .brand-logo svg')).toBeVisible();
+    await expect(page.locator('#side-user .side-user-label strong')).toHaveText('我的');
     await expect(page.locator('[data-hcard="profile"]')).toBeVisible({ timeout: 20000 });
     await expect(page.locator('#home-grid')).toBeVisible();
     await expect(page.locator('[data-hcard]')).toHaveCount(11);

@@ -526,12 +526,19 @@ export async function render() {
   const fn = views[viewName];
   const app = document.getElementById('app');
   const brandData = loadLocalDB()?.meta?.workbenchBrand || {};
-  const brandTitle = String(brandData.title || '').trim() || '我的工作台';
-  const brandSubtitle = String(brandData.subtitle || '').trim() || 'Workbench';
-  const brandImage = typeof brandData.image === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(brandData.image)
-    ? brandData.image : '';
-  // 与「工作台设置」的实时预览共用同一默认图标；未上传自定义图片时也不再显示文字占位。
-  const brandLogo = '<img src="' + esc(brandImage || './icons/icon-192.png') + '" alt="" loading="eager">';
+  // 侧栏默认保持产品品牌，不再把个人昵称/签名误显示成工作台名称。
+  // 只有用户在「工作台品牌设置」中主动保存自定义品牌后，才启用自定义内容。
+  const useCustomBrand = brandData.enabled === true;
+  const brandTitle = useCustomBrand && String(brandData.title || '').trim()
+    ? String(brandData.title).trim() : '我的工作台';
+  const brandSubtitle = useCustomBrand && String(brandData.subtitle || '').trim()
+    ? String(brandData.subtitle).trim() : 'Workbench';
+  const brandImage = useCustomBrand && typeof brandData.image === 'string'
+    && /^data:image\/(png|jpeg|webp);base64,/i.test(brandData.image) ? brandData.image : '';
+  const defaultBrandLogo = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4.5" y="4.5" width="15" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v8M8 12h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  const brandLogo = brandImage
+    ? '<img src="' + esc(brandImage) + '" alt="" loading="eager">'
+    : defaultBrandLogo;
   const pageShell = `<div class="app">
     <aside class="sidebar">
       <div class="brand brand-static" id="side-brand" aria-label="${esc(brandTitle)}">

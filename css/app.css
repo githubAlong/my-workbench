@@ -4015,6 +4015,7 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   font-size:23px;font-weight:800;box-shadow:var(--shadow-s);
 }
 .wb-brand-preview-logo img,.wb-brand-image-preview img { width:100%;height:100%;object-fit:cover; }
+.wb-brand-preview-logo svg,.wb-brand-image-preview svg { display:block;width:28px;height:28px; }
 .wb-brand-preview-copy { min-width:0; }
 .wb-brand-preview-title { color:var(--text);font-size:17px;font-weight:800;line-height:1.35;overflow-wrap:anywhere; }
 .wb-brand-preview-subtitle { margin-top:4px;color:var(--text-3);font-size:11px;line-height:1.5;overflow-wrap:anywhere; }
@@ -4031,9 +4032,12 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .wb-brand-tip { max-width:620px;color:var(--text-3);font-size:11px;line-height:1.65; }
 .wb-brand-settings-footer { display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:20px;padding-top:17px;border-top:1px solid var(--line); }
 .wb-brand-settings-footer .btn { flex:0 0 auto;min-height:42px; }
-.brand-static { cursor:default;user-select:none; }
-.brand-static .brand-logo { overflow:hidden;flex:0 0 38px;width:38px;height:38px; }
+.brand-static { cursor:default;user-select:none;gap:12px;padding:8px 10px 18px; }
+.brand-static .brand-logo { overflow:hidden;flex:0 0 48px;width:48px;height:48px;border-radius:14px; }
 .brand-static .brand-logo img { width:100%;height:100%;object-fit:cover; }
+.brand-static .brand-logo svg { display:block;width:25px;height:25px; }
+.brand-static .brand-name { font-size:17px;font-weight:750;letter-spacing:.1px; }
+.brand-static .brand-sub { font-size:12px; }
 @media(max-width:900px) {
   .page-me-home { max-width:680px; }
   .me-home-sections { grid-template-columns:1fr;gap:13px; }

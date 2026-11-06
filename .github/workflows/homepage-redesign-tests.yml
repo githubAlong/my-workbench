@@ -9,7 +9,11 @@ on:
     paths:
       - "js/home.js"
       - "js/homegrid.js"
+      - "js/ui.js"
+      - "js/me.js"
+      - "css/app.css"
       - "css/teacher-ui.css"
+      - "sw.js"
       - "tests/**"
       - "scripts/check-project.mjs"
       - "package.json"
@@ -43,6 +47,8 @@ jobs:
         run: |
           node --check js/home.js
           node --check js/homegrid.js
+          node --check js/ui.js
+          node --check js/me.js
       - name: Run complete Node test suite
         run: npm test
       - name: Install Chromium browser test dependencies
