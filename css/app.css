@@ -2318,6 +2318,8 @@ html[data-theme="dark"] .lessons-page { --lesson-blue: #60a5fa; --lesson-blue-we
   /* 容器本身收窄并居中即可，内部不要再各写一套边距——
      之前 .me-hero 自带 margin 抖动，导致头像卡比下面的分组卡片宽出一截、左右不齐。 */
   .page-me { max-width: 720px; margin: 0 auto; }
+  /* 消息中心需要铺满主内容区；不要继承「我的」其他页面的 720px 舒适宽度。 */
+  .page-me.page-me-messages { max-width: none; margin: 0; }
   .page-me > * { max-width: 100%; }
 }
 
