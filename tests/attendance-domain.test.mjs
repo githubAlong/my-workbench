@@ -99,7 +99,7 @@ test('attendance rows match by name and subject, not name alone', () => {
   assert.equal(merged[1].data.k_上课, '0');
 });
 
-test('deleting a teacher hides only today's permanent row but preserves history and temporary rows', () => {
+test('deleting a teacher hides the current-day permanent row but preserves history and temporary rows', () => {
   const existing = [
     { teacher: '在册老师', subject: '语文', data: { k_上课: '1' } },
     { teacher: '已删除老师', subject: '数学', data: { k_上课: '0' } },
