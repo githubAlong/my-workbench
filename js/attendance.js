@@ -3036,12 +3036,36 @@ async function confirmSheet(parsed, ctx) {
  * 所以这里不是一个长列表，而是一进来就在当前年级上，
  * 顶部的切换条跟主页面的 tab 一致，切过去看到的就是那个年级的人。
  */
+function rosterAddDialog(grade, reload) {
+  const body = el(`<div class="sheet-body">
+    <div class="field-row"><div class="field"><label class="field-label">姓名 *</label><input class="input" id="ra-name" placeholder="教师姓名"></div>
+    <div class="field"><label class="field-label">学科 *</label><input class="input" id="ra-subject" list="ra-subjects" placeholder="选择或输入学科"><datalist id="ra-subjects">${SUBJECT_ORDER.map(x=>`<option>${esc(x)}</option>`).join('')}</datalist></div></div>
+    <div class="field-row"><div class="field"><label class="field-label">年级</label><input class="input" value="${esc(grade)}" disabled></div>
+    <div class="field"><label class="field-label">手机号</label><input class="input" id="ra-phone" inputmode="tel" placeholder="可选"></div></div>
+    <div class="field"><label class="field-label">备注</label><input class="input" id="ra-note" placeholder="可选"></div>
+    <div class="confirm-actions"><button class="btn ghost" id="ra-cancel">取消</button><button class="btn primary" id="ra-save">确定</button></div>
+  </div>`);
+  const modal=sheet({title:'新增老师',body});
+  body.querySelector('#ra-cancel').onclick=modal.close;
+  body.querySelector('#ra-save').onclick=async()=>{
+    const name=body.querySelector('#ra-name').value.trim();
+    const subject=body.querySelector('#ra-subject').value.trim();
+    if(!name||!subject)return toast('请填写姓名和学科','warn');
+    try{
+      await api.post('/teachers',{grade,name,subject,phone:body.querySelector('#ra-phone').value.trim(),note:body.querySelector('#ra-note').value.trim()});
+      modal.close();toast('教师已新增，并同步到三类考勤表','ok');reload?.();
+    }catch(error){toast(error.message||'新增失败','err');}
+  };
+}
+
 function rosterSheet(grade, reload) {
   const body = el(`<div class="att-roster-sheet">
     <div class="ars-tabs" id="ars-tabs"></div>
     <div class="ars-add">
       <input class="input" id="ars-name" placeholder="姓名（必填）">
       <input class="input" id="ars-subj" list="subj-list2" placeholder="学科（必填）">
+      <input class="input" id="ars-phone" placeholder="手机号（选填）">
+      <input class="input" id="ars-note" placeholder="备注（选填）">
       <button class="btn primary sm" id="ars-add-btn">＋ 添加</button>
       <button class="btn ghost sm" id="ars-paste">粘贴</button>
       <button class="btn ghost sm" id="ars-xlsx">导入 Excel</button>
@@ -3156,8 +3180,8 @@ function rosterSheet(grade, reload) {
     if (!name) return toast('请填写姓名', 'warn');
     if (!subject) return toast('请填写学科', 'warn');
     try {
-      await api.post('/teachers', { grade: cur, name, subject });
-      $('#ars-name').value = ''; $('#ars-subj').value = '';
+      await api.post('/teachers', { grade: cur, name, subject, phone: $('#ars-phone').value.trim(), note: $('#ars-note').value.trim() });
+      $('#ars-name').value = ''; $('#ars-subj').value = ''; $('#ars-phone').value = ''; $('#ars-note').value = '';
       await load(); toast('已添加');
     } catch (error) {
       toast(error.message || '添加失败', 'err');
