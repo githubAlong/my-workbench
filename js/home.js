@@ -624,10 +624,10 @@ function renderHome() {
     <a class="home-shortcut" href="#/work/lessons" data-home-shortcut="work/lessons"><span class="shortcut-icon blue">${icon('book',24)}</span><b>上课记录</b><small>课时与进度</small></a>
     <a class="home-shortcut" href="#/work/timetable" data-home-shortcut="work/timetable"><span class="shortcut-icon orange">${icon('cal',24)}</span><b>课程表</b><small>每日课程安排</small></a>
     <a class="home-shortcut" href="#/work/attendance" data-home-shortcut="work/attendance"><span class="shortcut-icon violet">${icon('users',24)}</span><b>考勤管理</b><small>花名册与考勤</small></a>
-    <a class="home-shortcut" href="#/work/prep" data-home-shortcut="work/prep"><span class="shortcut-icon green">${icon('graduation-cap',24)}</span><b>备课教研</b><small>教学准备</small></a>
+    <a class="home-shortcut" href="#/work/prep" data-home-shortcut="work/prep"><span class="shortcut-icon green">${icon('book',24)}</span><b>备课教研</b><small>教学准备</small></a>
     <a class="home-shortcut" href="#/work/invigilation" data-home-shortcut="work/invigilation"><span class="shortcut-icon amber">${icon('shield',24)}</span><b>监考任务</b><small>考试安排</small></a>
     <a class="home-shortcut" href="#/work/materials" data-home-shortcut="work/materials"><span class="shortcut-icon cyan">${icon('folder',24)}</span><b>教学小助手</b><small>课堂互动工具</small></a>
-    <a class="home-shortcut" href="#/study" data-home-shortcut="study"><span class="shortcut-icon indigo">${icon('book-open',24)}</span><b>学习资源</b><small>资料与学习</small></a>
+    <a class="home-shortcut" href="#/study" data-home-shortcut="study"><span class="shortcut-icon indigo">${icon('study',24)}</span><b>学习资源</b><small>资料与学习</small></a>
     <a class="home-shortcut" href="#/work/notes" data-home-shortcut="work/notes"><span class="shortcut-icon pink">${icon('edit',24)}</span><b>教学笔记</b><small>记录与整理</small></a>
   </nav>
   <div class="hg-toolbar home-layout-toolbar" id="hg-toolbar" role="region" aria-label="首页布局编辑工具" hidden>
