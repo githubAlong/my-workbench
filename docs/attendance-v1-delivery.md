@@ -108,6 +108,7 @@
 - `docs/screenshots/attendance-seat-mobile.png`
 - `docs/screenshots/attendance-seat-tablet.png`
 - `docs/screenshots/app-login-smoke.png`
+- `docs/screenshots/deployed-test-login.png`
 
 ## 7. Supabase 待审批迁移
 
@@ -130,17 +131,27 @@ Ref：`xgvmwbzvvjnhzadfvdmj`
 
 ## 8. 部署状态
 
-- Cloudflare Wrangler 版本：4.158.0。
-- Cloudflare 当前未登录；一次 OAuth 登录在等待授权码时超时。
-- 尚未创建或修改 Pages 项目，也未发布测试地址。
-- 建议项目名：`my-workbench-test`。
+- Cloudflare Wrangler：4.158.0。
+- 登录账户：`516796162@qq.com`。
+- Pages 项目：`my-workbench-test`，生产分支固定为 `test`。
+- Cloudflare Pages Preview：
+  - URL：`https://f5e9ed9d.my-workbench-test.pages.dev`
+  - 分支别名：`https://test-preview.my-workbench-test.pages.dev`
+  - Deployment ID：`f5e9ed9d-9dcc-4b72-b886-0dfc147cf138`
+  - Environment：`Preview`
+  - Source SHA：`64da95b`
+  - 上传资源：57 个；复用已上传资源。
+- 测试项目内的 `test` 生产分支部署：
+  - `https://e4b5db1b.my-workbench-test.pages.dev`
+  - 它仅是隔离测试项目，不是正式站点。
+- 部署后检查：入口、SW、主模块、考勤模块、环境配置和响应式 CSS 均返回 HTTP 200；Chrome 运行时解析环境为 `test`。
+- 已用真实 Chrome 截图 `deployed-test-login.png`。
 - 测试站固定使用 dev Supabase；正式 GitHub Pages 继续使用正式 Supabase。
 - 未推送 `dev` 或 `master`。
 
 ## 9. 尚未完成 / 验收阻塞
 
-1. 需要用户单独批准 Supabase 迁移 SQL，才能创建 dev 业务表。
-2. 需要用户在浏览器完成 Cloudflare OAuth 授权，才能核对并创建/发布 Pages 测试项目。
-3. 需要测试账号才能完成 dev Supabase 的真实登录、Realtime 和 12 客户端并发自测。
-4. 真实 Supabase 多端延迟（目标 <3 秒）、真实云导出文件和 OCR 实拍准确率尚未在部署环境验证。
-5. 未经用户验收，不进入正式环境，不推送 dev/master，不执行正式发布。
+1. 需要用户单独批准迁移 SQL，之后才能创建 dev 业务表，并用测试账号完成真实登录、Realtime 和 12 客户端并发自测。
+2. 需要测试账号才能登录已部署的 Preview；当前不能绕过生产数据或创建未授权账号。
+3. 真实 Supabase 多端延迟（目标 <3 秒）、真实云导出文件和 OCR 实拍准确率尚未在部署环境验证。
+4. 未经用户验收，不进入正式环境，不推送 dev/master，不执行正式发布。

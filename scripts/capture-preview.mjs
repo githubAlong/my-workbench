@@ -104,6 +104,11 @@ try {
     })`,
     returnByValue: true,
   });
+  const environment = await send('Runtime.evaluate', {
+    expression: `import('/js/environment-config.mjs').then((m) => m.resolveEnvironmentProfile(location).name)`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
   const shot = await send('Page.captureScreenshot', {
     format: 'png',
     fromSurface: true,
@@ -112,7 +117,14 @@ try {
   await mkdir(path.dirname(output), { recursive: true });
   await writeFile(output, Buffer.from(shot.data, 'base64'));
   socket.close();
-  console.log(JSON.stringify({ output, width, height, mobile, ...metrics.result.value }, null, 2));
+  console.log(JSON.stringify({
+    output,
+    width,
+    height,
+    mobile,
+    ...metrics.result.value,
+    environment: environment.result.value,
+  }, null, 2));
 } finally {
   child.kill();
 }
