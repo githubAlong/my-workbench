@@ -149,7 +149,17 @@ try {
   const live = await import('./live.js');
   live.startLiveRefresh();
   live.bindLiveDot();
-  window.addEventListener('wb:snapshot-applied', () => { render().catch((e) => console.warn('[sync] 远端数据刷新失败', e)); });
+  window.addEventListener('wb:snapshot-applied', async () => {
+    try {
+      /* 云端快照已经写入本地库，必须同步刷新内存中的用户对象。
+         否则「我的」首页仍拿旧 state.user 渲染，顶部资料卡片会显示旧信息。 */
+      await loadMe();
+      /* 正在编辑资料时不重建表单，避免打断未保存输入；离开编辑页后会读取最新 state.user。 */
+      if (parseHash().path !== 'profile') await render();
+    } catch (e) {
+      console.warn('[sync] 远端资料刷新失败', e);
+    }
+  });
   rt.syncWithAuth();
   /* 登录框是浮层，登录成功不会重新加载页面，所以这里要主动补一次连接。
      用事件解耦：auth.js 登录/退出后派发 wb:auth-changed，不必反向 import。 */
