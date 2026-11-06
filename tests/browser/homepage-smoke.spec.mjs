@@ -13,7 +13,7 @@ for (const viewport of [
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
 
-    await page.goto(baseURL, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${baseURL}?e2e=1`, { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveTitle(/教师个人工作台/);
     await expect(page.locator('#app')).not.toBeEmpty({ timeout: 20000 });
     await expect(page.locator('.home-shortcut')).toHaveCount(8, { timeout: 20000 });
