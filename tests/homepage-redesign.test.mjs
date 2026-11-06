@@ -35,6 +35,14 @@ test('桌面、平板和手机均有新版首页默认布局', () => {
   }
 });
 
+test('旧版用户布局会升级到新版默认排布并保留隐藏偏好', () => {
+  assert.match(grid, /version:\s*3,/);
+  assert.match(grid, /if\s*\(rawVersion\s*<\s*3\)/);
+  assert.match(grid, /const hidden = \[\.\.\.new Set\(\(raw\.breakpoints\.desktop\?\.hidden/);
+  assert.match(grid, /out\.version = 3;/);
+  assert.match(grid, /首次升级新版首页/);
+});
+
 test('快捷入口具备平板和手机响应式样式', () => {
   assert.match(styles, /\.home-shortcuts\s*\{[\s\S]*?grid-template-columns:\s*repeat\(8/);
   assert.match(styles, /@media\s*\(max-width:\s*1180px\)[\s\S]*?\.home-shortcuts/);
