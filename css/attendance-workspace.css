@@ -758,3 +758,40 @@
 .att-work-sheet-table th:nth-child(3),.att-work-sheet-table td:nth-child(3){position:sticky;left:200px;z-index:10;background:#fff;min-width:140px}
 .att-work-sheet-table thead th:nth-child(-n+3){z-index:12;background:#f2f3f5}
 .att-work-sheet-table tbody tr:hover td:nth-child(-n+3){background:#f7faff}
+
+/* Attendance PRD V1.0 — result summary, online presence, roster frozen columns */
+.att-work-filter-summary{margin:-5px 0 10px;color:#4e5969;font-size:12px;line-height:1.5}
+.att-work-online{display:flex;align-items:center;gap:7px;min-width:0;max-width:300px;padding:6px 9px;border:1px solid #e5e6eb;border-radius:999px;background:#fff;color:#4e5969;font-size:11px;white-space:nowrap;overflow:hidden}
+.aw-online-dot,.aw-online-person i{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#00b42a;display:inline-block}
+.aw-online-dot.offline{background:#ff7d00}
+.aw-online-person{display:inline-flex;align-items:center;gap:5px}
+.aw-online-person i{width:6px;height:6px;flex-basis:6px}
+.aw-online-more{color:#165dff;font-weight:700}
+.aw-result-card{margin:16px 0 2px;padding:14px 16px;border:1px solid #d9eadf;border-radius:12px;background:#f7fcf8}
+.aw-result-card.is-modified{border-color:#f4dfc0;background:#fffaf2}
+.aw-result-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;color:#16834a}
+.aw-result-card.is-modified .aw-result-head{color:#b66b08}
+.aw-result-head strong{font-size:14px}
+.aw-result-head span{color:#718096;font-size:11px}
+.aw-result-meta{display:flex;flex-wrap:wrap;gap:7px 16px;margin-bottom:12px;color:#4e5969;font-size:11px}
+.aw-result-stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.aw-result-stats>div{display:flex;align-items:baseline;gap:5px;min-width:0;padding:8px 9px;border-radius:8px;background:#fff}
+.aw-result-stats span{color:#718096;font-size:11px;white-space:nowrap}
+.aw-result-stats b{margin-left:auto;color:#1d2129;font-size:18px;font-variant-numeric:tabular-nums}
+.aw-result-stats small{color:#9aa3af;font-size:10px}
+.aw-roster-table th:nth-child(1),.aw-roster-table td:nth-child(1){position:sticky;left:0;z-index:10;background:#fff;min-width:60px}
+.aw-roster-table th:nth-child(2),.aw-roster-table td:nth-child(2){position:sticky;left:60px;z-index:10;background:#fff;min-width:140px}
+.aw-roster-table th:nth-child(3),.aw-roster-table td:nth-child(3){position:sticky;left:200px;z-index:10;background:#fff;min-width:140px}
+.aw-roster-table thead th:nth-child(-n+3){z-index:12;background:#f2f3f5}
+.aw-roster-table tbody tr:hover td:nth-child(-n+3){background:#f7faff}
+@media(max-width:900px){
+  .att-work-head-actions{display:flex;flex-wrap:wrap;gap:7px;width:100%;margin-left:0}
+  .att-work-head-actions .att-work-grade{flex:1 1 130px;min-width:0!important;width:auto!important}
+  .att-work-online{flex:1 1 100%;max-width:none;order:3}
+  .att-work-table-scroll.att-work-sheet-scroll{display:none!important}
+  .att-work-mobile-list{display:grid;gap:9px}
+  .att-work-foot{position:sticky;bottom:0;background:#fff;z-index:30;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+  .aw-result-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(min-width:901px){.att-work-mobile-list{display:none}}
+@media(max-width:420px){.aw-result-card{padding:11px}.aw-result-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.aw-result-meta{display:grid;gap:5px}}
