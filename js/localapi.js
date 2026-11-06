@@ -1653,6 +1653,10 @@ on('POST', '/auth/login-cloud', async ({ body }) => {
     u.nickname = u.nickname && u.nickname !== '老师'
       ? u.nickname
       : (phone ? '用户' + phone.slice(-4) : (local || email));
+  } else if (uid && u.cloudUid && uid === u.cloudUid) {
+    /* 同一 Supabase UID 修改登录账号时，只更新账号标识；不重建用户、不改密码摘要，
+       因此本地用户 ID、权限和该 UID 对应的数据命名空间全部保持不变。 */
+    u.account = acct;
   } else if (u.account === phone && /^\d{11}$/.test(account)) {
     /* 只把同一 Supabase 用户原先保存的 +86 标识改为可见的11位账号，不改变 UID 或数据命名空间。 */
     u.account = account;
