@@ -659,12 +659,13 @@ async function renderProfile(main) {
           </div>
         </div>
 
-        <div class="profile-divider"></div>
-        <div class="profile-section-title"><span></span>工作信息</div>
-        <div class="profile-work-field">
-          <label class="field-label" for="f-school">所在学校</label>
-          <input class="input" id="f-school" maxlength="50" value="${uv('school')}" placeholder="请输入学校名称">
-        </div>
+        <section class="profile-work-section" aria-labelledby="profile-work-title">
+          <div class="profile-section-title" id="profile-work-title"><span></span>工作信息</div>
+          <div class="profile-work-field">
+            <label class="field-label" for="f-school">所在学校</label>
+            <input class="input" id="f-school" maxlength="50" value="${uv('school')}" placeholder="请输入学校名称">
+          </div>
+        </section>
 
         <div class="profile-save-row">
           <div class="profile-save-note">修改完成后点击保存，资料会自动同步。</div>

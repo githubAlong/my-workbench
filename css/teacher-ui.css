@@ -1598,3 +1598,82 @@ html[data-theme="dark"] .home-redesign .home-weather-card .wxb-outfit { backgrou
   .home-redesign .home-weather-card .wxb-emoji { font-size:39px; }
   .home-redesign .home-calendar-card .cal-grid { gap:4px 1px; }
 }
+
+
+/* 全局主题统一：所有页面的左侧导航背景直接读取主题背景变量。 */
+html[data-theme] .app > .sidebar {
+  background:var(--bg);
+  border-right-color:var(--line);
+}
+html[data-theme] .app > .sidebar .nav-item { color:var(--text-2); }
+html[data-theme] .app > .sidebar .nav-item:hover {
+  color:var(--text);
+  background:var(--bg-sunken);
+}
+html[data-theme] .app > .sidebar .nav-item.active {
+  color:var(--primary);
+  background:var(--primary-weak);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 18%,transparent);
+}
+html[data-theme] .app > .sidebar .sidebar-foot .side-user-entry {
+  border-top-color:var(--line);
+}
+html[data-theme] .app > .sidebar .sidebar-foot .side-user-entry.active {
+  color:var(--primary);
+  background:var(--primary-weak);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 18%,transparent);
+}
+html[data-theme] .app > .sidebar .side-user-avatar {
+  color:var(--primary);
+  background:var(--primary-weak);
+}
+html[data-theme] .app > .sidebar .side-user-label small { color:var(--text-3); }
+
+/* 首页独立侧栏也使用同一主题底色，不再叠加固定蓝色背景图。 */
+html[data-theme] .home-redesign-app { background:var(--bg); }
+html[data-theme] .home-redesign-app > .sidebar.home-sidebar {
+  background:var(--bg);
+  background-image:none;
+  border-right-color:var(--line);
+}
+html[data-theme] .home-redesign-app .home-sidebar .brand.home-side-profile {
+  background:var(--bg);
+  border-bottom-color:var(--line);
+}
+html[data-theme] .home-redesign-app .home-side-name { color:var(--text); }
+html[data-theme] .home-redesign-app .home-side-motto,
+html[data-theme] .home-redesign-app .home-side-meta,
+html[data-theme] .home-redesign-app .home-side-role { color:var(--text-2); }
+html[data-theme] .home-redesign-app .home-sidebar .nav-item { color:var(--text-2); }
+html[data-theme] .home-redesign-app .home-sidebar .nav-item:hover {
+  color:var(--primary);
+  background:var(--primary-weak);
+}
+html[data-theme] .home-redesign-app .home-sidebar .nav-item.active {
+  color:#fff;
+  background:var(--primary);
+  box-shadow:0 5px 14px color-mix(in srgb,var(--primary) 20%,transparent);
+}
+html[data-theme] .home-redesign-app .home-sidebar .nav-item.active .ni { color:#fff; }
+html[data-theme] .home-redesign-app .home-sidebar .nav-sub { border-color:var(--line); }
+html[data-theme] .home-redesign-app .home-sidebar .sidebar-foot { border-top-color:var(--line); }
+html[data-theme] .home-redesign-app .home-sidebar .sidebar-foot .nav-item {
+  color:var(--text-2);
+  background:color-mix(in srgb,var(--card) 82%,transparent);
+  border-color:var(--line);
+}
+html[data-theme] .home-redesign-app .home-sidebar .sidebar-foot #side-user {
+  color:var(--text);
+  background:var(--card);
+  border-color:var(--line);
+}
+html[data-theme] .home-redesign-app .home-sidebar .sidebar-foot #side-user.active {
+  color:var(--primary);
+  background:var(--primary-weak);
+  border-color:color-mix(in srgb,var(--primary) 24%,var(--line));
+}
+html[data-theme] .home-redesign-app .home-sidebar .sidebar-foot #side-user .side-user-avatar {
+  color:var(--primary);
+  background:var(--primary-weak);
+}
+html[data-theme] .home-redesign-app > .main.home-redesign { background:var(--bg); }
