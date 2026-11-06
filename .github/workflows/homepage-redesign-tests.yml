@@ -1,0 +1,47 @@
+name: Homepage redesign validation
+
+on:
+  push:
+    branches:
+      - feature/homepage-redesign
+    paths:
+      - "js/home.js"
+      - "js/homegrid.js"
+      - "css/teacher-ui.css"
+      - "tests/**"
+      - "scripts/check-project.mjs"
+      - "package.json"
+      - ".github/workflows/homepage-redesign-tests.yml"
+  pull_request:
+    branches:
+      - test
+    paths:
+      - "js/home.js"
+      - "js/homegrid.js"
+      - "css/teacher-ui.css"
+      - "tests/**"
+      - "scripts/check-project.mjs"
+      - "package.json"
+      - ".github/workflows/homepage-redesign-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  homepage-and-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check changed JavaScript syntax
+        run: |
+          node --check js/home.js
+          node --check js/homegrid.js
+      - name: Run complete Node test suite
+        run: npm test
+      - name: Run repository integrity checks
+        run: npm run check
