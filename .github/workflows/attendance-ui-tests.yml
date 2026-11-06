@@ -7,6 +7,7 @@ on:
     paths:
       - "js/attendance.js"
       - "js/realtime.js"
+      - "sw.js"
       - "css/attendance-workspace.css"
       - "tests/attendance-ui-prd.test.mjs"
       - ".github/workflows/attendance-ui-tests.yml"
@@ -16,6 +17,7 @@ on:
     paths:
       - "js/attendance.js"
       - "js/realtime.js"
+      - "sw.js"
       - "css/attendance-workspace.css"
       - "tests/attendance-ui-prd.test.mjs"
       - ".github/workflows/attendance-ui-tests.yml"
