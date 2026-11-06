@@ -456,7 +456,7 @@ async function renderWorkbenchSettings(main) {
       '</footer>' +
     '</section>';
 
-  bindMeSectionTabs(main);
+  bindMeBackButton(main);
   const title = main.querySelector('#wb-brand-title');
   const subtitle = main.querySelector('#wb-brand-subtitle');
   const previewTitle = main.querySelector('#wb-brand-preview-title');
@@ -550,36 +550,34 @@ async function renderWorkbenchSettings(main) {
 }
 
 /* ================= 个人信息（独立页） ================= */
-function meSectionTabs(active) {
-  return '<div class="me-section-tabs" role="tablist" aria-label="个人设置">' +
-    '<button type="button" class="me-section-tab ' + (active === 'profile' ? 'active' : '') + '" data-me-tab="profile">' +
-      icon('user', 17) + '<span>个人信息</span></button>' +
-    '<button type="button" class="me-section-tab ' + (active === 'workbench' ? 'active' : '') + '" data-me-tab="workbench">' +
-      icon('sliders', 17) + '<span>工作台设置</span></button>' +
-    '<button type="button" class="me-section-tab ' + (active === 'account' ? 'active' : '') + '" data-me-tab="account">' +
-      icon('shield', 17) + '<span>账号设置</span></button>' +
-  '</div>';
-}
+function mePageHeader(section) {
+  const page = {
+    profile: {
+      title: '个人信息',
+      description: '修改头像、姓名、学校、学科及职务等个人资料',
+    },
+    workbench: {
+      title: '工作台设置',
+      description: '设置左上角工作台名称、副标题和品牌图片',
+    },
+    account: {
+      title: '账号设置',
+      description: '管理登录账号、密码及账号安全信息',
+    },
+  }[section] || {
+    title: '个人信息',
+    description: '修改个人资料',
+  };
 
-function mePageHeader(active) {
   return '<div class="me-page-toolbar">' +
       '<button type="button" class="me-back-home" id="me-back-home"><span aria-hidden="true">←</span> 返回我的</button>' +
     '</div>' +
-    pageHead('个人设置', '管理个人资料、工作台品牌与账号安全') +
-    meSectionTabs(active);
+    pageHead(page.title, page.description);
 }
 
-function bindMeSectionTabs(main) {
+function bindMeBackButton(main) {
   const back = main.querySelector('#me-back-home');
   if (back) back.onclick = () => go('me');
-  main.querySelectorAll('[data-me-tab]').forEach((button) => {
-    button.onclick = () => {
-      const tab = button.dataset.meTab;
-      if (tab === 'account') go('me/account-settings');
-      else if (tab === 'workbench') go('me/workbench-settings');
-      else go('profile');
-    };
-  });
 }
 
 function displayLoginAccount(value, fallback = '未设置') {
@@ -670,7 +668,7 @@ async function renderProfile(main) {
       </div>
     </section>`;
 
-  bindMeSectionTabs(main);
+  bindMeBackButton(main);
 
   const updateBanner = () => {
     const nickname = main.querySelector('#f-nickname').value.trim() || '未设置昵称';
@@ -774,7 +772,7 @@ function renderAccountSettings(main) {
       </div>
     </section>`;
 
-  bindMeSectionTabs(main);
+  bindMeBackButton(main);
   main.querySelector('#account-password-change').onclick = () => accountPwdSheet(null);
 }
 
