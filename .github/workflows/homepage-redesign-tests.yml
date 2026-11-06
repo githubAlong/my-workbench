@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/homepage-redesign
+      - feature/clean-homepage-weather
+      - test
+      - dev
     paths:
       - "js/home.js"
       - "js/homegrid.js"
@@ -15,6 +18,7 @@ on:
   pull_request:
     branches:
       - test
+      - dev
     paths:
       - "js/home.js"
       - "js/homegrid.js"

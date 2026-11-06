@@ -73,8 +73,8 @@ function applyHomeSidebar() {
       +'<div class="home-side-meta" id="home-profile-meta">'+esc(schoolSubject)+'</div>'
       +'<div class="home-side-role" id="home-profile-role">'+esc(role)+'</div>';}
   const footer=sidebar.querySelector('.sidebar-foot');
-  if(footer&&!footer.querySelector('#home-side-layout-edit')){const theme=footer.querySelector('#side-theme');
-    const button='<button class="nav-item home-side-layout-edit" id="home-side-layout-edit" type="button" title="编辑首页卡片布局"><span class="ni">'+icon('edit',18)+'</span><span>编辑布局</span></button>';
+  if(footer&&!footer.querySelector('#teacher-layout')){const theme=footer.querySelector('#side-theme');
+    const button='<button class="nav-item home-side-layout-edit" id="teacher-layout" type="button" aria-pressed="false" title="编辑首页卡片布局"><span class="ni">'+icon('edit',18)+'</span><span>编辑布局</span></button>';
     if(theme)theme.insertAdjacentHTML('afterend',button);else footer.insertAdjacentHTML('afterbegin',button);}
 }
 /* ================= 天气 ================= */
@@ -612,23 +612,12 @@ function renderHome() {
   <div class="teacher-toolbar home-topbar">
     <div class="searchbar" id="searchbar"><span class="sb-ico">${icon('search',17)}</span><input id="gsearch" placeholder="搜索课程、监考、待办、笔记" autocomplete="off" enterkeyhint="search"><button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close',15)}</button><button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search',17)}</button></div>
     <div class="home-top-actions">
-      <button class="home-action home-action-outline teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false">${icon('grid',16)}<span>编辑布局</span></button>
       <button class="home-action home-action-primary" id="home-new-item" type="button">${icon('plus',16)}<span>新建事项</span></button>
       <button class="home-action home-action-blue" id="home-new-timetable" type="button">${icon('cal',16)}<span>新建课表</span></button>
-      <button class="home-action home-action-orange" id="home-new-invig" type="button">${icon('shield',16)}<span>新建监考</span></button>
-      <button class="home-action home-action-green" id="home-calendar-view" type="button">${icon('cal',16)}<span>日历视图</span></button>
     </div>
+  </div>    </div>
   </div>
   <div class="sr-scrim" id="search-scrim" hidden></div><div class="sr-panel" id="search-result" hidden></div>
-  <nav class="home-shortcuts" aria-label="常用功能快捷入口">
-    <a class="home-shortcut" href="#/work/lessons" data-home-shortcut="work/lessons"><span class="shortcut-icon blue">${icon('book',24)}</span><b>上课记录</b><small>课时与进度</small></a>
-    <a class="home-shortcut" href="#/work/timetable" data-home-shortcut="work/timetable"><span class="shortcut-icon orange">${icon('cal',24)}</span><b>课程表</b><small>每日课程安排</small></a>
-    <a class="home-shortcut" href="#/work/attendance" data-home-shortcut="work/attendance"><span class="shortcut-icon violet">${icon('users',24)}</span><b>考勤管理</b><small>花名册与考勤</small></a>
-    <a class="home-shortcut" href="#/work/prep" data-home-shortcut="work/prep"><span class="shortcut-icon green">${icon('book',24)}</span><b>备课教研</b><small>教学准备</small></a>
-    <a class="home-shortcut" href="#/work/invigilation" data-home-shortcut="work/invigilation"><span class="shortcut-icon amber">${icon('shield',24)}</span><b>监考任务</b><small>考试安排</small></a>
-    <a class="home-shortcut" href="#/work/materials" data-home-shortcut="work/materials"><span class="shortcut-icon cyan">${icon('folder',24)}</span><b>教学小助手</b><small>课堂互动工具</small></a>
-    <a class="home-shortcut" href="#/study" data-home-shortcut="study"><span class="shortcut-icon indigo">${icon('study',24)}</span><b>学习资源</b><small>资料与学习</small></a>
-    <a class="home-shortcut" href="#/work/notes" data-home-shortcut="work/notes"><span class="shortcut-icon pink">${icon('edit',24)}</span><b>教学笔记</b><small>记录与整理</small></a>
   </nav>
   <div class="hg-toolbar home-layout-toolbar" id="hg-toolbar" role="region" aria-label="首页布局编辑工具" hidden>
     <span class="hg-tb-title">${icon('grid',15)}<b>布局编辑</b></span><span class="hg-tb-hint">拖动卡片换位置 · 拖右下角调大小</span><span class="hg-tb-spacer"></span>
@@ -640,25 +629,34 @@ function renderHome() {
     </div>
     <div class="hg-item" data-hcard="profile"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-welcome-card">
-        <div class="home-welcome-top"><div class="home-welcome-copy"><div class="clk-greet" id="greet-line">${esc(g1)}</div><div class="clk-greet-sub" id="greet-sub">${greetIcon()} ${esc(g2)}</div></div><button class="icon-btn sm" id="theme-btn" title="主题外观" aria-label="主题外观">${icon('sun',17)}</button></div>
-        <div class="clock-date home-welcome-date" id="clock-date"></div>
-        <div class="home-welcome-clock-row"><div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div><button class="icon-btn msg-bell" data-msg title="消息中心" aria-label="消息中心">${icon('bell',18)}${d.unread?'<span class="badge-dot msg-bell-dot">'+(d.unread>99?'99+':d.unread)+'</span>':''}</button></div>
-        <div class="home-welcome-stats">
-          <button type="button" data-goto2="work/timetable"><span class="welcome-stat-icon blue">${icon('book',18)}</span><span class="welcome-stat-copy"><small>今日课程</small><b>${todayCourses.length} 节</b></span></button>
-          <button type="button" data-goto2="work/invigilation"><span class="welcome-stat-icon orange">${icon('shield',18)}</span><span class="welcome-stat-copy"><small>监考</small><b>${(d.invigilations||[]).length} 场</b></span></button>
-          <button type="button" data-goto2="daily/notes"><span class="welcome-stat-icon green">${icon('check',18)}</span><span class="welcome-stat-copy"><small>待办</small><b>${(d.items||[]).filter(t=>t.status!=='done').length} 项</b></span></button>
-          <button type="button" data-msg><span class="welcome-stat-icon red">${icon('bell',18)}</span><span class="welcome-stat-copy"><small>提醒</small><b>${(d.upcoming||[]).length} 个</b></span></button>
-        </div><div class="clk-foot" id="clk-foot"></div>
+        <div class="home-welcome-copy">
+          <div class="clk-greet" id="greet-line">${esc(g1)}</div>
+          <div class="clk-greet-sub" id="greet-sub">专注教学 · 高效管理 · 陪伴学生成长</div>
+          <div class="home-welcome-meta">
+            <div class="clock-date home-welcome-date" id="clock-date"></div>
+            <div class="home-welcome-clock-row"><div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div></div>
+          </div>
+        </div>
+        <button class="icon-btn sm home-theme-btn" id="theme-btn" title="主题外观" aria-label="主题外观">${icon('sun',17)}</button>
       </section>
     </div>
     <div class="hg-item" data-hcard="todayCourse"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card home-card home-course-card"><div class="home-card-head"><div class="home-card-title">${icon('book',20)}<span>今日课程</span><span class="home-count-chip">${todayCourses.length}</span></div><button class="home-card-link" data-goto2="work/timetable" type="button">查看完整课表 ${icon('right',13)}</button></div><div class="card-pad hc-body" id="today-courses"></div><div class="home-course-footer"><button class="btn ghost sm" data-goto2="work/timetable">${icon('sliders',14)} 课表设置</button><button class="btn ghost sm" data-goto2="work/lessons">${icon('plus',14)} 快速添加代课</button></div></section>
+      <section class="card home-card home-course-card">
+        <div class="home-card-head"><div class="home-card-title">${icon('book',20)}<span>今日课程</span><span class="home-count-chip">${todayCourses.length}</span></div><button class="home-card-link" data-goto2="work/timetable" type="button">查看课表 ${icon('right',13)}</button></div>
+        <div class="card-pad hc-body" id="today-courses"></div>
+      </section>
     </div>
     <div class="hg-item" data-hcard="weather"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card wx-card home-weather-card" id="wx-card"><div class="wx-body"><div id="wx-brief">${weatherBriefHTML()}</div></div><button class="wx-more" id="wx-more" aria-expanded="false"><span>${icon('down',13)} <b>详细信息</b></span></button></section>
+      <section class="card wx-card home-weather-card" id="wx-card">
+        <div class="home-card-head"><div class="home-card-title">${icon('sun',20)}<span>今日天气</span></div><button class="home-card-link" id="wx-more" type="button">详细天气 ${icon('right',13)}</button></div>
+        <div class="wx-body"><div id="wx-brief">${weatherBriefHTML()}</div></div>
+      </section>
     </div>
     <div class="hg-item" data-hcard="todayTodo"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card home-card home-todo-card"><div class="home-card-head"><div class="home-card-title">${icon('check',19)}<span>今日事项 &amp; 快速便签</span><span class="home-count-chip">${d.items.length}</span></div><button class="home-card-link" data-add-item2 type="button">＋ 新增</button></div><div class="card-pad hc-body" id="today-items"></div><div class="card-pad quick-inline"><div class="qi-row"><span class="qi-ico">${icon('edit',15)}</span><input id="quick-input" placeholder="快速记一笔，回车保存…" autocomplete="off"><button class="qi-time" id="quick-time" title="加时间提醒">${icon('clock',14)}</button><button class="btn primary sm" id="quick-save">保存</button></div><div class="qi-hint" id="quick-hint"></div></div></section>
+      <section class="card home-card home-todo-card">
+        <div class="home-card-head"><div class="home-card-title">${icon('check',19)}<span>今日待办</span><span class="home-count-chip">${(d.items||[]).filter(t=>t.status!=='done').length}</span></div><button class="home-card-link" data-add-item2 type="button">＋ 新增</button></div>
+        <div class="card-pad hc-body" id="today-items"></div>
+      </section>
     </div>
     <div class="hg-item" data-hcard="dailyQuote"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card quote quote-top home-quote-card"><div class="home-card-head"><div class="home-card-title">${icon('sun',19)}<span>每日一句</span></div><button class="btn ghost sm" id="quote-next" title="换一句">${icon('refresh',14)} 换一句</button></div><div class="quote-en"><span class="qt" id="q-en">${esc(d.quote.en)}</span><button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak',15)}</button></div><div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div><div class="quote-author" id="q-author">— ${esc(d.quote.author||'')}</div></section>
@@ -684,12 +682,10 @@ function renderHome() {
   cdKey = '';
   startClock();
   renderTimeline();
-  renderTimeline();
   renderTodayItems();
   renderTodayCourses();
   loadCal(ymd(today));
   loadHomeMsgs();
-  loadHomeExtras();
   loadHomeExtras();
 }
 
@@ -746,7 +742,7 @@ function startClock() {
       const g = document.getElementById('greet-line');
       if (g && g.textContent !== title) g.textContent = title;
       const sub = document.getElementById('greet-sub');
-      if (sub) sub.textContent = `${greetIcon()} ${subtitle}`;
+      if (sub) sub.textContent = '专注教学 · 高效管理 · 陪伴学生成长';
       const profile = document.getElementById('home-profile-meta');
       const profileRoleEl = document.getElementById('home-profile-role');
       const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
@@ -1573,9 +1569,6 @@ function bindHome() {
   q('#theme-btn').onclick = () => { import('./ui.js').then((m) => m.openThemeSheet()); };
   q('#home-new-item').onclick = () => editItem(null, homeData.date);
   q('#home-new-timetable').onclick = () => { go('work/timetable'); let n=0; const open=()=>{const b=document.getElementById('add-course');if(b)b.click();else if(++n<80)setTimeout(open,100);};setTimeout(open,80); };
-  q('#home-new-invig').onclick = () => { go('work/invigilation'); let n=0; const open=()=>{const b=document.getElementById('iv-add');if(b)b.click();else if(++n<80)setTimeout(open,100);};setTimeout(open,80); };
-  q('#home-calendar-view').onclick = () => { calState.view='month';paintCal();const card=document.querySelector('.hg-item[data-hcard="calendar"]');if(card?.classList.contains('is-collapsed'))q('#cal-collapse')?.click();card?.scrollIntoView({behavior:'smooth',block:'center'}); };
-  const sideLayoutEdit=q('#home-side-layout-edit');if(sideLayoutEdit)sideLayoutEdit.onclick=()=>q('#teacher-layout')?.click();
   document.querySelectorAll('[data-msg]').forEach((b) => { b.onclick = () => go('messages'); });
   document.querySelectorAll('[data-goto2]').forEach((b) => { b.onclick = () => go(b.dataset.goto2); });
   /* data-goto 在搜索结果面板里是由 srBind 绑的，顶栏头像虽然也用这个属性名，

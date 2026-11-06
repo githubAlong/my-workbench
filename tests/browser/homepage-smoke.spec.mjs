@@ -16,9 +16,20 @@ for (const viewport of [
     await page.goto(`${baseURL}?e2e=1`, { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveTitle(/教师个人工作台/);
     await expect(page.locator('#app')).not.toBeEmpty({ timeout: 20000 });
-    await expect(page.locator('.home-shortcut')).toHaveCount(8, { timeout: 20000 });
+    await expect(page.locator('[data-hcard="profile"]')).toBeVisible({ timeout: 20000 });
     await expect(page.locator('#home-grid')).toBeVisible();
     await expect(page.locator('[data-hcard]')).toHaveCount(11);
+    await expect(page.locator('[data-hcard]:visible')).toHaveCount(5);
+    for (const id of ['profile', 'todayCourse', 'todayTodo', 'weather', 'calendar']) {
+      await expect(page.locator('[data-hcard="' + id + '"]')).toBeVisible();
+    }
+    for (const id of ['timeline', 'dailyQuote', 'weekLessons', 'invigilation', 'prepDeadline', 'recentNotes']) {
+      await expect(page.locator('[data-hcard="' + id + '"]')).toBeHidden();
+    }
+    await expect(page.locator('#wx-card')).toBeVisible();
+    await expect(page.locator('#today-courses')).toBeVisible();
+    await expect(page.locator('#today-items')).toBeVisible();
+    await expect(page.locator('#cal-grid')).toBeVisible();
 
     const metrics = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
