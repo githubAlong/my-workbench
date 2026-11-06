@@ -89,5 +89,5 @@ test('首页保留的工作与个人中心导航目标已注册', () => {
   assert.match(ui, /id: 'invigilation', label: '监考'/);
   assert.match(ui, /id: 'me', label: '我的'/);
   assert.match(ui, /seg === 'messages' \\|\\| seg === 'profile'/);
-  assert.match(home, /go\('work\\/timetable'\)/);
+  assert.ok(home.includes("go('work/timetable')"));
 });
