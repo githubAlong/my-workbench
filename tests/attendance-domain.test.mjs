@@ -9,6 +9,7 @@ import {
   dayKeyOf,
   dedupeAttendanceRows,
   markTemporaryTeacher,
+  mergeAttendanceRosterRows,
   normalizeAttendanceType,
   prepareRosterEntries,
 } from '../js/attendance-domain.mjs';
@@ -83,6 +84,32 @@ test('temporary class teacher is row-scoped and duplicate row identities collaps
   ]);
   assert.equal(rows.length, 2);
   assert.equal(duplicateGroups.length, 1);
+});
+
+test('attendance rows match by name and subject, not name alone', () => {
+  const merged = mergeAttendanceRosterRows([
+    { teacher: '王老师', subject: '语文', data: { k_上课: '1' } },
+    { teacher: '王老师', subject: '数学', data: { k_上课: '0' } },
+  ], [
+    { id: 1, name: '王老师', subject: '语文', active: 1 },
+    { id: 2, name: '王老师', subject: '数学', active: 1 },
+  ]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].data.k_上课, '1');
+  assert.equal(merged[1].data.k_上课, '0');
+});
+
+test('deleting a teacher hides the current-day permanent row but preserves history and temporary rows', () => {
+  const existing = [
+    { teacher: '在册老师', subject: '语文', data: { k_上课: '1' } },
+    { teacher: '已删除老师', subject: '数学', data: { k_上课: '0' } },
+    { teacher: '借调老师', subject: '物理', data: { __temp: 1, borrow_grade: '高二' } },
+  ];
+  const roster = [{ id: 1, name: '在册老师', subject: '语文', active: 1 }];
+  const today = mergeAttendanceRosterRows(existing, roster, { hideUnlisted: true });
+  assert.deepEqual(today.map((row) => row.teacher), ['在册老师', '借调老师']);
+  const history = mergeAttendanceRosterRows(existing, roster, { hideUnlisted: false });
+  assert.deepEqual(history.map((row) => row.teacher), ['在册老师', '已删除老师', '借调老师']);
 });
 
 test('research subject filter batch-signs only the selected subject', () => {

@@ -1,0 +1,51 @@
+name: Attendance UI PRD checks
+
+on:
+  push:
+    branches:
+      - feature/attendance-ui-v1.0
+    paths:
+      - "js/attendance.js"
+      - "js/attendance-export.mjs"
+      - "tests/attendance-export.test.mjs"
+      - "js/attendance-domain.mjs"
+      - "tests/attendance-domain.test.mjs"
+      - "js/realtime.js"
+      - "sw.js"
+      - "css/attendance-workspace.css"
+      - "tests/attendance-ui-prd.test.mjs"
+      - ".github/workflows/attendance-ui-tests.yml"
+  pull_request:
+    branches:
+      - test
+    paths:
+      - "js/attendance.js"
+      - "js/attendance-export.mjs"
+      - "tests/attendance-export.test.mjs"
+      - "js/attendance-domain.mjs"
+      - "tests/attendance-domain.test.mjs"
+      - "js/realtime.js"
+      - "sw.js"
+      - "css/attendance-workspace.css"
+      - "tests/attendance-ui-prd.test.mjs"
+      - ".github/workflows/attendance-ui-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  attendance-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check changed JavaScript syntax
+        run: |
+          node --check js/attendance.js
+          node --check js/realtime.js
+      - name: Run project validation
+        run: npm run check
+      - name: Run full test suite
+        run: npm test
