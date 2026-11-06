@@ -16,6 +16,9 @@ for (const viewport of [
     await page.goto(baseURL, { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveTitle(/教师个人工作台/);
     await expect(page.locator('#app')).not.toBeEmpty({ timeout: 20000 });
+    await expect(page.locator('.home-shortcut')).toHaveCount(8, { timeout: 20000 });
+    await expect(page.locator('#home-grid')).toBeVisible();
+    await expect(page.locator('[data-hcard]')).toHaveCount(11);
 
     const metrics = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
