@@ -154,8 +154,8 @@ try {
       /* 云端快照已经写入本地库，必须同步刷新内存中的用户对象。
          否则「我的」首页仍拿旧 state.user 渲染，顶部资料卡片会显示旧信息。 */
       await loadMe();
-      /* 正在编辑资料时不重建表单，避免打断未保存输入；离开编辑页后会读取最新 state.user。 */
-      if (parseHash().path !== 'profile') await render();
+      /* profileDraft 会保留当前正在编辑的未保存输入；重绘可让资料表单与顶部卡片一起读取最新 state.user。 */
+      await render();
     } catch (e) {
       console.warn('[sync] 远端资料刷新失败', e);
     }
