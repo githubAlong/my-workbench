@@ -818,7 +818,7 @@ function accountLoginSheet() {
     const next = field('account-new').value.trim();
     const confirm = field('account-new-confirm').value.trim();
     const password = field('account-current-password').value;
-    if (!/^1[3-9]\\d{9}$/.test(next)) {
+    if (!/^1[3-9]\d{9}$/.test(next)) {
       toast('新登录账号必须是11位数字，请检查后重试', 'warn');
       field('account-new').focus();
       return;
