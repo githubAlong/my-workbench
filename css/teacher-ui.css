@@ -1149,7 +1149,7 @@ html[data-theme="dark"] .hg-item > .clk-card .clk-profile-role {
 /* Teacher dashboard redesign — scoped to the home route only */
 .home-redesign-app { min-height:100vh; background:#edf5fb; }
 .home-redesign-app > .sidebar.home-sidebar {
- width:296px; flex:0 0 296px; min-height:100vh; height:100vh; padding:0 14px 14px; gap:8px; overflow:hidden;
+ width:296px; flex:0 0 296px; min-height:100vh; height:100vh; padding:22px 14px 14px; gap:8px; overflow:hidden;
  background:#f3f7fc; background-image:linear-gradient(180deg,rgba(244,249,255,.08),rgba(245,249,255,.2) 48%,rgba(244,249,255,.88) 74%,#f4f8fd),url('../assets/teacher-ui/hero-scene.webp');
  background-repeat:no-repeat; background-size:100% 100%,auto 100%; background-position:center; border-right:1px solid #dbe7f2;
 }
