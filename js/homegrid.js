@@ -95,7 +95,7 @@ function defaultSeg(bp) {
 
 export function defaultState() {
   return {
-    version: 2,
+    version: 3,
     /* 【为什么这里是空串而不是 new Date()】
        updatedAt 用来判断「云端和本地谁更新」。如果默认状态取"现在"，
        那一个从没排过布局的新设备，其本地时间永远比云端那次保存更晚，
@@ -186,10 +186,14 @@ function normalize(raw) {
   const out = defaultState();
   if (!raw || typeof raw !== 'object' || !raw.breakpoints) return out;
   const rawVersion = Number(raw.version) || 1;
-  if (rawVersion < 2) {
+  /* v3 首次升级新版首页：重置旧的卡片坐标，采用新版默认排布；
+     用户主动隐藏的卡片仍保留，避免升级后被隐藏的内容突然出现。
+     这是纯展示配置迁移，不触碰课程、待办、日历等业务数据。 */
+  if (rawVersion < 3) {
     const hidden = [...new Set((raw.breakpoints.desktop?.hidden || []).map(String).filter((id) => CARD_MAP.has(id)))];
     for (const bp of Object.keys(out.breakpoints)) out.breakpoints[bp].hidden = hidden;
     out.updatedAt = raw.updatedAt || '';
+    out.version = 3;
     return out;
   }
   out.version = rawVersion;
