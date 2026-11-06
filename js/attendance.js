@@ -81,16 +81,19 @@ function seatCols() {
    真要按假别单独统计时，工具栏「＋ 加一列」里能一键加回「请假」列。 */
 function researchCols() {
   return [
-    { key: 'k_签到', label: '签到', type: 'check', w: 72 },
-    { key: 'k_请假', label: '请假', type: 'check', w: 76 },
-    { key: 'k_remark', label: '备注', type: 'text', w: 150 },
+    { key: 'k_签到', label: '教研', type: 'check', w: 120 },
+    { key: 'k_请假', label: '请假', type: 'check', w: 120 },
+    { key: 'k_remark', label: '备注', type: 'text', w: 200 },
   ];
 }
 /* 查上课：按时上课 + 请假 + 备注 */
 function classCols() {
-  /* V1.0: the class table uses the same base columns as the seat table,
-     while keeping its own rows, draft and confirmation state. */
-  return seatCols();
+  return [
+    { key: 'k_上课', label: '上课', type: 'check', w: 120 },
+    { key: 'k_听课', label: '听课', type: 'check', w: 120 },
+    { key: 'k_请假', label: '请假', type: 'check', w: 120 },
+    { key: 'k_remark', label: '备注', type: 'text', w: 200 },
+  ];
 }
 const colsOf = (type) => (type === 'research' ? researchCols() : type === 'class' ? classCols() : seatCols());
 
@@ -149,9 +152,12 @@ export async function renderAttendance(box, opts = {}) {
 
   let activeGrade = want;
   sessionStorage.setItem('wb_att_grade', activeGrade);
-  let viewDate = sessionStorage.getItem('wb_att_date') || dayStr();
-  let selectedPeriod = String(sessionStorage.getItem('wb_att_period') || '1');
-  let timeRange = sessionStorage.getItem('wb_att_time_range') || '全天';
+  let viewDate = dayStr();
+  let selectedPeriod = String(sessionStorage.getItem('wb_att_period') || guessPeriod());
+  let timeRange = '';
+  let periodsData = [];
+  let calendarOpen = false;
+  let calendarMonth = viewDate.slice(0, 7);
   // 每次进入年级工作台都从花名册开始；切换其他表只在本次工作台会话内生效。
   let activeTab = 'roster';
   sessionStorage.setItem('wb_att_tab', activeTab);
@@ -197,14 +203,14 @@ export async function renderAttendance(box, opts = {}) {
 
   const ensureClassColumns = async (t) => {
     if (!t || (t.sheet_type || t.kind) !== 'class') return t;
-    const expected = seatCols(), current = t.columns || [], used = new Set();
+    const expected = classCols();
+    const current = t.columns || [];
     const merged = expected.map((col) => {
-      const found = current.find((old) => !used.has(old.key) && (old.key === col.key || old.label === col.label));
-      if (found) used.add(found.key);
+      const found = current.find((old) => old.key === col.key || old.label === col.label);
       return found ? { ...col, ...found, label: col.label, type: col.type } : col;
     });
-    current.filter((col) => !used.has(col.key) && !merged.some((x) => x.key === col.key)).forEach((col) => merged.push(col));
-    const same = merged.length === current.length && merged.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label && c.type === current[i]?.type);
+    const same = merged.length === current.length
+      && merged.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label && c.type === current[i]?.type);
     if (same) return t;
     await api.patch(`/attendance/${t.id}`, { columns: merged, migration: true });
     return { ...t, columns: merged };
@@ -213,24 +219,32 @@ export async function renderAttendance(box, opts = {}) {
   const ensureResearchColumns = async (t) => {
     if (!t || (t.sheet_type || t.kind) !== 'research') return t;
     const current = t.columns || [];
-    const get = (key, label, type = 'check', w = 76) => current.find((c) => c.key === key || c.label === label) || { key, label, type, w };
-    const next = [get('k_签到', '签到', 'check', 72), get('k_请假', '请假'), get('k_remark', '备注', 'text', 150)];
-    const extras = current.filter((c) => !next.some((x) => x.key === c.key));
-    const merged = [...next, ...extras];
-    const same = merged.length === current.length && merged.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label && c.type === current[i]?.type);
+    const next = [
+      current.find((c) => c.key === 'k_签到' || /签到|教研|出席/.test(c.label || '')) || { key: 'k_签到', label: '教研', type: 'check', w: 120 },
+      current.find((c) => c.key === 'k_请假' || /请假/.test(c.label || '')) || { key: 'k_请假', label: '请假', type: 'check', w: 120 },
+      current.find((c) => c.key === 'k_remark' || /备注/.test(c.label || '')) || { key: 'k_remark', label: '备注', type: 'text', w: 200 },
+    ].map((col, i) => ({ ...col, key: ['k_签到','k_请假','k_remark'][i], label: ['教研','请假','备注'][i], type: i === 2 ? 'text' : 'check' }));
+    const same = next.length === current.length
+      && next.every((c, i) => c.key === current[i]?.key && c.label === current[i]?.label && c.type === current[i]?.type);
     if (same) return t;
-    await api.patch(`/attendance/${t.id}`, { columns: merged, migration: true });
-    return { ...t, columns: merged };
+    await api.patch(`/attendance/${t.id}`, { columns: next, migration: true });
+    return { ...t, columns: next };
   };
 
   const load = async ({ makeToday = true } = {}) => {
     if (busy) return;
     busy = true;
     try {
-      [gradesData, tables] = await Promise.all([
+      [gradesData, tables, periodsData] = await Promise.all([
         api.get('/grades').catch(() => ({ grades: [], counts: {} })),
         api.get('/attendance', { sheet_date: viewDate }),
+        api.get('/periods').catch(() => []),
       ]);
+      periodsData = Array.isArray(periodsData) ? periodsData.slice().sort((a, b) => Number(a.period_no) - Number(b.period_no)) : [];
+      const selectedPeriodConfig = periodsData.find((item) => String(item.period_no) === String(selectedPeriod));
+      timeRange = selectedPeriodConfig?.start_time && selectedPeriodConfig?.end_time
+        ? `${selectedPeriodConfig.start_time}–${selectedPeriodConfig.end_time}`
+        : '';
       gradesData.tabs = gradeTabs(gradesData);
       if (!gradesData.tabs.length) {
         sessionStorage.removeItem('wb_att_grade');
@@ -254,7 +268,7 @@ export async function renderAttendance(box, opts = {}) {
       detail = matches.length ? await api.get(`/attendance/${matches.sort((a, b) => Number(b.id) - Number(a.id))[0].id}`) : null;
       if (detail && activeTab === 'seat') detail = await ensureSeatColumns(detail);
       if (detail && activeTab === 'class') detail = await ensureClassColumns(detail);
-      if (detail && (activeTab === 'seat' || activeTab === 'class')) {
+      if (detail && activeTab !== 'roster') {
         // Each table gets its own roster-shaped empty rows. This never copies
         // attendance data between seat and class and never promotes temps.
         const activeTeachers = roster.filter((teacher) => teacher.active && String(teacher.name || '').trim());
@@ -296,8 +310,9 @@ export async function renderAttendance(box, opts = {}) {
       && (!subjectFilter || (r.subject || '未填学科') === subjectFilter);
   });
   const visibleRoster = () => roster.filter((r) => {
+    if (Number(r.active ?? 1) !== 1) return false;
     const q = searchText.trim().toLowerCase();
-    return (!q || `${r.name || ''} ${r.subject || ''}`.toLowerCase().includes(q))
+    return (!q || `${r.name || ''} ${r.subject || ''} ${r.phone || ''}`.toLowerCase().includes(q))
       && (!subjectFilter || (r.subject || '未填学科') === subjectFilter);
   });
   const keyByLabel = (label, fallback) => (detail?.columns || []).find((c) => c.key === fallback || (c.label || '') === label)?.key || fallback;
@@ -332,10 +347,11 @@ export async function renderAttendance(box, opts = {}) {
         { label: '已上课', value: count(keyByLabel('上课', 'k_上课')), tone: 'blue' },
         { label: '听课', value: count(listenKey), tone: 'violet' },
         { label: '请假', value: leave, tone: 'amber' },
+        { label: '未坐班', value: rows.filter((r) => !(detail?.columns || []).filter((c) => c.type === 'check').some((c) => r.data?.[c.key] === '1')).length, tone: 'gray' },
       ] };
     }
     if (activeTab === 'research') {
-      const researched = count(keyByLabel('签到', 'k_签到'));
+      const researched = count(keyByLabel('教研', 'k_签到'));
       return { total, items: [
         { label: '应到教师', value: total, tone: '' },
         { label: '已教研', value: researched, tone: 'blue' },
