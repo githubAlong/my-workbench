@@ -178,7 +178,7 @@ function setAttendancePresenceContext(context = {}) {
 
 function syncAttendancePresenceFromRoute() {
   try {
-    const route = String(window.location.hash || '').replace(/^#\\/?/, '').split('/');
+    const route = String(window.location.hash || '').replace(/^#\/?/, '').split('/');
     const grade = route[0] === 'work' && route[1] === 'attendance' && route[2] ? decodeURIComponent(route[2]) : '';
     setAttendancePresenceContext({ grade, view: '考勤管理' });
   } catch { setAttendancePresenceContext({}); }
