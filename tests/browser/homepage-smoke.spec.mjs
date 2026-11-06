@@ -137,10 +137,42 @@ test('首页和工作页面共用后台品牌，首页不把品牌替换为个�
   await expect(brand.locator('.brand-name')).toHaveText('我的工作台', { timeout: 20000 });
   await expect(brand.locator('.brand-sub')).toHaveText('Workbench');
   await expect(brand).not.toHaveClass(/home-side-profile/);
-  await page.locator('.sidebar [data-nav="work"]').click();
+  await page.locator('.sidebar [data-nav-toggle="work"]').click();
+  await page.locator('.sidebar [data-nav="work/lessons"]').click();
   await expect(page.locator('#main')).not.toBeEmpty();
   await expect(brand.locator('.brand-name')).toHaveText('我的工作台');
   await expect(brand.locator('.brand-sub')).toHaveText('Workbench');
   await expect(brand).not.toHaveClass(/home-side-profile/);
+  await context.close();
+});
+
+test('个人信息页按确认稿显示字段，联系电话可编辑且保存按钮为保存', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const page = await context.newPage();
+  await page.goto(`${baseURL}?e2e=1#/profile`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('.page-me-profile')).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('.profile-banner')).toBeVisible();
+  await expect(page.locator('.profile-section-title')).toHaveText(['基本信息', '工作信息']);
+  await expect(page.locator('#f-email')).toHaveCount(0);
+
+  const gender = page.locator('#f-gender');
+  await expect(gender.locator('option[value="男"]')).toHaveCount(1);
+  await expect(gender.locator('option[value="女"]')).toHaveCount(1);
+  await expect(gender.locator('option[value="保密"]')).toHaveCount(1);
+  await expect(gender.locator('option[value="其他"]')).toHaveCount(0);
+
+  const phone = page.locator('#f-contact_phone');
+  await expect(phone).toBeEditable();
+  await phone.fill('13800138000');
+  await expect(phone).toHaveValue('13800138000');
+  await expect(page.locator('#p-save')).toContainText('保存');
+  await expect(page.locator('#p-save')).not.toContainText('保存修改');
+
+  const areas = await page.locator('.profile-fields').evaluate(el => getComputedStyle(el).gridTemplateAreas);
+  expect(areas).toContain('name gender');
+  expect(areas).toContain('phone .');
+  expect(areas).toContain('subject title');
+  expect(areas).toContain('grade .');
+  await expect(page.locator('#f-school')).toBeVisible();
   await context.close();
 });

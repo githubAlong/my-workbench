@@ -367,10 +367,10 @@ function cropSquare(file, size = 192) {
    focusout 时不抓、input 时才抓 —— 因为 input 事件是「值真的变了」，
    而 focusout 只是「光标走了」，抓了会白存一份同样的值。 */
 let profileDraft = null;
-const PROFILE_FIELDS = ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group'];
+const PROFILE_FIELDS = ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'grade_group'];
 
-/* 把当前页面上四个输入框的值快照到 profileDraft。
-   页面不在个人信息页、或者四个框都不在，就什么都不做。 */
+/* 把当前页面可编辑的个人资料字段快照到 profileDraft。
+   页面不在个人信息页时不执行；未展示的邮箱字段不参与本次编辑。 */
 function captureProfileDraft() {
   const box = document.querySelector('#f-nickname');
   if (!box) return;                       // 不在个人信息页
@@ -602,6 +602,8 @@ async function renderProfile(main) {
   main.classList.add('page-me-profile');
   const valueOf = (key) => profileDraft ? (profileDraft[key] ?? '') : (u[key] || '');
   const uv = (key) => esc(valueOf(key));
+  // 旧资料中的「其他」按新选项统一显示为「保密」。
+  const genderValue = valueOf('gender') === '其他' ? '保密' : valueOf('gender');
   const bannerName = valueOf('nickname') || '未设置昵称';
   const bannerMeta = [valueOf('title') || '教师', valueOf('grade_group')].filter(Boolean).join(' · ') || '完善个人资料，让工作台更懂你的工作';
   const session = cloud.session() || {};
@@ -626,36 +628,32 @@ async function renderProfile(main) {
       <div class="profile-content">
         <div class="profile-section-title"><span></span>基本信息</div>
         <div class="profile-fields">
-          <div class="field">
+          <div class="field profile-field-name">
             <label class="field-label" for="f-nickname">姓名 <b class="required-mark">*</b></label>
             <input class="input" id="f-nickname" maxlength="20" value="${uv('nickname')}" placeholder="请输入姓名">
           </div>
-          <div class="field">
+          <div class="field profile-field-gender">
             <label class="field-label" for="f-gender">性别</label>
             <select class="input" id="f-gender">
-              <option value="" ${!valueOf('gender') ? 'selected' : ''}>请选择</option>
-              <option value="男" ${valueOf('gender') === '男' ? 'selected' : ''}>男</option>
-              <option value="女" ${valueOf('gender') === '女' ? 'selected' : ''}>女</option>
-              <option value="其他" ${valueOf('gender') === '其他' ? 'selected' : ''}>其他</option>
+              <option value="" ${!genderValue ? 'selected' : ''}>请选择</option>
+              <option value="男" ${genderValue === '男' ? 'selected' : ''}>男</option>
+              <option value="女" ${genderValue === '女' ? 'selected' : ''}>女</option>
+              <option value="保密" ${genderValue === '保密' ? 'selected' : ''}>保密</option>
             </select>
           </div>
-          <div class="field">
+          <div class="field profile-field-phone">
             <label class="field-label" for="f-contact_phone">联系电话</label>
-            <input class="input" id="f-contact_phone" type="tel" maxlength="24" value="${uv('contact_phone') || uv('phone')}" placeholder="请输入联系电话">
+            <input class="input" id="f-contact_phone" type="tel" maxlength="24" value="${uv('contact_phone') || uv('phone')}" placeholder="请输入联系电话" autocomplete="tel">
           </div>
-          <div class="field">
-            <label class="field-label" for="f-email">邮箱</label>
-            <input class="input" id="f-email" type="email" maxlength="80" value="${uv('email')}" placeholder="请输入邮箱地址">
-          </div>
-          <div class="field">
+          <div class="field profile-field-subject">
             <label class="field-label" for="f-subject">学科</label>
             <input class="input" id="f-subject" maxlength="20" value="${uv('subject')}" placeholder="如：信息技术">
           </div>
-          <div class="field">
+          <div class="field profile-field-title">
             <label class="field-label" for="f-title">职务</label>
             <input class="input" id="f-title" maxlength="30" value="${uv('title')}" placeholder="如：教师">
           </div>
-          <div class="field">
+          <div class="field profile-field-grade">
             <label class="field-label" for="f-grade_group">所属年级组</label>
             <input class="input" id="f-grade_group" maxlength="30" value="${uv('grade_group')}" placeholder="如：高二年级组">
           </div>
@@ -670,7 +668,7 @@ async function renderProfile(main) {
 
         <div class="profile-save-row">
           <div class="profile-save-note">修改完成后点击保存，资料会自动同步。</div>
-          <button class="btn primary" id="p-save" type="button">${icon('check', 16)} 保存修改</button>
+          <button class="btn primary" id="p-save" type="button">${icon('check', 16)} 保存</button>
         </div>
       </div>
     </section>`;
@@ -685,7 +683,7 @@ async function renderProfile(main) {
     main.querySelector('#profile-banner-meta').textContent = [title, grade].filter(Boolean).join(' · ');
   };
 
-  for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group']) {
+  for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'grade_group']) {
     const input = main.querySelector('#f-' + key);
     if (!input) continue;
     input.addEventListener('input', updateBanner);
@@ -713,7 +711,7 @@ async function renderProfile(main) {
     button.disabled = true;
     button.textContent = '保存中…';
     const payload = {};
-    for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'email', 'grade_group']) {
+    for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'grade_group']) {
       payload[key] = main.querySelector('#f-' + key).value.trim();
     }
     try {
@@ -725,7 +723,7 @@ async function renderProfile(main) {
     } catch (error) {
       toast(error.message || '保存失败', 'err');
       button.disabled = false;
-      button.innerHTML = icon('check', 16) + ' 保存修改';
+      button.innerHTML = icon('check', 16) + ' 保存';
     }
   };
 }

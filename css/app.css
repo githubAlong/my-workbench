@@ -4181,3 +4181,32 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   margin-top: 5px; color: var(--text-2); font-size: 12px; line-height: 1.55;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
+
+/* 个人信息页：严格按确认截图排列字段，不显示邮箱字段。 */
+.profile-shell-single .profile-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "name gender"
+    "phone ."
+    "subject title"
+    "grade .";
+}
+.profile-shell-single .profile-field-name { grid-area: name; }
+.profile-shell-single .profile-field-gender { grid-area: gender; }
+.profile-shell-single .profile-field-phone { grid-area: phone; }
+.profile-shell-single .profile-field-subject { grid-area: subject; }
+.profile-shell-single .profile-field-title { grid-area: title; }
+.profile-shell-single .profile-field-grade { grid-area: grade; }
+
+@media (max-width: 760px) {
+  .profile-shell-single .profile-fields {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "name"
+      "gender"
+      "phone"
+      "subject"
+      "title"
+      "grade";
+  }
+}
