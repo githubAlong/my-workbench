@@ -148,6 +148,12 @@ test('日历选择日期会同步真实事项、课程，并在固定高度时�
 
 
 
+test('日历重构没有遗留临时替换标记或旧折叠入口', () => {
+  assert.doesNotMatch(home, /remove calendar collapse controller/);
+  assert.doesNotMatch(home, /cal-collapse|cal-collapse-row|cal-day-toggle/);
+  assert.doesNotMatch(home, /dayExpanded|syncHomeDayGridHeight|hg-day-expanded/);
+});
+
 test('桌面首页取消1920px最大宽度并铺满侧栏以外的可用空间', () => {
   assert.match(styles, /\.main:has\(#home-grid\)\s*\{\s*max-width:\s*none;/);
   assert.match(styles, /@media\s*\(min-width:\s*1101px\)\s*\{\s*#main\.main:has\(#home-grid\)\s*\{[\s\S]*?flex:\s*1 1 0;[\s\S]*?width:\s*0;[\s\S]*?max-width:\s*none;[\s\S]*?min-width:\s*0;[\s\S]*?margin:\s*0;/);
