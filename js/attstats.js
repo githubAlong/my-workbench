@@ -31,7 +31,7 @@ const COLS = [
   ['上午', 'am'], ['下午', 'pm'], ['全天', 'full'], ['请假时长(天)', 'hours'],
 ];
 
-export async function statsSheet(grade) {
+export async function statsSheet(grade, container = null) {
   const thisYear = String(new Date().getFullYear());
   let year = thisYear;
   let mode = 'recent';            /* recent | year */
@@ -39,7 +39,7 @@ export async function statsSheet(grade) {
   let data = null;
   let loading = false;
 
-  const body = el(`<div class="stt-body">
+  const markup = `<div class="stt-body">
     <div class="stt-bar">
       <button class="btn ghost sm" id="stt-prev" title="上一年">${icon('left', 14)}</button>
       <div class="stt-ym" id="stt-ym"></div>
@@ -54,8 +54,10 @@ export async function statsSheet(grade) {
     <div class="stt-months" id="stt-months"></div>
     <div class="stt-note tiny muted" id="stt-note"></div>
     <div class="table-wrap stt-table" id="stt-table"></div>
-  </div>`);
-  const s = sheet({ title: `${grade} · 考勤统计`, body, wide: true, cls: 'stt-sheet' });
+  </div>`;
+  const body = container || el(markup);
+  if (container) body.innerHTML = markup;
+  const s = container ? null : sheet({ title: `${grade} · 考勤统计`, body, wide: true, cls: 'stt-sheet' });
   const $ = (x) => body.querySelector(x);
 
   const monthKeys = () => (mode === 'recent' ? recentMonths(12) : Array.from({ length: 12 }, (_, i) => `${year}-${pad2(i + 1)}`));

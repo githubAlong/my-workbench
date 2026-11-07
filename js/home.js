@@ -1,7 +1,7 @@
 import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_CN, WD_SHORT, fmtTime, fmtDateTime, relDay, parseDT, countdown, speak, stopSpeak, colorOf, ls, exportUrl, download, addToSystemCalendar } from './core.js';
 import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
 import { syncDay, DAY_SYNC } from './homelayout.js';
-import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud } from './homegrid.js';
+import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud, setTemporaryHeight as setGridTemporaryHeight } from './homegrid.js';
 
 /* ================= 欢迎语 =================
    【第 5 条：按时段问候 + 头像上移】
@@ -93,32 +93,45 @@ function outfitFor(t, code, wind, rain) {
 }
 
 let weatherTimer = null;
+let weatherRequestSeq = 0;
 async function loadWeather(force = false) {
-  const c = state.city;
+  const city = { ...(state.city || { name: '北京', lat: 39.9042, lon: 116.4074 }) };
+  const requestId = ++weatherRequestSeq;
   const cache = ls.get('weather', null);
-  /* 【缓存判断必须是「现在 - 抓取时刻 < 20 分钟」】
-     早先写成 `cache.at < 20 * 60000`，at 是 Date.now() 的绝对时间戳（几十亿），
-     这个条件恒为真 —— 缓存永不过期。于是切换城市后，只要新城市的名字和缓存里的
-     对不上……其实也对不上，但真正让用户看到「城市换了温度没变」的是下面的兜底：
-     请求失败时直接把 cache 塞进 state.weather，标题读的是新城市、数字是旧城市的。
-     现在：时间判断改对，兜底也只在同城时用。 */
+  const matchesCity = (item) => {
+    if (!item) return false;
+    if (item.lat != null && item.lon != null) {
+      return Math.abs(Number(item.lat) - Number(city.lat)) < 0.000001
+        && Math.abs(Number(item.lon) - Number(city.lon)) < 0.000001;
+    }
+    return item.city === city.name;
+  };
+  const stillCurrent = () => {
+    const current = state.city || {};
+    return current.name === city.name
+      && Number(current.lat) === Number(city.lat)
+      && Number(current.lon) === Number(city.lon);
+  };
   const fresh = cache && cache.at && (Date.now() - Number(cache.at) < 20 * 60000);
-  if (!force && cache && fresh && cache.city === c.name) { state.weather = cache; return cache; }
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
+  if (!force && fresh && matchesCity(cache)) {
+    if (requestId === weatherRequestSeq && stillCurrent()) state.weather = cache;
+    return cache;
+  }
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}`
     + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m,wind_direction_10m'
     + '&hourly=temperature_2m,weather_code,precipitation_probability'
     + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max'
     + '&timezone=auto&forecast_days=7';
-  /* 加超时：没有 signal 时弱网/被墙会一直挂着，首页停在「正在准备今天的工作台」。 */
   const r = await fetch(url, { signal: AbortSignal.timeout(8000) })
     .then((x) => (x.ok ? x.json() : null)).catch(() => null);
+  if (requestId !== weatherRequestSeq || !stillCurrent()) return state.weather;
   if (!r || !r.current) {
-    /* 只有同一座城市才允许拿旧数据顶一下；换城市了宁可显示「获取失败 + 重试按钮」 */
-    if (cache && cache.city === c.name) { state.weather = cache; return cache; }
+    if (matchesCity(cache)) { state.weather = cache; return cache; }
     throw new Error('天气获取失败');
   }
-  const w = { city: c.name, at: Date.now(), raw: r };
-  state.weather = w; ls.set('weather', w);
+  const w = { city: city.name, lat: city.lat, lon: city.lon, at: Date.now(), raw: r };
+  state.weather = w;
+  ls.set('weather', w);
   return w;
 }
 /* 最近的 5 个城市。
@@ -168,21 +181,46 @@ async function reverseGeocode(lat, lon) {
     return '';
   }
 }
-async function locate() {
-  if (!navigator.geolocation) return toast('当前设备不支持定位', 'warn');
+let geoRequestSeq = 0;
+let cityChoiceSeq = 0;
+function setGeoMode(mode) {
+  state.geoMode = mode;
+  ls.set('geoMode', mode);
+}
+async function locate({ silent = false } = {}) {
+  const requestId = ++geoRequestSeq;
+  const choiceId = cityChoiceSeq;
+  if (!navigator.geolocation) {
+    if (state.geoMode === 'auto') setGeoMode('manual');
+    if (!silent) toast('当前设备或浏览器不支持定位，请手动选择城市', 'warn');
+    return null;
+  }
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(async (pos) => {
+      if (requestId !== geoRequestSeq || choiceId !== cityChoiceSeq) return resolve(null);
       const { latitude, longitude } = pos.coords;
       const name = (await reverseGeocode(latitude, longitude)) || '当前位置';
-      /* 定位用 GPS 原始坐标，不往任何城市表上吸附。
-         天气接口本身按坐标算，GPS 落点比「市中心」还准。 */
-      state.city = { name, lat: latitude, lon: longitude };
+      if (requestId !== geoRequestSeq || choiceId !== cityChoiceSeq) return resolve(null);
+      const city = { name, lat: latitude, lon: longitude };
+      cityChoiceSeq += 1;
+      geoRequestSeq += 1;
+      state.city = city;
       state.weather = null;
-      ls.set('city', state.city);
-      pushRecentCity(state.city);
-      resolve(state.city);
-    }, (err) => { toast('定位失败：' + (err.message || '请改用上方搜索框输入城市名'), 'warn'); resolve(null); },
-    { timeout: 9000, maximumAge: 600000 });
+      setGeoMode('auto');
+      ls.set('city', city);
+      pushRecentCity(city);
+      resolve(city);
+    }, (err) => {
+      if (requestId !== geoRequestSeq) return resolve(null);
+      if (err.code === 1) setGeoMode('manual');
+      const message = err.code === 1
+        ? '定位权限未开启，请在浏览器站点设置中允许定位后再试；已保留当前城市'
+        : err.code === 2
+          ? '暂时无法获取位置信息，请检查设备定位服务'
+          : '定位超时，请稍后重试；当前城市已保留';
+      if (!silent) toast(message, 'warn');
+      resolve(null);
+    }, { timeout: 12000, maximumAge: 600000, enableHighAccuracy: false });
   });
 }
 
@@ -346,9 +384,11 @@ function pickCity() {
      正确做法：切城市 → 强制重拉这一座城市的天气 → 只重绘天气那块。
      不整页 refreshHome()，是因为整页重绘会把展开的天气预报折叠回去。 */
   const commit = (c) => {
+    // 手动选城立即锁定手动模式，并取消尚未完成的自动定位请求。
+    cityChoiceSeq += 1;
+    geoRequestSeq += 1;
     state.city = { name: c.name, lat: c.lat, lon: c.lon };
-    /* 换城市先把旧天气清掉：不清的话，新一次请求还没回来之前，
-       卡片上是「新城市名 + 旧温度」，已经错了一次，不能再让它显形。 */
+    setGeoMode('manual');
     state.weather = null;
     ls.set('city', state.city);
     pushRecentCity(state.city);
@@ -432,7 +472,7 @@ function weatherBriefHTML() {
      整个天气卡就只剩一行字，连切城市和重试的按钮都没有 ——
      用户就被卡死在「北京 天气加载中」，怎么点都没用（第 8 条）。 */
   if (!w) return `<div class="wxb-city">${icon('loc', 12)} ${esc(c.name)}
-      <button class="loc-btn" data-pick-city title="选择所在城市">${icon('loc', 10)} 选城市</button>
+      
       <span style="flex:1"></span>
       <button class="icon-btn sm" data-wx-refresh title="重新加载天气">${icon('refresh', 14)}</button>
     </div>
@@ -443,7 +483,7 @@ function weatherBriefHTML() {
   const day = w.daily;
   const rainToday = (day.precipitation_probability_max?.[0] || 0) > 40 || cur.precipitation > 0;
   return `<div class="wxb-city">${icon('loc', 12)} ${esc(c.name)}
-      <button class="loc-btn" data-pick-city title="选择所在城市">${icon('loc', 10)} 选城市</button>
+      
       <span style="flex:1"></span>
       <button class="icon-btn sm" data-wx-refresh title="刷新天气">${icon('refresh', 14)}</button>
     </div>
@@ -544,18 +584,25 @@ let lastFootKey = '';
 registerView(async function home(main) {
   clearInterval(clockTimer);
   main.innerHTML = `<div class="empty"><div class="em">⏳</div>正在准备今天的工作台…</div>`;
-  /* 不再自动申请定位权限。
-     原来首次进首页就调 locate()，桌面浏览器一律弹授权框；用户点了拒绝，
-     还要再吃一个红色「定位失败」的 toast——等于每开一次页面先添一次堵。
-     现在默认用上次选过的城市（从没选过就用北京），想定位的人自己点
-     「选城市 → 用当前位置定位」。定位从「默认动作」降级成「可选动作」。
-     面板第一行是城市名搜索：没人知道自己脚下的经纬度是多少，
-     输入「荆州」就该能切到荆州。 */
+  /* 首页个人信息与「我的 → 个人信息」保持同一数据源：
+     每次进入首页先轻量刷新登录资料，避免另一处修改昵称/学校/学科/职务后，
+     首页仍显示旧的 state.user。请求失败时保留当前会话中的资料，不清空用户态。 */
+  const previousUser = state.user;
+  const freshMe = await api.get('/auth/me', null).catch(() => null);
+  if (freshMe?.user) state.user = freshMe.user;
+  else if (previousUser) state.user = previousUser;
+
+  // 先用上次城市的缓存/天气快速绘制首页；自动定位在首屏绘制后静默完成。
   try { await loadWeather(); } catch (e) { /* 离线降级 */ }
   // 必须显式带上浏览器本地日期：服务器可能跑在 UTC，跨零点时按它自己算
   // 会把今天算成昨天，刚记的便签就变成「存进去却看不见」。
   homeData = await api.get('/home', { date: ymd() });
   renderHome();
+  if (state.geoMode === 'auto') {
+    locate({ silent: true }).then((city) => {
+      if (city) applyCityWeather({ silent: true });
+    });
+  }
   /* 拉一次云端布局：另一台设备排过的话，这里自动换成那一套。
      没登录云端、或云端没有记录时什么都不会发生，本地这份照常用。 */
   pullLayoutCloud().catch(() => {});
@@ -565,21 +612,42 @@ registerView(async function home(main) {
    两件事分开做是有意的——天气是外网请求，可能慢、可能失败；
    失败了也不能让「城市名已经切了但温度还是旧的」这种半吊子状态留在页面上，
    所以失败时把旧天气清掉，让界面老实显示「天气加载中…」。 */
-async function applyCityWeather() {
+async function applyCityWeather({ silent = false } = {}) {
   const brief = document.getElementById('wx-brief');
-  if (brief) brief.innerHTML = weatherBriefHTML();   // 先落城市名，别让用户以为没点上
+  if (brief) brief.innerHTML = weatherBriefHTML();
   try {
     await loadWeather(true);
   } catch {
     state.weather = null;
-    toast('天气没拉到，可点天气卡右上角的刷新重试', 'warn');
+    if (!silent) toast('天气没拉到，可点天气卡中的刷新按钮重试', 'warn');
   }
   renderWeatherOnly();
 }
 
 async function refreshHome() {
+  const selectedDate = calState.selected;
+  const calendarView = calState.view;
+  const dayOpen = calState.dayOpen;
   homeData = await api.get('/home', { date: ymd() }).catch(() => homeData);
   renderHome();
+  if (selectedDate) {
+    await loadCal(selectedDate, { openDay: dayOpen });
+    calState.view = calendarView;
+    paintCal();
+  }
+}
+
+function profileDetailsHTML(user = state.user || {}) {
+  const fields = [
+    { key: 'school', label: '学校', value: user.school },
+    { key: 'grade_group', label: '年级组', value: user.grade_group },
+    { key: 'subject', label: '科目', value: user.subject },
+    { key: 'title', label: '职务', value: user.title },
+  ].filter((field) => field.value != null && String(field.value).trim());
+  return fields.map((field, index) => `
+    ${index ? '<span class="home-profile-separator" aria-hidden="true">·</span>' : ''}
+    <span class="home-profile-detail-item" data-profile-field="${field.key}" aria-label="${field.label}">${esc(String(field.value).trim())}</span>
+  `).join('');
 }
 
 function renderHome() {
@@ -594,8 +662,6 @@ function renderHome() {
   const [defaultG1, defaultG2] = greetFor(name);
   const g1 = defaultG1;
   const g2 = defaultG2;
-  const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
-  const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
   const todayCourses = d.courses.filter((c) => c.date === d.date);
 
   main.classList.add('home-redesign');
@@ -606,10 +672,6 @@ function renderHome() {
       <input id="gsearch" placeholder="搜索任务 / 课程 / 笔记 / 出勤…（支持模糊与精准）" autocomplete="off" enterkeyhint="search">
       <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close',15)}</button>
       <button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search',17)}</button>
-    </div>
-    <div class="home-top-actions">
-      <button class="home-action home-action-secondary" id="theme-btn" type="button" title="更换首页及工作台主题外观">${icon('sun',16)}<span>更换外观</span></button>
-      <button class="home-action teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false" title="自定义首页卡片布局">${icon('grid',16)}<span>自定义布局</span></button>
     </div>
   </div>
   <div class="sr-scrim" id="search-scrim" hidden></div>
@@ -629,23 +691,28 @@ function renderHome() {
       <button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button>
       <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-welcome-card">
+        <div class="home-profile-heading">${icon('user',18)}<span>个人名片</span></div>
+        <div class="home-profile-actions" role="group" aria-label="个人卡片快捷操作">
+          <button class="home-action home-action-secondary" id="theme-btn" type="button" title="更换首页及工作台主题外观">${icon('sun',16)}<span>更换外观</span></button>
+          <button class="home-action teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false" title="编辑首页卡片布局">${icon('grid',16)}<span>编辑布局</span></button>
+        </div>
         <div class="home-profile-head">
           ${homeAvatarHTML(64)}
           <div class="home-profile-info">
             <div class="clk-greet" id="greet-line">${esc(g1)}</div>
             <div class="clk-greet-sub" id="greet-sub">${esc(g2)}</div>
-            <div class="home-profile-meta" id="home-profile-meta">${esc(profileSchoolSubject || '教师工作台')}</div>
-            <div class="home-profile-role" id="home-profile-role">${esc(profileRole)}</div>
           </div>
+          <div class="home-profile-details" id="home-profile-details">${profileDetailsHTML()}</div>
         </div>
         <div class="home-quote">
           <div class="home-quote-head">
             <div class="home-quote-title">每日一句</div>
             <button class="btn ghost sm" id="quote-next" title="换一句">${icon('refresh',14)} 换一句</button>
           </div>
-          <div class="quote-en"><span class="qt" id="q-en">${esc(d.quote.en)}</span><button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak',15)}</button></div>
+          <div class="quote-en"><span class="qt" id="q-en">${esc(d.quote.en)}</span></div>
           <div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div>
           <div class="quote-author" id="q-author">— ${esc(d.quote.author||'')}</div>
+          <button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak',15)}</button>
         </div>
       </section>
     </div>
@@ -661,8 +728,8 @@ function renderHome() {
         <div class="home-clock-main">
           <div class="home-clock-time-wrap">
             <div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div>
-            <div class="home-clock-foot"><span>今日剩余</span><strong id="home-day-remaining">--:--:--</strong></div>
           </div>
+          <div class="home-clock-foot"><span>今日剩余</span><strong id="home-day-remaining">--:--:--</strong></div>
           <div class="home-day-progress-wrap" aria-label="今日时间进度">
             <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
               <circle class="home-day-track" cx="50" cy="50" r="41"></circle>
@@ -679,7 +746,7 @@ function renderHome() {
       <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-card home-course-card">
         <div class="home-card-head">
-          <div class="home-card-title">${icon('book',20)}<span>今日上课提醒</span><span class="home-count-chip">${todayCourses.length}</span></div>
+          <div class="home-card-title">${icon('book',20)}<span id="home-course-day-title">今日上课提醒</span><span class="home-count-chip" id="home-course-count">${todayCourses.length}</span></div>
           <button class="home-card-link" data-goto2="work/timetable" type="button">查看课表 ${icon('right',13)}</button>
         </div>
         <div class="card-pad hc-body" id="today-courses"></div>
@@ -691,12 +758,12 @@ function renderHome() {
       <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-card home-todo-card">
         <div class="home-card-head">
-          <div class="home-card-title">${icon('check',19)}<span>今日事项</span><span class="home-count-chip">${(d.items||[]).filter(t=>t.status!=='done').length}</span></div>
+          <div class="home-card-title">${icon('check',19)}<span id="home-todo-day-title">今日事项</span><span class="home-count-chip" id="home-todo-count">${(d.items||[]).filter(t=>t.status!=='done').length}</span></div>
           <button class="home-card-link" id="home-new-item" data-add-item2 type="button">＋ 新增</button>
         </div>
         <div class="home-quick-add">
           <div class="home-quick-input-wrap">
-            <input class="home-quick-input" id="quick-input" type="text" placeholder="快速添加今日事项，回车即可保存…" autocomplete="off">
+            <input class="home-quick-input" id="quick-input" type="text" placeholder="快速添加所选日期事项，回车即可保存…" autocomplete="off">
             <button class="home-quick-time" id="quick-time" type="button" title="设置提醒时间" aria-label="设置提醒时间">${icon('clock',15)}</button>
           </div>
           <button class="home-quick-save" id="quick-save" type="button">添加</button>
@@ -712,7 +779,7 @@ function renderHome() {
       <section class="card card-pad calendar-card home-card home-calendar-card">
         <div class="hc-head hc-head-cal">
           <div class="cal-head" style="flex:1;margin:0">
-            <div class="cal-title" id="cal-title"></div><span style="flex:1"></span>
+            <div class="cal-heading"><div class="cal-heading-main">${icon('cal',18)}<strong class="cal-heading-label">日历</strong></div><span class="cal-title" id="cal-title"></span></div><span style="flex:1"></span>
             <button class="cal-nav" id="cal-prev" title="上个月" aria-label="上个月">${icon('left',18)}</button>
             <button class="cal-nav" id="cal-next" title="下个月" aria-label="下个月">${icon('right',18)}</button>
             <button class="btn ghost sm" id="cal-fold" title="收起成这一周">${icon('up',14)} <span id="cal-fold-txt">周</span></button>
@@ -723,9 +790,8 @@ function renderHome() {
         </div>
         <div class="cal-week">${['日','一','二','三','四','五','六'].map((x,i)=>'<span class="'+(i===0||i===6?'we':'')+'">'+x+'</span>').join('')}</div>
         <div class="cal-grid" id="cal-grid"></div>
+        <div class="cal-day" id="cal-day" hidden></div>
         <div class="cal-legend"><span><i style="background:var(--primary)"></i>上课</span><span><i style="background:var(--amber)"></i>监考/出差</span><span><i style="background:var(--green)"></i>教研</span><span><i style="background:var(--red)"></i>提醒</span></div>
-        <div class="cal-day" id="cal-day"></div>
-        <div class="cal-collapse-row"><button class="btn ghost sm" id="cal-collapse" type="button" aria-expanded="true" title="收起日历">${icon('up',14)} <span>收起日历</span></button></div>
       </section>
     </div>
     <div class="hg-item" data-hcard="weather">
@@ -735,11 +801,13 @@ function renderHome() {
       <section class="card wx-card home-weather-card" id="wx-card">
         <div class="home-card-head">
           <div class="home-card-title">${icon('sun',20)}<span>今日天气</span></div>
-          <button class="home-card-link" id="wx-more" type="button">详细天气 ${icon('right',13)}</button>
+          <button class="loc-btn" id="wx-city-pick" data-pick-city type="button" title="自动定位或手动切换城市">${icon('loc',13)} 城市 / 定位</button>
         </div>
         <div class="wx-body">
           <div id="wx-brief">${weatherBriefHTML()}</div>
-          <div class="home-weather-week" id="home-weather-week">${wxForecastHTML()}</div>
+        </div>
+        <div class="home-weather-footer">
+          <button class="home-card-link" id="wx-more" type="button">详细天气 ${icon('right',13)}</button>
         </div>
       </section>
     </div>
@@ -817,7 +885,7 @@ function startClock() {
       const wd = now.getDay();
       const weekend = wd === 0 || wd === 6;
       dEl.innerHTML = `<span class="home-date-full">${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}</span>`
-        + `<span class="wd-badge${weekend ? ' weekend' : ''}">星期${WD_CN[wd]}</span>`
+        + `<span class="wd-badge${weekend ? ' weekend' : ''}">${WD_CN[wd]}</span>`
         + `<span class="home-week-badge">第 ${isoWeek(now)} 周</span>`;
     }
     // 周数 / 本月剩余天数：一天只变一次，用 key 挡住，别每秒重算
@@ -845,12 +913,11 @@ function startClock() {
       if (g && g.textContent !== title) g.textContent = title;
       const sub = document.getElementById('greet-sub');
       if (sub) sub.textContent = subtitle || '专注教学 · 高效管理 · 陪伴学生成长';
-      const profile = document.getElementById('home-profile-meta');
-      const profileRoleEl = document.getElementById('home-profile-role');
-      const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
-      const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
-      if (profile && profileSchoolSubject && profile.textContent !== profileSchoolSubject) profile.textContent = profileSchoolSubject;
-      if (profileRoleEl && profileRole && profileRoleEl.textContent !== profileRole) profileRoleEl.textContent = profileRole;
+      const profileDetails = document.getElementById('home-profile-details');
+      const nextProfileDetails = profileDetailsHTML();
+      if (profileDetails && profileDetails.innerHTML !== nextProfileDetails) {
+        profileDetails.innerHTML = nextProfileDetails;
+      }
     }
   };
   paint();
@@ -903,43 +970,82 @@ async function loadHomeExtras(){
  const recent=document.getElementById('home-recent-notes');if(recent){const list=(Array.isArray(notes)?notes:[]).sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||''))).slice(0,2);recent.innerHTML=list.length?list.map(n=>'<button class="recent-note-row" type="button" data-open-recent-notes><span>•</span><b>'+esc(n.title||'未命名笔记')+'</b></button>').join(''):'<div class="mini-empty">还没有笔记，写下第一条灵感吧</div>';recent.querySelectorAll('[data-open-recent-notes]').forEach(b=>{b.onclick=()=>go('work/notes');});}
 }
 
-function renderTodayItems() {
+function homeDayCaption(date) {
+  return date === homeData?.date ? '今日' : `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`;
+}
+function updateHomeDayHeadings(date, items = null, courses = null) {
+  const caption = homeDayCaption(date);
+  const todoTitle = document.getElementById('home-todo-day-title');
+  const courseTitle = document.getElementById('home-course-day-title');
+  const todoCount = document.getElementById('home-todo-count');
+  const courseCount = document.getElementById('home-course-count');
+  if (todoTitle) todoTitle.textContent = caption + '事项';
+  if (courseTitle) courseTitle.textContent = caption + '上课提醒';
+  if (todoCount && Array.isArray(items)) todoCount.textContent = String(items.filter((item) => item.status !== 'done').length);
+  if (courseCount && Array.isArray(courses)) courseCount.textContent = String(courses.length);
+}
+function renderHomeDayLoading(date) {
+  updateHomeDayHeadings(date);
+  const items = document.getElementById('today-items');
+  const courses = document.getElementById('today-courses');
+  if (items) items.innerHTML = '<div class="empty" style="padding:20px">正在读取所选日期事项…</div>';
+  if (courses) courses.innerHTML = '<div class="empty" style="padding:20px">正在读取所选日期课程…</div>';
+}
+function renderHomeDayPanels(date, dayData) {
+  const items = Array.isArray(dayData?.items) ? dayData.items : [];
+  const courses = Array.isArray(dayData?.courses) ? dayData.courses : [];
+  const lessons = Array.isArray(dayData?.lessons) ? dayData.lessons : [];
+  updateHomeDayHeadings(date, items, courses);
+  renderTodayItems(items, date);
+  renderTodayCourses(courses, lessons, date);
+}
+function renderTodayItems(rowsOverride = null, dateOverride = '') {
   const box = document.getElementById('today-items');
   if (!box || !homeData) return;
-  const rows = homeData.items || [];
-  if (!rows.length) { box.innerHTML = `<div class="empty" style="padding:20px">今天还没有事项，右上角「＋ 新增」或上面的便签记一笔</div>`; return; }
+  const date = dateOverride || homeData.date;
+  const rows = Array.isArray(rowsOverride) ? rowsOverride : (homeData.items || []);
+  updateHomeDayHeadings(date, rows, null);
+  if (!rows.length) {
+    box.innerHTML = `<div class="empty" style="padding:20px">${date === homeData.date ? '今天还没有事项' : '这一天还没有事项'}，点击「＋ 新增」添加</div>`;
+    return;
+  }
   box.innerHTML = rows.map((it) => {
     const t = it.start_at ? fmtTime(it.start_at) : '';
     const done = it.status === 'done';
-    return `<div class="task-row" data-item="${it.id}">
-      <span class="prio ${it.priority}"></span>
-      <button class="task-check ${done ? 'done' : ''}" data-check="${it.id}" data-status="${it.status}">${done ? icon('check', 14) : ''}</button>
-      <div class="task-main" data-edit-item="${it.id}">
+    return `<div class="task-row" data-item="${esc(it.id)}">
+      <span class="prio ${esc(it.priority || 'normal')}"></span>
+      <button class="task-check ${done ? 'done' : ''}" data-check="${esc(it.id)}" data-status="${esc(it.status || 'todo')}" aria-label="${done ? '标记为未完成' : '标记为完成'}">${done ? icon('check', 14) : ''}</button>
+      <div class="task-main" data-edit-item="${esc(it.id)}">
         <div class="task-title ${done ? 'done' : ''}">${esc(it.title)}</div>
         <div class="task-sub">${it.kind !== '事项' ? `<span class="chip" style="height:19px;font-size:10.5px">${esc(it.kind)}</span>` : ''}${it.detail ? esc(it.detail) : ''}${it.source === '便签' ? '<span class="chip amber" style="height:19px;font-size:10.5px">来自便签</span>' : ''}${t ? `<span class="task-time">${t}</span>` : ''}</div>
       </div>
     </div>`;
   }).join('');
-  box.querySelectorAll('[data-check]').forEach((b) => {
-    b.onclick = async () => {
-      const st = b.dataset.status === 'done' ? 'todo' : 'done';
-      await api.patch('/items/' + b.dataset.check, { status: st });
-      const it = homeData.items.find((x) => String(x.id) === b.dataset.check);
-      if (it) { it.status = st; if (st === 'done') toast('已完成'); }
-      renderTodayItems(); refreshHome();
+  box.querySelectorAll('[data-check]').forEach((button) => {
+    button.onclick = async () => {
+      const nextStatus = button.dataset.status === 'done' ? 'todo' : 'done';
+      try {
+        await api.patch('/items/' + button.dataset.check, { status: nextStatus });
+        const item = rows.find((row) => String(row.id) === button.dataset.check);
+        if (item) item.status = nextStatus;
+        if (date === homeData.date) {
+          const todayItem = (homeData.items || []).find((row) => String(row.id) === button.dataset.check);
+          if (todayItem) todayItem.status = nextStatus;
+        }
+        if (nextStatus === 'done') toast('已完成');
+        if (calState.dayOpen && calState.selected === date) await loadDay(date);
+      } catch (error) {
+        toast(error.message || '更新事项失败', 'err');
+      }
     };
   });
-  box.querySelectorAll('[data-edit-item]').forEach((b) => {
-    b.onclick = () => {
-      const it = homeData.items.find((x) => String(x.id) === b.dataset.editItem);
-      /* 【第 11 条：联动】
-         原来点事项只弹一个编辑框，右边日历完全不知道你在看哪天。
-         现在点一下，先让日历选中那一天（右边会亮起来、下面加载那天的全部安排），
-         再开编辑框。
-         顺序是有讲究的：先联动再开弹窗。反过来的话弹窗一遮，
-         日历在背后跳成什么样用户看不见，联动就白做了。 */
-      if (it?.date) { syncDay(it.date, 'items'); jumpCalTo(it.date); }
-      editItem(it);
+  box.querySelectorAll('[data-edit-item]').forEach((button) => {
+    button.onclick = () => {
+      const item = rows.find((row) => String(row.id) === button.dataset.editItem);
+      if (!item) return;
+      syncDay(date, 'items');
+      jumpCalTo(date);
+      editItem(item, date);
     };
   });
 }
@@ -956,59 +1062,48 @@ function jumpCalTo(date) {
     loadCal(date);
     return;
   }
+  setCalendarDayOpen(false);
   calState.selected = date;
-  calState.dayExpanded = false;
   paintCal();
 }
 
-/* 日历广播过来的日期同步到事项卡抬头。
-   只是把「正在看哪天」写出来，不改列表内容——
-   事项卡的名字就叫「今日事项」，按别的日期过滤会名不副实。 */
-document.addEventListener(DAY_SYNC, (e) => {
-  const { date, source } = e.detail || {};
-  if (!date || source === 'items') return;   /* items 那条自己去跳日历，不回流 */
-  const box = document.getElementById('today-items');
-  const head = box?.closest('.home-card')?.querySelector('.card-title');
-  if (!head) return;
-  const chip = head.querySelector('.hc-daychip');
-  const label = date === homeData?.date ? '今天' : `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`;
-  if (chip) chip.textContent = label;
-  else {
-    const c = document.createElement('span');
-    c.className = 'chip gray hc-daychip';
-    c.style.cssText = 'margin-left:4px';
-    c.textContent = label;
-    head.appendChild(c);
-  }
+/* 日历选择日期后，两张业务卡片同步显示对应日期；内容由 /calendar/day 返回的真实数据驱动。 */
+document.addEventListener(DAY_SYNC, (event) => {
+  const { date, source } = event.detail || {};
+  if (!date || source === 'items') return;
+  updateHomeDayHeadings(date);
 });
-
-function renderTodayCourses() {
+function renderTodayCourses(coursesOverride = null, lessonsOverride = null, dateOverride = '') {
   const box = document.getElementById('today-courses');
   if (!box || !homeData) return;
-  const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  const list = homeData.courses.filter((c) => c.date === homeData.date);
+  const date = dateOverride || homeData.date;
+  const allCourses = Array.isArray(coursesOverride) ? coursesOverride : (homeData.courses || []);
+  const list = allCourses.filter((course) => !course.date || course.date === date);
+  const lessonRows = Array.isArray(lessonsOverride) ? lessonsOverride : (homeData.lessons || []);
+  updateHomeDayHeadings(date, null, list);
   if (!list.length) {
-    box.innerHTML = `<div class="empty" style="padding:20px">今天没有课，好好备课或休息一下</div>`;
+    box.innerHTML = `<div class="empty" style="padding:20px">${date === homeData.date ? '今天没有课，好好备课或休息一下' : '这一天没有课程安排'}</div>`;
     return;
   }
-
-  const lessonRows = homeData.lessons || [];
-  const lessonPath = (c) => 'work/lessons?add=1&period=' + encodeURIComponent(c.period_no)
-    + '&class=' + encodeURIComponent(c.class_name || '')
-    + '&subject=' + encodeURIComponent(c.subject || '');
-  box.innerHTML = list.map((c) => {
-    const start = String(c.start_time || '00:00').slice(0, 5).split(':').map(Number);
-    const end = String(c.end_time || '00:00').slice(0, 5).split(':').map(Number);
-    const s = (start[0] || 0) * 60 + (start[1] || 0);
-    const e = (end[0] || 0) * 60 + (end[1] || 0);
-    const status = nowMin < s ? 'upcoming' : nowMin <= e ? 'ongoing' : 'done';
+  const today = ymd(new Date());
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const dayRelation = date.localeCompare(today);
+  const lessonPath = (course) => 'work/lessons?add=1&period=' + encodeURIComponent(course.period_no)
+    + '&class=' + encodeURIComponent(course.class_name || '')
+    + '&subject=' + encodeURIComponent(course.subject || '');
+  box.innerHTML = list.map((course) => {
+    const start = String(course.start_time || '00:00').slice(0, 5).split(':').map(Number);
+    const end = String(course.end_time || '00:00').slice(0, 5).split(':').map(Number);
+    const startMinute = (start[0] || 0) * 60 + (start[1] || 0);
+    const endMinute = (end[0] || 0) * 60 + (end[1] || 0);
+    const status = dayRelation < 0 ? 'done' : dayRelation > 0 ? 'upcoming'
+      : nowMin < startMinute ? 'upcoming' : nowMin <= endMinute ? 'ongoing' : 'done';
     const labels = { upcoming: '未开始', ongoing: '进行中', done: '已完成' };
-    const recorded = lessonRows.some((r) =>
-      String(r.date || '') === String(c.date || '')
-      && Number(r.period_no) === Number(c.period_no)
-      && String(r.class_name || '').trim() === String(c.class_name || '').trim()
-      && String(r.subject || '').trim() === String(c.subject || '').trim()
+    const recorded = lessonRows.some((row) =>
+      String(row.date || '') === String(course.date || date)
+      && Number(row.period_no) === Number(course.period_no)
+      && String(row.class_name || '').trim() === String(course.class_name || '').trim()
+      && String(row.subject || '').trim() === String(course.subject || '').trim()
     );
     const action = status === 'upcoming'
       ? { type: 'timetable', label: '查看课表' }
@@ -1018,35 +1113,35 @@ function renderTodayCourses() {
           ? { type: 'view', label: '查看记录' }
           : { type: 'add', label: '补记进度' };
     return `<div class="course-row course-${status}">
-      <span class="course-bar" style="background:${colorOf(c.class_name)}"></span>
-      <span class="course-time">${esc(String(c.start_time || '').slice(0, 5))}<br><span class="muted">${esc(String(c.end_time || '').slice(0, 5))}</span></span>
+      <span class="course-bar" style="background:${colorOf(course.class_name)}"></span>
+      <span class="course-time">${esc(String(course.start_time || '').slice(0, 5))}<br><span class="muted">${esc(String(course.end_time || '').slice(0, 5))}</span></span>
       <div class="course-main">
-        <div class="course-name">${esc(c.class_name)} <span class="small muted">${esc(c.subject)} · 第${esc(c.period_no)}节</span></div>
+        <div class="course-name">${esc(course.class_name)} <span class="small muted">${esc(course.subject)} · 第${esc(course.period_no)}节</span></div>
         <div class="course-meta">
-          <span class="course-room">${esc(c.room || '')}</span>
+          <span class="course-room">${esc(course.room || '')}</span>
           <span class="course-state state-${status}">${labels[status]}</span>
-          ${c.rescheduled ? '<span class="chip amber" style="height:18px;font-size:10px">已调课</span>' : ''}
+          ${course.rescheduled ? '<span class="chip amber" style="height:18px;font-size:10px">已调课</span>' : ''}
         </div>
       </div>
       <button class="btn ghost sm course-action" data-course-action="${action.type}"
-        data-period="${esc(c.period_no)}" data-class="${esc(c.class_name)}" data-subject="${esc(c.subject)}">${action.label}</button>
+        data-period="${esc(course.period_no)}" data-class="${esc(course.class_name)}" data-subject="${esc(course.subject)}">${action.label}</button>
     </div>`;
   }).join('');
-
   box.querySelectorAll('[data-course-action]').forEach((button) => {
     button.onclick = () => {
       const action = button.dataset.courseAction;
       if (action === 'timetable') return go('work/timetable');
       if (action === 'view') return go('work/lessons');
-      const course = {
+      go(lessonPath({
         period_no: button.dataset.period,
         class_name: button.dataset.class,
         subject: button.dataset.subject,
-      };
-      go(lessonPath(course));
+      }));
     };
   });
 }
+
+
 
 /* 倒计时（通栏横条）
    两个原则：
@@ -1158,12 +1253,35 @@ async function exportCalendar() {
 }
 
 /* 日历 */
-let calState = { month: '', data: null, selected: '', view: 'month', dayExpanded: false, dayLoadSeq: 0 };
-async function loadCal(monthDay) {
+let calState = { month: '', data: null, selected: '', view: 'month', dayLoadSeq: 0, loadSeq: 0, dayData: null, dayOpen: false };
+function setCalendarDayOpen(open) {
+  const next = Boolean(open);
+  calState.dayOpen = next;
+  const box = document.getElementById('cal-day');
+  const card = box?.closest('.home-calendar-card');
+  const item = box?.closest('[data-hcard="calendar"]');
+  if (box) {
+    box.hidden = !next;
+    if (!next) box.innerHTML = '';
+  }
+  if (card) card.classList.toggle('is-day-open', next);
+  if (item) item.classList.toggle('is-day-open', next);
+  if (next) {
+    setGridTemporaryHeight('calendar', 11);
+  } else {
+    calState.dayData = null;
+    calState.dayLoadSeq += 1;
+    setGridTemporaryHeight('calendar', 0);
+  }
+}
+
+async function loadCal(monthDay, { openDay = false } = {}) {
+  setCalendarDayOpen(openDay);
   const month = String(monthDay).slice(0, 7);
+  const requestId = ++calState.loadSeq;
   calState.month = month;
   calState.selected = monthDay;
-  calState.dayExpanded = false;
+  calState.dayData = null;
   let data;
   if (month === String(homeData?.date || '').slice(0, 7) && homeData.courses_month) {
     data = {
@@ -1173,7 +1291,7 @@ async function loadCal(monthDay) {
     };
   }
   data = await api.get('/calendar', { month }).catch(() => data);
-  if (!String(monthDay).startsWith(month)) return;
+  if (requestId !== calState.loadSeq) return;
   calState.data = data || { courses: [], items: [], lessons: [], invigilations: [], trips: [], reminders: [] };
   paintCal();
 }
@@ -1187,7 +1305,7 @@ function paintCal() {
   const daysInMonth = new Date(y, m, 0).getDate();
   const prevDays = new Date(y, m - 1, 0).getDate();
   const title = document.getElementById('cal-title');
-  if (title) title.innerHTML = `${m}月 <small>${y}年</small>`;
+  if (title) title.textContent = `${y}年${pad2(m)}月`;
   const mi = document.getElementById('cal-month-input');
   if (mi) mi.value = month;
   const byDate = (rows, get) => rows.reduce((acc, r) => { const k = get(r); if (k) (acc[k] ||= []).push(r); return acc; }, {});
@@ -1231,103 +1349,119 @@ function paintCal() {
   grid.querySelectorAll('[data-day]').forEach((b) => {
     b.onclick = () => {
       calState.selected = b.dataset.day;
-      calState.dayExpanded = true;
+      setCalendarDayOpen(true);
       paintCal();
-      /* 反过来也要成立：点日历那一天，左边事项区要给出回应。
-         左边只显示「今天」的事项，所以不能真的过滤成那一天（会变成空列表），
-         但可以把选中日期画在事项卡标题上，让两边的「当前日期」始终一致。
-         source 标成 calendar，避免和上面 items 那条互相触发。 */
       syncDay(b.dataset.day, 'calendar');
     };
   });
-  loadDay(calState.selected);
+  if (calState.dayOpen && calState.selected) loadDay(calState.selected);
 }
 
 
 async function loadDay(date) {
+  if (!calState.dayOpen || date !== calState.selected) return;
   const box = document.getElementById('cal-day');
   if (!box) return;
+  box.hidden = false;
   const requestId = ++calState.dayLoadSeq;
-  const collapsed = !calState.dayExpanded;
-  box.classList.toggle('is-collapsed', collapsed);
-  box.innerHTML = `${calDayHeaderHTML(date, '…', collapsed)}
-    <div class="cal-day-content"><div class="cal-day-empty">正在加载…</div></div>`;
-  bindCalDayControls(box, date);
-
-  const d = await api.get('/calendar/day', { date }).catch(() => null);
+  renderHomeDayLoading(date);
+  box.innerHTML = '<div class="cal-day-content"><div class="cal-day-empty">正在加载当天安排…</div></div>';
+  const dayData = await api.get('/calendar/day', { date }).catch(() => null);
   if (!box.isConnected || requestId !== calState.dayLoadSeq || date !== calState.selected) return;
-  if (!d) {
+  if (!dayData) {
+    calState.dayData = null;
     const content = box.querySelector('.cal-day-content');
-    if (content) content.innerHTML = '<div class="cal-day-empty">加载失败</div>';
+    if (content) content.innerHTML = '<div class="cal-day-empty">当天安排加载失败，请稍后重试</div>';
+    renderHomeDayPanels(date, { items: [], courses: [], lessons: [] });
     return;
   }
-
-  const evs = [];
-  for (const c of d.courses) evs.push({ s: c.start_time, e: c.end_time, k: 'course', title: `${c.class_name} ${c.subject}`, sub: `第${c.period_no}节${c.room ? ' · ' + c.room : ''}`, color: 'var(--teal)' });
-  for (const i of d.items) {
-    const s = i.start_at ? String(i.start_at).slice(11, 16) : '';
-    evs.push({ s, e: i.end_at ? String(i.end_at).slice(11, 16) : '', k: 'item', title: i.title, sub: `${i.kind}${i.detail ? ' · ' + i.detail : ''}`, color: 'var(--primary)', id: i.id, status: i.status });
-  }
-  for (const g of d.invigilations || []) evs.push({ s: String(g.start_at || '').slice(11, 16), e: String(g.end_at || '').slice(11, 16), k: 'inv', title: `${g.subject} 监考`, sub: `${g.type}${g.place ? ' · ' + g.place : ''}`, color: 'var(--amber)' });
-  for (const l of d.lessons || []) evs.push({ s: l.start_time || '', e: l.end_time || '', k: 'lesson', title: `${l.class_name} ${l.content || '已上课'}`, sub: l.progress || '已完成课时', color: 'var(--purple)' });
-  evs.sort((a, b) => (a.s || '99').localeCompare(b.s || '99'));
-
-  const rows = evs.map((e) => `<div class="cal-day-row">
-      <span class="cal-day-t">${e.s ? esc(e.s + (e.e ? '–' + e.e : '')) : '全天'}</span>
-      <span class="cal-day-dot" style="background:${e.color}"></span>
-      <div class="cal-day-body">
-        <div class="cal-day-title">${esc(e.title)}${e.status === 'done' ? ' <span class="chip green" style="height:16px;font-size:9.5px">已完成</span>' : ''}</div>
-        ${e.sub ? `<div class="cal-day-sub">${esc(e.sub)}</div>` : ''}
-      </div>
-    </div>`).join('');
-
-  const collapsedNow = !calState.dayExpanded;
-  box.innerHTML = `${calDayHeaderHTML(date, evs.length, collapsedNow)}
-    <div class="cal-day-content">
-      ${evs.length
-        ? `<div class="cal-day-list">${rows}</div>`
-        : '<div class="cal-day-empty">这一天还没有安排<br><span class="tiny">点右上「＋ 添加」记一件事项</span></div>'}
-    </div>`;
-  box.classList.toggle('is-collapsed', collapsedNow);
-  bindCalDayControls(box, date);
-}
-
-function calDayHeaderHTML(date, count, collapsed) {
-  const day = new Date(date + 'T00:00');
-  const wd = WD_CN[day.getDay()];
-  const isToday = date === ymd(new Date());
-  const label = Number(date.slice(5, 7)) + '月' + Number(date.slice(8, 10)) + '日';
-  return `<div class="cal-day-head">
-      <span class="cal-day-date">${label}</span>
-      <span class="cal-day-wd">${wd}${isToday ? ' · 今天' : ''}</span>
-      <span class="cal-day-count">${esc(String(count))} 项</span>
-      <span class="cal-day-head-spacer" aria-hidden="true"></span>
-      <button class="btn soft sm" data-add-day="${esc(date)}" type="button" style="padding:4px 10px;font-size:12px">＋ 添加</button>
-      <button class="cal-day-toggle" data-cal-day-toggle type="button"
-        aria-expanded="${String(!collapsed)}"
-        aria-label="${collapsed ? '展开当天安排' : '收起当天安排'}"
-        title="${collapsed ? '展开当天安排' : '收起当天安排'}">
-        ${icon(collapsed ? 'down' : 'up', 13)}<span>${collapsed ? '展开' : '收起'}</span>
-      </button>
-    </div>`;
-}
-
-function bindCalDayControls(box, date) {
-  const add = box.querySelector('[data-add-day]');
-  if (add) add.onclick = () => editItem(null, date);
-
-  const toggle = box.querySelector('[data-cal-day-toggle]');
-  if (!toggle) return;
-  toggle.onclick = () => {
-    const collapsed = !box.classList.contains('is-collapsed');
-    box.classList.toggle('is-collapsed', collapsed);
-    calState.dayExpanded = !collapsed;
-    toggle.setAttribute('aria-expanded', String(!collapsed));
-    toggle.setAttribute('aria-label', collapsed ? '展开当天安排' : '收起当天安排');
-    toggle.title = collapsed ? '展开当天安排' : '收起当天安排';
-    toggle.innerHTML = `${icon(collapsed ? 'down' : 'up', 13)}<span>${collapsed ? '展开' : '收起'}</span>`;
+  calState.dayData = dayData;
+  const events = [];
+  for (const course of (dayData.courses || [])) events.push({
+    s: course.start_time || '', e: course.end_time || '', k: 'course',
+    title: `${course.class_name || ''} ${course.subject || '课程'}`.trim(),
+    sub: `第${course.period_no || ''}节${course.room ? ' · ' + course.room : ''}`,
+    color: 'var(--teal)', id: course.course_id,
+  });
+  for (const item of (dayData.items || [])) events.push({
+    s: item.start_at ? String(item.start_at).slice(11, 16) : '',
+    e: item.end_at ? String(item.end_at).slice(11, 16) : '',
+    k: 'item', title: item.title || '未命名事项',
+    sub: `${item.kind || '事项'}${item.detail ? ' · ' + item.detail : ''}`,
+    color: 'var(--primary)', id: item.id,
+  });
+  for (const invigilation of (dayData.invigilations || [])) events.push({
+    s: invigilation.start_time || String(invigilation.start_at || '').slice(11, 16),
+    e: invigilation.end_time || String(invigilation.end_at || '').slice(11, 16),
+    k: 'inv', title: `${invigilation.subject || invigilation.exam_name || '监考'} 监考`,
+    sub: `${invigilation.type || ''}${invigilation.place || invigilation.room ? ' · ' + (invigilation.place || invigilation.room) : ''}`,
+    color: 'var(--amber)', id: invigilation.id,
+  });
+  for (const lesson of (dayData.lessons || [])) events.push({
+    s: lesson.start_time || '', e: lesson.end_time || '', k: 'lesson',
+    title: `${lesson.class_name || ''} ${lesson.content || '已上课'}`.trim(),
+    sub: lesson.progress || '已完成课时', color: 'var(--purple)', id: lesson.id,
+  });
+  for (const reminder of (dayData.reminders || [])) events.push({
+    s: reminder.due_at ? String(reminder.due_at).slice(11, 16) : '',
+    e: '', k: 'reminder', title: reminder.title || '提醒',
+    sub: reminder.body || '日程提醒', color: 'var(--red)', id: reminder.id,
+  });
+  const minuteOf = (value) => {
+    const match = String(value || '').match(/(?:T|^)(\d{1,2}):(\d{2})/);
+    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
   };
+  events.sort((a, b) => (minuteOf(a.s) ?? 1440) - (minuteOf(b.s) ?? 1440));
+  const eventButton = (event) => {
+    const time = event.s ? String(event.s).slice(0, 5) + (event.e ? '–' + String(event.e).slice(0, 5) : '') : '全天';
+    return `<button class="cal-day-event cal-day-event-${event.k}" type="button"
+      data-day-event="${event.k}" data-day-event-id="${esc(event.id ?? '')}"
+      title="${esc(time + ' ' + event.title)}" style="--cal-event-color:${event.color}">
+      <span class="cal-day-event-time">${esc(time)}</span><b>${esc(event.title)}</b>
+      ${event.sub ? `<small>${esc(event.sub)}</small>` : ''}
+    </button>`;
+  };
+  const allDayEvents = events.filter((event) => minuteOf(event.s) === null);
+  const hourRows = Array.from({ length: 24 }, (_, hour) => {
+    const hourEvents = events.filter((event) => {
+      const minute = minuteOf(event.s);
+      return minute !== null && Math.floor(minute / 60) === hour;
+    });
+    return `<div class="cal-day-hour-row">
+      <time class="cal-day-hour-label">${String(hour).padStart(2, '0')}:00</time>
+      <div class="cal-day-hour-events">${hourEvents.length ? hourEvents.map(eventButton).join('') : '<span class="cal-day-hour-empty"></span>'}</div>
+    </div>`;
+  }).join('');
+  const allDayHTML = allDayEvents.length
+    ? `<div class="cal-day-all-day"><span>全天</span>${allDayEvents.map(eventButton).join('')}</div>`
+    : '';
+  box.innerHTML = `<div class="cal-day-content"><div class="cal-day-timeline">
+      <div class="cal-day-timeline-head"><b>当天时间轴</b><span>24小时 · 上下滑动查看</span></div>
+      ${allDayHTML}<div class="cal-day-hours">${hourRows}</div>
+    </div></div>`;
+  bindCalDayEvents(box, date);
+  renderHomeDayPanels(date, dayData);
+  const scrollArea = box.querySelector('.cal-day-content');
+  if (scrollArea) scrollArea.scrollTop = 6 * 29;
 }
+
+function bindCalDayEvents(box, date) {
+  box.querySelectorAll('[data-day-event]').forEach((button) => {
+    button.onclick = () => {
+      const kind = button.dataset.dayEvent;
+      if (kind === 'item') {
+        const item = (calState.dayData?.items || []).find((row) => String(row.id) === button.dataset.dayEventId);
+        if (item) editItem(item, date);
+        return;
+      }
+      if (kind === 'course') return go('work/timetable');
+      if (kind === 'inv') return go('work/invigilation');
+      if (kind === 'lesson') return go('work/lessons');
+      if (kind === 'reminder') return go('daily');
+    };
+  });
+}
+
 const mNum = (s) => Number(String(s).slice(5, 7));
 
 /* 消息
@@ -1641,14 +1775,7 @@ export function alarmEditor(rem = null, preset = null) {
 
 /* 首页事件绑定 */
 /* 首页小偏好（天气是否展开等），只存本地 */
-function calFoldPref(k, v) {
-  try {
-    const key = 'home_' + k;
-    if (v === undefined) return localStorage.getItem(key);
-    localStorage.setItem(key, v);
-    return v;
-  } catch { return null; }
-}
+
 
 /* ================= 首页自定义布局 =================
    卡片位置、拖拽、缩放、隐藏、保存全部搬到了 homegrid.js。
@@ -1681,8 +1808,8 @@ function bindHome() {
   document.querySelectorAll('.ah-btn[data-goto]').forEach((b) => {
     b.onclick = () => go(b.dataset.goto);
   });
-  document.querySelectorAll('[data-add-item]').forEach((b) => { b.onclick = () => editItem(null, homeData.date); });
-  document.querySelectorAll('[data-add-item2]').forEach((b) => { b.onclick = () => editItem(null, homeData.date); });
+  document.querySelectorAll('[data-add-item]').forEach((b) => { b.onclick = () => editItem(null, calState.selected || homeData.date); });
+  document.querySelectorAll('[data-add-item2]').forEach((b) => { b.onclick = () => editItem(null, calState.selected || homeData.date); });
 
   const si = q('#gsearch');
   const clearBtn = q('#search-clear');
@@ -1736,7 +1863,11 @@ function bindHome() {
     const btn = q('#quick-save');
     if (btn) btn.disabled = true;
     try {
-      await api.post('/quick', { text, at: quickAt || null, remind_min: quickAt ? 10 : null });
+      const targetDate = calState.selected || homeData.date;
+      const at = quickAt || (targetDate && targetDate !== homeData.date ? targetDate + 'T09:00' : null);
+      const payload = { text, at };
+      if (quickAt) payload.remind_min = 10;
+      await api.post('/quick', payload);
       qi.value = ''; quickAt = '';
       if (qh) { qh.textContent = ''; qh.classList.remove('on'); }
       if (qtBtn) qtBtn.classList.remove('on');
@@ -1807,7 +1938,7 @@ function bindHome() {
   // 日历
   q('#cal-prev').onclick = () => shiftMonth(-1);
   q('#cal-next').onclick = () => shiftMonth(1);
-  q('#cal-today').onclick = () => { calState.selected = ymd(new Date()); loadCal(ymd(new Date())); paintCal(); };
+  q('#cal-today').onclick = () => { loadCal(ymd(new Date())); };
   // 月 / 周切换：只重画网格，不重新拉数据，年月和选中日都保留
   const foldBtn = q('#cal-fold');
   const syncFold = () => {
@@ -1825,26 +1956,6 @@ function bindHome() {
     };
   }
   syncFold();
-
-  /* 日历卡片整体收起：只保留月份标题和展开入口；状态记在本机，
-     不改用户保存的卡片尺寸，展开时自动恢复原来的布局。 */
-  const calItem = q('.hg-item[data-hcard="calendar"]');
-  const calCollapse = q('#cal-collapse');
-  let calCollapsed = calFoldPref('calendar-collapsed') === '1';
-  const syncCalendarCollapse = () => {
-    if (calItem) calItem.classList.toggle('is-collapsed', calCollapsed);
-    if (calCollapse) {
-      calCollapse.innerHTML = `${icon(calCollapsed ? 'down' : 'up', 14)} <span>${calCollapsed ? '展开日历' : '收起日历'}</span>`;
-      calCollapse.setAttribute('aria-expanded', String(!calCollapsed));
-      calCollapse.title = calCollapsed ? '展开日历' : '收起日历';
-    }
-  };
-  syncCalendarCollapse();
-  if (calCollapse) calCollapse.onclick = () => {
-    calCollapsed = !calCollapsed;
-    calFoldPref('calendar-collapsed', calCollapsed ? '1' : '0');
-    syncCalendarCollapse();
-  };
 
   const mi = q('#cal-month-input');
   if (mi) {

@@ -48,11 +48,15 @@ async function renderMe(main) {
 
   main.classList.add('page-me-home');
   const msgs = await api.get('/messages').catch(() => ({ unread: 0, counts: {} }));
+  const unread = Number(msgs.unread) || 0;
   const needProfile = !u.school || !u.subject;
   const account = displayLoginAccount(u.account || u.phone, '暂未绑定登录账号');
   const wideEnabled = isWideMode();
-  const meta = [u.title, u.grade_group].filter(Boolean).join(' · ') || '完善个人资料，让工作台更懂你的工作';
-  const schoolSubject = [u.school, u.subject].filter(Boolean).join(' · ');
+  const meta = [u.school, u.subject].filter(Boolean).join(' · ')
+    || [u.title, u.grade_group].filter(Boolean).join(' · ')
+    || '完善个人资料，让工作台更懂你的工作';
+  const role = [u.title, u.grade_group].filter(Boolean).join(' · ');
+  const signature = u.signature || u.motto || u.bio || '';
   const bindings = [
     u.bindings?.wechat ? '<span class="chip green">微信已绑定</span>' : '',
     u.bindings?.qq ? '<span class="chip blue">QQ已绑定</span>' : '',
@@ -60,107 +64,195 @@ async function renderMe(main) {
     needProfile ? '<span class="chip amber">资料待完善</span>' : '<span class="chip green">资料已完善</span>'
   ].filter(Boolean).join('');
 
-  main.innerHTML =
-    '<header class="me-home-head">' +
-      '<div><div class="me-home-eyebrow">PERSONAL CENTER</div><h1>我的</h1>' +
-      '<p>在这里统一管理个人资料、工作台设置与消息通知</p></div>' +
-      '<span class="me-home-live"><i></i> 个人中心</span>' +
-    '</header>' +
-    '<section class="me-identity-card">' +
-      '<div class="me-identity-main">' +
-        '<button type="button" class="me-identity-avatar" id="avatar-btn" title="更换头像">' +
-          avatarHTML(u, 78, 'me-avatar-lg', true) +
-          '<span class="me-identity-camera">' + icon('camera', 13) + '</span>' +
-        '</button>' +
-        '<div class="me-identity-copy">' +
-          '<div class="me-identity-name">' + esc(u.nickname || '未设置昵称') + '</div>' +
-          '<div class="me-identity-meta">' + esc(meta) + '</div>' +
-          '<div class="me-identity-account">' + icon('phone', 13) + '<span>' + esc(account) + '</span>' +
-            (schoolSubject ? '<i>·</i><span>' + esc(schoolSubject) + '</span>' : '') +
-          '</div>' +
-          '<div class="me-identity-chips">' + bindings + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<button type="button" class="me-identity-edit" data-act="profile">' + icon('edit', 15) + '<span>编辑个人资料</span></button>' +
-    '</section>' +
-    '<div class="me-home-sections me-home-settings-unified">' +
-      '<section class="me-home-section me-home-settings-card">' +
-        '<div class="me-settings-list">' +
-          row('user', '个人信息', '头像、姓名、学校、学科及职务', 'profile') +
-          row('sliders', '工作台设置', '左上角名称、副标题和品牌图片', 'workbench-settings') +
-          row('shield', '账号设置', '管理登录账号和修改密码', 'account-settings') +
-          row('bell', '消息中心', msgs.unread ? (msgs.unread + ' 条未读消息') : '暂无未读消息', 'messages',
-            msgs.unread ? '<span class="me-setting-badge">' + (msgs.unread > 99 ? '99+' : msgs.unread) + '</span>' : '') +
-          row('sun', '主题外观', '调整工作台整体颜色主题', 'theme',
-            '<span class="me-setting-extra" id="me-theme-value">' + esc(themeName(state.theme)) + '</span>') +
-          row('expand', '平铺整页', wideEnabled ? '当前已开启，页面内容铺满屏幕' : '当前已关闭，使用舒适内容宽度', 'wide',
-            '<span class="me-setting-extra" id="me-wide-value">' + (wideEnabled ? '开' : '关') + '</span>') +
-          row('grid', '重置首页布局', '恢复首页卡片的默认排列', 'reset-layout') +
-        '</div>' +
-      '</section>' +
-    '</div>' +
-    '<section class="me-logout-section">' +
-      row('logout', '退出登录', '安全退出当前工作台账号', 'logout') +
-    '</section>';
+  main.innerHTML = `
+    <header class="me-home-head">
+      <div><div class="me-home-eyebrow">PERSONAL CENTER</div><h1>我的</h1>
+      <p>管理个人资料、工作台配置与消息通知</p></div>
+    </header>
 
-  main.querySelectorAll('[data-act]').forEach((b) => { b.onclick = () => act(b.dataset.act); });
+    <section class="me-identity-card" id="me-identity-card">
+      <div class="me-identity-main">
+        <button type="button" class="me-identity-avatar" id="avatar-btn" title="更换头像">
+          ${avatarHTML(u, 58, 'me-avatar-lg', true)}
+          <span class="me-identity-camera">${icon('camera', 13)}</span>
+        </button>
+        <div class="me-identity-copy">
+          <div class="me-identity-name" id="me-identity-name">${esc(u.nickname || '未设置昵称')}</div>
+          <div class="me-identity-meta" id="me-identity-meta">${esc(meta)}</div>
+          <div class="me-identity-account" id="me-identity-role">${esc(role || account)}</div>
+          ${signature ? `<div class="me-identity-signature">${esc(signature)}</div>` : ''}
+          <div class="me-identity-chips">${bindings}</div>
+        </div>
+      </div>
+      <span class="me-identity-compact" id="me-identity-compact">${esc(u.nickname || '未设置昵称')} · ${esc(meta)}</span>
+      <button type="button" class="me-identity-toggle" id="me-identity-toggle"
+        aria-expanded="true" aria-controls="me-identity-card">收起</button>
+    </section>
+
+    <div class="me-home-accordions" id="me-home-accordions">
+      <details class="me-accordion" data-me-accordion="profile">
+        <summary class="me-accordion-head">
+          <span class="me-accordion-icon">${icon('user', 19)}</span>
+          <span class="me-accordion-copy"><strong>个人信息</strong><small>头像、姓名、学校、学科及职务</small></span>
+          <span class="me-accordion-chevron">${icon('down', 17)}</span>
+        </summary>
+        <div class="me-accordion-panel page-me-profile" id="me-profile-panel"></div>
+      </details>
+
+      <details class="me-accordion" data-me-accordion="workbench">
+        <summary class="me-accordion-head">
+          <span class="me-accordion-icon">${icon('sliders', 19)}</span>
+          <span class="me-accordion-copy"><strong>工作台设置</strong><small>左上角名称、副标题和品牌图片</small></span>
+          <span class="me-accordion-chevron">${icon('down', 17)}</span>
+        </summary>
+        <div class="me-accordion-panel page-me-workbench-settings" id="me-workbench-panel"></div>
+      </details>
+
+      <details class="me-accordion" data-me-accordion="account">
+        <summary class="me-accordion-head">
+          <span class="me-accordion-icon">${icon('shield', 19)}</span>
+          <span class="me-accordion-copy"><strong>账号设置</strong><small>管理登录账号和修改密码</small></span>
+          <span class="me-accordion-chevron">${icon('down', 17)}</span>
+        </summary>
+        <div class="me-accordion-panel page-me-account-settings" id="me-account-panel"></div>
+      </details>
+
+      <details class="me-accordion" data-me-accordion="messages">
+        <summary class="me-accordion-head">
+          <span class="me-accordion-icon">${icon('bell', 19)}</span>
+          <span class="me-accordion-copy"><strong>消息中心</strong><small>${unread ? unread + ' 条未读消息' : '暂无未读消息'}</small></span>
+          ${unread ? `<span class="me-accordion-badge">${unread > 99 ? '99+' : unread}</span>` : ''}
+          <span class="me-accordion-chevron">${icon('down', 17)}</span>
+        </summary>
+        <div class="me-accordion-panel page-me-messages" id="me-messages-panel">
+          <div class="empty" style="padding:18px">正在加载消息…</div>
+        </div>
+      </details>
+
+      <details class="me-accordion" data-me-accordion="theme">
+        <summary class="me-accordion-head">
+          <span class="me-accordion-icon">${icon('sun', 19)}</span>
+          <span class="me-accordion-copy"><strong>主题外观</strong><small>调整工作台整体颜色主题</small></span>
+          <span class="me-accordion-summary-extra" id="me-theme-value">${esc(themeName(state.theme))}</span>
+          <span class="me-accordion-chevron">${icon('down', 17)}</span>
+        </summary>
+        <div class="me-accordion-panel">
+          <div class="me-inline-setting">
+            <div><strong>当前主题：${esc(themeName(state.theme))}</strong><p>主题颜色会统一应用到首页、工作页面和个人中心。</p></div>
+            <button type="button" class="btn primary" id="me-theme-open">${icon('sun', 15)} 更改外观</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="me-accordion" data-me-accordion="wide">
+        <summary class="me-accordion-head">
+          <span class="me-accordion-icon">${icon('expand', 19)}</span>
+          <span class="me-accordion-copy"><strong>页面显示</strong><small>设置工作台内容区域的显示宽度</small></span>
+          <span class="me-accordion-summary-extra" id="me-wide-value">${wideEnabled ? '已开启平铺' : '舒适宽度'}</span>
+          <span class="me-accordion-chevron">${icon('down', 17)}</span>
+        </summary>
+        <div class="me-accordion-panel">
+          <div class="me-inline-setting">
+            <div><strong>整页平铺</strong><p id="me-wide-description">${wideEnabled ? '当前已开启，页面内容铺满屏幕' : '当前已关闭，使用舒适内容宽度'}</p></div>
+            <button type="button" class="btn primary" id="me-wide-toggle">${wideEnabled ? '恢复舒适宽度' : '开启整页平铺'}</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="me-accordion" data-me-accordion="layout">
+        <summary class="me-accordion-head">
+          <span class="me-accordion-icon">${icon('grid', 19)}</span>
+          <span class="me-accordion-copy"><strong>首页布局</strong><small>恢复首页卡片的默认排列</small></span>
+          <span class="me-accordion-chevron">${icon('down', 17)}</span>
+        </summary>
+        <div class="me-accordion-panel">
+          <div class="me-inline-setting">
+            <div><strong>重置首页布局</strong><p>只恢复首页卡片排列，不会删除课程、事项或其他业务数据。</p></div>
+            <button type="button" class="btn ghost" id="me-reset-layout">恢复默认布局</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="me-accordion" data-me-accordion="logout">
+        <summary class="me-accordion-head">
+          <span class="me-accordion-icon danger">${icon('logout', 19)}</span>
+          <span class="me-accordion-copy"><strong>退出登录</strong><small>安全退出当前工作台账号</small></span>
+          <span class="me-accordion-chevron">${icon('down', 17)}</span>
+        </summary>
+        <div class="me-accordion-panel">
+          <div class="me-inline-setting">
+            <div><strong>退出当前账号</strong><p>退出后需要重新登录才能继续使用工作台。</p></div>
+            <button type="button" class="btn danger" id="me-logout">退出登录</button>
+          </div>
+        </div>
+      </details>
+    </div>`;
+
+  // 各设置模块复用原有表单与业务处理，只把容器放进可展开面板。
+  renderProfile(main.querySelector('#me-profile-panel'), { inline: true });
+  renderWorkbenchSettings(main.querySelector('#me-workbench-panel'), { inline: true });
+  renderAccountSettings(main.querySelector('#me-account-panel'), { inline: true });
+  renderMessages(main.querySelector('#me-messages-panel'), { inline: true });
+
+  // 手动接管折叠行为：避免部分浏览器/页面样式下 details/summary 原生点击未切换。
+  // 整个标题栏（包括最右侧箭头）都可点击；再次点击恢复收起。
+  main.querySelectorAll('.me-accordion').forEach((section) => {
+    const summary = section.querySelector(':scope > summary.me-accordion-head');
+    if (!summary) return;
+    summary.setAttribute('aria-expanded', String(section.open));
+    summary.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      section.open = !section.open;
+      summary.setAttribute('aria-expanded', String(section.open));
+    });
+  });
+
   const avatarButton = main.querySelector('#avatar-btn');
   if (avatarButton) avatarButton.onclick = () => avatarSheet();
 
-  async function act(a) {
-    if (a === 'messages') return go('messages');
-    if (a === 'profile') return go('profile');
-    if (a === 'workbench-settings') return go('me/workbench-settings');
-    if (a === 'account-settings') return go('me/account-settings');
-    if (a === 'recycle') return go('recycle');
-    if (a === 'theme') return openThemeSheet();
-    if (a === 'wide') {
-      const enabled = setWideMode(!isWideMode());
-      toast(enabled ? '已平铺整页，再点一次恢复舒适宽度' : '已恢复舒适宽度', 'ok', 3000);
-      await render();
-      return;
-    }
-    if (a === 'reset-layout') {
-      try {
-        const m = await import('./home.js');
-        await m.restoreHomeLayout();
-        go('home');
-      } catch (e) {
-        toast('重置首页布局失败：' + (e.message || e), 'err');
-      }
-      return;
-    }
-    if (a === 'logout') {
-      if (await confirmDialog('确定退出登录？')) window.dispatchEvent(new Event('wb:signout'));
-      return;
-    }
-    if (a === 'admin-reset') return adminResetSheet();
-    if (a === 'bind') return bindManager();
-    if (a === 'security') return securitySheet();
-    if (a === 'backup') return backupSheet();
-    if (a === 'cloud') {
-      loginSheet({ onDone: () => { render(); } });
-      return;
-    }
-    if (a === 'share') return shareSheet();
-    if (a === 'link') {
-      const links = await api.get('/links');
-      const code = links[0]?.code;
-      if (code) window.open('/s/' + code, '_blank');
-      else toast('还没有短链，去「工作 - 课件」生成', 'warn');
-    }
-  }
+  const identityCard = main.querySelector('#me-identity-card');
+  const identityToggle = main.querySelector('#me-identity-toggle');
+  if (identityToggle && identityCard) identityToggle.onclick = () => {
+    const collapsed = identityCard.classList.toggle('is-collapsed');
+    identityToggle.textContent = collapsed ? '展开' : '收起';
+    identityToggle.setAttribute('aria-expanded', String(!collapsed));
+  };
 
-  function row(ic, title, sub, action, extra = '') {
-    return '<button type="button" class="me-setting-row' + (action === 'logout' ? ' is-danger' : '') + '" data-act="' + action + '">' +
-      '<span class="me-setting-icon">' + icon(ic, 18) + '</span>' +
-      '<span class="me-setting-copy"><strong>' + esc(title) + '</strong>' +
-        (sub ? '<small>' + esc(sub) + '</small>' : '') +
-      '</span>' +
-      (extra ? '<span class="me-setting-extra-wrap">' + extra + '</span>' : '') +
-      '<span class="me-setting-chevron">' + icon('right', 16) + '</span></button>';
-  }
+  const themeButton = main.querySelector('#me-theme-open');
+  if (themeButton) themeButton.onclick = () => openThemeSheet();
+
+  const wideButton = main.querySelector('#me-wide-toggle');
+  if (wideButton) wideButton.onclick = async () => {
+    const openSections = Array.from(main.querySelectorAll('.me-accordion[open]'))
+      .map((section) => section.dataset.meAccordion);
+    const enabled = setWideMode(!isWideMode());
+    toast(enabled ? '已平铺整页，再点一次恢复舒适宽度' : '已恢复舒适宽度', 'ok', 3000);
+    await render();
+    const nextMain = document.getElementById('main');
+    nextMain?.querySelectorAll('.me-accordion').forEach((section) => {
+      section.open = openSections.includes(section.dataset.meAccordion);
+    });
+  };
+
+  const resetButton = main.querySelector('#me-reset-layout');
+  if (resetButton) resetButton.onclick = async () => {
+    try {
+      const m = await import('./home.js');
+      await m.restoreHomeLayout();
+      toast('首页布局已恢复默认', 'ok');
+      go('home');
+    } catch (e) {
+      toast('重置首页布局失败：' + (e.message || e), 'err');
+    }
+  };
+
+  const logoutButton = main.querySelector('#me-logout');
+  if (logoutButton) logoutButton.onclick = async () => {
+    if (await confirmDialog('确定退出登录？')) window.dispatchEvent(new Event('wb:signout'));
+  };
 }
+
 
 function adminResetSheet() {
   const body = el(`<div class="sheet-body">
@@ -244,6 +336,8 @@ function refreshAvatarUI(u) {
     const cls = node.getAttribute('data-avatar-cls') || '';
     node.outerHTML = avatarHTML(u, size, cls, true);
   }
+  const profileRemove = document.querySelector('#p-avatar-remove');
+  if (profileRemove) profileRemove.hidden = !u.avatar;
   // 弹层里的「移除头像」按钮：第一次上传后才该出现，移除后又要消失
   const del = document.querySelector('#av-del');
   if (del && !u.avatar) del.remove();
@@ -254,9 +348,9 @@ function avatarSheet() {
   const u = state.user;
   const b = el(`<div class="sheet-body">
     <div class="av-preview">${avatarHTML(u, 96)}</div>
-    <div class="tiny muted" style="text-align:center;margin:10px 0 14px">只用 JPG / PNG，不超过 2MB。上传后自动裁成正方形。</div>
+    <div class="tiny muted" style="text-align:center;margin:10px 0 14px">支持常见图片格式，原图大小不限；上传后自动裁剪并优化为头像。</div>
     <label class="btn primary block" style="cursor:pointer;justify-content:center">${icon('upload', 15)} 选择图片
-      <input type="file" id="av-file" accept="image/jpeg,image/png" hidden></label>
+      <input type="file" id="av-file" accept="image/*" hidden></label>
     ${u.avatar ? `<button class="btn ghost block" id="av-del" style="margin-top:8px;color:var(--red)">移除头像</button>` : ''}
     <div class="tiny muted" id="av-hint" style="text-align:center;margin-top:10px"></div>
   </div>`);
@@ -267,10 +361,8 @@ function avatarSheet() {
   file.onchange = async () => {
     const f = file.files?.[0];
     if (!f) return;
-    // 前端先挡一道，省得上传完了才被服务端打回来
-    if (!/^image\/(jpeg|png)$/.test(f.type)) return toast('只支持 JPG / PNG', 'warn');
-    if (f.size > 2 * 1024 * 1024) return toast(`图片 ${(f.size / 1024 / 1024).toFixed(1)}MB，超过 2MB 了`, 'warn');
-    hint.textContent = '裁切中…';
+    // 不限制原图格式和体积；交给浏览器解码，再统一裁剪优化为头像。
+    hint.textContent = '正在优化图片…';
     try {
       /* 512px / q0.9 压出来常有 60~120KB，而 localStorage 整库只有 5MB，
          存两三个大附件就满。头像实际最大显示 74px（@2x 148px 足够），
@@ -338,7 +430,6 @@ function cropSquare(file, size = 192) {
         cv.toBlob((blob) => {
           URL.revokeObjectURL(url);
           if (!blob) return reject(new Error('图片处理失败'));
-          if (blob.size > 2 * 1024 * 1024) return reject(new Error('裁切后仍超过 2MB，换张小点的图'));
           resolve(blob);
         }, 'image/jpeg', 0.72);
       } catch (e) { URL.revokeObjectURL(url); reject(e); }
@@ -393,7 +484,7 @@ function readWorkbenchBrand() {
   return value && typeof value === 'object' ? value : { title: '', subtitle: '', image: '' };
 }
 
-async function renderWorkbenchSettings(main) {
+async function renderWorkbenchSettings(main, { inline = false } = {}) {
   main.classList.add('page-me-workbench-settings');
   const stored = readWorkbenchBrand();
   // 直接读取后台工作台设计；兼容历史已保存配置，不要求额外启用标记。
@@ -408,7 +499,7 @@ async function renderWorkbenchSettings(main) {
     ? '<img src="' + esc(image) + '" alt="工作台图标">'
     : defaultBrandLogo;
 
-  main.innerHTML = mePageHeader('workbench') +
+  main.innerHTML = (inline ? '' : mePageHeader('workbench')) +
     '<section class="card wb-brand-settings">' +
       '<header class="wb-brand-settings-head">' +
         '<div><h2>工作台品牌设置</h2><p>此处读取并设置后台工作台设计；未设置的项目自动使用系统默认值</p></div>' +
@@ -456,7 +547,7 @@ async function renderWorkbenchSettings(main) {
       '</footer>' +
     '</section>';
 
-  bindMeBackButton(main);
+  if (!inline) bindMeBackButton(main);
   const title = main.querySelector('#wb-brand-title');
   const subtitle = main.querySelector('#wb-brand-subtitle');
   const previewTitle = main.querySelector('#wb-brand-preview-title');
@@ -593,7 +684,7 @@ function displayLoginAccount(value, fallback = '未设置') {
 }
 
 /* ================= 个人信息页 ================= */
-async function renderProfile(main) {
+async function renderProfile(main, { inline = false } = {}) {
   const u = state.user;
   if (!u) {
     main.innerHTML = '<div class="empty" style="padding:40px 20px">登录状态已过期，请刷新页面重新登录</div>';
@@ -609,9 +700,9 @@ async function renderProfile(main) {
   const session = cloud.session() || {};
   const account = u.account || session.phone || session.email || '未设置';
 
-  main.innerHTML = mePageHeader('profile') + `
+  main.innerHTML = (inline ? '' : mePageHeader('profile')) + `
     <section class="card profile-shell profile-shell-single">
-      <header class="profile-banner">
+      <header class="profile-banner ${inline ? 'profile-banner-inline' : ''}">
         <div class="profile-banner-content">
           <button id="p-avatar" class="profile-avatar-btn" type="button" title="更换头像">
             ${avatarHTML(u, 92, 'profile-avatar-image', true)}
@@ -620,9 +711,10 @@ async function renderProfile(main) {
           <div class="profile-banner-info">
             <div class="profile-banner-name" id="profile-banner-name">${esc(bannerName)}</div>
             <div class="profile-banner-meta" id="profile-banner-meta">${esc(bannerMeta)}</div>
-            <div class="profile-banner-hint">教师个人资料 · 仅用于工作台内展示</div>
+            <div class="profile-banner-hint">${inline ? '头像照片 · 支持常见图片格式，原图大小不限，上传后自动优化并同步首页头像' : '教师个人资料 · 仅用于工作台内展示'}</div>
           </div>
         </div>
+        ${inline ? '<div class="profile-avatar-actions"><button type="button" class="btn primary sm" id="p-avatar-upload">上传照片</button><button type="button" class="btn ghost sm" id="p-avatar-remove" ' + (u.avatar ? '' : 'hidden') + '>移除</button></div>' : ''}
       </header>
 
       <div class="profile-content">
@@ -674,7 +766,7 @@ async function renderProfile(main) {
       </div>
     </section>`;
 
-  bindMeBackButton(main);
+  if (!inline) bindMeBackButton(main);
 
   const updateBanner = () => {
     const nickname = main.querySelector('#f-nickname').value.trim() || '未设置昵称';
@@ -682,6 +774,12 @@ async function renderProfile(main) {
     const grade = main.querySelector('#f-grade_group').value.trim();
     main.querySelector('#profile-banner-name').textContent = nickname;
     main.querySelector('#profile-banner-meta').textContent = [title, grade].filter(Boolean).join(' · ');
+    const homeName = document.querySelector('#me-identity-name');
+    const homeMeta = document.querySelector('#me-identity-meta');
+    const homeRole = document.querySelector('#me-identity-role');
+    if (homeName) homeName.textContent = nickname;
+    if (homeMeta) homeMeta.textContent = [main.querySelector('#f-school').value.trim(), main.querySelector('#f-subject').value.trim()].filter(Boolean).join(' · ') || '完善个人资料，让工作台更懂你的工作';
+    if (homeRole) homeRole.textContent = [title, grade].filter(Boolean).join(' · ');
   };
 
   for (const key of ['nickname', 'school', 'subject', 'title', 'gender', 'contact_phone', 'grade_group']) {
@@ -700,6 +798,26 @@ async function renderProfile(main) {
   avatarButton.addEventListener('mousedown', snapshot);
   avatarButton.addEventListener('touchstart', snapshot, { passive: true });
   avatarButton.onclick = () => { snapshot(); avatarSheet(); };
+  const uploadButton = main.querySelector('#p-avatar-upload');
+  if (uploadButton) uploadButton.onclick = () => { snapshot(); avatarSheet(); };
+  const removeButton = main.querySelector('#p-avatar-remove');
+  if (removeButton) removeButton.onclick = async () => {
+    if (!state.user?.avatar) return;
+    if (!(await confirmDialog('移除当前头像？', { danger: true, okText: '移除' }))) return;
+    snapshot();
+    removeButton.disabled = true;
+    try {
+      const result = await api.del('/me/avatar');
+      state.user = result.user;
+      refreshAvatarUI(result.user);
+      removeButton.hidden = true;
+      toast('已移除头像', 'ok');
+    } catch (error) {
+      toast(error.message || '移除头像失败，请稍后再试', 'err');
+    } finally {
+      removeButton.disabled = false;
+    }
+  };
 
   main.querySelector('#p-save').onclick = async (event) => {
     const button = event.currentTarget;
@@ -730,7 +848,7 @@ async function renderProfile(main) {
 }
 
 /* ================= 账号设置页 ================= */
-function renderAccountSettings(main) {
+function renderAccountSettings(main, { inline = false } = {}) {
   const u = state.user;
   if (!u) {
     main.innerHTML = '<div class="empty" style="padding:40px 20px">登录状态已过期，请刷新页面重新登录</div>';
@@ -739,7 +857,7 @@ function renderAccountSettings(main) {
   main.classList.add('page-me-account-settings');
   const session = cloud.session() || {};
   const account = displayLoginAccount(u.account || session.phone || u.phone || session.email);
-  main.innerHTML = mePageHeader('account') + `
+  main.innerHTML = (inline ? '' : mePageHeader('account')) + `
     <section class="card account-security-shell">
       <header class="account-security-banner">
         <span class="account-security-banner-icon">${icon('shield', 42)}</span>
@@ -778,7 +896,7 @@ function renderAccountSettings(main) {
       </div>
     </section>`;
 
-  bindMeBackButton(main);
+  if (!inline) bindMeBackButton(main);
   main.querySelector('#account-login-change').onclick = () => accountLoginSheet();
   main.querySelector('#account-password-change').onclick = () => accountPwdSheet(null);
 }
@@ -1224,7 +1342,7 @@ function backupSheet() {
 }
 
 /* ================= 消息中心 ================= */
-async function renderMessages(main) {
+async function renderMessages(main, { inline = false } = {}) {
   // 消息中心使用主内容区全宽，不继承个人信息页的窄版布局。
   main.classList.add('page-me-messages');
   let type = 'all';
@@ -1241,22 +1359,22 @@ async function renderMessages(main) {
     try {
       r = await api.get('/messages', { type });
     } catch (e) {
-      main.innerHTML = meMessagesHeader('', '')
+      main.innerHTML = (inline ? '' : meMessagesHeader('', ''))
         + `<div class="empty" style="padding:40px 20px">${esc(e.message || '加载失败')}<br>
            <span class="tiny muted">如果是登录过期，刷新页面重新登录即可</span></div>`;
-      bindMeBackButton(main);
+      if (!inline) bindMeBackButton(main);
       return;
     }
     const counts = r.counts || {};
     const rows = r.rows || [];
-    main.innerHTML = meMessagesHeader(r.unread ? `${r.unread} 条未读` : '都看完了',
-      `<button class="btn ghost sm" id="read-all" ${r.unread ? '' : 'disabled'}>全部已读</button>`) + `
+    main.innerHTML = (inline ? '' : meMessagesHeader(r.unread ? `${r.unread} 条未读` : '都看完了',
+      `<button class="btn ghost sm" id="read-all" ${r.unread ? '' : 'disabled'}>全部已读</button>`)) + `
       <div class="seg msg-seg" style="margin-bottom:14px">
         ${TYPES.map(([v, l]) => `<button class="${type === v ? 'on' : ''}" data-t="${v}">${l}${counts[v] ? `<b class="seg-dot">${counts[v]}</b>` : ''}</button>`).join('')}
       </div>
       <div class="card">${rows.length ? rows.map((m) => msgItem(m)).join('') : '<div class="empty">这里还没有消息<br><span class="tiny">事项到期、系统变更时会出现</span></div>'}</div>
       ${rows.length ? '<button class="btn ghost block" id="clear-read" style="margin-top:12px">清空已读消息</button>' : ''}`;
-    bindMeBackButton(main);
+    if (!inline) bindMeBackButton(main);
 
     main.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { type = b.dataset.t; load(); }; });
     const ra = main.querySelector('#read-all');

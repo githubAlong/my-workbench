@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [home, grid, styles, ui, me] = await Promise.all([
+const [home, grid, styles, ui, me, wbStyles] = await Promise.all([
   readFile(new URL('../js/home.js', import.meta.url), 'utf8'),
   readFile(new URL('../js/homegrid.js', import.meta.url), 'utf8'),
   readFile(new URL('../css/teacher-ui.css', import.meta.url), 'utf8'),
   readFile(new URL('../js/ui.js', import.meta.url), 'utf8'),
   readFile(new URL('../js/me.js', import.meta.url), 'utf8'),
+  readFile(new URL('../css/workbench-unified.css', import.meta.url), 'utf8'),
 ]);
 
 test('精简首页只保留五张核心卡片的页面结构', () => {
@@ -20,21 +21,23 @@ test('精简首页只保留五张核心卡片的页面结构', () => {
   assert.match(home, /id="clock"/);
 });
 
-test('首页顶栏保留搜索、外观与编辑布局入口', () => {
+test('首页个人卡片右上角保留外观与编辑布局图标入口', () => {
   assert.match(home, /id="gsearch"/);
-  assert.match(home, /id="theme-btn"/);
-  const actionsStart = home.indexOf('<div class="home-top-actions">');
+  const actionsStart = home.indexOf('<div class="home-profile-actions"');
   const actionsEnd = home.indexOf('</div>', actionsStart);
   const actions = home.slice(actionsStart, actionsEnd);
-  assert.ok(actions.indexOf('id="theme-btn"') >= 0);
+  assert.ok(actions.includes('id="theme-btn"'));
+  assert.ok(actions.includes('id="teacher-layout"'));
   assert.ok(actions.indexOf('id="teacher-layout"') > actions.indexOf('id="theme-btn"'));
-  assert.match(home, /id="teacher-layout"/);
+  assert.doesNotMatch(home, /class="home-top-actions"/);
   assert.doesNotMatch(home, /id="home-new-timetable"/);
   assert.doesNotMatch(home, /home-side-layout-edit/);
   assert.doesNotMatch(home, /q\('#home-new-timetable'\)/);
   assert.doesNotMatch(home, /id="home-new-invig"/);
   assert.doesNotMatch(home, /id="home-calendar-view"/);
 });
+
+
 
 test('天气卡保留城市切换、刷新和详细天气入口', () => {
   assert.match(home, /id="wx-card"/);
@@ -103,26 +106,56 @@ test('首页保留的工作与个人中心导航目标已注册', () => {
 });
 
 
-test('我的个人中心统一收纳侧栏底部工具并移除重复分组', () => {
-  for (const id of ['side-theme', 'side-wide', 'side-layout']) {
-    assert.doesNotMatch(ui, new RegExp('id="' + id + '"'), `侧栏不应再显示独立入口：${id}`);
+test('我的个人中心各模块统一为可独立展开和收起的手风琴面板', () => {
+  for (const id of ['profile', 'workbench', 'account', 'messages', 'theme', 'wide', 'layout', 'logout']) {
+    assert.ok(me.includes(`data-me-accordion="${id}"`), `缺少可折叠模块：${id}`);
   }
-  assert.match(ui, /id="side-user"/);
-  assert.match(ui, /export function isWideMode\(/);
-  assert.match(ui, /export function setWideMode\(/);
+  assert.match(me, /details class="me-accordion" data-me-accordion="profile" open/);
+  assert.match(me, /id="me-identity-toggle"/);
+  assert.match(me, /class="me-accordion-chevron"/);
+  assert.match(me, /renderProfile\(main\.querySelector\('#me-profile-panel'\), \{ inline: true \}\)/);
+  assert.match(me, /renderWorkbenchSettings\(main\.querySelector\('#me-workbench-panel'\), \{ inline: true \}\)/);
+  assert.match(me, /renderAccountSettings\(main\.querySelector\('#me-account-panel'\), \{ inline: true \}\)/);
+  assert.match(me, /renderMessages\(main\.querySelector\('#me-messages-panel'\), \{ inline: true \}\)/);
+  assert.match(me, /function renderProfile\(main, \{ inline = false \} = \{\}\)/);
+  assert.match(me, /id="p-avatar-upload"/);
+  assert.match(me, /id="p-avatar-remove"/);
+  assert.match(wbStyles, /\.me-accordion-head/);
+  assert.match(wbStyles, /\.me-accordion\[open\] \.me-accordion-chevron/);
+  assert.match(wbStyles, /\.me-identity-card\.is-collapsed/);
+});
 
-  assert.match(me, /me-home-settings-unified/);
-  assert.equal(me.includes('<h2>个人设置</h2>'), false);
-  assert.equal(me.includes('<h2>消息与偏好</h2>'), false);
-  for (const marker of [
-    "row('user', '个人信息'",
-    "row('bell', '消息中心'",
-    "row('sun', '主题外观'",
-    "row('expand', '平铺整页'",
-    "row('grid', '重置首页布局'",
-  ]) assert.ok(me.includes(marker), `「我的」页面缺少统一设置入口：${marker}`);
-  assert.match(me, /id="me-theme-value"/);
-  assert.match(me, /id="me-wide-value"/);
-  assert.match(me, /setWideMode\(!isWideMode\(\)\)/);
-  assert.match(me, /restoreHomeLayout/);
+
+
+test('日历默认收起当天安排，点击日期后展开可滚动的24小时时间轴', () => {
+  assert.match(home, /dayOpen: false/);
+  assert.match(home, /function setCalendarDayOpen\(open\)/);
+  assert.match(home, /setCalendarDayOpen\(true\)/);
+  assert.match(home, /if \(calState\.dayOpen && calState\.selected\) loadDay\(calState\.selected\)/);
+  assert.match(home, /Array\.from\(\{ length: 24 \}/);
+  assert.match(home, /data-day-event=/);
+  assert.match(home, /id="home-todo-day-title"/);
+  assert.match(home, /id="home-course-day-title"/);
+  assert.match(home, /home-profile-heading.*个人信息/);
+  assert.match(home, /cal-heading-main.*日历/);
+  assert.doesNotMatch(home, /function calDayHeaderHTML|data-add-day|cal-day-head/);
+  assert.match(home, /24小时 · 上下滑动查看/);
+  assert.match(home, /scrollTop = 6 \* 29/);
+  assert.match(grid, /export function setTemporaryHeight\(id, minRows = 0\)/);
+  assert.match(styles, /\.home-redesign \.home-calendar-card \.cal-day-content\s*\{[\s\S]*?min-height:\s*360px;[\s\S]*?overflow-y:\s*auto;/);
+  assert.match(styles, /\.home-redesign \.home-calendar-card \.cal-day\[hidden\]\s*\{\s*display:none!important;/);
+  assert.match(styles, /scrollbar-width:\s*thin/);
+  assert.match(styles, /flex:1 1 0;[\s\S]*?max-width:none;[\s\S]*?margin:0;/);
+});
+
+
+test('日历重构没有遗留临时替换标记或旧折叠入口', () => {
+  assert.doesNotMatch(home, /remove calendar collapse controller/);
+  assert.doesNotMatch(home, /cal-collapse|cal-collapse-row|cal-day-toggle/);
+  assert.doesNotMatch(home, /dayExpanded|syncHomeDayGridHeight|hg-day-expanded/);
+});
+
+test('桌面首页取消1920px最大宽度并铺满侧栏以外的可用空间', () => {
+  assert.match(styles, /\.main:has\(#home-grid\)\s*\{\s*max-width:\s*none;/);
+  assert.match(styles, /@media\s*\(min-width:\s*1101px\)\s*\{\s*#main\.main:has\(#home-grid\)\s*\{[\s\S]*?flex:\s*1 1 0;[\s\S]*?width:\s*0;[\s\S]*?max-width:\s*none;[\s\S]*?min-width:\s*0;[\s\S]*?margin:\s*0;/);
 });

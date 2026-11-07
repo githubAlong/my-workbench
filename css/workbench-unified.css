@@ -709,3 +709,216 @@ body {
     padding: 14px;
   }
 }
+
+
+
+/* ================= 我的页面：统一手风琴式设置面板 ================= */
+.main.page-me-home {
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding-bottom:28px;
+}
+.main.page-me-home .me-home-head { margin:2px 0 16px; }
+.main.page-me-home .me-home-head h1 { font-size:24px; }
+.main.page-me-home .me-home-head p { font-size:12px; }
+.main .me-identity-card {
+  position:relative;
+  min-height:78px;
+  margin:0 0 14px;
+  padding:14px 18px;
+  border:0;
+  border-radius:12px;
+  background:linear-gradient(112deg,#19458f 0%,#2866cf 55%,#4385f4 100%);
+  box-shadow:0 6px 18px rgba(36,91,171,.14);
+  color:#fff;
+}
+.main .me-identity-main { align-items:center; gap:14px; }
+.main .me-identity-avatar,
+.main .me-identity-avatar > img,
+.main .me-identity-avatar .avatar-img,
+.main .me-identity-avatar .avatar-fallback {
+  width:54px!important;height:54px!important;border-radius:13px!important;
+}
+.main .me-identity-camera { width:22px;height:22px;right:-4px;bottom:-4px;border-color:#2866cf; }
+.main .me-identity-name { color:#fff; font-size:16px; font-weight:800; }
+.main .me-identity-meta,
+.main .me-identity-account,
+.main .me-identity-signature { margin-top:3px; color:rgba(255,255,255,.88); font-size:11px; }
+.main .me-identity-account svg { color:#fff; }
+.main .me-identity-chips { margin-top:5px; }
+.main .me-identity-chips .chip { border-color:rgba(255,255,255,.2); background:rgba(255,255,255,.15); color:#fff; }
+.main .me-identity-toggle {
+  flex:0 0 auto;
+  min-width:54px;
+  min-height:34px;
+  padding:0 12px;
+  border:1px solid rgba(255,255,255,.5);
+  border-radius:9px;
+  background:#fff;
+  color:#2455a1;
+  font-size:12px;
+  font-weight:750;
+  cursor:pointer;
+}
+.main .me-identity-compact { display:none; color:#fff; font-size:13px; font-weight:750; }
+.main .me-identity-card.is-collapsed { min-height:54px; padding:9px 14px; }
+.main .me-identity-card.is-collapsed .me-identity-main { display:none; }
+.main .me-identity-card.is-collapsed .me-identity-compact { display:block; flex:1; min-width:0; }
+
+.main .me-home-accordions { display:grid; grid-template-columns:minmax(0,1fr); gap:11px; }
+.main .me-accordion {
+  min-width:0;
+  overflow:hidden;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--card);
+  box-shadow:var(--shadow-s);
+}
+.main .me-accordion-head {
+  display:flex;
+  align-items:center;
+  gap:11px;
+  min-height:64px;
+  padding:11px 14px;
+  cursor:pointer;
+  list-style:none;
+  outline:none;
+}
+.main .me-accordion-head::-webkit-details-marker { display:none; }
+.main .me-accordion-head::marker { content:""; }
+.main .me-accordion-head:hover { background:var(--bg-sunken); }
+.main .me-accordion[open] > .me-accordion-head {
+  border-bottom:1px solid var(--line);
+  background:var(--primary-weak);
+}
+.main .me-accordion-icon {
+  display:grid;
+  place-items:center;
+  flex:0 0 36px;
+  width:36px;
+  height:36px;
+  border-radius:10px;
+  background:var(--card);
+  color:var(--primary);
+}
+.main .me-accordion-icon.danger { background:var(--red-weak); color:var(--red); }
+.main .me-accordion-copy { display:flex; flex:1; min-width:0; flex-direction:column; gap:3px; }
+.main .me-accordion-copy strong { color:var(--text); font-size:13px; font-weight:800; }
+.main .me-accordion-copy small { color:var(--text-3); font-size:11px; line-height:1.45; }
+.main .me-accordion-summary-extra { color:var(--text-3); font-size:11px; white-space:nowrap; }
+.main .me-accordion-badge {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:22px;
+  height:21px;
+  padding:0 7px;
+  border-radius:99px;
+  background:var(--red-weak);
+  color:var(--red);
+  font-size:10px;
+  font-weight:750;
+}
+.main .me-accordion-chevron {
+  display:grid;
+  place-items:center;
+  flex:0 0 28px;
+  width:28px;
+  height:28px;
+  border-radius:8px;
+  color:var(--text-3);
+  transition:transform .18s ease,color .18s ease;
+}
+.main .me-accordion[open] .me-accordion-chevron { color:var(--primary); transform:rotate(180deg); }
+.main .me-accordion-chevron svg { width:17px; height:17px; }
+.main .me-accordion-panel { min-width:0; padding:17px 18px 19px; }
+.main .me-accordion-panel.page-me-profile,
+.main .me-accordion-panel.page-me-workbench-settings,
+.main .me-accordion-panel.page-me-account-settings,
+.main .me-accordion-panel.page-me-messages {
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding:0;
+}
+.main .me-accordion-panel .profile-shell {
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+  background:transparent;
+}
+.main .me-accordion-panel .profile-banner-inline {
+  min-height:84px;
+  justify-content:space-between;
+  gap:14px;
+  padding:12px 14px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--bg-sunken);
+  isolation:auto;
+}
+.main .me-accordion-panel .profile-banner-inline::before,
+.main .me-accordion-panel .profile-banner-inline::after { display:none; }
+.main .me-accordion-panel .profile-banner-inline .profile-banner-content { align-items:center; gap:13px; }
+.main .me-accordion-panel .profile-banner-inline .profile-avatar-image { width:54px!important;height:54px!important; outline:0; box-shadow:none; }
+.main .me-accordion-panel .profile-banner-inline .profile-banner-name { color:var(--text); font-size:14px; font-weight:750; }
+.main .me-accordion-panel .profile-banner-inline .profile-banner-meta { margin-top:3px; color:var(--text-2); font-size:11px; }
+.main .me-accordion-panel .profile-banner-inline .profile-banner-hint { margin-top:4px; color:var(--text-3); font-size:10px; }
+.main .profile-avatar-actions { display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+.main .profile-avatar-actions .btn { min-height:34px; padding:0 12px; font-size:11px; }
+.main .me-accordion-panel .profile-content { padding:19px 10px 10px; }
+.main .me-accordion-panel .profile-section-title { margin-bottom:14px; font-size:15px; }
+.main .me-accordion-panel .profile-section-title > span { height:19px; }
+.main .me-accordion-panel .profile-fields { gap:2px 22px; }
+.main .me-accordion-panel .profile-fields .field { margin-bottom:12px; }
+.main .me-accordion-panel .profile-fields .input { height:40px; border-radius:9px; }
+.main .me-accordion-panel .profile-save-row { margin-top:8px; padding-top:14px; }
+.main .me-accordion-panel .profile-save-row .btn { min-width:112px; height:38px; }
+.main .me-accordion-panel.page-me-workbench-settings .wb-brand-settings {
+  padding:0;
+  border:0;
+  box-shadow:none;
+  background:transparent;
+}
+.main .me-accordion-panel.page-me-workbench-settings .wb-brand-settings-head { margin-bottom:13px; }
+.main .me-accordion-panel.page-me-workbench-settings .wb-brand-preview { min-height:82px; padding:14px 17px; }
+.main .me-accordion-panel.page-me-account-settings .account-security-shell { border:0; box-shadow:none; }
+.main .me-accordion-panel.page-me-account-settings .account-security-banner { display:none; }
+.main .me-accordion-panel.page-me-account-settings .account-security-content { padding:4px 0; }
+.main .me-accordion-panel.page-me-account-settings .account-security-art,
+.main .me-accordion-panel.page-me-account-settings .account-security-caption { display:none; }
+.main .me-accordion-panel.page-me-messages .me-page-toolbar,
+.main .me-accordion-panel.page-me-messages .page-head { display:none; }
+.main .me-accordion-panel.page-me-messages .msg-seg { margin-bottom:12px!important; }
+.main .me-accordion-panel.page-me-messages > .card { border:0; box-shadow:none; }
+.main .me-inline-setting {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  min-height:62px;
+  padding:4px 2px;
+}
+.main .me-inline-setting strong { color:var(--text); font-size:13px; font-weight:750; }
+.main .me-inline-setting p { margin:5px 0 0; color:var(--text-3); font-size:11px; line-height:1.6; }
+.main .me-inline-setting .btn { flex:0 0 auto; min-height:36px; }
+@media(max-width:760px) {
+  .main.page-me-home { padding-left:12px; padding-right:12px; }
+  .main .me-identity-card { gap:10px; padding:12px; }
+  .main .me-identity-main { gap:10px; }
+  .main .me-identity-avatar,
+  .main .me-identity-avatar > img,
+  .main .me-identity-avatar .avatar-img,
+  .main .me-identity-avatar .avatar-fallback { width:48px!important;height:48px!important; }
+  .main .me-identity-toggle { min-width:48px; padding:0 9px; }
+  .main .me-accordion-head { min-height:58px; padding:9px 10px; }
+  .main .me-accordion-panel { padding:13px 11px 15px; }
+  .main .me-accordion-panel .profile-banner-inline { align-items:flex-start; flex-direction:column; }
+  .main .profile-avatar-actions { width:100%; }
+  .main .profile-avatar-actions .btn { flex:1; }
+  .main .me-accordion-panel .profile-content { padding:16px 2px 8px; }
+  .main .me-accordion-panel .profile-fields { grid-template-columns:1fr; gap:0; }
+  .main .me-inline-setting { align-items:flex-start; flex-direction:column; }
+  .main .me-inline-setting .btn { width:100%; }
+}

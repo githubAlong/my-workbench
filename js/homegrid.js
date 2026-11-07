@@ -169,6 +169,7 @@ export const isMobile = () => currentBp() === 'mobile';
 const SETTING_KEY = 'homeLayout';
 const DRAFT_KEY = 'wb_home_layout_draft';
 
+const temporaryMinRows = new Map(); /* 展开日历时临时扩高，不写入用户保存的布局 */
 let ST = null;      /* 已保存的布局 */
 let draft = null;   /* 编辑中的草稿 */
 let editing = false;
@@ -261,6 +262,15 @@ function paint() {
   /* 手机：单列，按 layout 的顺序从上往下堆。x/w 不参与，
      否则用户从桌面切过来会看到一堆半宽卡片。 */
   let view = seg.layout.map((i) => ({ ...i }));
+  if (!mobile && temporaryMinRows.size) {
+    for (const [id, minRows] of temporaryMinRows) {
+      const target = view.find((item) => item.id === id);
+      if (!target || hidden.has(id)) continue;
+      target.h = Math.max(target.h, minRows);
+      /* 临时扩高时让其他可见卡片避让；收起后完全恢复保存的布局。 */
+      resolve(view.filter((item) => !hidden.has(item.id)), id);
+    }
+  }
   if (mobile) {
     view = view.map((i) => ({ ...i, x: 0, w: COLS }));
     compact(view);
@@ -285,13 +295,17 @@ function paint() {
     if (hb) hb.hidden = false;
   }
 
-  /* 桌面首页按视口高度自动平铺；平板保留固定行高，手机自然纵向堆叠。 */
-  const desktop = bp === 'desktop';
+  /* 桌面首页使用等分弹性行高：可见卡片按当前屏幕高度铺满，
+     不再把每行固定为 52px，避免大屏下方留下大片空白。
+     平板保留原有固定行高，手机继续自然纵向堆叠。 */
   gridEl.classList.toggle('hg-mobile', mobile);
+  const desktop = bp === 'desktop';
+  const expanded = temporaryMinRows.size > 0;
   gridEl.style.gridAutoRows = mobile
     ? 'auto'
-    : (desktop ? 'minmax(0, 1fr)' : `${ROW_H}px`);
-  gridEl.classList.toggle('hg-fill-viewport', desktop);
+    : (desktop && !expanded ? 'minmax(0, 1fr)' : `${ROW_H}px`);
+  gridEl.classList.toggle('hg-fill-viewport', desktop && !expanded);
+  gridEl.classList.toggle('hg-expanded-layout', expanded);
 
   paintToolbar();
 }
@@ -335,7 +349,7 @@ const stepX = () => {
 const stepY = () => {
   if (!gridEl) return ROW_H + GAP;
   const style = window.getComputedStyle(gridEl);
-  const firstTrack = Number.parseFloat(style.gridTemplateRows.split(/\\s+/)[0]);
+  const firstTrack = Number.parseFloat(style.gridTemplateRows.split(/\s+/)[0]);
   const gap = gridGap('rowGap');
   return (Number.isFinite(firstTrack) ? firstTrack : ROW_H) + gap;
 };
@@ -670,6 +684,7 @@ export function mount(grid) {
 
 export function unmount() {
   unbind();
+  temporaryMinRows.clear();
   gridEl = null;
 }
 
@@ -688,6 +703,14 @@ export function watchBreakpoint() {
 
 export function resetLayout() {
   return resetAll();
+}
+
+/* 临时调整卡片高度，仅影响当前显示，不保存到账号布局。 */
+export function setTemporaryHeight(id, minRows = 0) {
+  const rows = Math.round(Number(minRows) || 0);
+  if (rows > 0) temporaryMinRows.set(String(id), Math.max(2, rows));
+  else temporaryMinRows.delete(String(id));
+  paint();
 }
 
 export const isEditing = () => editing;

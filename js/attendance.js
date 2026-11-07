@@ -31,6 +31,7 @@ import { voiceSheet } from './attvoice.js';
 import { addGradeDialog, gradeManageDialog, gradeTabs } from './attgrade.js';
 import { renderGradeList } from './attindex.js';
 import { statsSheet } from './attstats.js';
+import { renderLeavePage } from './attleave.js';
 import { registerLiveHook } from './live.js';
 import { ensureDay, createSlot, dayKeyOf, ymd as dayStr } from './attday.js';
 import {
@@ -163,6 +164,7 @@ export async function renderAttendance(box, opts = {}) {
   let searchText = '';
   let subjectFilter = '';
   let busy = false;
+  let periodSchedule = [];
 
   const typeForTab = { seat: 'seat', research: 'research', class: 'class' };
   const tabTitle = { seat: '坐班考勤表', research: '教研考勤表', class: '上课考勤表' };
@@ -227,9 +229,10 @@ export async function renderAttendance(box, opts = {}) {
     if (busy) return;
     busy = true;
     try {
-      [gradesData, tables] = await Promise.all([
+      [gradesData, tables, periodSchedule] = await Promise.all([
         api.get('/grades').catch(() => ({ grades: [], counts: {} })),
         api.get('/attendance', { sheet_date: viewDate }),
+        api.get('/periods').catch(() => []),
       ]);
       gradesData.tabs = gradeTabs(gradesData);
       if (!gradesData.tabs.length) {
@@ -243,15 +246,17 @@ export async function renderAttendance(box, opts = {}) {
       // 进入工作台或切换日期时只读取已有记录，不自动创建正式/草稿考勤表。
       // 当天表格应由用户明确操作生成，并在人工确认后成为正式记录。
       roster = (await api.get('/teachers', { grade: activeGrade, active: 'all' }).catch(() => ({ list: [] }))).list || [];
+      const utilityTab = activeTab === 'stats' || activeTab === 'leave';
       const type = typeForTab[activeTab];
-      let matches = listForSelected(type);
-      // 三张表各自生成、各自保存；打开任一 tab 时只补齐该类型。
-      if (activeTab !== 'roster' && !matches.length) {
+      let matches = utilityTab || activeTab === 'roster' ? [] : listForSelected(type);
+      // 三张表各自生成、各自保存；统计和请假只读现有记录，不自动生成考勤表。
+      if (!utilityTab && activeTab !== 'roster' && !matches.length) {
         await createSlot({ date: viewDate, grade: activeGrade, type, period: type === 'research' ? '' : selectedPeriod });
         tables = await api.get('/attendance', { sheet_date: viewDate });
         matches = listForSelected(type);
       }
-      detail = matches.length ? await api.get(`/attendance/${matches.sort((a, b) => Number(b.id) - Number(a.id))[0].id}`) : null;
+      detail = utilityTab || activeTab === 'roster' ? null
+        : matches.length ? await api.get(`/attendance/${matches.sort((a, b) => Number(b.id) - Number(a.id))[0].id}`) : null;
       if (detail && activeTab === 'seat') detail = await ensureSeatColumns(detail);
       if (detail && activeTab === 'class') detail = await ensureClassColumns(detail);
       if (detail && (activeTab === 'seat' || activeTab === 'class')) {
@@ -353,9 +358,22 @@ export async function renderAttendance(box, opts = {}) {
   };
 
   const paint = () => {
-    const st = stats();
+    const isStats = activeTab === 'stats';
+    const isLeave = activeTab === 'leave';
+    const isSpecial = isStats || isLeave;
+    const st = isSpecial ? { items: [] } : stats();
     const isRoster = activeTab === 'roster';
     const subjects = [...new Set(roster.filter((r) => r.active).map((r) => r.subject || '未填学科'))].sort((a, b) => subjectRank(a) - subjectRank(b));
+    const subjectCounts = new Map();
+    roster.filter((r) => r.active).forEach((r) => {
+      const key = r.subject || '未填学科';
+      subjectCounts.set(key, (subjectCounts.get(key) || 0) + 1);
+    });
+    const allTeacherCount = roster.filter((r) => r.active).length;
+    const subjectButtons = `<div class="att-work-subjects" id="att-work-subjects">
+      <button data-subject="" class="${!subjectFilter ? 'on' : ''}">全部 <b>${allTeacherCount}</b></button>
+      ${subjects.map((subject) => `<button data-subject="${esc(subject)}" class="${subjectFilter === subject ? 'on' : ''}">${esc(subject)} <b>${subjectCounts.get(subject) || 0}</b></button>`).join('')}
+    </div>`;
     const type = typeForTab[activeTab];
     const todays = listFor(type);
     const stateText = detail?.confirm_state === 'confirmed' ? '已确认' : detail?.confirm_state === 'modified' ? '已修改待确认' : '待确认';
@@ -364,16 +382,19 @@ export async function renderAttendance(box, opts = {}) {
     const rows = visibleRows();
     const displayColumns = detail?.columns || [];
     const rosterRows = visibleRoster();
+    const currentPeriodInfo = periodSchedule.find((item) => Number(item.period_no) === Number(selectedPeriod));
+    const currentPeriodTime = currentPeriodInfo
+      ? [currentPeriodInfo.start_time, currentPeriodInfo.end_time].filter(Boolean).map((value) => String(value).slice(0, 5)).join('–')
+      : '时间待设置';
     const rosterHTML = `<div class="att-work-table-scroll"><table class="att-work-table aw-roster-table">
       <thead><tr><th>序号</th><th>姓名</th><th>学科</th></tr></thead>
       <tbody>${rosterRows.map((r, i) => `<tr><td>${i + 1}</td><td class="aw-name">${esc(r.name || '')}</td><td>${esc(r.subject || '未填学科')}</td></tr>`).join('')}</tbody>
     </table></div>${rosterRows.length ? '' : `<div class="att-work-empty"><b>暂无教师名单</b><p>请先导入或维护本年级花名册。</p></div>`}`;
     const classViewNote = isClass ? `<div class="att-work-locked-note">上课表独立保存、独立确认。可录入跨年级临时教师；临时记录只保留在当天这张表，不写入花名册。</div>` : '';
-    const tableHTML = isRoster ? rosterHTML : detail ? `
-      ${classViewNote}
+    const renderRowsTable = (list) => `
       <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table">
         <thead><tr><th>序号</th><th>姓名</th><th>学科</th>${displayColumns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>
-        <tbody>${rows.length ? rows.map((r) => {
+        <tbody>${list.length ? list.map((r) => {
           const ix = detail.rows.findIndex((x) => (r.id && String(x.id) === String(r.id)) || (r._uiKey && x._uiKey === r._uiKey) || (!r.id && !r._uiKey && !x.id && String(x.teacher || '').trim() === String(r.teacher || '').trim()));
           return `<tr data-row="${ix}"><td>${ix + 1}</td><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>${esc(r.subject || '—')}</td>
             ${displayColumns.map((col) => col.type === 'check'
@@ -381,29 +402,38 @@ export async function renderAttendance(box, opts = {}) {
               : `<td><input class="aw-cell-input" data-cell-input data-row="${ix}" data-key="${esc(col.key)}" value="${esc(r.data?.[col.key] || '')}" placeholder="—"></td>`).join('')}
           </tr>`;
         }).join('') : `<tr><td colspan="${3 + displayColumns.length}" class="muted" style="text-align:center;padding:24px">${isClass ? '当前年级暂无在册教师，请先维护花名册。' : '暂无教师记录。'}</td></tr>`}</tbody>
-      </table></div>` : `
-      <div class="att-work-empty"><b>当天这张表尚未生成</b><p>请检查本年级花名册，或生成这张表后开始录入。</p><button class="btn primary sm" id="att-work-create">生成${esc(TYPE_SHORT[type] || '考勤表')}草稿</button></div>`;
+      </table></div>`;
+    const seatMid = Math.ceil(rows.length / 2);
+    const seatTablesHTML = rows.length
+      ? `<div class="att-work-double-grid">${renderRowsTable(rows.slice(0, seatMid))}${renderRowsTable(rows.slice(seatMid))}</div>`
+      : renderRowsTable([]);
+    const tableHTML = isSpecial ? `<div id="att-work-special" class="att-work-special"></div>` : isRoster ? rosterHTML : detail
+      ? `${classViewNote}${activeTab === 'seat' ? seatTablesHTML : renderRowsTable(rows)}`
+      : `<div class="att-work-empty"><b>当天这张表尚未生成</b><p>请检查本年级花名册，或生成这张表后开始录入。</p><button class="btn primary sm" id="att-work-create">生成${esc(TYPE_SHORT[type] || '考勤表')}草稿</button></div>`;
+
 
     box.innerHTML = `
       <div class="att-work-shell">
         <div class="att-work-crumb">工作模块 <span>/</span> 考勤 <span>/</span> ${esc(activeGrade)}</div>
         <div class="att-work-head">
           <div><h2>${esc(activeGrade)} · 考勤</h2><div class="att-work-sync"><i></i> 数据已加载</div></div>
-          <div class="att-work-head-actions"><button class="btn ghost sm" id="att-work-create-group">补齐三张表</button><select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
+          <div class="att-work-head-actions">${!isRoster && !isSpecial ? '<button class="btn ghost sm" id="att-work-create-group">补齐三张表</button>' : ''}<select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
         </div>
-        <div class="att-work-meta-controls">
+${isRoster || isSpecial ? '' : `<div class="att-work-meta-controls">
           <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
           <label>时间段 <select class="input" id="att-work-time-range"><option value="全天">全天</option><option value="上午">上午</option><option value="下午">下午</option></select></label>
-          ${activeTab === 'research' || isRoster ? '' : `<label>节次 <input class="input" id="att-work-period" type="number" min="1" max="9" step="1" list="att-work-period-options" value="${esc(selectedPeriod)}" inputmode="numeric" aria-label="选择或输入节次"><datalist id="att-work-period-options">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" label="第 ${p} 节"></option>`).join('')}</datalist></label>`}
+          ${activeTab === 'research' ? '' : `<label class="att-work-period-control">节次 <select class="input" id="att-work-period" aria-label="选择节次">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" ${String(p) === selectedPeriod ? 'selected' : ''}>第 ${p} 节</option>`).join('')}</select><span id="att-work-period-time" class="att-work-period-time">${esc(currentPeriodTime)}</span></label>`}
           <span class="att-work-meta-hint">日期、时间段和节次可手动调整</span>
-        </div>
-        <nav class="att-work-tabs">
-          <button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button><button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button>
+        </div>`}
+        <nav class="att-work-tabs" aria-label="考勤管理页签">
+          <button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button><button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button><button data-tab="stats" class="${activeTab === 'stats' ? 'on' : ''}">统计</button><button data-tab="leave" class="${activeTab === 'leave' ? 'on' : ''}">请假</button>
         </nav>
-        ${isRoster ? '' : `<div class="att-work-stats">${(st.items || []).map((item) => `<div class="aw-stat ${item.tone || ''}"><span>${item.label}</span><b>${item.value}</b><small>人</small></div>`).join('')}</div>`}
+        ${isRoster || isSpecial ? '' : `<div class="att-work-stats">${(st.items || []).map((item) => `<div class="aw-stat ${item.tone || ''}"><span>${item.label}</span><b>${item.value}</b><small>人</small></div>`).join('')}</div>`}
         <section class="att-work-panel">
+          ${isSpecial ? `<div id="att-work-special" class="att-work-special"></div>` : `
+
           <div class="att-work-toolbar">
-            <select class="input" id="att-work-subject"><option value="">全部学科</option>${subjects.map((x) => `<option value="${esc(x)}" ${subjectFilter === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+            ${subjectButtons}
             <input class="input aw-search" id="att-work-search" placeholder="⌕ 搜索教师姓名" value="${esc(searchText)}">
             ${isRoster ? `<button class="btn primary sm" id="att-work-add">＋ 管理花名册</button><button class="btn ghost sm" id="att-work-photo">${icon('camera', 14)} 拍照建册</button>` : `<button class="btn ghost sm" id="att-work-photo">${icon('camera', 14)} 拍照导入</button><button class="btn primary sm" id="att-work-voice">${icon('mic', 14)} 语音录入</button>${isClass ? `<button class="btn ghost sm" id="att-work-add">＋ 新增临时老师</button>` : ''}`}
             <span class="att-work-spacer"></span>
@@ -412,15 +442,20 @@ export async function renderAttendance(box, opts = {}) {
           <div class="att-work-table-title"><div><h3>${isRoster ? '教师花名册' : (tabTitle[activeTab] || '上课考勤表')}</h3><span>${isRoster ? `${esc(activeGrade)} · ${roster.filter((r) => r.active).length} 位教师 · ${subjects.length} 个学科` : `${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${rows.length} 位教师`}</span></div>${isRoster ? `<span class="att-work-confirm ok">名单已加载</span>` : `<span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span>`}</div>
           ${tableHTML}
           ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；姓名和学科必填，重复记录会在确认前拦截。</span></div>` : `<div class="att-work-foot"><span>${isClass ? 'ⓘ 上课表独立记录当天数据；临时教师不进入永久花名册，次日不会自动出现。' : activeTab === 'seat' ? 'ⓘ 坐班表独立记录并确认，不参与上课表内容。' : 'ⓘ 教研表独立记录签到、请假与备注，可按学科批量签到。'}</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? `重新确认${TYPE_SHORT[activeTab]}` : `确认生成${TYPE_SHORT[activeTab]}`}</button></div></div>`}
+
+          `}
         </section>
       </div>`;
+
+    if (isStats) void statsSheet(activeGrade, box.querySelector('#att-work-special'));
+    if (isLeave) void renderLeavePage(box.querySelector('#att-work-special'), activeGrade);
 
     box.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => {
       const tab = b.dataset.tab;
       activeTab = tab; sessionStorage.setItem('wb_att_tab', tab); searchText = ''; subjectFilter = '';
       (async () => {
         try {
-          if (tab !== 'roster' && !listFor(tab).length) {
+          if (!['roster', 'stats', 'leave'].includes(tab) && !listFor(tab).length) {
             await createSlot({ date: viewDate, grade: activeGrade, type: tab, period: tab === 'research' ? '' : selectedPeriod });
           }
           await load({ makeToday: false });
@@ -428,7 +463,7 @@ export async function renderAttendance(box, opts = {}) {
       })();
     });
     box.querySelector('#att-work-grade').onchange = (e) => { activeGrade = e.target.value; sessionStorage.setItem('wb_att_grade', activeGrade); load(); };
-    box.querySelector('#att-work-create-group').onclick = async (event) => {
+    box.querySelector('#att-work-create-group')?.addEventListener('click', async (event) => {
       const button = event.currentTarget;
       button.disabled = true;
       try {
@@ -440,8 +475,8 @@ export async function renderAttendance(box, opts = {}) {
       } finally {
         if (button.isConnected) button.disabled = false;
       }
-    };
-    box.querySelector('#att-work-date').onchange = (e) => { if (e.target.value) { viewDate = e.target.value; load({ makeToday: viewDate === dayStr() }); } };
+    });
+    box.querySelector('#att-work-date')?.addEventListener('change', (e) => { if (e.target.value) { viewDate = e.target.value; load({ makeToday: viewDate === dayStr() }); } });
     const rangeSelect = box.querySelector('#att-work-time-range');
     if (rangeSelect) rangeSelect.value = timeRange;
     rangeSelect?.addEventListener('change', (e) => { timeRange = e.target.value; sessionStorage.setItem('wb_att_time_range', timeRange); if (detail) { detail.meta = { ...(detail.meta || {}), time_range: timeRange }; dirty = true; } });
@@ -457,6 +492,13 @@ export async function renderAttendance(box, opts = {}) {
       sessionStorage.setItem('wb_att_period', selectedPeriod);
       const periodInput = box.querySelector('#att-work-period');
       if (periodInput) periodInput.value = selectedPeriod;
+      const periodTime = box.querySelector('#att-work-period-time');
+      if (periodTime) {
+        const info = periodSchedule.find((item) => Number(item.period_no) === n);
+        periodTime.textContent = info
+          ? [info.start_time, info.end_time].filter(Boolean).map((value) => String(value).slice(0, 5)).join('–')
+          : '时间待设置';
+      }
       if (detail && (activeTab === 'seat' || activeTab === 'class')) {
         detail.periods = selectedPeriod;
         detail.meta = { ...(detail.meta || {}), periods: selectedPeriod };
@@ -465,12 +507,12 @@ export async function renderAttendance(box, opts = {}) {
     };
     box.querySelector('#att-work-period')?.addEventListener('change', e => changePeriod(e.target.value));
     const shiftDate = (n) => { const d = new Date(`${viewDate}T00:00:00`); d.setDate(d.getDate() + n); viewDate = ymd(d); load({ makeToday: viewDate === dayStr() }); };
-    box.querySelector('#att-work-prev').onclick = () => shiftDate(-1);
-    box.querySelector('#att-work-next').onclick = () => shiftDate(1);
-    box.querySelector('#att-work-today').onclick = () => { viewDate = dayStr(); load(); };
-    box.querySelector('#att-work-subject').onchange = (e) => { subjectFilter = e.target.value; paint(); };
-    box.querySelector('#att-work-search').oninput = (e) => { searchText = e.target.value; const pos = e.target.selectionStart; paint(); const q = box.querySelector('#att-work-search'); q.focus(); q.setSelectionRange(pos, pos); };
-    box.querySelector('#att-work-photo').onclick = () => isRoster ? rosterPhotoDialog(activeGrade, () => load()) : uploadDialog(activeGrade, () => load());
+    box.querySelector('#att-work-prev')?.addEventListener('click', () => shiftDate(-1));
+    box.querySelector('#att-work-next')?.addEventListener('click', () => shiftDate(1));
+    box.querySelector('#att-work-today')?.addEventListener('click', () => { viewDate = dayStr(); load(); });
+    box.querySelectorAll('[data-subject]').forEach((button) => button.onclick = () => { subjectFilter = button.dataset.subject; paint(); });
+    box.querySelector('#att-work-search')?.addEventListener('input', (e) => { searchText = e.target.value; const pos = e.target.selectionStart; paint(); const q = box.querySelector('#att-work-search'); if (q) { q.focus(); q.setSelectionRange(pos, pos); } });
+    box.querySelector('#att-work-photo')?.addEventListener('click', () => isRoster ? rosterPhotoDialog(activeGrade, () => load()) : uploadDialog(activeGrade, () => load()));
     const addButton = box.querySelector('#att-work-add');
     if (addButton) addButton.onclick = () => {
       if (isRoster) return rosterSheet(activeGrade, () => load());

@@ -88,10 +88,8 @@ export const state = {
   unread: 0,
   weather: ls.get('weather', null),
   city: ls.get('city', { name: '北京', lat: 39.9042, lon: 116.4074 }),
-  /* manual = 用户自己选城市（默认）。
-     以前默认 auto，进首页就弹定位授权，拒绝了还报错，观感很差。
-     城市由用户自己在「选城市」里挑一次，之后一直记住，比每次猜更省事。 */
-  geoMode: ls.get('geoMode', 'manual'),
+  /* auto = 进入首页时尝试更新当前位置；拒绝权限后自动切回 manual。 */
+  geoMode: ls.get('geoMode', 'auto'),
 };
 
 /* 【一级 / 二级 / 三级导航】
