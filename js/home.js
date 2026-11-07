@@ -607,9 +607,6 @@ function renderHome() {
       <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close',15)}</button>
       <button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search',17)}</button>
     </div>
-  </div>
-  <div class="home-layout-intro">
-    <span class="home-layout-hint">${icon('grid',16)} 拖一拖，把首页排成你想要的样子</span>
     <div class="home-top-actions">
       <button class="home-action home-action-secondary" id="theme-btn" type="button" title="更换首页及工作台主题外观">${icon('sun',16)}<span>更换外观</span></button>
       <button class="home-action teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false" title="自定义首页卡片布局">${icon('grid',16)}<span>自定义布局</span></button>
