@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-test-v137-home-full-width-layout';
+const CACHE = 'wb-test-v138-attendance-six-tabs';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -91,6 +91,7 @@ const ASSETS = [
   './js/att-parse.js',
   './js/attvoice.js',
   './js/attstats.js',
+  './js/attleave.js',
   './js/attday.js',
   './js/attendance-domain.mjs',
   './js/attendance-export.mjs',
