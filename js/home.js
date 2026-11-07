@@ -543,122 +543,169 @@ let lastFootKey = '';
 
 registerView(async function home(main) {
   clearInterval(clockTimer);
-  main.innerHTML = `<div class="empty"><div class="em">⏳</div>正在准备今天的工作台…</div>`;
-  /* 不再自动申请定位权限。
-     原来首次进首页就调 locate()，桌面浏览器一律弹授权框；用户点了拒绝，
-     还要再吃一个红色「定位失败」的 toast——等于每开一次页面先添一次堵。
-     现在默认用上次选过的城市（从没选过就用北京），想定位的人自己点
-     「选城市 → 用当前位置定位」。定位从「默认动作」降级成「可选动作」。
-     面板第一行是城市名搜索：没人知道自己脚下的经纬度是多少，
-     输入「荆州」就该能切到荆州。 */
-  try { await loadWeather(); } catch (e) { /* 离线降级 */ }
-  // 必须显式带上浏览器本地日期：服务器可能跑在 UTC，跨零点时按它自己算
-  // 会把今天算成昨天，刚记的便签就变成「存进去却看不见」。
-  homeData = await api.get('/home', { date: ymd() });
-  renderHome();
-  /* 拉一次云端布局：另一台设备排过的话，这里自动换成那一套。
-     没登录云端、或云端没有记录时什么都不会发生，本地这份照常用。 */
-  pullLayoutCloud().catch(() => {});
-});
-
-/* 换城市之后统一走这里：先把天气真正换成新城市的，再只重绘天气区块。
-   两件事分开做是有意的——天气是外网请求，可能慢、可能失败；
-   失败了也不能让「城市名已经切了但温度还是旧的」这种半吊子状态留在页面上，
-   所以失败时把旧天气清掉，让界面老实显示「天气加载中…」。 */
-async function applyCityWeather() {
-  const brief = document.getElementById('wx-brief');
-  if (brief) brief.innerHTML = weatherBriefHTML();   // 先落城市名，别让用户以为没点上
-  try {
-    await loadWeather(true);
-  } catch {
-    state.weather = null;
-    toast('天气没拉到，可点天气卡右上角的刷新重试', 'warn');
-  }
-  renderWeatherOnly();
-}
-
-async function refreshHome() {
-  homeData = await api.get('/home', { date: ymd() }).catch(() => homeData);
-  renderHome();
-}
-
-function renderHome() {
-  const main = document.getElementById('main');
-  if (!main || !homeData) return;
-  const d = homeData;
-  const today = new Date();
-  const nick = state.user?.nickname || '老师';
-  /* 用户名要出现在问候里（「张老师，上午好」），但不能是「xx老师，上午好」这种叠字，
-     所以去掉结尾的「老师」再拼。全名只有一个字时退回「老师」，避免「王，上午好」。 */
-  const name = nick.replace(/老师$/, '').trim() || '老师';
-  const [defaultG1, defaultG2] = greetFor(name);
-  const g1 = defaultG1;
-  const g2 = defaultG2;
-  const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
-  const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
-  const todayCourses = d.courses.filter((c) => c.date === d.date);
-
-  main.classList.add('home-redesign');
   main.innerHTML = `
   <div class="teacher-toolbar home-topbar">
-    <div class="searchbar" id="searchbar"><span class="sb-ico">${icon('search',17)}</span><input id="gsearch" placeholder="搜索课程、监考、待办、笔记" autocomplete="off" enterkeyhint="search"><button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close',15)}</button><button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search',17)}</button></div>
-    <div class="home-top-actions">
-      <button class="home-action home-action-primary" id="home-new-item" type="button">${icon('plus',16)}<span>新建事项</span></button>
-      <button class="home-action teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false" title="编辑首页卡片布局">${icon('edit',16)}<span>编辑布局</span></button>
+    <div class="searchbar" id="searchbar">
+      <span class="sb-ico">${icon('search',17)}</span>
+      <input id="gsearch" placeholder="搜索任务 / 课程 / 笔记 / 出勤…（支持模糊与精准）" autocomplete="off" enterkeyhint="search">
+      <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close',15)}</button>
+      <button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search',17)}</button>
     </div>
-  </div>    </div>
   </div>
-  <div class="sr-scrim" id="search-scrim" hidden></div><div class="sr-panel" id="search-result" hidden></div>
-  </nav>
+  <div class="home-layout-intro">
+    <span class="home-layout-hint">${icon('grid',16)} 拖一拖，把首页排成你想要的样子</span>
+    <div class="home-top-actions">
+      <button class="home-action home-action-secondary" id="theme-btn" type="button" title="更换首页及工作台主题外观">${icon('sun',16)}<span>更换外观</span></button>
+      <button class="home-action teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false" title="自定义首页卡片布局">${icon('grid',16)}<span>自定义布局</span></button>
+    </div>
+  </div>
+  <div class="sr-scrim" id="search-scrim" hidden></div>
+  <div class="sr-panel" id="search-result" hidden></div>
   <div class="hg-toolbar home-layout-toolbar" id="hg-toolbar" role="region" aria-label="首页布局编辑工具" hidden>
-    <span class="hg-tb-title">${icon('grid',15)}<b>布局编辑</b></span><span class="hg-tb-hint">拖动卡片换位置 · 拖右下角调大小</span><span class="hg-tb-spacer"></span>
-    <button class="btn ghost sm" id="hg-manage" type="button">卡片管理</button><button class="btn ghost sm" id="hg-reset" type="button">恢复默认</button><button class="btn ghost sm" id="hg-cancel" type="button">取消</button><button class="btn primary sm" id="hg-save" type="button">保存布局</button>
+    <span class="hg-tb-title">${icon('grid',15)}<b>布局编辑</b></span>
+    <span class="hg-tb-hint">拖动卡片换位置 · 拖右下角调大小</span>
+    <span class="hg-tb-spacer"></span>
+    <button class="btn ghost sm" id="hg-manage" type="button">卡片管理</button>
+    <button class="btn ghost sm" id="hg-reset" type="button">恢复默认</button>
+    <button class="btn ghost sm" id="hg-cancel" type="button">取消</button>
+    <button class="btn primary sm" id="hg-save" type="button">保存布局</button>
   </div>
   <div class="hg-grid home-dashboard-grid" id="home-grid">
-    <div class="hg-item" data-hcard="timeline"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card home-timeline-card"><div class="home-card-head"><div class="home-card-title">${icon('clock',19)}<span>今日时间轴</span></div><button class="home-card-link" data-goto2="work/timetable" type="button">全天时间轴 ${icon('right',13)}</button></div><div class="home-timeline-times" id="home-timeline-times"></div><div class="home-timeline-track" id="home-timeline-track"></div><div class="home-timeline-legend"><span><i class="timeline-dot course"></i>上课</span><span><i class="timeline-dot invig"></i>监考</span><span><i class="timeline-dot task"></i>待办</span><span><i class="timeline-dot meeting"></i>教研</span></div></section>
-    </div>
-    <div class="hg-item" data-hcard="profile"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+    <div class="hg-item" data-hcard="profile">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button>
+      <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-welcome-card">
-        <div class="home-welcome-copy">
-          <div class="clk-greet" id="greet-line">${esc(g1)}</div>
-          <div class="clk-greet-sub" id="greet-sub">专注教学 · 高效管理 · 陪伴学生成长</div>
-          <div class="home-welcome-meta">
-            <div class="clock-date home-welcome-date" id="clock-date"></div>
-            <div class="home-welcome-clock-row"><div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div></div>
+        <div class="home-profile-head">
+          ${homeAvatarHTML(64)}
+          <div class="home-profile-info">
+            <div class="clk-greet" id="greet-line">${esc(g1)}</div>
+            <div class="clk-greet-sub" id="greet-sub">${esc(g2)}</div>
+            <div class="home-profile-meta" id="home-profile-meta">${esc(profileSchoolSubject || '教师工作台')}</div>
+            <div class="home-profile-role" id="home-profile-role">${esc(profileRole)}</div>
           </div>
         </div>
-        <button class="icon-btn sm home-theme-btn" id="theme-btn" title="主题外观" aria-label="主题外观">${icon('sun',17)}</button>
+        <div class="home-quote">
+          <div class="home-quote-head">
+            <div class="home-quote-title">每日一句</div>
+            <button class="btn ghost sm" id="quote-next" title="换一句">${icon('refresh',14)} 换一句</button>
+          </div>
+          <div class="quote-en"><span class="qt" id="q-en">${esc(d.quote.en)}</span><button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak',15)}</button></div>
+          <div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div>
+          <div class="quote-author" id="q-author">— ${esc(d.quote.author||'')}</div>
+        </div>
       </section>
     </div>
-    <div class="hg-item" data-hcard="todayCourse"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+    <div class="hg-item" data-hcard="timeline">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button>
+      <span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card home-clock-card">
+        <div class="home-clock-top">
+          <div class="home-card-title">${icon('clock',19)}<span>日期与时间</span></div>
+          <div class="clock-date" id="clock-date"></div>
+        </div>
+        <div class="home-clock-main">
+          <div class="home-clock-time-wrap">
+            <div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div>
+            <div class="home-clock-foot"><span>今日剩余</span><strong id="home-day-remaining">--:--:--</strong></div>
+          </div>
+          <div class="home-day-progress-wrap" aria-label="今日时间进度">
+            <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
+              <circle class="home-day-track" cx="50" cy="50" r="41"></circle>
+              <circle class="home-day-ring" id="home-day-ring" cx="50" cy="50" r="41"></circle>
+            </svg>
+            <div class="home-day-progress-text"><b id="home-day-progress">0%</b><span>今日已过</span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div class="hg-item" data-hcard="todayCourse">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button>
+      <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-card home-course-card">
-        <div class="home-card-head"><div class="home-card-title">${icon('book',20)}<span>今日课程</span><span class="home-count-chip">${todayCourses.length}</span></div><button class="home-card-link" data-goto2="work/timetable" type="button">查看课表 ${icon('right',13)}</button></div>
+        <div class="home-card-head">
+          <div class="home-card-title">${icon('book',20)}<span>今日上课提醒</span><span class="home-count-chip">${todayCourses.length}</span></div>
+          <button class="home-card-link" data-goto2="work/timetable" type="button">查看课表 ${icon('right',13)}</button>
+        </div>
         <div class="card-pad hc-body" id="today-courses"></div>
       </section>
     </div>
-    <div class="hg-item" data-hcard="weather"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card wx-card home-weather-card" id="wx-card">
-        <div class="home-card-head"><div class="home-card-title">${icon('sun',20)}<span>今日天气</span></div><button class="home-card-link" id="wx-more" type="button">详细天气 ${icon('right',13)}</button></div>
-        <div class="wx-body"><div id="wx-brief">${weatherBriefHTML()}</div></div>
-      </section>
-    </div>
-    <div class="hg-item" data-hcard="todayTodo"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+    <div class="hg-item" data-hcard="todayTodo">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button>
+      <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-card home-todo-card">
-        <div class="home-card-head"><div class="home-card-title">${icon('check',19)}<span>今日待办</span><span class="home-count-chip">${(d.items||[]).filter(t=>t.status!=='done').length}</span></div><button class="home-card-link" data-add-item2 type="button">＋ 新增</button></div>
+        <div class="home-card-head">
+          <div class="home-card-title">${icon('check',19)}<span>今日事项</span><span class="home-count-chip">${(d.items||[]).filter(t=>t.status!=='done').length}</span></div>
+          <button class="home-card-link" id="home-new-item" data-add-item2 type="button">＋ 新增</button>
+        </div>
+        <div class="home-quick-add">
+          <div class="home-quick-input-wrap">
+            <input class="home-quick-input" id="quick-input" type="text" placeholder="快速添加今日事项，回车即可保存…" autocomplete="off">
+            <button class="home-quick-time" id="quick-time" type="button" title="设置提醒时间" aria-label="设置提醒时间">${icon('clock',15)}</button>
+          </div>
+          <button class="home-quick-save" id="quick-save" type="button">添加</button>
+          <div class="home-quick-hint" id="quick-hint"></div>
+        </div>
         <div class="card-pad hc-body" id="today-items"></div>
       </section>
     </div>
-    <div class="hg-item" data-hcard="dailyQuote"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card quote quote-top home-quote-card"><div class="home-card-head"><div class="home-card-title">${icon('sun',19)}<span>每日一句</span></div><button class="btn ghost sm" id="quote-next" title="换一句">${icon('refresh',14)} 换一句</button></div><div class="quote-en"><span class="qt" id="q-en">${esc(d.quote.en)}</span><button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak',15)}</button></div><div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div><div class="quote-author" id="q-author">— ${esc(d.quote.author||'')}</div></section>
+    <div class="hg-item" data-hcard="calendar">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button>
+      <span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card card-pad calendar-card home-card home-calendar-card">
+        <div class="hc-head hc-head-cal">
+          <div class="cal-head" style="flex:1;margin:0">
+            <div class="cal-title" id="cal-title"></div><span style="flex:1"></span>
+            <button class="cal-nav" id="cal-prev" title="上个月" aria-label="上个月">${icon('left',18)}</button>
+            <button class="cal-nav" id="cal-next" title="下个月" aria-label="下个月">${icon('right',18)}</button>
+            <button class="btn ghost sm" id="cal-fold" title="收起成这一周">${icon('up',14)} <span id="cal-fold-txt">周</span></button>
+            <button class="btn ghost sm" id="cal-today">今天</button>
+            <button class="month-btn" id="cal-jump" title="选择年月">${icon('cal',15)}<span>年月</span></button>
+            <input type="month" id="cal-month-input" class="month-hidden" aria-hidden="true" tabindex="-1">
+          </div>
+        </div>
+        <div class="cal-week">${['日','一','二','三','四','五','六'].map((x,i)=>'<span class="'+(i===0||i===6?'we':'')+'">'+x+'</span>').join('')}</div>
+        <div class="cal-grid" id="cal-grid"></div>
+        <div class="cal-legend"><span><i style="background:var(--primary)"></i>上课</span><span><i style="background:var(--amber)"></i>监考/出差</span><span><i style="background:var(--green)"></i>教研</span><span><i style="background:var(--red)"></i>提醒</span></div>
+        <div class="cal-day" id="cal-day"></div>
+        <div class="cal-collapse-row"><button class="btn ghost sm" id="cal-collapse" type="button" aria-expanded="true" title="收起日历">${icon('up',14)} <span>收起日历</span></button></div>
+      </section>
     </div>
-    <div class="hg-item" data-hcard="calendar"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card card-pad calendar-card home-card home-calendar-card"><div class="hc-head hc-head-cal"><div class="cal-head" style="flex:1;margin:0"><div class="cal-title" id="cal-title"></div><span style="flex:1"></span><button class="cal-nav" id="cal-prev" title="上个月" aria-label="上个月">${icon('left',18)}</button><button class="cal-nav" id="cal-next" title="下个月" aria-label="下个月">${icon('right',18)}</button><button class="btn ghost sm" id="cal-fold" title="收起成这一周">${icon('up',14)} <span id="cal-fold-txt">周</span></button><button class="btn ghost sm" id="cal-today">今天</button><button class="month-btn" id="cal-jump" title="选择年月">${icon('cal',15)}<span>年月</span></button><input type="month" id="cal-month-input" class="month-hidden" aria-hidden="true" tabindex="-1"></div></div><div class="cal-week">${['日','一','二','三','四','五','六'].map((x,i)=>'<span class="'+(i===0||i===6?'we':'')+'">'+x+'</span>').join('')}</div><div class="cal-grid" id="cal-grid"></div><div class="cal-legend"><span><i style="background:var(--primary)"></i>上课</span><span><i style="background:var(--amber)"></i>监考/出差</span><span><i style="background:var(--green)"></i>教研</span><span><i style="background:var(--red)"></i>提醒</span></div><div class="cal-day" id="cal-day"></div><div class="cal-collapse-row"><button class="btn ghost sm" id="cal-collapse" type="button" aria-expanded="true" title="收起日历">${icon('up',14)} <span>收起日历</span></button></div></section>
+    <div class="hg-item" data-hcard="weather">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span>
+      <button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button>
+      <span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card wx-card home-weather-card" id="wx-card">
+        <div class="home-card-head">
+          <div class="home-card-title">${icon('sun',20)}<span>今日天气</span></div>
+          <button class="home-card-link" id="wx-more" type="button">详细天气 ${icon('right',13)}</button>
+        </div>
+        <div class="wx-body">
+          <div id="wx-brief">${weatherBriefHTML()}</div>
+          <div class="home-weather-week" id="home-weather-week">${wxForecastHTML()}</div>
+        </div>
+      </section>
     </div>
-    <div class="hg-item" data-hcard="weekLessons"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span><section class="card home-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('book',20)}</span><b>本周课时</b><button class="home-card-link" data-goto2="work/lessons" type="button">详情</button></div><div class="home-mini-body" id="home-week-lessons"><span class="mini-loading">正在统计…</span></div></section></div>
-    <div class="hg-item" data-hcard="invigilation"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span><section class="card home-mini-card invig-mini-card"><div class="home-mini-head"><span class="home-mini-icon orange">${icon('shield',20)}</span><b>监考任务</b><button class="home-card-link" data-goto2="work/invigilation" type="button">详情</button></div><div class="home-mini-body" id="home-invig-summary"><span class="mini-loading">正在统计…</span></div></section></div>
-    <div class="hg-item" data-hcard="prepDeadline"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span><section class="card home-mini-card prep-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('file',20)}</span><b>备课截止</b><button class="home-card-link" data-goto2="work/prep" type="button">备课</button></div><div class="home-mini-body" id="home-prep-deadline"><span class="mini-loading">正在检查…</span></div></section></div>
-    <div class="hg-item" data-hcard="recentNotes"><span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span><section class="card home-mini-card notes-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('edit',20)}</span><b>最近笔记</b><button class="home-card-link" data-goto2="work/notes" type="button">全部</button></div><div class="home-mini-body" id="home-recent-notes"><span class="mini-loading">正在读取…</span></div></section></div>
+    <div class="hg-item" data-hcard="weekLessons">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card home-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('book',20)}</span><b>本周课时</b><button class="home-card-link" data-goto2="work/lessons" type="button">详情</button></div><div class="home-mini-body" id="home-week-lessons"><span class="mini-loading">正在统计…</span></div></section>
+    </div>
+    <div class="hg-item" data-hcard="invigilation">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card home-mini-card invig-mini-card"><div class="home-mini-head"><span class="home-mini-icon orange">${icon('shield',20)}</span><b>监考任务</b><button class="home-card-link" data-goto2="work/invigilation" type="button">详情</button></div><div class="home-mini-body" id="home-invig-summary"><span class="mini-loading">正在统计…</span></div></section>
+    </div>
+    <div class="hg-item" data-hcard="prepDeadline">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card home-mini-card prep-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('file',20)}</span><b>备课截止</b><button class="home-card-link" data-goto2="work/prep" type="button">备课</button></div><div class="home-mini-body" id="home-prep-deadline"><span class="mini-loading">正在检查…</span></div></section>
+    </div>
+    <div class="hg-item" data-hcard="recentNotes">
+      <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
+      <section class="card home-mini-card notes-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('edit',20)}</span><b>最近笔记</b><button class="home-card-link" data-goto2="work/notes" type="button">全部</button></div><div class="home-mini-body" id="home-recent-notes"><span class="mini-loading">正在读取…</span></div></section>
+    </div>
   </div>`;
   applyHomeSidebar();
   bindHome();
@@ -672,7 +719,6 @@ function renderHome() {
   lastGreetKey = '';
   cdKey = '';
   startClock();
-  renderTimeline();
   renderTodayItems();
   renderTodayCourses();
   loadCal(ymd(today));
@@ -700,6 +746,18 @@ function startClock() {
     const sec = c.querySelector('.sec');
     if (hm) hm.textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
     if (sec) sec.textContent = pad2(now.getSeconds());
+
+    const elapsedSeconds = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+    const dayProgress = elapsedSeconds / 86400;
+    const progressLabel = document.getElementById('home-day-progress');
+    const progressRing = document.getElementById('home-day-ring');
+    const remainingLabel = document.getElementById('home-day-remaining');
+    if (progressLabel) progressLabel.textContent = `${Math.floor(dayProgress * 100)}%`;
+    if (progressRing) progressRing.style.strokeDashoffset = String(2 * Math.PI * 41 * (1 - dayProgress));
+    if (remainingLabel) {
+      const remaining = Math.max(0, 86400 - elapsedSeconds);
+      remainingLabel.textContent = `${pad2(Math.floor(remaining / 3600))}:${pad2(Math.floor((remaining % 3600) / 60))}:${pad2(remaining % 60)}`;
+    }
 
     const dEl = document.getElementById('clock-date');
     if (dEl) {
@@ -733,13 +791,13 @@ function startClock() {
       const g = document.getElementById('greet-line');
       if (g && g.textContent !== title) g.textContent = title;
       const sub = document.getElementById('greet-sub');
-      if (sub) sub.textContent = '专注教学 · 高效管理 · 陪伴学生成长';
+      if (sub) sub.textContent = subtitle || '专注教学 · 高效管理 · 陪伴学生成长';
       const profile = document.getElementById('home-profile-meta');
       const profileRoleEl = document.getElementById('home-profile-role');
       const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
       const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
-      if (profile && profile.textContent !== profileSchoolSubject) profile.textContent = profileSchoolSubject;
-      if (profileRoleEl && profileRoleEl.textContent !== profileRole) profileRoleEl.textContent = profileRole;
+      if (profile && profileSchoolSubject && profile.textContent !== profileSchoolSubject) profile.textContent = profileSchoolSubject;
+      if (profileRoleEl && profileRole && profileRoleEl.textContent !== profileRole) profileRoleEl.textContent = profileRole;
     }
   };
   paint();
@@ -1557,7 +1615,8 @@ export function restoreHomeLayout() {
 
 function bindHome() {
   const q = (s) => document.querySelector(s);
-  q('#theme-btn').onclick = () => { import('./ui.js').then((m) => m.openThemeSheet()); };
+  const themeButton = q('#theme-btn');
+  if (themeButton) themeButton.onclick = () => { import('./ui.js').then((m) => m.openThemeSheet()); };
   q('#home-new-item').onclick = () => editItem(null, homeData.date);
   document.querySelectorAll('[data-msg]').forEach((b) => { b.onclick = () => go('messages'); });
   document.querySelectorAll('[data-goto2]').forEach((b) => { b.onclick = () => go(b.dataset.goto2); });
@@ -1760,6 +1819,8 @@ function renderWeatherOnly() {
     const wr = brief.querySelector('[data-wx-refresh]');
     if (wr) wr.onclick = async () => { await loadWeather(true).catch(() => {}); renderWeatherOnly(); };
   }
+  const week = document.getElementById('home-weather-week');
+  if (week) week.innerHTML = wxForecastHTML();
   /* 抽屉如果开着（换城市/刷新就发生在这个场景里），里面那份也要跟着换，
      否则会看到「卡片上 8 度、抽屉里还是上一个城市的 20 度」。 */
   const drawer = document.getElementById('wxd-body');

@@ -30,7 +30,7 @@ import { state, icon } from './ui.js';
 import * as cloud from './cloud.js';
 
 export const COLS = 12;
-const ROW_H = 68;      /* 新首页卡片基准行高；h=3 就是 3 行 */
+const ROW_H = 52;      /* 新首页卡片基准行高；h=4 约为一张标准首屏卡片 */
 const GAP = 14;        /* 卡片间距，和 CSS 里的 gap 必须一致 */
 
 const BP = {
@@ -40,13 +40,12 @@ const BP = {
 
 /* 卡片清单。顺序 = 卡片管理面板里的顺序 = 默认布局顺序 */
 export const CARDS = [
-  { id: 'timeline', title: '今日时间轴', minW: 5, minH: 2 },
-  { id: 'profile', title: '欢迎信息', minW: 4, minH: 2 },
-  { id: 'todayCourse', title: '今日课程', minW: 5, minH: 3 },
-  { id: 'weather', title: '天气', minW: 4, minH: 2 },
-  { id: 'todayTodo', title: '今日事项与快速便签', minW: 4, minH: 2 },
-  { id: 'dailyQuote', title: '每日一句', minW: 2, minH: 2 },
-  { id: 'calendar', title: '日历', minW: 4, minH: 4 },
+  { id: 'profile', title: '个人信息与每日一句', minW: 3, minH: 3 },
+  { id: 'timeline', title: '日期与时间', minW: 3, minH: 3 },
+  { id: 'todayCourse', title: '今日上课提醒', minW: 3, minH: 3 },
+  { id: 'todayTodo', title: '今日事项', minW: 3, minH: 3 },
+  { id: 'calendar', title: '日历', minW: 3, minH: 3 },
+  { id: 'weather', title: '天气', minW: 3, minH: 3 },
   { id: 'weekLessons', title: '本周课时', minW: 2, minH: 2 },
   { id: 'invigilation', title: '监考任务', minW: 2, minH: 2 },
   { id: 'prepDeadline', title: '备课截止', minW: 2, minH: 2 },
@@ -55,36 +54,31 @@ export const CARDS = [
 const CARD_MAP = new Map(CARDS.map((c) => [c.id, c]));
 export const cardTitle = (id) => CARD_MAP.get(id)?.title || id;
 
-/* 默认布局：和需求里的那张图一一对应
-     第一行：个人信息 / 每日一句 / 天气
-     第二行：今日事项 / 今日课程 / 日历 */
-const DEFAULT_HIDDEN = ['timeline', 'dailyQuote', 'weekLessons', 'invigilation', 'prepDeadline', 'recentNotes'];
+/* 默认布局：按首页参考图排列
+     第一行：个人信息与每日一句 / 日期时钟 / 今日上课提醒
+     第二行：今日事项 / 日历 / 天气 */
+const DEFAULT_HIDDEN = ['weekLessons', 'invigilation', 'prepDeadline', 'recentNotes'];
 const DEFAULTS = {
-  /* 精简首页：只默认显示欢迎横幅、今日课程、今日待办、天气和日历。
-     其他模块保留在卡片管理中，默认隐藏，不删除数据或业务入口。 */
   desktop: [
-    ['profile', 0, 0, 12, 3],
-    ['todayCourse', 0, 3, 6, 4], ['todayTodo', 6, 3, 6, 4],
-    ['weather', 0, 7, 6, 3], ['calendar', 6, 7, 6, 6],
-    ['dailyQuote', 0, 13, 4, 3], ['timeline', 4, 13, 8, 2],
-    ['weekLessons', 0, 16, 3, 2], ['invigilation', 3, 16, 3, 2],
-    ['prepDeadline', 6, 16, 3, 2], ['recentNotes', 9, 16, 3, 2],
+    ['profile', 0, 0, 4, 4], ['timeline', 4, 0, 4, 4], ['todayCourse', 8, 0, 4, 4],
+    ['todayTodo', 0, 4, 4, 7], ['calendar', 4, 4, 4, 7], ['weather', 8, 4, 4, 7],
+    ['weekLessons', 0, 11, 3, 2], ['invigilation', 3, 11, 3, 2],
+    ['prepDeadline', 6, 11, 3, 2], ['recentNotes', 9, 11, 3, 2],
   ],
   tablet: [
-    ['profile', 0, 0, 12, 3],
-    ['todayCourse', 0, 3, 12, 4], ['todayTodo', 0, 7, 12, 4],
-    ['weather', 0, 11, 12, 3], ['calendar', 0, 14, 12, 6],
-    ['dailyQuote', 0, 20, 12, 3], ['timeline', 0, 23, 12, 2],
-    ['weekLessons', 0, 25, 6, 2], ['invigilation', 6, 25, 6, 2],
-    ['prepDeadline', 0, 27, 6, 2], ['recentNotes', 6, 27, 6, 2],
+    ['profile', 0, 0, 6, 4], ['timeline', 6, 0, 6, 4],
+    ['todayCourse', 0, 4, 12, 4],
+    ['todayTodo', 0, 8, 6, 7], ['calendar', 6, 8, 6, 7],
+    ['weather', 0, 15, 12, 5],
+    ['weekLessons', 0, 20, 6, 2], ['invigilation', 6, 20, 6, 2],
+    ['prepDeadline', 0, 22, 6, 2], ['recentNotes', 6, 22, 6, 2],
   ],
   mobile: [
-    ['profile', 0, 0, 12, 3], ['todayCourse', 0, 3, 12, 4],
-    ['todayTodo', 0, 7, 12, 4], ['weather', 0, 11, 12, 3],
-    ['calendar', 0, 14, 12, 6], ['dailyQuote', 0, 20, 12, 3],
-    ['timeline', 0, 23, 12, 3], ['weekLessons', 0, 26, 12, 2],
-    ['invigilation', 0, 28, 12, 2], ['prepDeadline', 0, 30, 12, 2],
-    ['recentNotes', 0, 32, 12, 2],
+    ['profile', 0, 0, 12, 4], ['timeline', 0, 4, 12, 4],
+    ['todayCourse', 0, 8, 12, 4], ['todayTodo', 0, 12, 12, 7],
+    ['calendar', 0, 19, 12, 7], ['weather', 0, 26, 12, 6],
+    ['weekLessons', 0, 32, 12, 2], ['invigilation', 0, 34, 12, 2],
+    ['prepDeadline', 0, 36, 12, 2], ['recentNotes', 0, 38, 12, 2],
   ],
 };
 
@@ -97,7 +91,7 @@ function defaultSeg(bp) {
 
 export function defaultState() {
   return {
-    version: 4,
+    version: 5,
     /* 【为什么这里是空串而不是 new Date()】
        updatedAt 用来判断「云端和本地谁更新」。如果默认状态取"现在"，
        那一个从没排过布局的新设备，其本地时间永远比云端那次保存更晚，
@@ -188,17 +182,15 @@ function normalize(raw) {
   const out = defaultState();
   if (!raw || typeof raw !== 'object' || !raw.breakpoints) return out;
   const rawVersion = Number(raw.version) || 1;
-  /* v4 精简首页：将旧版布局升级为五张核心卡片。
-     保留用户此前隐藏的卡片偏好；其余辅助卡片默认隐藏，仍可从卡片管理恢复。
-     仅修改展示布局，不触碰任何业务数据。 */
-  if (rawVersion < 4) {
-    const hidden = [...new Set([
-      ...DEFAULT_HIDDEN,
-      ...(raw.breakpoints.desktop?.hidden || []).map(String).filter((id) => CARD_MAP.has(id)),
-    ])];
+  /* v5 首页重排：旧布局只迁移辅助卡片的隐藏偏好，核心六张卡片恢复为参考图默认布局。
+     只更新展示布局，不触碰课程、事项、天气或其他业务数据。 */
+  if (rawVersion < 5) {
+    const auxiliary = new Set(['weekLessons', 'invigilation', 'prepDeadline', 'recentNotes']);
+    const oldHidden = (raw.breakpoints.desktop?.hidden || []).map(String).filter((id) => auxiliary.has(id));
+    const hidden = [...new Set([...DEFAULT_HIDDEN, ...oldHidden])];
     for (const bp of Object.keys(out.breakpoints)) out.breakpoints[bp].hidden = hidden;
     out.updatedAt = raw.updatedAt || '';
-    out.version = 4;
+    out.version = 5;
     return out;
   }
   out.version = rawVersion;
