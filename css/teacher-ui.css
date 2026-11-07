@@ -2488,3 +2488,84 @@ html[data-theme="dark"] .home-redesign .home-weather-card { background:var(--car
 @media(max-width:860px) {
   .home-redesign .home-calendar-card .cal-day-content { height:142px; max-height:142px; }
 }
+ 
+/* 首页个人信息与日历标题：统一使用主题强调色图标。 */
+.home-redesign .home-welcome-card {
+  justify-content:flex-start;
+  gap:8px;
+  padding:14px 18px 12px!important;
+}
+.home-redesign .home-profile-heading {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:22px;
+  margin:0 0 2px;
+  color:var(--text);
+  font-size:15px;
+  font-weight:800;
+  line-height:1.3;
+}
+.home-redesign .home-profile-heading svg {
+  flex:0 0 auto;
+  color:var(--primary);
+}
+.home-redesign .home-profile-head { gap:12px; }
+.home-redesign .home-profile-head .ah-btn {
+  flex:0 0 60px;
+  width:60px!important;
+  height:60px!important;
+}
+.home-redesign .home-quote { margin-top:auto; padding-top:8px; }
+.home-redesign .home-quote-head { margin-bottom:4px; }
+.home-redesign .home-quote .quote-zh { margin-top:3px; }
+
+.home-redesign .home-calendar-card .cal-heading-main {
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.home-redesign .home-calendar-card .cal-heading-main>svg {
+  flex:0 0 auto;
+  color:var(--primary);
+}
+.home-redesign .home-calendar-card .cal-day[hidden] { display:none!important; }
+.home-redesign .home-calendar-card .cal-day {
+  display:flex;
+  flex:1 1 auto;
+  flex-direction:column;
+  min-height:0;
+  margin:8px 18px 0;
+  padding-top:9px;
+  border-top:1px solid var(--line);
+}
+.home-redesign .home-calendar-card .cal-day-content {
+  flex:1 1 auto;
+  min-height:360px;
+  height:auto;
+  max-height:none;
+  overflow-x:hidden;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+  scrollbar-color:var(--line) transparent;
+  touch-action:pan-y;
+}
+.home-redesign .home-calendar-card .cal-day-content::-webkit-scrollbar { width:6px; }
+.home-redesign .home-calendar-card .cal-day-content::-webkit-scrollbar-thumb {
+  border-radius:99px;
+  background:var(--line);
+}
+.home-redesign .home-calendar-card.is-day-open .cal-day { min-height:0; }
+@media(max-width:860px) {
+  .home-redesign .home-calendar-card .cal-day-content { min-height:320px; }
+  .home-redesign .home-calendar-card.is-day-open {
+    min-height:690px!important;
+    height:auto!important;
+  }
+  .home-redesign #home-grid.hg-mobile > .hg-item[data-hcard="calendar"].is-day-open { min-height:690px; }
+}
+@media(max-width:640px) {
+  .home-redesign .home-calendar-card .cal-day { margin-left:14px; margin-right:14px; }
+  .home-redesign .home-calendar-card .cal-day-content { min-height:320px; }
+}

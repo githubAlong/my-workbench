@@ -1,7 +1,7 @@
 import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_CN, WD_SHORT, fmtTime, fmtDateTime, relDay, parseDT, countdown, speak, stopSpeak, colorOf, ls, exportUrl, download, addToSystemCalendar } from './core.js';
 import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
 import { syncDay, DAY_SYNC } from './homelayout.js';
-import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud } from './homegrid.js';
+import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud, setTemporaryHeight as setGridTemporaryHeight } from './homegrid.js';
 
 /* ================= 欢迎语 =================
    【第 5 条：按时段问候 + 头像上移】
@@ -580,10 +580,11 @@ async function applyCityWeather() {
 async function refreshHome() {
   const selectedDate = calState.selected;
   const calendarView = calState.view;
+  const dayOpen = calState.dayOpen;
   homeData = await api.get('/home', { date: ymd() }).catch(() => homeData);
   renderHome();
   if (selectedDate) {
-    await loadCal(selectedDate);
+    await loadCal(selectedDate, { openDay: dayOpen });
     calState.view = calendarView;
     paintCal();
   }
@@ -632,6 +633,7 @@ function renderHome() {
       <button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button>
       <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-welcome-card">
+        <div class="home-profile-heading">${icon('user',18)}<span>个人信息</span></div>
         <div class="home-profile-actions" role="group" aria-label="个人卡片快捷操作">
           <button class="home-action home-action-secondary" id="theme-btn" type="button" title="更换首页及工作台主题外观">${icon('sun',16)}<span>更换外观</span></button>
           <button class="home-action teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false" title="编辑首页卡片布局">${icon('grid',16)}<span>编辑布局</span></button>
@@ -719,7 +721,7 @@ function renderHome() {
       <section class="card card-pad calendar-card home-card home-calendar-card">
         <div class="hc-head hc-head-cal">
           <div class="cal-head" style="flex:1;margin:0">
-            <div class="cal-heading"><strong class="cal-heading-label">日历</strong><span class="cal-title" id="cal-title"></span></div><span style="flex:1"></span>
+            <div class="cal-heading"><div class="cal-heading-main">${icon('cal',18)}<strong class="cal-heading-label">日历</strong></div><span class="cal-title" id="cal-title"></span></div><span style="flex:1"></span>
             <button class="cal-nav" id="cal-prev" title="上个月" aria-label="上个月">${icon('left',18)}</button>
             <button class="cal-nav" id="cal-next" title="下个月" aria-label="下个月">${icon('right',18)}</button>
             <button class="btn ghost sm" id="cal-fold" title="收起成这一周">${icon('up',14)} <span id="cal-fold-txt">周</span></button>
@@ -731,7 +733,7 @@ function renderHome() {
         <div class="cal-week">${['日','一','二','三','四','五','六'].map((x,i)=>'<span class="'+(i===0||i===6?'we':'')+'">'+x+'</span>').join('')}</div>
         <div class="cal-grid" id="cal-grid"></div>
         <div class="cal-legend"><span><i style="background:var(--primary)"></i>上课</span><span><i style="background:var(--amber)"></i>监考/出差</span><span><i style="background:var(--green)"></i>教研</span><span><i style="background:var(--red)"></i>提醒</span></div>
-        <div class="cal-day" id="cal-day"></div>
+        <div class="cal-day" id="cal-day" hidden></div>
       </section>
     </div>
     <div class="hg-item" data-hcard="weather">
@@ -972,7 +974,7 @@ function renderTodayItems(rowsOverride = null, dateOverride = '') {
           if (todayItem) todayItem.status = nextStatus;
         }
         if (nextStatus === 'done') toast('已完成');
-        await loadDay(date);
+        if (calState.dayOpen && calState.selected === date) await loadDay(date);
       } catch (error) {
         toast(error.message || '更新事项失败', 'err');
       }
@@ -1001,6 +1003,7 @@ function jumpCalTo(date) {
     loadCal(date);
     return;
   }
+  setCalendarDayOpen(false);
   calState.selected = date;
   paintCal();
 }
@@ -1191,8 +1194,30 @@ async function exportCalendar() {
 }
 
 /* 日历 */
-let calState = { month: '', data: null, selected: '', view: 'month', dayLoadSeq: 0, loadSeq: 0, dayData: null };
-async function loadCal(monthDay) {
+let calState = { month: '', data: null, selected: '', view: 'month', dayLoadSeq: 0, loadSeq: 0, dayData: null, dayOpen: false };
+function setCalendarDayOpen(open) {
+  const next = Boolean(open);
+  calState.dayOpen = next;
+  const box = document.getElementById('cal-day');
+  const card = box?.closest('.home-calendar-card');
+  const item = box?.closest('[data-hcard="calendar"]');
+  if (box) {
+    box.hidden = !next;
+    if (!next) box.innerHTML = '';
+  }
+  if (card) card.classList.toggle('is-day-open', next);
+  if (item) item.classList.toggle('is-day-open', next);
+  if (next) {
+    setGridTemporaryHeight('calendar', 11);
+  } else {
+    calState.dayData = null;
+    calState.dayLoadSeq += 1;
+    setGridTemporaryHeight('calendar', 0);
+  }
+}
+
+async function loadCal(monthDay, { openDay = false } = {}) {
+  setCalendarDayOpen(openDay);
   const month = String(monthDay).slice(0, 7);
   const requestId = ++calState.loadSeq;
   calState.month = month;
@@ -1265,22 +1290,23 @@ function paintCal() {
   grid.querySelectorAll('[data-day]').forEach((b) => {
     b.onclick = () => {
       calState.selected = b.dataset.day;
+      setCalendarDayOpen(true);
       paintCal();
       syncDay(b.dataset.day, 'calendar');
     };
   });
-  loadDay(calState.selected);
+  if (calState.dayOpen && calState.selected) loadDay(calState.selected);
 }
 
 
 async function loadDay(date) {
+  if (!calState.dayOpen || date !== calState.selected) return;
   const box = document.getElementById('cal-day');
   if (!box) return;
+  box.hidden = false;
   const requestId = ++calState.dayLoadSeq;
   renderHomeDayLoading(date);
-  box.innerHTML = `${calDayHeaderHTML(date, '…')}
-    <div class="cal-day-content"><div class="cal-day-empty">正在加载当天安排…</div></div>`;
-  bindCalDayControls(box, date);
+  box.innerHTML = '<div class="cal-day-content"><div class="cal-day-empty">正在加载当天安排…</div></div>';
   const dayData = await api.get('/calendar/day', { date }).catch(() => null);
   if (!box.isConnected || requestId !== calState.dayLoadSeq || date !== calState.selected) return;
   if (!dayData) {
@@ -1350,12 +1376,10 @@ async function loadDay(date) {
   const allDayHTML = allDayEvents.length
     ? `<div class="cal-day-all-day"><span>全天</span>${allDayEvents.map(eventButton).join('')}</div>`
     : '';
-  box.innerHTML = `${calDayHeaderHTML(date, events.length)}
-    <div class="cal-day-content"><div class="cal-day-timeline">
+  box.innerHTML = `<div class="cal-day-content"><div class="cal-day-timeline">
       <div class="cal-day-timeline-head"><b>当天时间轴</b><span>24小时 · 上下滑动查看</span></div>
       ${allDayHTML}<div class="cal-day-hours">${hourRows}</div>
     </div></div>`;
-  bindCalDayControls(box, date);
   bindCalDayEvents(box, date);
   renderHomeDayPanels(date, dayData);
   const scrollArea = box.querySelector('.cal-day-content');
@@ -1377,25 +1401,6 @@ function bindCalDayEvents(box, date) {
       if (kind === 'reminder') return go('daily');
     };
   });
-}
-
-function calDayHeaderHTML(date, count) {
-  const day = new Date(date + 'T00:00');
-  const wd = WD_CN[day.getDay()];
-  const isToday = date === ymd(new Date());
-  const label = Number(date.slice(5, 7)) + '月' + Number(date.slice(8, 10)) + '日';
-  return `<div class="cal-day-head">
-      <span class="cal-day-date">${label}</span>
-      <span class="cal-day-wd">${wd}${isToday ? ' · 今天' : ''}</span>
-      <span class="cal-day-count">${esc(String(count))} 项</span>
-      <span class="cal-day-head-spacer" aria-hidden="true"></span>
-      <button class="btn soft sm" data-add-day="${esc(date)}" type="button" style="padding:4px 10px;font-size:12px">＋ 添加</button>
-    </div>`;
-}
-
-function bindCalDayControls(box, date) {
-  const add = box.querySelector('[data-add-day]');
-  if (add) add.onclick = () => editItem(null, date);
 }
 
 const mNum = (s) => Number(String(s).slice(5, 7));

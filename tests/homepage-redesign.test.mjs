@@ -127,25 +127,26 @@ test('我的个人中心各模块统一为可独立展开和收起的手风琴�
 
 
 
-test('日历选择日期会同步真实事项、课程，并在固定高度时间轴中滚动查看24小时', () => {
-  assert.match(home, /function renderHomeDayPanels\(/);
-  assert.match(home, /function renderTodayItems\(rowsOverride = null, dateOverride = ''\)/);
-  assert.match(home, /function renderTodayCourses\(coursesOverride = null, lessonsOverride = null, dateOverride = ''\)/);
+test('日历默认收起当天安排，点击日期后展开可滚动的24小时时间轴', () => {
+  assert.match(home, /dayOpen: false/);
+  assert.match(home, /function setCalendarDayOpen\(open\)/);
+  assert.match(home, /setCalendarDayOpen\(true\)/);
+  assert.match(home, /if \(calState\.dayOpen && calState\.selected\) loadDay\(calState\.selected\)/);
   assert.match(home, /Array\.from\(\{ length: 24 \}/);
   assert.match(home, /data-day-event=/);
   assert.match(home, /id="home-todo-day-title"/);
   assert.match(home, /id="home-course-day-title"/);
-  assert.match(home, /title\.textContent = `\$\{y\}年\$\{pad2\(m\)\}月`/);
-  assert.match(home, /function calDayHeaderHTML\(date, count\)/);
+  assert.match(home, /home-profile-heading.*个人信息/);
+  assert.match(home, /cal-heading-main.*日历/);
+  assert.doesNotMatch(home, /function calDayHeaderHTML|data-add-day|cal-day-head/);
   assert.match(home, /24小时 · 上下滑动查看/);
   assert.match(home, /scrollTop = 6 \* 29/);
-  assert.doesNotMatch(home, /cal-collapse|cal-collapse-row|cal-day-toggle|dayExpanded|syncHomeDayGridHeight|hg-day-expanded/);
-  assert.match(styles, /cal-day-hour-row/);
-  assert.match(styles, /\.home-redesign \.home-calendar-card \.cal-day-content\s*\{[\s\S]*?height:\s*150px;[\s\S]*?overflow-y:\s*auto;/);
+  assert.match(grid, /export function setTemporaryHeight\(id, minRows = 0\)/);
+  assert.match(styles, /\.home-redesign \.home-calendar-card \.cal-day-content\s*\{[\s\S]*?min-height:\s*360px;[\s\S]*?overflow-y:\s*auto;/);
+  assert.match(styles, /\.home-redesign \.home-calendar-card \.cal-day\[hidden\]\s*\{\s*display:none!important;/);
   assert.match(styles, /scrollbar-width:\s*thin/);
   assert.match(styles, /flex:1 1 0;[\s\S]*?max-width:none;[\s\S]*?margin:0;/);
 });
-
 
 
 test('日历重构没有遗留临时替换标记或旧折叠入口', () => {
