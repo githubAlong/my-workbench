@@ -2338,3 +2338,97 @@ html[data-theme="dark"] .home-redesign .home-weather-card { background:var(--car
   .home-redesign .home-todo-card #today-items { padding-left:14px!important; padding-right:14px!important; }
   .home-redesign .home-weather-week .wx-days { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
+
+
+/* 首页桌面端整屏平铺：搜索栏保留自然高度，主卡片填满剩余视口 */
+@media (min-width: 1180px) {
+  .app:has(#home-grid) {
+    height: 100vh;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+  .main:has(#home-grid) {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    min-height: 0;
+    max-height: 100vh;
+    overflow: hidden;
+    padding: clamp(12px, 1.5vh, 20px) clamp(14px, 1.6vw, 28px);
+  }
+  .main:has(#home-grid) .home-topbar {
+    flex: 0 0 auto;
+    min-height: 54px;
+    margin-bottom: clamp(8px, 1.2vh, 14px);
+  }
+  .main:has(#home-grid) .home-layout-toolbar:not([hidden]) {
+    flex: 0 0 auto;
+    margin-bottom: 10px;
+  }
+  .main:has(#home-grid) #home-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    align-content: stretch;
+    grid-auto-rows: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .main:has(#home-grid) #home-grid.hg-fill-viewport {
+    overflow: visible;
+  }
+  .main:has(#home-grid) #home-grid > .hg-item {
+    min-height: 0;
+  }
+  .main:has(#home-grid) #home-grid > .hg-item > .card {
+    height: 100%;
+    min-height: 0;
+  }
+  /* 日历月份格子跟随卡片高度伸展 */
+  .main:has(#home-grid) .home-calendar-card {
+    min-height: 0;
+  }
+  .main:has(#home-grid) .home-calendar-card .cal-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-auto-rows: minmax(0, 1fr);
+    align-content: stretch;
+  }
+  .main:has(#home-grid) .home-calendar-card .cal-cell {
+    height: 100%;
+    min-height: 0;
+    aspect-ratio: auto;
+  }
+}
+
+/* 搜索按钮图标加大并加粗，保留原有蓝色按钮和搜索行为 */
+.main:has(#home-grid) .teacher-toolbar .sb-go {
+  width: 48px;
+  height: 44px;
+  border-radius: 13px;
+}
+.main:has(#home-grid) .teacher-toolbar .sb-go svg {
+  width: 23px;
+  height: 23px;
+  stroke-width: 2.9;
+}
+
+@media (max-width: 1179px) {
+  .app:has(#home-grid) {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+  .main:has(#home-grid) {
+    display: block;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+  }
+  .main:has(#home-grid) #home-grid {
+    flex: initial;
+    min-height: 0;
+    height: auto;
+    overflow: visible;
+  }
+}
