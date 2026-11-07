@@ -348,9 +348,9 @@ function avatarSheet() {
   const u = state.user;
   const b = el(`<div class="sheet-body">
     <div class="av-preview">${avatarHTML(u, 96)}</div>
-    <div class="tiny muted" style="text-align:center;margin:10px 0 14px">只用 JPG / PNG，不超过 2MB。上传后自动裁成正方形。</div>
+    <div class="tiny muted" style="text-align:center;margin:10px 0 14px">支持常见图片格式，原图大小不限；上传后自动裁剪并优化为头像。</div>
     <label class="btn primary block" style="cursor:pointer;justify-content:center">${icon('upload', 15)} 选择图片
-      <input type="file" id="av-file" accept="image/jpeg,image/png" hidden></label>
+      <input type="file" id="av-file" accept="image/*" hidden></label>
     ${u.avatar ? `<button class="btn ghost block" id="av-del" style="margin-top:8px;color:var(--red)">移除头像</button>` : ''}
     <div class="tiny muted" id="av-hint" style="text-align:center;margin-top:10px"></div>
   </div>`);
@@ -361,10 +361,8 @@ function avatarSheet() {
   file.onchange = async () => {
     const f = file.files?.[0];
     if (!f) return;
-    // 前端先挡一道，省得上传完了才被服务端打回来
-    if (!/^image\/(jpeg|png)$/.test(f.type)) return toast('只支持 JPG / PNG', 'warn');
-    if (f.size > 2 * 1024 * 1024) return toast(`图片 ${(f.size / 1024 / 1024).toFixed(1)}MB，超过 2MB 了`, 'warn');
-    hint.textContent = '裁切中…';
+    // 不限制原图格式和体积；交给浏览器解码，再统一裁剪优化为头像。
+    hint.textContent = '正在优化图片…';
     try {
       /* 512px / q0.9 压出来常有 60~120KB，而 localStorage 整库只有 5MB，
          存两三个大附件就满。头像实际最大显示 74px（@2x 148px 足够），
@@ -432,7 +430,6 @@ function cropSquare(file, size = 192) {
         cv.toBlob((blob) => {
           URL.revokeObjectURL(url);
           if (!blob) return reject(new Error('图片处理失败'));
-          if (blob.size > 2 * 1024 * 1024) return reject(new Error('裁切后仍超过 2MB，换张小点的图'));
           resolve(blob);
         }, 'image/jpeg', 0.72);
       } catch (e) { URL.revokeObjectURL(url); reject(e); }
@@ -714,7 +711,7 @@ async function renderProfile(main, { inline = false } = {}) {
           <div class="profile-banner-info">
             <div class="profile-banner-name" id="profile-banner-name">${esc(bannerName)}</div>
             <div class="profile-banner-meta" id="profile-banner-meta">${esc(bannerMeta)}</div>
-            <div class="profile-banner-hint">${inline ? '头像照片 · 支持 JPG / PNG，上传后首页头像同步显示' : '教师个人资料 · 仅用于工作台内展示'}</div>
+            <div class="profile-banner-hint">${inline ? '头像照片 · 支持常见图片格式，原图大小不限，上传后自动优化并同步首页头像' : '教师个人资料 · 仅用于工作台内展示'}</div>
           </div>
         </div>
         ${inline ? '<div class="profile-avatar-actions"><button type="button" class="btn primary sm" id="p-avatar-upload">上传照片</button><button type="button" class="btn ghost sm" id="p-avatar-remove" ' + (u.avatar ? '' : 'hidden') + '>移除</button></div>' : ''}
