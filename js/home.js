@@ -472,7 +472,7 @@ function weatherBriefHTML() {
      整个天气卡就只剩一行字，连切城市和重试的按钮都没有 ——
      用户就被卡死在「北京 天气加载中」，怎么点都没用（第 8 条）。 */
   if (!w) return `<div class="wxb-city">${icon('loc', 12)} ${esc(c.name)}
-      <button class="loc-btn" data-pick-city title="选择所在城市">${icon('loc', 10)} 选城市</button>
+      
       <span style="flex:1"></span>
       <button class="icon-btn sm" data-wx-refresh title="重新加载天气">${icon('refresh', 14)}</button>
     </div>
@@ -483,7 +483,7 @@ function weatherBriefHTML() {
   const day = w.daily;
   const rainToday = (day.precipitation_probability_max?.[0] || 0) > 40 || cur.precipitation > 0;
   return `<div class="wxb-city">${icon('loc', 12)} ${esc(c.name)}
-      <button class="loc-btn" data-pick-city title="选择所在城市">${icon('loc', 10)} 选城市</button>
+      
       <span style="flex:1"></span>
       <button class="icon-btn sm" data-wx-refresh title="刷新天气">${icon('refresh', 14)}</button>
     </div>
@@ -790,11 +790,13 @@ function renderHome() {
       <section class="card wx-card home-weather-card" id="wx-card">
         <div class="home-card-head">
           <div class="home-card-title">${icon('sun',20)}<span>今日天气</span></div>
-          <button class="home-card-link" id="wx-more" type="button">详细天气 ${icon('right',13)}</button>
+          <button class="loc-btn" id="wx-city-pick" data-pick-city type="button" title="自动定位或手动切换城市">${icon('loc',13)} 城市 / 定位</button>
         </div>
         <div class="wx-body">
           <div id="wx-brief">${weatherBriefHTML()}</div>
-          <div class="home-weather-week" id="home-weather-week"></div>
+        </div>
+        <div class="home-weather-footer">
+          <button class="home-card-link" id="wx-more" type="button">详细天气 ${icon('right',13)}</button>
         </div>
       </section>
     </div>
