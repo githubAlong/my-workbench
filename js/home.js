@@ -701,9 +701,8 @@ function renderHome() {
           <div class="home-profile-info">
             <div class="clk-greet" id="greet-line">${esc(g1)}</div>
             <div class="clk-greet-sub" id="greet-sub">${esc(g2)}</div>
-            </div>
-          <div class="home-profile-details" id="home-profile-details">${profileDetailsHTML()}</div>
           </div>
+          <div class="home-profile-details" id="home-profile-details">${profileDetailsHTML()}</div>
         </div>
         <div class="home-quote">
           <div class="home-quote-head">
