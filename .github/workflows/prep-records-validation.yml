@@ -45,10 +45,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Run complete Node test suite
-        run: npm test
       - name: Check JavaScript syntax and Service Worker assets
         run: npm run check
+      - name: Run complete Node test suite
+        run: npm test
       - name: Build static Pages output
         run: npm run build:pages
       - name: Install Chromium browser test dependencies
