@@ -578,8 +578,17 @@ async function applyCityWeather() {
 }
 
 async function refreshHome() {
+  const selectedDate = calState.selected;
+  const dayExpanded = calState.dayExpanded;
+  const calendarView = calState.view;
   homeData = await api.get('/home', { date: ymd() }).catch(() => homeData);
   renderHome();
+  if (selectedDate) {
+    await loadCal(selectedDate);
+    calState.view = calendarView;
+    calState.dayExpanded = dayExpanded;
+    paintCal();
+  }
 }
 
 function renderHome() {
@@ -679,7 +688,7 @@ function renderHome() {
       <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-card home-course-card">
         <div class="home-card-head">
-          <div class="home-card-title">${icon('book',20)}<span>今日上课提醒</span><span class="home-count-chip">${todayCourses.length}</span></div>
+          <div class="home-card-title">${icon('book',20)}<span id="home-course-day-title">今日上课提醒</span><span class="home-count-chip" id="home-course-count">${todayCourses.length}</span></div>
           <button class="home-card-link" data-goto2="work/timetable" type="button">查看课表 ${icon('right',13)}</button>
         </div>
         <div class="card-pad hc-body" id="today-courses"></div>
@@ -691,12 +700,12 @@ function renderHome() {
       <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-card home-todo-card">
         <div class="home-card-head">
-          <div class="home-card-title">${icon('check',19)}<span>今日事项</span><span class="home-count-chip">${(d.items||[]).filter(t=>t.status!=='done').length}</span></div>
+          <div class="home-card-title">${icon('check',19)}<span id="home-todo-day-title">今日事项</span><span class="home-count-chip" id="home-todo-count">${(d.items||[]).filter(t=>t.status!=='done').length}</span></div>
           <button class="home-card-link" id="home-new-item" data-add-item2 type="button">＋ 新增</button>
         </div>
         <div class="home-quick-add">
           <div class="home-quick-input-wrap">
-            <input class="home-quick-input" id="quick-input" type="text" placeholder="快速添加今日事项，回车即可保存…" autocomplete="off">
+            <input class="home-quick-input" id="quick-input" type="text" placeholder="快速添加所选日期事项，回车即可保存…" autocomplete="off">
             <button class="home-quick-time" id="quick-time" type="button" title="设置提醒时间" aria-label="设置提醒时间">${icon('clock',15)}</button>
           </div>
           <button class="home-quick-save" id="quick-save" type="button">添加</button>
@@ -712,7 +721,7 @@ function renderHome() {
       <section class="card card-pad calendar-card home-card home-calendar-card">
         <div class="hc-head hc-head-cal">
           <div class="cal-head" style="flex:1;margin:0">
-            <div class="cal-title" id="cal-title"></div><span style="flex:1"></span>
+            <div class="cal-heading"><strong class="cal-heading-label">日历</strong><span class="cal-title" id="cal-title"></span></div><span style="flex:1"></span>
             <button class="cal-nav" id="cal-prev" title="上个月" aria-label="上个月">${icon('left',18)}</button>
             <button class="cal-nav" id="cal-next" title="下个月" aria-label="下个月">${icon('right',18)}</button>
             <button class="btn ghost sm" id="cal-fold" title="收起成这一周">${icon('up',14)} <span id="cal-fold-txt">周</span></button>
@@ -903,43 +912,87 @@ async function loadHomeExtras(){
  const recent=document.getElementById('home-recent-notes');if(recent){const list=(Array.isArray(notes)?notes:[]).sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||''))).slice(0,2);recent.innerHTML=list.length?list.map(n=>'<button class="recent-note-row" type="button" data-open-recent-notes><span>•</span><b>'+esc(n.title||'未命名笔记')+'</b></button>').join(''):'<div class="mini-empty">还没有笔记，写下第一条灵感吧</div>';recent.querySelectorAll('[data-open-recent-notes]').forEach(b=>{b.onclick=()=>go('work/notes');});}
 }
 
-function renderTodayItems() {
+function homeDayCaption(date) {
+  return date === homeData?.date ? '今日' : `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`;
+}
+function updateHomeDayHeadings(date, items = null, courses = null) {
+  const caption = homeDayCaption(date);
+  const todoTitle = document.getElementById('home-todo-day-title');
+  const courseTitle = document.getElementById('home-course-day-title');
+  const todoCount = document.getElementById('home-todo-count');
+  const courseCount = document.getElementById('home-course-count');
+  if (todoTitle) todoTitle.textContent = caption + '事项';
+  if (courseTitle) courseTitle.textContent = caption + '上课提醒';
+  if (todoCount && Array.isArray(items)) todoCount.textContent = String(items.filter((item) => item.status !== 'done').length);
+  if (courseCount && Array.isArray(courses)) courseCount.textContent = String(courses.length);
+}
+function renderHomeDayLoading(date) {
+  updateHomeDayHeadings(date);
+  const items = document.getElementById('today-items');
+  const courses = document.getElementById('today-courses');
+  if (items) items.innerHTML = '<div class="empty" style="padding:20px">正在读取所选日期事项…</div>';
+  if (courses) courses.innerHTML = '<div class="empty" style="padding:20px">正在读取所选日期课程…</div>';
+}
+function renderHomeDayPanels(date, dayData) {
+  const items = Array.isArray(dayData?.items) ? dayData.items : [];
+  const courses = Array.isArray(dayData?.courses) ? dayData.courses : [];
+  const lessons = Array.isArray(dayData?.lessons) ? dayData.lessons : [];
+  updateHomeDayHeadings(date, items, courses);
+  renderTodayItems(items, date);
+  renderTodayCourses(courses, lessons, date);
+}
+function syncHomeDayGridHeight() {
+  const grid = document.getElementById('home-grid');
+  if (!grid) return;
+  grid.classList.toggle('hg-day-expanded', !!calState.dayExpanded);
+}
+function renderTodayItems(rowsOverride = null, dateOverride = '') {
   const box = document.getElementById('today-items');
   if (!box || !homeData) return;
-  const rows = homeData.items || [];
-  if (!rows.length) { box.innerHTML = `<div class="empty" style="padding:20px">今天还没有事项，右上角「＋ 新增」或上面的便签记一笔</div>`; return; }
+  const date = dateOverride || homeData.date;
+  const rows = Array.isArray(rowsOverride) ? rowsOverride : (homeData.items || []);
+  updateHomeDayHeadings(date, rows, null);
+  if (!rows.length) {
+    box.innerHTML = `<div class="empty" style="padding:20px">${date === homeData.date ? '今天还没有事项' : '这一天还没有事项'}，点击「＋ 新增」添加</div>`;
+    return;
+  }
   box.innerHTML = rows.map((it) => {
     const t = it.start_at ? fmtTime(it.start_at) : '';
     const done = it.status === 'done';
-    return `<div class="task-row" data-item="${it.id}">
-      <span class="prio ${it.priority}"></span>
-      <button class="task-check ${done ? 'done' : ''}" data-check="${it.id}" data-status="${it.status}">${done ? icon('check', 14) : ''}</button>
-      <div class="task-main" data-edit-item="${it.id}">
+    return `<div class="task-row" data-item="${esc(it.id)}">
+      <span class="prio ${esc(it.priority || 'normal')}"></span>
+      <button class="task-check ${done ? 'done' : ''}" data-check="${esc(it.id)}" data-status="${esc(it.status || 'todo')}" aria-label="${done ? '标记为未完成' : '标记为完成'}">${done ? icon('check', 14) : ''}</button>
+      <div class="task-main" data-edit-item="${esc(it.id)}">
         <div class="task-title ${done ? 'done' : ''}">${esc(it.title)}</div>
         <div class="task-sub">${it.kind !== '事项' ? `<span class="chip" style="height:19px;font-size:10.5px">${esc(it.kind)}</span>` : ''}${it.detail ? esc(it.detail) : ''}${it.source === '便签' ? '<span class="chip amber" style="height:19px;font-size:10.5px">来自便签</span>' : ''}${t ? `<span class="task-time">${t}</span>` : ''}</div>
       </div>
     </div>`;
   }).join('');
-  box.querySelectorAll('[data-check]').forEach((b) => {
-    b.onclick = async () => {
-      const st = b.dataset.status === 'done' ? 'todo' : 'done';
-      await api.patch('/items/' + b.dataset.check, { status: st });
-      const it = homeData.items.find((x) => String(x.id) === b.dataset.check);
-      if (it) { it.status = st; if (st === 'done') toast('已完成'); }
-      renderTodayItems(); refreshHome();
+  box.querySelectorAll('[data-check]').forEach((button) => {
+    button.onclick = async () => {
+      const nextStatus = button.dataset.status === 'done' ? 'todo' : 'done';
+      try {
+        await api.patch('/items/' + button.dataset.check, { status: nextStatus });
+        const item = rows.find((row) => String(row.id) === button.dataset.check);
+        if (item) item.status = nextStatus;
+        if (date === homeData.date) {
+          const todayItem = (homeData.items || []).find((row) => String(row.id) === button.dataset.check);
+          if (todayItem) todayItem.status = nextStatus;
+        }
+        if (nextStatus === 'done') toast('已完成');
+        await loadDay(date);
+      } catch (error) {
+        toast(error.message || '更新事项失败', 'err');
+      }
     };
   });
-  box.querySelectorAll('[data-edit-item]').forEach((b) => {
-    b.onclick = () => {
-      const it = homeData.items.find((x) => String(x.id) === b.dataset.editItem);
-      /* 【第 11 条：联动】
-         原来点事项只弹一个编辑框，右边日历完全不知道你在看哪天。
-         现在点一下，先让日历选中那一天（右边会亮起来、下面加载那天的全部安排），
-         再开编辑框。
-         顺序是有讲究的：先联动再开弹窗。反过来的话弹窗一遮，
-         日历在背后跳成什么样用户看不见，联动就白做了。 */
-      if (it?.date) { syncDay(it.date, 'items'); jumpCalTo(it.date); }
-      editItem(it);
+  box.querySelectorAll('[data-edit-item]').forEach((button) => {
+    button.onclick = () => {
+      const item = rows.find((row) => String(row.id) === button.dataset.editItem);
+      if (!item) return;
+      syncDay(date, 'items');
+      jumpCalTo(date);
+      editItem(item, date);
     };
   });
 }
@@ -961,54 +1014,43 @@ function jumpCalTo(date) {
   paintCal();
 }
 
-/* 日历广播过来的日期同步到事项卡抬头。
-   只是把「正在看哪天」写出来，不改列表内容——
-   事项卡的名字就叫「今日事项」，按别的日期过滤会名不副实。 */
-document.addEventListener(DAY_SYNC, (e) => {
-  const { date, source } = e.detail || {};
-  if (!date || source === 'items') return;   /* items 那条自己去跳日历，不回流 */
-  const box = document.getElementById('today-items');
-  const head = box?.closest('.home-card')?.querySelector('.card-title');
-  if (!head) return;
-  const chip = head.querySelector('.hc-daychip');
-  const label = date === homeData?.date ? '今天' : `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`;
-  if (chip) chip.textContent = label;
-  else {
-    const c = document.createElement('span');
-    c.className = 'chip gray hc-daychip';
-    c.style.cssText = 'margin-left:4px';
-    c.textContent = label;
-    head.appendChild(c);
-  }
+/* 日历选择日期后，两张业务卡片同步显示对应日期；内容由 /calendar/day 返回的真实数据驱动。 */
+document.addEventListener(DAY_SYNC, (event) => {
+  const { date, source } = event.detail || {};
+  if (!date || source === 'items') return;
+  updateHomeDayHeadings(date);
 });
-
-function renderTodayCourses() {
+function renderTodayCourses(coursesOverride = null, lessonsOverride = null, dateOverride = '') {
   const box = document.getElementById('today-courses');
   if (!box || !homeData) return;
-  const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  const list = homeData.courses.filter((c) => c.date === homeData.date);
+  const date = dateOverride || homeData.date;
+  const allCourses = Array.isArray(coursesOverride) ? coursesOverride : (homeData.courses || []);
+  const list = allCourses.filter((course) => !course.date || course.date === date);
+  const lessonRows = Array.isArray(lessonsOverride) ? lessonsOverride : (homeData.lessons || []);
+  updateHomeDayHeadings(date, null, list);
   if (!list.length) {
-    box.innerHTML = `<div class="empty" style="padding:20px">今天没有课，好好备课或休息一下</div>`;
+    box.innerHTML = `<div class="empty" style="padding:20px">${date === homeData.date ? '今天没有课，好好备课或休息一下' : '这一天没有课程安排'}</div>`;
     return;
   }
-
-  const lessonRows = homeData.lessons || [];
-  const lessonPath = (c) => 'work/lessons?add=1&period=' + encodeURIComponent(c.period_no)
-    + '&class=' + encodeURIComponent(c.class_name || '')
-    + '&subject=' + encodeURIComponent(c.subject || '');
-  box.innerHTML = list.map((c) => {
-    const start = String(c.start_time || '00:00').slice(0, 5).split(':').map(Number);
-    const end = String(c.end_time || '00:00').slice(0, 5).split(':').map(Number);
-    const s = (start[0] || 0) * 60 + (start[1] || 0);
-    const e = (end[0] || 0) * 60 + (end[1] || 0);
-    const status = nowMin < s ? 'upcoming' : nowMin <= e ? 'ongoing' : 'done';
+  const today = ymd(new Date());
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const dayRelation = date.localeCompare(today);
+  const lessonPath = (course) => 'work/lessons?add=1&period=' + encodeURIComponent(course.period_no)
+    + '&class=' + encodeURIComponent(course.class_name || '')
+    + '&subject=' + encodeURIComponent(course.subject || '');
+  box.innerHTML = list.map((course) => {
+    const start = String(course.start_time || '00:00').slice(0, 5).split(':').map(Number);
+    const end = String(course.end_time || '00:00').slice(0, 5).split(':').map(Number);
+    const startMinute = (start[0] || 0) * 60 + (start[1] || 0);
+    const endMinute = (end[0] || 0) * 60 + (end[1] || 0);
+    const status = dayRelation < 0 ? 'done' : dayRelation > 0 ? 'upcoming'
+      : nowMin < startMinute ? 'upcoming' : nowMin <= endMinute ? 'ongoing' : 'done';
     const labels = { upcoming: '未开始', ongoing: '进行中', done: '已完成' };
-    const recorded = lessonRows.some((r) =>
-      String(r.date || '') === String(c.date || '')
-      && Number(r.period_no) === Number(c.period_no)
-      && String(r.class_name || '').trim() === String(c.class_name || '').trim()
-      && String(r.subject || '').trim() === String(c.subject || '').trim()
+    const recorded = lessonRows.some((row) =>
+      String(row.date || '') === String(course.date || date)
+      && Number(row.period_no) === Number(course.period_no)
+      && String(row.class_name || '').trim() === String(course.class_name || '').trim()
+      && String(row.subject || '').trim() === String(course.subject || '').trim()
     );
     const action = status === 'upcoming'
       ? { type: 'timetable', label: '查看课表' }
@@ -1018,35 +1060,35 @@ function renderTodayCourses() {
           ? { type: 'view', label: '查看记录' }
           : { type: 'add', label: '补记进度' };
     return `<div class="course-row course-${status}">
-      <span class="course-bar" style="background:${colorOf(c.class_name)}"></span>
-      <span class="course-time">${esc(String(c.start_time || '').slice(0, 5))}<br><span class="muted">${esc(String(c.end_time || '').slice(0, 5))}</span></span>
+      <span class="course-bar" style="background:${colorOf(course.class_name)}"></span>
+      <span class="course-time">${esc(String(course.start_time || '').slice(0, 5))}<br><span class="muted">${esc(String(course.end_time || '').slice(0, 5))}</span></span>
       <div class="course-main">
-        <div class="course-name">${esc(c.class_name)} <span class="small muted">${esc(c.subject)} · 第${esc(c.period_no)}节</span></div>
+        <div class="course-name">${esc(course.class_name)} <span class="small muted">${esc(course.subject)} · 第${esc(course.period_no)}节</span></div>
         <div class="course-meta">
-          <span class="course-room">${esc(c.room || '')}</span>
+          <span class="course-room">${esc(course.room || '')}</span>
           <span class="course-state state-${status}">${labels[status]}</span>
-          ${c.rescheduled ? '<span class="chip amber" style="height:18px;font-size:10px">已调课</span>' : ''}
+          ${course.rescheduled ? '<span class="chip amber" style="height:18px;font-size:10px">已调课</span>' : ''}
         </div>
       </div>
       <button class="btn ghost sm course-action" data-course-action="${action.type}"
-        data-period="${esc(c.period_no)}" data-class="${esc(c.class_name)}" data-subject="${esc(c.subject)}">${action.label}</button>
+        data-period="${esc(course.period_no)}" data-class="${esc(course.class_name)}" data-subject="${esc(course.subject)}">${action.label}</button>
     </div>`;
   }).join('');
-
   box.querySelectorAll('[data-course-action]').forEach((button) => {
     button.onclick = () => {
       const action = button.dataset.courseAction;
       if (action === 'timetable') return go('work/timetable');
       if (action === 'view') return go('work/lessons');
-      const course = {
+      go(lessonPath({
         period_no: button.dataset.period,
         class_name: button.dataset.class,
         subject: button.dataset.subject,
-      };
-      go(lessonPath(course));
+      }));
     };
   });
 }
+
+
 
 /* 倒计时（通栏横条）
    两个原则：
@@ -1158,12 +1200,14 @@ async function exportCalendar() {
 }
 
 /* 日历 */
-let calState = { month: '', data: null, selected: '', view: 'month', dayExpanded: false, dayLoadSeq: 0 };
+let calState = { month: '', data: null, selected: '', view: 'month', dayExpanded: false, dayLoadSeq: 0, loadSeq: 0, dayData: null };
 async function loadCal(monthDay) {
   const month = String(monthDay).slice(0, 7);
+  const requestId = ++calState.loadSeq;
   calState.month = month;
   calState.selected = monthDay;
   calState.dayExpanded = false;
+  calState.dayData = null;
   let data;
   if (month === String(homeData?.date || '').slice(0, 7) && homeData.courses_month) {
     data = {
@@ -1173,7 +1217,7 @@ async function loadCal(monthDay) {
     };
   }
   data = await api.get('/calendar', { month }).catch(() => data);
-  if (!String(monthDay).startsWith(month)) return;
+  if (requestId !== calState.loadSeq) return;
   calState.data = data || { courses: [], items: [], lessons: [], invigilations: [], trips: [], reminders: [] };
   paintCal();
 }
@@ -1187,7 +1231,7 @@ function paintCal() {
   const daysInMonth = new Date(y, m, 0).getDate();
   const prevDays = new Date(y, m - 1, 0).getDate();
   const title = document.getElementById('cal-title');
-  if (title) title.innerHTML = `${m}月 <small>${y}年</small>`;
+  if (title) title.textContent = `${y}年${pad2(m)}月`;
   const mi = document.getElementById('cal-month-input');
   if (mi) mi.value = month;
   const byDate = (rows, get) => rows.reduce((acc, r) => { const k = get(r); if (k) (acc[k] ||= []).push(r); return acc; }, {});
@@ -1233,10 +1277,6 @@ function paintCal() {
       calState.selected = b.dataset.day;
       calState.dayExpanded = true;
       paintCal();
-      /* 反过来也要成立：点日历那一天，左边事项区要给出回应。
-         左边只显示「今天」的事项，所以不能真的过滤成那一天（会变成空列表），
-         但可以把选中日期画在事项卡标题上，让两边的「当前日期」始终一致。
-         source 标成 calendar，避免和上面 items 那条互相触发。 */
       syncDay(b.dataset.day, 'calendar');
     };
   });
@@ -1250,46 +1290,108 @@ async function loadDay(date) {
   const requestId = ++calState.dayLoadSeq;
   const collapsed = !calState.dayExpanded;
   box.classList.toggle('is-collapsed', collapsed);
+  renderHomeDayLoading(date);
   box.innerHTML = `${calDayHeaderHTML(date, '…', collapsed)}
-    <div class="cal-day-content"><div class="cal-day-empty">正在加载…</div></div>`;
+    <div class="cal-day-content"><div class="cal-day-empty">正在加载当天安排…</div></div>`;
   bindCalDayControls(box, date);
-
-  const d = await api.get('/calendar/day', { date }).catch(() => null);
+  syncHomeDayGridHeight();
+  const dayData = await api.get('/calendar/day', { date }).catch(() => null);
   if (!box.isConnected || requestId !== calState.dayLoadSeq || date !== calState.selected) return;
-  if (!d) {
+  if (!dayData) {
+    calState.dayData = null;
     const content = box.querySelector('.cal-day-content');
-    if (content) content.innerHTML = '<div class="cal-day-empty">加载失败</div>';
+    if (content) content.innerHTML = '<div class="cal-day-empty">当天安排加载失败，请稍后重试</div>';
+    renderHomeDayPanels(date, { items: [], courses: [], lessons: [] });
+    syncHomeDayGridHeight();
     return;
   }
-
-  const evs = [];
-  for (const c of d.courses) evs.push({ s: c.start_time, e: c.end_time, k: 'course', title: `${c.class_name} ${c.subject}`, sub: `第${c.period_no}节${c.room ? ' · ' + c.room : ''}`, color: 'var(--teal)' });
-  for (const i of d.items) {
-    const s = i.start_at ? String(i.start_at).slice(11, 16) : '';
-    evs.push({ s, e: i.end_at ? String(i.end_at).slice(11, 16) : '', k: 'item', title: i.title, sub: `${i.kind}${i.detail ? ' · ' + i.detail : ''}`, color: 'var(--primary)', id: i.id, status: i.status });
-  }
-  for (const g of d.invigilations || []) evs.push({ s: String(g.start_at || '').slice(11, 16), e: String(g.end_at || '').slice(11, 16), k: 'inv', title: `${g.subject} 监考`, sub: `${g.type}${g.place ? ' · ' + g.place : ''}`, color: 'var(--amber)' });
-  for (const l of d.lessons || []) evs.push({ s: l.start_time || '', e: l.end_time || '', k: 'lesson', title: `${l.class_name} ${l.content || '已上课'}`, sub: l.progress || '已完成课时', color: 'var(--purple)' });
-  evs.sort((a, b) => (a.s || '99').localeCompare(b.s || '99'));
-
-  const rows = evs.map((e) => `<div class="cal-day-row">
-      <span class="cal-day-t">${e.s ? esc(e.s + (e.e ? '–' + e.e : '')) : '全天'}</span>
-      <span class="cal-day-dot" style="background:${e.color}"></span>
-      <div class="cal-day-body">
-        <div class="cal-day-title">${esc(e.title)}${e.status === 'done' ? ' <span class="chip green" style="height:16px;font-size:9.5px">已完成</span>' : ''}</div>
-        ${e.sub ? `<div class="cal-day-sub">${esc(e.sub)}</div>` : ''}
-      </div>
-    </div>`).join('');
-
-  const collapsedNow = !calState.dayExpanded;
-  box.innerHTML = `${calDayHeaderHTML(date, evs.length, collapsedNow)}
-    <div class="cal-day-content">
-      ${evs.length
-        ? `<div class="cal-day-list">${rows}</div>`
-        : '<div class="cal-day-empty">这一天还没有安排<br><span class="tiny">点右上「＋ 添加」记一件事项</span></div>'}
+  calState.dayData = dayData;
+  const events = [];
+  for (const course of (dayData.courses || [])) events.push({
+    s: course.start_time || '', e: course.end_time || '', k: 'course',
+    title: `${course.class_name || ''} ${course.subject || '课程'}`.trim(),
+    sub: `第${course.period_no || ''}节${course.room ? ' · ' + course.room : ''}`,
+    color: 'var(--teal)', id: course.course_id,
+  });
+  for (const item of (dayData.items || [])) events.push({
+    s: item.start_at ? String(item.start_at).slice(11, 16) : '',
+    e: item.end_at ? String(item.end_at).slice(11, 16) : '',
+    k: 'item', title: item.title || '未命名事项',
+    sub: `${item.kind || '事项'}${item.detail ? ' · ' + item.detail : ''}`,
+    color: 'var(--primary)', id: item.id,
+  });
+  for (const invigilation of (dayData.invigilations || [])) events.push({
+    s: invigilation.start_time || String(invigilation.start_at || '').slice(11, 16),
+    e: invigilation.end_time || String(invigilation.end_at || '').slice(11, 16),
+    k: 'inv', title: `${invigilation.subject || invigilation.exam_name || '监考'} 监考`,
+    sub: `${invigilation.type || ''}${invigilation.place || invigilation.room ? ' · ' + (invigilation.place || invigilation.room) : ''}`,
+    color: 'var(--amber)', id: invigilation.id,
+  });
+  for (const lesson of (dayData.lessons || [])) events.push({
+    s: lesson.start_time || '', e: lesson.end_time || '', k: 'lesson',
+    title: `${lesson.class_name || ''} ${lesson.content || '已上课'}`.trim(),
+    sub: lesson.progress || '已完成课时', color: 'var(--purple)', id: lesson.id,
+  });
+  for (const reminder of (dayData.reminders || [])) events.push({
+    s: reminder.due_at ? String(reminder.due_at).slice(11, 16) : '',
+    e: '', k: 'reminder', title: reminder.title || '提醒',
+    sub: reminder.body || '日程提醒', color: 'var(--red)', id: reminder.id,
+  });
+  const minuteOf = (value) => {
+    const match = String(value || '').match(/(?:T|^)(\d{1,2}):(\d{2})/);
+    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  };
+  events.sort((a, b) => (minuteOf(a.s) ?? 1440) - (minuteOf(b.s) ?? 1440));
+  const eventButton = (event) => {
+    const time = event.s ? String(event.s).slice(0, 5) + (event.e ? '–' + String(event.e).slice(0, 5) : '') : '全天';
+    return `<button class="cal-day-event cal-day-event-${event.k}" type="button"
+      data-day-event="${event.k}" data-day-event-id="${esc(event.id ?? '')}"
+      title="${esc(time + ' ' + event.title)}" style="--cal-event-color:${event.color}">
+      <span class="cal-day-event-time">${esc(time)}</span><b>${esc(event.title)}</b>
+      ${event.sub ? `<small>${esc(event.sub)}</small>` : ''}
+    </button>`;
+  };
+  const allDayEvents = events.filter((event) => minuteOf(event.s) === null);
+  const hourRows = Array.from({ length: 24 }, (_, hour) => {
+    const hourEvents = events.filter((event) => {
+      const minute = minuteOf(event.s);
+      return minute !== null && Math.floor(minute / 60) === hour;
+    });
+    return `<div class="cal-day-hour-row">
+      <time class="cal-day-hour-label">${String(hour).padStart(2, '0')}:00</time>
+      <div class="cal-day-hour-events">${hourEvents.length ? hourEvents.map(eventButton).join('') : '<span class="cal-day-hour-empty"></span>'}</div>
     </div>`;
+  }).join('');
+  const allDayHTML = allDayEvents.length
+    ? `<div class="cal-day-all-day"><span>全天</span>${allDayEvents.map(eventButton).join('')}</div>`
+    : '';
+  const collapsedNow = !calState.dayExpanded;
+  box.innerHTML = `${calDayHeaderHTML(date, events.length, collapsedNow)}
+    <div class="cal-day-content"><div class="cal-day-timeline">
+      <div class="cal-day-timeline-head"><b>当天时间轴</b><span>24小时 · 每小时</span></div>
+      ${allDayHTML}<div class="cal-day-hours">${hourRows}</div>
+    </div></div>`;
   box.classList.toggle('is-collapsed', collapsedNow);
   bindCalDayControls(box, date);
+  bindCalDayEvents(box, date);
+  renderHomeDayPanels(date, dayData);
+  syncHomeDayGridHeight();
+}
+function bindCalDayEvents(box, date) {
+  box.querySelectorAll('[data-day-event]').forEach((button) => {
+    button.onclick = () => {
+      const kind = button.dataset.dayEvent;
+      if (kind === 'item') {
+        const item = (calState.dayData?.items || []).find((row) => String(row.id) === button.dataset.dayEventId);
+        if (item) editItem(item, date);
+        return;
+      }
+      if (kind === 'course') return go('work/timetable');
+      if (kind === 'inv') return go('work/invigilation');
+      if (kind === 'lesson') return go('work/lessons');
+      if (kind === 'reminder') return go('daily');
+    };
+  });
 }
 
 function calDayHeaderHTML(date, count, collapsed) {
@@ -1315,7 +1417,6 @@ function calDayHeaderHTML(date, count, collapsed) {
 function bindCalDayControls(box, date) {
   const add = box.querySelector('[data-add-day]');
   if (add) add.onclick = () => editItem(null, date);
-
   const toggle = box.querySelector('[data-cal-day-toggle]');
   if (!toggle) return;
   toggle.onclick = () => {
@@ -1326,8 +1427,12 @@ function bindCalDayControls(box, date) {
     toggle.setAttribute('aria-label', collapsed ? '展开当天安排' : '收起当天安排');
     toggle.title = collapsed ? '展开当天安排' : '收起当天安排';
     toggle.innerHTML = `${icon(collapsed ? 'down' : 'up', 13)}<span>${collapsed ? '展开' : '收起'}</span>`;
+    syncHomeDayGridHeight();
   };
 }
+
+
+
 const mNum = (s) => Number(String(s).slice(5, 7));
 
 /* 消息
@@ -1681,8 +1786,8 @@ function bindHome() {
   document.querySelectorAll('.ah-btn[data-goto]').forEach((b) => {
     b.onclick = () => go(b.dataset.goto);
   });
-  document.querySelectorAll('[data-add-item]').forEach((b) => { b.onclick = () => editItem(null, homeData.date); });
-  document.querySelectorAll('[data-add-item2]').forEach((b) => { b.onclick = () => editItem(null, homeData.date); });
+  document.querySelectorAll('[data-add-item]').forEach((b) => { b.onclick = () => editItem(null, calState.selected || homeData.date); });
+  document.querySelectorAll('[data-add-item2]').forEach((b) => { b.onclick = () => editItem(null, calState.selected || homeData.date); });
 
   const si = q('#gsearch');
   const clearBtn = q('#search-clear');
@@ -1736,7 +1841,11 @@ function bindHome() {
     const btn = q('#quick-save');
     if (btn) btn.disabled = true;
     try {
-      await api.post('/quick', { text, at: quickAt || null, remind_min: quickAt ? 10 : null });
+      const targetDate = calState.selected || homeData.date;
+      const at = quickAt || (targetDate && targetDate !== homeData.date ? targetDate + 'T09:00' : null);
+      const payload = { text, at };
+      if (quickAt) payload.remind_min = 10;
+      await api.post('/quick', payload);
       qi.value = ''; quickAt = '';
       if (qh) { qh.textContent = ''; qh.classList.remove('on'); }
       if (qtBtn) qtBtn.classList.remove('on');
@@ -1807,7 +1916,7 @@ function bindHome() {
   // 日历
   q('#cal-prev').onclick = () => shiftMonth(-1);
   q('#cal-next').onclick = () => shiftMonth(1);
-  q('#cal-today').onclick = () => { calState.selected = ymd(new Date()); loadCal(ymd(new Date())); paintCal(); };
+  q('#cal-today').onclick = () => { loadCal(ymd(new Date())); };
   // 月 / 周切换：只重画网格，不重新拉数据，年月和选中日都保留
   const foldBtn = q('#cal-fold');
   const syncFold = () => {

@@ -20,21 +20,23 @@ test('精简首页只保留五张核心卡片的页面结构', () => {
   assert.match(home, /id="clock"/);
 });
 
-test('首页顶栏保留搜索、外观与编辑布局入口', () => {
+test('首页个人卡片右上角保留外观与编辑布局图标入口', () => {
   assert.match(home, /id="gsearch"/);
-  assert.match(home, /id="theme-btn"/);
-  const actionsStart = home.indexOf('<div class="home-top-actions">');
+  const actionsStart = home.indexOf('<div class="home-profile-actions"');
   const actionsEnd = home.indexOf('</div>', actionsStart);
   const actions = home.slice(actionsStart, actionsEnd);
-  assert.ok(actions.indexOf('id="theme-btn"') >= 0);
+  assert.ok(actions.includes('id="theme-btn"'));
+  assert.ok(actions.includes('id="teacher-layout"'));
   assert.ok(actions.indexOf('id="teacher-layout"') > actions.indexOf('id="theme-btn"'));
-  assert.match(home, /id="teacher-layout"/);
+  assert.doesNotMatch(home, /class="home-top-actions"/);
   assert.doesNotMatch(home, /id="home-new-timetable"/);
   assert.doesNotMatch(home, /home-side-layout-edit/);
   assert.doesNotMatch(home, /q\('#home-new-timetable'\)/);
   assert.doesNotMatch(home, /id="home-new-invig"/);
   assert.doesNotMatch(home, /id="home-calendar-view"/);
 });
+
+
 
 test('天气卡保留城市切换、刷新和详细天气入口', () => {
   assert.match(home, /id="wx-card"/);
@@ -125,4 +127,18 @@ test('我的个人中心统一收纳侧栏底部工具并移除重复分组', ()
   assert.match(me, /id="me-wide-value"/);
   assert.match(me, /setWideMode\(!isWideMode\(\)\)/);
   assert.match(me, /restoreHomeLayout/);
+});
+
+test('日历选择日期会同步真实事项、课程，并显示完整24小时时间轴', () => {
+  assert.match(home, /function renderHomeDayPanels\(/);
+  assert.match(home, /function renderTodayItems\(rowsOverride = null, dateOverride = ''\)/);
+  assert.match(home, /function renderTodayCourses\(coursesOverride = null, lessonsOverride = null, dateOverride = ''\)/);
+  assert.match(home, /Array\.from\(\{ length: 24 \}/);
+  assert.match(home, /data-day-event=/);
+  assert.match(home, /id="home-todo-day-title"/);
+  assert.match(home, /id="home-course-day-title"/);
+  assert.match(home, /title\.textContent = `\$\{y\}年\$\{pad2\(m\)\}月`/);
+  assert.match(styles, /cal-day-hour-row/);
+  assert.match(styles, /hg-day-expanded/);
+  assert.match(styles, /flex:1 1 0;[\s\S]*?max-width:none;[\s\S]*?margin:0;/);
 });

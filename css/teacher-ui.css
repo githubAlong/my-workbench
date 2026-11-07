@@ -2389,3 +2389,110 @@ html[data-theme="dark"] .home-redesign .home-weather-card { background:var(--car
   .home-redesign .home-todo-card #today-items { padding-left:14px!important; padding-right:14px!important; }
   .home-redesign .home-weather-week .wx-days { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
+
+
+/* 首页真正平铺：主工作区紧贴侧栏并占满剩余宽度，取消居中 max-width 留白。 */
+@media (min-width:901px) {
+  .home-redesign-app>.main.home-redesign {
+    flex:1 1 0;
+    width:0;
+    max-width:none;
+    min-width:0;
+    margin:0;
+    box-sizing:border-box;
+    padding:20px clamp(16px,2.2vw,34px) 36px;
+  }
+}
+/* 日历标题分两层：固定标题「日历」，下方显示 年月。 */
+.home-redesign .home-calendar-card .cal-heading {
+  display:flex; flex:0 0 auto; flex-direction:column; align-items:flex-start;
+  justify-content:center; gap:2px; min-width:0;
+}
+.home-redesign .home-calendar-card .cal-heading-label {
+  color:var(--text); font-size:15px; font-weight:800; line-height:1.25;
+}
+.home-redesign .home-calendar-card .cal-title {
+  color:var(--text-3); font-size:11px; font-weight:650; line-height:1.25;
+}
+/* 选择具体日期后：24小时轴自然撑高网格行，三张同排卡片自动等高。 */
+.home-redesign #home-grid.hg-day-expanded { grid-auto-rows:minmax(52px,auto)!important; }
+.home-redesign #home-grid.hg-day-expanded>.hg-item[data-hcard="todayTodo"],
+.home-redesign #home-grid.hg-day-expanded>.hg-item[data-hcard="todayCourse"],
+.home-redesign #home-grid.hg-day-expanded>.hg-item[data-hcard="calendar"] {
+  min-height:auto; align-self:stretch;
+}
+.home-redesign #home-grid.hg-day-expanded>.hg-item[data-hcard="todayTodo"]>.card,
+.home-redesign #home-grid.hg-day-expanded>.hg-item[data-hcard="todayCourse"]>.card,
+.home-redesign #home-grid.hg-day-expanded>.hg-item[data-hcard="calendar"]>.card {
+  height:auto; min-height:100%; overflow:visible;
+}
+.home-redesign #home-grid.hg-day-expanded .home-todo-card #today-items,
+.home-redesign #home-grid.hg-day-expanded .home-course-card #today-courses {
+  flex:0 0 auto; min-height:auto; overflow:visible;
+}
+.home-redesign #home-grid.hg-day-expanded .home-calendar-card .cal-day { flex:0 0 auto; }
+.home-redesign #home-grid.hg-day-expanded .home-calendar-card .cal-day-content {
+  flex:0 0 auto; max-height:none; overflow:visible; opacity:1; transform:none;
+}
+.home-redesign #home-grid.hg-day-expanded .home-calendar-card .cal-day.is-collapsed .cal-day-content {
+  max-height:0; overflow:hidden; opacity:0;
+}
+/* iOS日历式24小时轴：每小时一行，事件落在开始时间对应的时段。 */
+.home-redesign .cal-day-timeline { padding:8px 0 12px; }
+.home-redesign .cal-day-timeline-head {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:0 2px 8px; color:var(--text); font-size:12px;
+}
+.home-redesign .cal-day-timeline-head span { color:var(--text-3); font-size:10px; font-weight:500; }
+.home-redesign .cal-day-all-day {
+  display:grid; grid-template-columns:58px minmax(0,1fr); align-items:center;
+  gap:8px; padding:5px 0 8px; border-bottom:1px solid var(--line);
+}
+.home-redesign .cal-day-all-day>span { color:var(--text-3); font-size:10px; font-weight:650; }
+.home-redesign .cal-day-hours { display:flex; flex-direction:column; }
+.home-redesign .cal-day-hour-row {
+  display:grid; grid-template-columns:58px minmax(0,1fr); align-items:stretch;
+  gap:8px; min-height:29px; border-bottom:1px solid color-mix(in srgb,var(--line) 72%,transparent);
+}
+.home-redesign .cal-day-hour-label {
+  display:flex; align-items:flex-start; padding-top:7px; color:var(--text-3);
+  font-size:10px; font-variant-numeric:tabular-nums;
+}
+.home-redesign .cal-day-hour-events {
+  display:flex; align-items:center; flex-wrap:wrap; gap:5px;
+  min-width:0; padding:3px 0;
+}
+.home-redesign .cal-day-hour-empty {
+  display:block; width:100%; height:1px; background:color-mix(in srgb,var(--line) 55%,transparent);
+}
+.home-redesign .cal-day-event {
+  display:flex; flex:1 1 150px; flex-direction:column; align-items:flex-start; gap:2px;
+  min-width:0; max-width:100%; padding:5px 9px;
+  border:1px solid color-mix(in srgb,var(--cal-event-color,var(--primary)) 22%,var(--line));
+  border-left:3px solid var(--cal-event-color,var(--primary)); border-radius:7px;
+  background:color-mix(in srgb,var(--cal-event-color,var(--primary)) 9%,var(--card));
+  color:var(--text); text-align:left; cursor:pointer;
+}
+.home-redesign .cal-day-event:hover { filter:brightness(.98); }
+.home-redesign .cal-day-event-time {
+  color:var(--cal-event-color,var(--primary)); font-size:9px; font-weight:750; font-variant-numeric:tabular-nums;
+}
+.home-redesign .cal-day-event b { overflow-wrap:anywhere; font-size:11px; font-weight:750; }
+.home-redesign .cal-day-event small { color:var(--text-2); font-size:9px; line-height:1.4; }
+.home-redesign .cal-day-all-day .cal-day-event { flex:1 1 180px; }
+/* 手机端单列自然展开，不强制三张卡片横向等高。 */
+@media(max-width:860px) {
+  .home-redesign #home-grid.hg-day-expanded.hg-mobile { grid-auto-rows:auto!important; }
+  .home-redesign #home-grid.hg-day-expanded.hg-mobile>.hg-item[data-hcard="todayTodo"]>.card,
+  .home-redesign #home-grid.hg-day-expanded.hg-mobile>.hg-item[data-hcard="todayCourse"]>.card,
+  .home-redesign #home-grid.hg-day-expanded.hg-mobile>.hg-item[data-hcard="calendar"]>.card {
+    height:auto; min-height:0; overflow:visible;
+  }
+  .home-redesign #home-grid.hg-day-expanded.hg-mobile .home-todo-card #today-items,
+  .home-redesign #home-grid.hg-day-expanded.hg-mobile .home-course-card #today-courses {
+    flex:0 0 auto; overflow:visible;
+  }
+  .home-redesign #home-grid.hg-day-expanded.hg-mobile .home-calendar-card .cal-day-content {
+    max-height:none; overflow:visible;
+  }
+}
