@@ -607,10 +607,6 @@ function renderHome() {
       <button class="sb-clear" id="search-clear" title="清空" aria-label="清空" hidden>${icon('close',15)}</button>
       <button class="sb-go" id="search-go" title="搜索" aria-label="搜索">${icon('search',17)}</button>
     </div>
-    <div class="home-top-actions">
-      <button class="home-action home-action-secondary" id="theme-btn" type="button" title="更换首页及工作台主题外观">${icon('sun',16)}<span>更换外观</span></button>
-      <button class="home-action teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false" title="自定义首页卡片布局">${icon('grid',16)}<span>自定义布局</span></button>
-    </div>
   </div>
   <div class="sr-scrim" id="search-scrim" hidden></div>
   <div class="sr-panel" id="search-result" hidden></div>
@@ -629,6 +625,10 @@ function renderHome() {
       <button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button>
       <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-welcome-card">
+        <div class="home-profile-actions" role="group" aria-label="个人卡片快捷操作">
+          <button class="home-action home-action-secondary" id="theme-btn" type="button" title="更换首页及工作台主题外观">${icon('sun',16)}<span>更换外观</span></button>
+          <button class="home-action teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false" title="编辑首页卡片布局">${icon('grid',16)}<span>编辑布局</span></button>
+        </div>
         <div class="home-profile-head">
           ${homeAvatarHTML(64)}
           <div class="home-profile-info">
