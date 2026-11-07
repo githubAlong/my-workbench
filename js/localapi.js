@@ -4226,8 +4226,13 @@ export async function handle(method, path, query = {}, body = undefined) {
     try {
       data = await cloudRoute(method, clean, query, body);
     } catch (e) {
-      /* 云端出错时说清楚是云端的事，别让用户以为是本地坏了 */
-      return { ok: false, error: '云端：' + (e.message || e), code: 502, cloud: true };
+      /* 测试库尚未执行迁移时，PostgREST 会报 schema cache / relation not found。
+         这类错误不应阻断整张考勤工作台：先回退到本地实现，让用户继续验证界面和交互；
+         真实云端数据仍由迁移完成后自动接管。权限、网络和其他云端错误继续明确提示。 */
+      if (!isCloudSchemaUnavailable(e)) {
+        return { ok: false, error: '云端：' + (e.message || e), code: 502, cloud: true };
+      }
+      data = null;
     }
     /* null = 这个接口还没上云（统计 / 原件照片），继续往下走本地实现。
        其他值一律当云端结果返回，包括空数组 —— 空数组是"真的没有数据"，
@@ -4268,6 +4273,11 @@ const CLOUD_TABLES = new Set([
   'attachments',       // 路由前缀：/upload、/attachments、/attachments/:id/file
                        // 以及 /attendance/:id/photos（也走这张表）
 ]);
+
+function isCloudSchemaUnavailable(error) {
+  const msg = String(error?.message || error || '');
+  return /schema\s+cache|could not query the database|relation .* does not exist|PGRST\d{3}/i.test(msg);
+}
 
 /* 云端是否可用。判断本身是同步的（读 localStorage），但 import 是异步的 ——
    如果网络抖动导致模块加载卡住，每个请求都会先停在这里。
