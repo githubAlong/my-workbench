@@ -1846,9 +1846,7 @@ on('POST', '/me/avatar', async ({ body }) => {
   const files = body?.files || [];
   const f = files[0];
   if (!f) fail(400, '没有收到图片');
-  if (byteLen(f.data) > 2 * 1024 * 1024) fail(400, `图片不能超过 2MB（当前 ${(byteLen(f.data) / 1024 / 1024).toFixed(1)}MB）`);
-  const ok = ['image/jpeg', 'image/png'].includes(String(f.mime || '').toLowerCase());
-  if (!ok) fail(400, '只支持 JPG / PNG 格式');
+  if (!/^image\//i.test(String(f.mime || ''))) fail(400, '请选择有效的图片文件');
   /* 头像转成 dataURL 直接存：静态版没有 /files 静态目录，
      一个小图塞进 localStorage 是可以接受的，换设备靠导出备份带走。
      但写入必须检查结果——满了要如实告诉用户，不能让界面显示「已更新」然后刷新就没了。 */
@@ -1862,7 +1860,7 @@ on('POST', '/me/avatar', async ({ body }) => {
     u.avatar = prev;
     db.meta.user = u;
     save();
-    fail(507, '本机存储空间不足，头像没保存下来。可以先导出备份、清理旧课件再试，或者换一张小一点的图');
+    fail(507, '浏览器本机存储空间不足，头像暂未保存。请清理浏览器存储或导出备份后重试');
   }
   return { url: dataUrl, user: publicUser(u) };
 });
