@@ -1893,7 +1893,7 @@ function bindHome() {
   }
   syncFold();
 
-remove calendar collapse controller  const mi = q('#cal-month-input');
+  const mi = q('#cal-month-input');
   if (mi) {
     mi.onchange = () => { if (/^\d{4}-\d{2}$/.test(mi.value)) { calState.selected = mi.value + '-01'; loadCal(mi.value + '-01'); } };
   }
