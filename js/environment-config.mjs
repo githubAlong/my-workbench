@@ -5,8 +5,8 @@ export const ENVIRONMENT_PROFILES = Object.freeze({
     name: 'production',
     supabaseUrl: 'https://gfgxvpvexzcfbujkwsqw.supabase.co',
     publishableKey: 'sb_publishable_-cCYwAxVzEIioR4rdsmGpw_HThEm8gi',
-    hosts: Object.freeze(['githubalong.github.io', 'my-workbench-dev.pages.dev']),
-    hostSuffixes: Object.freeze(['.my-workbench-dev.pages.dev']),
+    hosts: Object.freeze(['githubalong.github.io', 'my-workbench-dev.pages.dev', 'my-workbench-17q.pages.dev']),
+    hostSuffixes: Object.freeze(['.my-workbench-dev.pages.dev', '.my-workbench-17q.pages.dev']),
   }),
   test: Object.freeze({
     name: 'test',
