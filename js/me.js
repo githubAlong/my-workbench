@@ -1225,6 +1225,8 @@ function backupSheet() {
 
 /* ================= 消息中心 ================= */
 async function renderMessages(main) {
+  // 消息中心使用主内容区全宽，不继承个人信息页的窄版布局。
+  main.classList.add('page-me-messages');
   let type = 'all';
   const TYPES = [
     ['all', '全部', 'grid'],
