@@ -295,9 +295,17 @@ function paint() {
     if (hb) hb.hidden = false;
   }
 
-  /* 网格容器在手机上要退回 auto 行高，否则卡片被固定成 64px 一行 */
+  /* 桌面首页使用等分弹性行高：可见卡片按当前屏幕高度铺满，
+     不再把每行固定为 52px，避免大屏下方留下大片空白。
+     平板保留原有固定行高，手机继续自然纵向堆叠。 */
   gridEl.classList.toggle('hg-mobile', mobile);
-  gridEl.style.gridAutoRows = mobile ? 'auto' : `${ROW_H}px`;
+  const desktop = bp === 'desktop';
+  const expanded = temporaryMinRows.size > 0;
+  gridEl.style.gridAutoRows = mobile
+    ? 'auto'
+    : (desktop && !expanded ? 'minmax(0, 1fr)' : `${ROW_H}px`);
+  gridEl.classList.toggle('hg-fill-viewport', desktop && !expanded);
+  gridEl.classList.toggle('hg-expanded-layout', expanded);
 
   paintToolbar();
 }
