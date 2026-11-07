@@ -285,9 +285,13 @@ function paint() {
     if (hb) hb.hidden = false;
   }
 
-  /* 网格容器在手机上要退回 auto 行高，否则卡片被固定成 64px 一行 */
+  /* 桌面首页按视口高度自动平铺；平板保留固定行高，手机自然纵向堆叠。 */
+  const desktop = bp === 'desktop';
   gridEl.classList.toggle('hg-mobile', mobile);
-  gridEl.style.gridAutoRows = mobile ? 'auto' : `${ROW_H}px`;
+  gridEl.style.gridAutoRows = mobile
+    ? 'auto'
+    : (desktop ? 'minmax(0, 1fr)' : `${ROW_H}px`);
+  gridEl.classList.toggle('hg-fill-viewport', desktop);
 
   paintToolbar();
 }
@@ -317,12 +321,24 @@ function paintToolbar() {
 
 /* ---------------- 拖拽 / 缩放 ---------------- */
 
+const gridGap = (axis) => {
+  if (!gridEl) return GAP;
+  const raw = Number.parseFloat(window.getComputedStyle(gridEl)[axis]);
+  return Number.isFinite(raw) ? raw : GAP;
+};
 const stepX = () => {
   if (!gridEl) return 0;
   const w = gridEl.clientWidth || 1;
-  return (w - GAP * (COLS - 1)) / COLS + GAP;
+  const gap = gridGap('columnGap');
+  return (w - gap * (COLS - 1)) / COLS + gap;
 };
-const stepY = () => ROW_H + GAP;
+const stepY = () => {
+  if (!gridEl) return ROW_H + GAP;
+  const style = window.getComputedStyle(gridEl);
+  const firstTrack = Number.parseFloat(style.gridTemplateRows.split(/\\s+/)[0]);
+  const gap = gridGap('rowGap');
+  return (Number.isFinite(firstTrack) ? firstTrack : ROW_H) + gap;
+};
 
 function beginEdit() {
   if (editing) return;
