@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [home, grid, styles, ui, me] = await Promise.all([
+const [home, grid, styles, ui, me, wbStyles] = await Promise.all([
   readFile(new URL('../js/home.js', import.meta.url), 'utf8'),
   readFile(new URL('../js/homegrid.js', import.meta.url), 'utf8'),
   readFile(new URL('../css/teacher-ui.css', import.meta.url), 'utf8'),
   readFile(new URL('../js/ui.js', import.meta.url), 'utf8'),
   readFile(new URL('../js/me.js', import.meta.url), 'utf8'),
+  readFile(new URL('../css/workbench-unified.css', import.meta.url), 'utf8'),
 ]);
 
 test('精简首页只保留五张核心卡片的页面结构', () => {
@@ -105,31 +106,28 @@ test('首页保留的工作与个人中心导航目标已注册', () => {
 });
 
 
-test('我的个人中心统一收纳侧栏底部工具并移除重复分组', () => {
-  for (const id of ['side-theme', 'side-wide', 'side-layout']) {
-    assert.doesNotMatch(ui, new RegExp('id="' + id + '"'), `侧栏不应再显示独立入口：${id}`);
+test('我的个人中心各模块统一为可独立展开和收起的手风琴面板', () => {
+  for (const id of ['profile', 'workbench', 'account', 'messages', 'theme', 'wide', 'layout', 'logout']) {
+    assert.ok(me.includes(`data-me-accordion="${id}"`), `缺少可折叠模块：${id}`);
   }
-  assert.match(ui, /id="side-user"/);
-  assert.match(ui, /export function isWideMode\(/);
-  assert.match(ui, /export function setWideMode\(/);
-
-  assert.match(me, /me-home-settings-unified/);
-  assert.equal(me.includes('<h2>个人设置</h2>'), false);
-  assert.equal(me.includes('<h2>消息与偏好</h2>'), false);
-  for (const marker of [
-    "row('user', '个人信息'",
-    "row('bell', '消息中心'",
-    "row('sun', '主题外观'",
-    "row('expand', '平铺整页'",
-    "row('grid', '重置首页布局'",
-  ]) assert.ok(me.includes(marker), `「我的」页面缺少统一设置入口：${marker}`);
-  assert.match(me, /id="me-theme-value"/);
-  assert.match(me, /id="me-wide-value"/);
-  assert.match(me, /setWideMode\(!isWideMode\(\)\)/);
-  assert.match(me, /restoreHomeLayout/);
+  assert.match(me, /details class="me-accordion" data-me-accordion="profile" open/);
+  assert.match(me, /id="me-identity-toggle"/);
+  assert.match(me, /class="me-accordion-chevron"/);
+  assert.match(me, /renderProfile\(main\.querySelector\('#me-profile-panel'\), \{ inline: true \}\)/);
+  assert.match(me, /renderWorkbenchSettings\(main\.querySelector\('#me-workbench-panel'\), \{ inline: true \}\)/);
+  assert.match(me, /renderAccountSettings\(main\.querySelector\('#me-account-panel'\), \{ inline: true \}\)/);
+  assert.match(me, /renderMessages\(main\.querySelector\('#me-messages-panel'\), \{ inline: true \}\)/);
+  assert.match(me, /function renderProfile\(main, \{ inline = false \} = \{\}\)/);
+  assert.match(me, /id="p-avatar-upload"/);
+  assert.match(me, /id="p-avatar-remove"/);
+  assert.match(wbStyles, /\.me-accordion-head/);
+  assert.match(wbStyles, /\.me-accordion\[open\] \.me-accordion-chevron/);
+  assert.match(wbStyles, /\.me-identity-card\.is-collapsed/);
 });
 
-test('日历选择日期会同步真实事项、课程，并显示完整24小时时间轴', () => {
+
+
+test('日历选择日期会同步真实事项、课程，并在固定高度时间轴中滚动查看24小时', () => {
   assert.match(home, /function renderHomeDayPanels\(/);
   assert.match(home, /function renderTodayItems\(rowsOverride = null, dateOverride = ''\)/);
   assert.match(home, /function renderTodayCourses\(coursesOverride = null, lessonsOverride = null, dateOverride = ''\)/);
@@ -138,10 +136,16 @@ test('日历选择日期会同步真实事项、课程，并显示完整24小时
   assert.match(home, /id="home-todo-day-title"/);
   assert.match(home, /id="home-course-day-title"/);
   assert.match(home, /title\.textContent = `\$\{y\}年\$\{pad2\(m\)\}月`/);
+  assert.match(home, /function calDayHeaderHTML\(date, count\)/);
+  assert.match(home, /24小时 · 上下滑动查看/);
+  assert.match(home, /scrollTop = 6 \* 29/);
+  assert.doesNotMatch(home, /cal-collapse|cal-collapse-row|cal-day-toggle|dayExpanded|syncHomeDayGridHeight|hg-day-expanded/);
   assert.match(styles, /cal-day-hour-row/);
-  assert.match(styles, /hg-day-expanded/);
+  assert.match(styles, /\.home-redesign \.home-calendar-card \.cal-day-content\s*\{[\s\S]*?height:\s*150px;[\s\S]*?overflow-y:\s*auto;/);
+  assert.match(styles, /scrollbar-width:\s*thin/);
   assert.match(styles, /flex:1 1 0;[\s\S]*?max-width:none;[\s\S]*?margin:0;/);
 });
+
 
 
 test('桌面首页取消1920px最大宽度并铺满侧栏以外的可用空间', () => {

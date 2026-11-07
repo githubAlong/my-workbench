@@ -579,14 +579,12 @@ async function applyCityWeather() {
 
 async function refreshHome() {
   const selectedDate = calState.selected;
-  const dayExpanded = calState.dayExpanded;
   const calendarView = calState.view;
   homeData = await api.get('/home', { date: ymd() }).catch(() => homeData);
   renderHome();
   if (selectedDate) {
     await loadCal(selectedDate);
     calState.view = calendarView;
-    calState.dayExpanded = dayExpanded;
     paintCal();
   }
 }
@@ -734,7 +732,6 @@ function renderHome() {
         <div class="cal-grid" id="cal-grid"></div>
         <div class="cal-legend"><span><i style="background:var(--primary)"></i>上课</span><span><i style="background:var(--amber)"></i>监考/出差</span><span><i style="background:var(--green)"></i>教研</span><span><i style="background:var(--red)"></i>提醒</span></div>
         <div class="cal-day" id="cal-day"></div>
-        <div class="cal-collapse-row"><button class="btn ghost sm" id="cal-collapse" type="button" aria-expanded="true" title="收起日历">${icon('up',14)} <span>收起日历</span></button></div>
       </section>
     </div>
     <div class="hg-item" data-hcard="weather">
@@ -941,11 +938,6 @@ function renderHomeDayPanels(date, dayData) {
   renderTodayItems(items, date);
   renderTodayCourses(courses, lessons, date);
 }
-function syncHomeDayGridHeight() {
-  const grid = document.getElementById('home-grid');
-  if (!grid) return;
-  grid.classList.toggle('hg-day-expanded', !!calState.dayExpanded);
-}
 function renderTodayItems(rowsOverride = null, dateOverride = '') {
   const box = document.getElementById('today-items');
   if (!box || !homeData) return;
@@ -1010,7 +1002,6 @@ function jumpCalTo(date) {
     return;
   }
   calState.selected = date;
-  calState.dayExpanded = false;
   paintCal();
 }
 
@@ -1200,13 +1191,12 @@ async function exportCalendar() {
 }
 
 /* 日历 */
-let calState = { month: '', data: null, selected: '', view: 'month', dayExpanded: false, dayLoadSeq: 0, loadSeq: 0, dayData: null };
+let calState = { month: '', data: null, selected: '', view: 'month', dayLoadSeq: 0, loadSeq: 0, dayData: null };
 async function loadCal(monthDay) {
   const month = String(monthDay).slice(0, 7);
   const requestId = ++calState.loadSeq;
   calState.month = month;
   calState.selected = monthDay;
-  calState.dayExpanded = false;
   calState.dayData = null;
   let data;
   if (month === String(homeData?.date || '').slice(0, 7) && homeData.courses_month) {
@@ -1275,7 +1265,6 @@ function paintCal() {
   grid.querySelectorAll('[data-day]').forEach((b) => {
     b.onclick = () => {
       calState.selected = b.dataset.day;
-      calState.dayExpanded = true;
       paintCal();
       syncDay(b.dataset.day, 'calendar');
     };
@@ -1288,13 +1277,10 @@ async function loadDay(date) {
   const box = document.getElementById('cal-day');
   if (!box) return;
   const requestId = ++calState.dayLoadSeq;
-  const collapsed = !calState.dayExpanded;
-  box.classList.toggle('is-collapsed', collapsed);
   renderHomeDayLoading(date);
-  box.innerHTML = `${calDayHeaderHTML(date, '…', collapsed)}
+  box.innerHTML = `${calDayHeaderHTML(date, '…')}
     <div class="cal-day-content"><div class="cal-day-empty">正在加载当天安排…</div></div>`;
   bindCalDayControls(box, date);
-  syncHomeDayGridHeight();
   const dayData = await api.get('/calendar/day', { date }).catch(() => null);
   if (!box.isConnected || requestId !== calState.dayLoadSeq || date !== calState.selected) return;
   if (!dayData) {
@@ -1302,7 +1288,6 @@ async function loadDay(date) {
     const content = box.querySelector('.cal-day-content');
     if (content) content.innerHTML = '<div class="cal-day-empty">当天安排加载失败，请稍后重试</div>';
     renderHomeDayPanels(date, { items: [], courses: [], lessons: [] });
-    syncHomeDayGridHeight();
     return;
   }
   calState.dayData = dayData;
@@ -1365,18 +1350,18 @@ async function loadDay(date) {
   const allDayHTML = allDayEvents.length
     ? `<div class="cal-day-all-day"><span>全天</span>${allDayEvents.map(eventButton).join('')}</div>`
     : '';
-  const collapsedNow = !calState.dayExpanded;
-  box.innerHTML = `${calDayHeaderHTML(date, events.length, collapsedNow)}
+  box.innerHTML = `${calDayHeaderHTML(date, events.length)}
     <div class="cal-day-content"><div class="cal-day-timeline">
-      <div class="cal-day-timeline-head"><b>当天时间轴</b><span>24小时 · 每小时</span></div>
+      <div class="cal-day-timeline-head"><b>当天时间轴</b><span>24小时 · 上下滑动查看</span></div>
       ${allDayHTML}<div class="cal-day-hours">${hourRows}</div>
     </div></div>`;
-  box.classList.toggle('is-collapsed', collapsedNow);
   bindCalDayControls(box, date);
   bindCalDayEvents(box, date);
   renderHomeDayPanels(date, dayData);
-  syncHomeDayGridHeight();
+  const scrollArea = box.querySelector('.cal-day-content');
+  if (scrollArea) scrollArea.scrollTop = 6 * 29;
 }
+
 function bindCalDayEvents(box, date) {
   box.querySelectorAll('[data-day-event]').forEach((button) => {
     button.onclick = () => {
@@ -1394,7 +1379,7 @@ function bindCalDayEvents(box, date) {
   });
 }
 
-function calDayHeaderHTML(date, count, collapsed) {
+function calDayHeaderHTML(date, count) {
   const day = new Date(date + 'T00:00');
   const wd = WD_CN[day.getDay()];
   const isToday = date === ymd(new Date());
@@ -1405,33 +1390,13 @@ function calDayHeaderHTML(date, count, collapsed) {
       <span class="cal-day-count">${esc(String(count))} 项</span>
       <span class="cal-day-head-spacer" aria-hidden="true"></span>
       <button class="btn soft sm" data-add-day="${esc(date)}" type="button" style="padding:4px 10px;font-size:12px">＋ 添加</button>
-      <button class="cal-day-toggle" data-cal-day-toggle type="button"
-        aria-expanded="${String(!collapsed)}"
-        aria-label="${collapsed ? '展开当天安排' : '收起当天安排'}"
-        title="${collapsed ? '展开当天安排' : '收起当天安排'}">
-        ${icon(collapsed ? 'down' : 'up', 13)}<span>${collapsed ? '展开' : '收起'}</span>
-      </button>
     </div>`;
 }
 
 function bindCalDayControls(box, date) {
   const add = box.querySelector('[data-add-day]');
   if (add) add.onclick = () => editItem(null, date);
-  const toggle = box.querySelector('[data-cal-day-toggle]');
-  if (!toggle) return;
-  toggle.onclick = () => {
-    const collapsed = !box.classList.contains('is-collapsed');
-    box.classList.toggle('is-collapsed', collapsed);
-    calState.dayExpanded = !collapsed;
-    toggle.setAttribute('aria-expanded', String(!collapsed));
-    toggle.setAttribute('aria-label', collapsed ? '展开当天安排' : '收起当天安排');
-    toggle.title = collapsed ? '展开当天安排' : '收起当天安排';
-    toggle.innerHTML = `${icon(collapsed ? 'down' : 'up', 13)}<span>${collapsed ? '展开' : '收起'}</span>`;
-    syncHomeDayGridHeight();
-  };
 }
-
-
 
 const mNum = (s) => Number(String(s).slice(5, 7));
 
@@ -1746,14 +1711,7 @@ export function alarmEditor(rem = null, preset = null) {
 
 /* 首页事件绑定 */
 /* 首页小偏好（天气是否展开等），只存本地 */
-function calFoldPref(k, v) {
-  try {
-    const key = 'home_' + k;
-    if (v === undefined) return localStorage.getItem(key);
-    localStorage.setItem(key, v);
-    return v;
-  } catch { return null; }
-}
+
 
 /* ================= 首页自定义布局 =================
    卡片位置、拖拽、缩放、隐藏、保存全部搬到了 homegrid.js。
@@ -1935,27 +1893,7 @@ function bindHome() {
   }
   syncFold();
 
-  /* 日历卡片整体收起：只保留月份标题和展开入口；状态记在本机，
-     不改用户保存的卡片尺寸，展开时自动恢复原来的布局。 */
-  const calItem = q('.hg-item[data-hcard="calendar"]');
-  const calCollapse = q('#cal-collapse');
-  let calCollapsed = calFoldPref('calendar-collapsed') === '1';
-  const syncCalendarCollapse = () => {
-    if (calItem) calItem.classList.toggle('is-collapsed', calCollapsed);
-    if (calCollapse) {
-      calCollapse.innerHTML = `${icon(calCollapsed ? 'down' : 'up', 14)} <span>${calCollapsed ? '展开日历' : '收起日历'}</span>`;
-      calCollapse.setAttribute('aria-expanded', String(!calCollapsed));
-      calCollapse.title = calCollapsed ? '展开日历' : '收起日历';
-    }
-  };
-  syncCalendarCollapse();
-  if (calCollapse) calCollapse.onclick = () => {
-    calCollapsed = !calCollapsed;
-    calFoldPref('calendar-collapsed', calCollapsed ? '1' : '0');
-    syncCalendarCollapse();
-  };
-
-  const mi = q('#cal-month-input');
+remove calendar collapse controller  const mi = q('#cal-month-input');
   if (mi) {
     mi.onchange = () => { if (/^\d{4}-\d{2}$/.test(mi.value)) { calState.selected = mi.value + '-01'; loadCal(mi.value + '-01'); } };
   }
