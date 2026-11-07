@@ -637,6 +637,19 @@ async function refreshHome() {
   }
 }
 
+function profileDetailsHTML(user = state.user || {}) {
+  const fields = [
+    { key: 'school', label: '学校', value: user.school },
+    { key: 'grade_group', label: '年级组', value: user.grade_group },
+    { key: 'subject', label: '科目', value: user.subject },
+    { key: 'title', label: '职务', value: user.title },
+  ].filter((field) => field.value != null && String(field.value).trim());
+  return fields.map((field, index) => `
+    ${index ? '<span class="home-profile-separator" aria-hidden="true">·</span>' : ''}
+    <span class="home-profile-detail-item" data-profile-field="${field.key}" aria-label="${field.label}">${esc(String(field.value).trim())}</span>
+  `).join('');
+}
+
 function renderHome() {
   const main = document.getElementById('main');
   if (!main || !homeData) return;
@@ -649,8 +662,6 @@ function renderHome() {
   const [defaultG1, defaultG2] = greetFor(name);
   const g1 = defaultG1;
   const g2 = defaultG2;
-  const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
-  const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
   const todayCourses = d.courses.filter((c) => c.date === d.date);
 
   main.classList.add('home-redesign');
@@ -680,7 +691,7 @@ function renderHome() {
       <button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button>
       <span class="hg-resize" data-hg-resize title="调整大小"></span>
       <section class="card home-welcome-card">
-        <div class="home-profile-heading">${icon('user',18)}<span>个人信息</span></div>
+        <div class="home-profile-heading">${icon('user',18)}<span>个人名片</span></div>
         <div class="home-profile-actions" role="group" aria-label="个人卡片快捷操作">
           <button class="home-action home-action-secondary" id="theme-btn" type="button" title="更换首页及工作台主题外观">${icon('sun',16)}<span>更换外观</span></button>
           <button class="home-action teacher-layout-btn" id="teacher-layout" type="button" aria-pressed="false" title="编辑首页卡片布局">${icon('grid',16)}<span>编辑布局</span></button>
@@ -690,8 +701,8 @@ function renderHome() {
           <div class="home-profile-info">
             <div class="clk-greet" id="greet-line">${esc(g1)}</div>
             <div class="clk-greet-sub" id="greet-sub">${esc(g2)}</div>
-            <div class="home-profile-meta" id="home-profile-meta">${esc(profileSchoolSubject || '教师工作台')}</div>
-            <div class="home-profile-role" id="home-profile-role">${esc(profileRole)}</div>
+            </div>
+          <div class="home-profile-details" id="home-profile-details">${profileDetailsHTML()}</div>
           </div>
         </div>
         <div class="home-quote">
@@ -699,9 +710,10 @@ function renderHome() {
             <div class="home-quote-title">每日一句</div>
             <button class="btn ghost sm" id="quote-next" title="换一句">${icon('refresh',14)} 换一句</button>
           </div>
-          <div class="quote-en"><span class="qt" id="q-en">${esc(d.quote.en)}</span><button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak',15)}</button></div>
+          <div class="quote-en"><span class="qt" id="q-en">${esc(d.quote.en)}</span></div>
           <div class="quote-zh" id="q-zh">${esc(d.quote.zh)}</div>
           <div class="quote-author" id="q-author">— ${esc(d.quote.author||'')}</div>
+          <button class="speak-btn" id="speak-btn" title="朗读英文" aria-label="朗读英文">${icon('speak',15)}</button>
         </div>
       </section>
     </div>
@@ -902,12 +914,11 @@ function startClock() {
       if (g && g.textContent !== title) g.textContent = title;
       const sub = document.getElementById('greet-sub');
       if (sub) sub.textContent = subtitle || '专注教学 · 高效管理 · 陪伴学生成长';
-      const profile = document.getElementById('home-profile-meta');
-      const profileRoleEl = document.getElementById('home-profile-role');
-      const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
-      const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
-      if (profile && profileSchoolSubject && profile.textContent !== profileSchoolSubject) profile.textContent = profileSchoolSubject;
-      if (profileRoleEl && profileRole && profileRoleEl.textContent !== profileRole) profileRoleEl.textContent = profileRole;
+      const profileDetails = document.getElementById('home-profile-details');
+      const nextProfileDetails = profileDetailsHTML();
+      if (profileDetails && profileDetails.innerHTML !== nextProfileDetails) {
+        profileDetails.innerHTML = nextProfileDetails;
+      }
     }
   };
   paint();
