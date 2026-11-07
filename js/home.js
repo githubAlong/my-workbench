@@ -779,8 +779,8 @@ function renderHome() {
         </div>
         <div class="cal-week">${['日','一','二','三','四','五','六'].map((x,i)=>'<span class="'+(i===0||i===6?'we':'')+'">'+x+'</span>').join('')}</div>
         <div class="cal-grid" id="cal-grid"></div>
-        <div class="cal-legend"><span><i style="background:var(--primary)"></i>上课</span><span><i style="background:var(--amber)"></i>监考/出差</span><span><i style="background:var(--green)"></i>教研</span><span><i style="background:var(--red)"></i>提醒</span></div>
         <div class="cal-day" id="cal-day" hidden></div>
+        <div class="cal-legend"><span><i style="background:var(--primary)"></i>上课</span><span><i style="background:var(--amber)"></i>监考/出差</span><span><i style="background:var(--green)"></i>教研</span><span><i style="background:var(--red)"></i>提醒</span></div>
       </section>
     </div>
     <div class="hg-item" data-hcard="weather">
