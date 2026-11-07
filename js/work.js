@@ -1427,7 +1427,7 @@ function courseEditor(row, reload) {
      全站不再预填「语文 / 高二」这类默认值 —— 预填的东西如果不符实际，
      用户还得先删掉才能填，反而更慢。所以默认留空，直接手填。
      但又不想让用户每次都从头打字：把已存课程里出现过的科目/年级/班级
-     收集成候选，挂在 datalist 上——点一下就能填，不打字也行。
+     按最近更新时间优先去重，每个字段只保留最近 5 个候选，挂在 datalist 上。
      这叫「手填为主，联想为辅」：没有强制默认值，只是给个快捷入口。
 
      注意：这里必须保持同步函数。弹层要立刻出现，不能等接口；
@@ -1451,8 +1451,27 @@ function courseEditor(row, reload) {
 
   /* 历史值异步补上：失败就静默，手填照常可用 */
   api.get('/courses').then((all) => {
+    // 最近使用的课程优先；优先按更新时间，其次创建时间，最后用 ID 稳定排序。
+    const timestampOf = (course) => {
+      const updatedAt = Date.parse(course?.updated_at || '');
+      if (Number.isFinite(updatedAt)) return updatedAt;
+      const createdAt = Date.parse(course?.created_at || '');
+      return Number.isFinite(createdAt) ? createdAt : Number(course?.id) || 0;
+    };
+    const recent = [...(Array.isArray(all) ? all : [])].sort((a, b) =>
+      timestampOf(b) - timestampOf(a) || (Number(b?.id) || 0) - (Number(a?.id) || 0)
+    );
     for (const k of ['grade', 'class_name', 'subject']) {
-      const vals = [...new Set(all.map((c) => String(c[k] || '').trim()).filter(Boolean))].slice(0, 40);
+      const seen = new Set();
+      const vals = [];
+      for (const course of recent) {
+        const value = String(course?.[k] || '').trim();
+        const normalized = value.toLocaleLowerCase();
+        if (!value || seen.has(normalized)) continue;
+        seen.add(normalized);
+        vals.push(value);
+        if (vals.length === 5) break;
+      }
       if (!vals.length) continue;
       const input = body.querySelector(`[data-hist="${k}"]`);
       if (!input) continue;
