@@ -2569,3 +2569,57 @@ html[data-theme="dark"] .home-redesign .home-weather-card { background:var(--car
   .home-redesign .home-calendar-card .cal-day { margin-left:14px; margin-right:14px; }
   .home-redesign .home-calendar-card .cal-day-content { min-height:320px; }
 }
+
+/* 2026-11-07：首页时间、天气与日历细节修复 */
+.home-redesign .home-clock-card { position:relative; }
+.home-redesign .home-clock-main {
+  position:relative;
+  display:block;
+  flex:1 1 auto;
+  min-height:116px;
+  padding-bottom:25px;
+}
+.home-redesign .home-clock-time-wrap {
+  position:absolute;
+  left:50%;
+  top:43%;
+  width:max-content;
+  max-width:calc(100% - 124px);
+  min-width:0;
+  transform:translate(-50%,-50%);
+  text-align:center;
+}
+.home-redesign .home-clock-card .clock { font-size:clamp(42px,3.2vw,58px); }
+.home-redesign .home-clock-foot {
+  position:absolute;
+  left:0;
+  bottom:0;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  margin:0;
+  white-space:nowrap;
+  font-size:13px;
+}
+.home-redesign .home-clock-foot strong { font-size:18px; }
+.home-redesign .home-day-progress-wrap {
+  position:absolute;
+  right:0;
+  top:43%;
+  width:92px;
+  height:92px;
+  transform:translateY(-50%);
+}
+.home-redesign .home-weather-card .wx-body { overflow:hidden; }
+.home-redesign .home-weather-card .home-weather-week { display:none!important; }
+.home-redesign .home-weather-card .home-card-head { align-items:center; }
+.home-redesign .home-weather-card #wx-more { margin-left:auto; }
+.home-redesign .hg-item[data-hcard="calendar"] { transform:translateY(8px); }
+@media(max-width:640px) {
+  .home-redesign .home-clock-main { min-height:106px; padding-bottom:23px; }
+  .home-redesign .home-clock-time-wrap { max-width:calc(100% - 88px); }
+  .home-redesign .home-clock-card .clock { font-size:clamp(32px,8vw,42px); letter-spacing:-1px; }
+  .home-redesign .home-day-progress-wrap { width:68px; height:68px; }
+  .home-redesign .home-clock-foot { gap:6px; font-size:11px; }
+  .home-redesign .home-clock-foot strong { font-size:14px; }
+}
