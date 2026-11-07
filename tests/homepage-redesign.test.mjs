@@ -20,14 +20,14 @@ test('精简首页只保留五张核心卡片的页面结构', () => {
   assert.match(home, /id="clock"/);
 });
 
-test('首页顶栏保留搜索、新建事项和编辑布局，不再显示新建课表', () => {
+test('首页顶栏保留搜索、外观与编辑布局入口', () => {
   assert.match(home, /id="gsearch"/);
-  assert.match(home, /id="home-new-item"/);
+  assert.match(home, /id="theme-btn"/);
   const actionsStart = home.indexOf('<div class="home-top-actions">');
   const actionsEnd = home.indexOf('</div>', actionsStart);
   const actions = home.slice(actionsStart, actionsEnd);
-  assert.ok(actions.indexOf('id="home-new-item"') >= 0);
-  assert.ok(actions.indexOf('id="teacher-layout"') > actions.indexOf('id="home-new-item"'));
+  assert.ok(actions.indexOf('id="theme-btn"') >= 0);
+  assert.ok(actions.indexOf('id="teacher-layout"') > actions.indexOf('id="theme-btn"'));
   assert.match(home, /id="teacher-layout"/);
   assert.doesNotMatch(home, /id="home-new-timetable"/);
   assert.doesNotMatch(home, /home-side-layout-edit/);
@@ -56,28 +56,28 @@ test('课程、待办和日历保留真实业务渲染节点与联动', () => {
   assert.match(home, /syncDay\(/);
 });
 
-test('V4 默认布局只显示五张核心卡片，其余卡片仍可管理恢复', () => {
-  assert.match(grid, /version:\s*4,/);
-  assert.match(grid, /const DEFAULT_HIDDEN = \['timeline', 'dailyQuote', 'weekLessons', 'invigilation', 'prepDeadline', 'recentNotes'\]/);
+test('V6 默认布局按参考图排列六张核心卡片，其余卡片仍可管理恢复', () => {
+  assert.match(grid, /version:\s*6,/);
+  assert.match(grid, /const DEFAULT_HIDDEN = \['weekLessons', 'invigilation', 'prepDeadline', 'recentNotes'\]/);
   assert.match(grid, /hidden:\s*\[\.\.\.DEFAULT_HIDDEN\]/);
   for (const id of ['profile', 'todayCourse', 'todayTodo', 'weather', 'calendar']) {
     assert.ok(grid.includes(`['${id}'`), `默认布局缺少：${id}`);
   }
-  for (const id of ['timeline', 'dailyQuote', 'weekLessons', 'invigilation', 'prepDeadline', 'recentNotes']) {
+  for (const id of ['timeline', 'weekLessons', 'invigilation', 'prepDeadline', 'recentNotes']) {
     assert.ok(grid.includes(`{ id: '${id}'`), `卡片管理中未保留：${id}`);
   }
 });
 
-test('旧布局迁移到 V4 时保留用户隐藏偏好且默认隐藏辅助卡片', () => {
-  assert.match(grid, /if\s*\(rawVersion\s*<\s*4\)/);
+test('旧布局迁移到 V6 时保留用户隐藏偏好且默认隐藏辅助卡片', () => {
+  assert.match(grid, /if\s*\(rawVersion\s*<\s*6\)/);
   assert.match(grid, /\.\.\.DEFAULT_HIDDEN/);
   assert.match(grid, /raw\.breakpoints\.desktop\?\.hidden/);
-  assert.match(grid, /out\.version = 4;/);
-  assert.match(grid, /不触碰任何业务数据/);
+  assert.match(grid, /out\.version = 6;/);
+  assert.match(grid, /不触碰课程、事项、天气/);
 });
 
 test('精简首页在桌面、平板和手机使用响应式布局', () => {
-  assert.match(styles, /精简首页 V4/);
+  assert.match(styles, /首页参考图布局/);
   assert.match(styles, /\.home-redesign #home-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(12/);
   assert.match(styles, /@media\(max-width:900px\)/);
   assert.match(styles, /@media\(max-width:640px\)/);
