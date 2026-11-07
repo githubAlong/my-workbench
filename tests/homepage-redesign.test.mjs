@@ -142,3 +142,9 @@ test('日历选择日期会同步真实事项、课程，并显示完整24小时
   assert.match(styles, /hg-day-expanded/);
   assert.match(styles, /flex:1 1 0;[\s\S]*?max-width:none;[\s\S]*?margin:0;/);
 });
+
+
+test('桌面首页取消1920px最大宽度并铺满侧栏以外的可用空间', () => {
+  assert.match(styles, /\.main:has\(#home-grid\)\s*\{\s*max-width:\s*none;/);
+  assert.match(styles, /@media\s*\(min-width:\s*1101px\)\s*\{\s*#main\.main:has\(#home-grid\)\s*\{[\s\S]*?flex:\s*1 1 0;[\s\S]*?width:\s*0;[\s\S]*?max-width:\s*none;[\s\S]*?min-width:\s*0;[\s\S]*?margin:\s*0;/);
+});

@@ -1349,7 +1349,7 @@ html[data-theme="dark"] .home-redesign .home-welcome-card .home-welcome-stats bu
    其他卡片保留在 DOM 与卡片管理中，但默认隐藏；不改业务数据。
    ========================================================================== */
 .main:has(#home-grid) {
-  max-width: 1920px;
+  max-width: none;
   padding: 20px clamp(16px, 2.2vw, 34px) 36px;
 }
 .home-redesign .home-topbar {
@@ -2391,9 +2391,11 @@ html[data-theme="dark"] .home-redesign .home-weather-card { background:var(--car
 }
 
 
-/* 首页真正平铺：主工作区紧贴侧栏并占满剩余宽度，取消居中 max-width 留白。 */
-@media (min-width:901px) {
-  .home-redesign-app>.main.home-redesign {
+/* 首页桌面端：直接覆盖 #main:has(#home-grid) 的高优先级规则，
+   取消1920px上限与自动居中，让主内容从侧栏右侧一直铺到视口右边。
+   1100px以下侧栏切换为移动布局，不在这里改变其宽度策略。 */
+@media (min-width:1101px) {
+  #main.main:has(#home-grid) {
     flex:1 1 0;
     width:0;
     max-width:none;
