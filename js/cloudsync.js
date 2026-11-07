@@ -183,7 +183,7 @@ async function adoptRemoteIfSame(cloud, raw, payload, savingSeq) {
   window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved', at: remote.updated_at } }));
   return remote;
 }
-async function pushSnapshot() {
+async function pushSnapshotUnlocked() {
   if (!_uid || !_pending) return;
   if (_conflictPaused) throw makeRevisionConflict(localStorage.getItem(DB_KEY) || '');
   const cloud = await import('./cloud.js');
@@ -218,6 +218,15 @@ async function pushSnapshot() {
   window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved', at: saved.updated_at } }));
   return saved;
 }
+/* Cross-tab serialization: keep the wait in the browser, not in a Postgres
+   connection. All tabs on this origin share the same localStorage snapshot/revision. */
+async function pushSnapshot() {
+  if (typeof navigator === 'undefined' || !navigator.locks?.request) {
+    return pushSnapshotUnlocked();
+  }
+  return navigator.locks.request(`wb-snapshot:${_uid}`, { mode: 'exclusive' }, () => pushSnapshotUnlocked());
+}
+
 export async function initializeAccountSync() {
   const cloud = await import('./cloud.js');
   const uid = cloud.session()?.uid || '';
