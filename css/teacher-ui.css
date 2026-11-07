@@ -1599,6 +1599,33 @@ html[data-theme="dark"] .home-redesign .home-weather-card .wxb-outfit { backgrou
   .home-redesign .home-calendar-card .cal-grid { gap:4px 1px; }
 }
 
+/* 首页参考图：搜索、外观与布局按钮同处一行，避免额外占用一整行。 */
+.home-redesign .home-topbar {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-height:58px;
+  margin:0 0 14px;
+  padding:7px 9px 7px 16px;
+  border:1px solid var(--line);
+  border-radius:15px;
+  background:var(--card);
+  box-shadow:0 4px 18px color-mix(in srgb,var(--text) 5%,transparent);
+}
+.home-redesign .home-topbar .searchbar { flex:1 1 auto; min-width:180px; width:auto; max-width:none; margin:0; border:0; background:transparent; box-shadow:none; }
+.home-redesign .home-topbar .home-layout-hint { display:none; }
+.home-redesign .home-topbar .home-top-actions { flex:0 0 auto; display:flex; align-items:center; gap:8px; }
+.home-redesign .home-topbar .home-action { min-height:38px; padding:0 11px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--text-2); }
+.home-redesign .home-topbar .home-action-secondary { color:var(--primary); }
+.home-redesign .home-topbar .home-action:hover { background:var(--primary-weak); color:var(--primary); }
+.home-redesign .home-layout-intro { display:none; }
+@media(max-width:760px) {
+  .home-redesign .home-topbar { flex-wrap:wrap; padding:6px; }
+  .home-redesign .home-topbar .searchbar { flex-basis:100%; }
+  .home-redesign .home-topbar .home-top-actions { width:100%; }
+  .home-redesign .home-topbar .home-action { flex:1; }
+}
+
 
 /* 全局主题统一：所有页面的左侧导航背景直接读取主题背景变量。 */
 html[data-theme] .app > .sidebar {
