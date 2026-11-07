@@ -93,32 +93,45 @@ function outfitFor(t, code, wind, rain) {
 }
 
 let weatherTimer = null;
+let weatherRequestSeq = 0;
 async function loadWeather(force = false) {
-  const c = state.city;
+  const city = { ...(state.city || { name: '北京', lat: 39.9042, lon: 116.4074 }) };
+  const requestId = ++weatherRequestSeq;
   const cache = ls.get('weather', null);
-  /* 【缓存判断必须是「现在 - 抓取时刻 < 20 分钟」】
-     早先写成 `cache.at < 20 * 60000`，at 是 Date.now() 的绝对时间戳（几十亿），
-     这个条件恒为真 —— 缓存永不过期。于是切换城市后，只要新城市的名字和缓存里的
-     对不上……其实也对不上，但真正让用户看到「城市换了温度没变」的是下面的兜底：
-     请求失败时直接把 cache 塞进 state.weather，标题读的是新城市、数字是旧城市的。
-     现在：时间判断改对，兜底也只在同城时用。 */
+  const matchesCity = (item) => {
+    if (!item) return false;
+    if (item.lat != null && item.lon != null) {
+      return Math.abs(Number(item.lat) - Number(city.lat)) < 0.000001
+        && Math.abs(Number(item.lon) - Number(city.lon)) < 0.000001;
+    }
+    return item.city === city.name;
+  };
+  const stillCurrent = () => {
+    const current = state.city || {};
+    return current.name === city.name
+      && Number(current.lat) === Number(city.lat)
+      && Number(current.lon) === Number(city.lon);
+  };
   const fresh = cache && cache.at && (Date.now() - Number(cache.at) < 20 * 60000);
-  if (!force && cache && fresh && cache.city === c.name) { state.weather = cache; return cache; }
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
+  if (!force && fresh && matchesCity(cache)) {
+    if (requestId === weatherRequestSeq && stillCurrent()) state.weather = cache;
+    return cache;
+  }
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}`
     + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m,wind_direction_10m'
     + '&hourly=temperature_2m,weather_code,precipitation_probability'
     + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max'
     + '&timezone=auto&forecast_days=7';
-  /* 加超时：没有 signal 时弱网/被墙会一直挂着，首页停在「正在准备今天的工作台」。 */
   const r = await fetch(url, { signal: AbortSignal.timeout(8000) })
     .then((x) => (x.ok ? x.json() : null)).catch(() => null);
+  if (requestId !== weatherRequestSeq || !stillCurrent()) return state.weather;
   if (!r || !r.current) {
-    /* 只有同一座城市才允许拿旧数据顶一下；换城市了宁可显示「获取失败 + 重试按钮」 */
-    if (cache && cache.city === c.name) { state.weather = cache; return cache; }
+    if (matchesCity(cache)) { state.weather = cache; return cache; }
     throw new Error('天气获取失败');
   }
-  const w = { city: c.name, at: Date.now(), raw: r };
-  state.weather = w; ls.set('weather', w);
+  const w = { city: city.name, lat: city.lat, lon: city.lon, at: Date.now(), raw: r };
+  state.weather = w;
+  ls.set('weather', w);
   return w;
 }
 /* 最近的 5 个城市。
@@ -168,21 +181,46 @@ async function reverseGeocode(lat, lon) {
     return '';
   }
 }
-async function locate() {
-  if (!navigator.geolocation) return toast('当前设备不支持定位', 'warn');
+let geoRequestSeq = 0;
+let cityChoiceSeq = 0;
+function setGeoMode(mode) {
+  state.geoMode = mode;
+  ls.set('geoMode', mode);
+}
+async function locate({ silent = false } = {}) {
+  const requestId = ++geoRequestSeq;
+  const choiceId = cityChoiceSeq;
+  if (!navigator.geolocation) {
+    if (state.geoMode === 'auto') setGeoMode('manual');
+    if (!silent) toast('当前设备或浏览器不支持定位，请手动选择城市', 'warn');
+    return null;
+  }
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(async (pos) => {
+      if (requestId !== geoRequestSeq || choiceId !== cityChoiceSeq) return resolve(null);
       const { latitude, longitude } = pos.coords;
       const name = (await reverseGeocode(latitude, longitude)) || '当前位置';
-      /* 定位用 GPS 原始坐标，不往任何城市表上吸附。
-         天气接口本身按坐标算，GPS 落点比「市中心」还准。 */
-      state.city = { name, lat: latitude, lon: longitude };
+      if (requestId !== geoRequestSeq || choiceId !== cityChoiceSeq) return resolve(null);
+      const city = { name, lat: latitude, lon: longitude };
+      cityChoiceSeq += 1;
+      geoRequestSeq += 1;
+      state.city = city;
       state.weather = null;
-      ls.set('city', state.city);
-      pushRecentCity(state.city);
-      resolve(state.city);
-    }, (err) => { toast('定位失败：' + (err.message || '请改用上方搜索框输入城市名'), 'warn'); resolve(null); },
-    { timeout: 9000, maximumAge: 600000 });
+      setGeoMode('auto');
+      ls.set('city', city);
+      pushRecentCity(city);
+      resolve(city);
+    }, (err) => {
+      if (requestId !== geoRequestSeq) return resolve(null);
+      if (err.code === 1) setGeoMode('manual');
+      const message = err.code === 1
+        ? '定位权限未开启，请在浏览器站点设置中允许定位后再试；已保留当前城市'
+        : err.code === 2
+          ? '暂时无法获取位置信息，请检查设备定位服务'
+          : '定位超时，请稍后重试；当前城市已保留';
+      if (!silent) toast(message, 'warn');
+      resolve(null);
+    }, { timeout: 12000, maximumAge: 600000, enableHighAccuracy: false });
   });
 }
 
@@ -346,9 +384,11 @@ function pickCity() {
      正确做法：切城市 → 强制重拉这一座城市的天气 → 只重绘天气那块。
      不整页 refreshHome()，是因为整页重绘会把展开的天气预报折叠回去。 */
   const commit = (c) => {
+    // 手动选城立即锁定手动模式，并取消尚未完成的自动定位请求。
+    cityChoiceSeq += 1;
+    geoRequestSeq += 1;
     state.city = { name: c.name, lat: c.lat, lon: c.lon };
-    /* 换城市先把旧天气清掉：不清的话，新一次请求还没回来之前，
-       卡片上是「新城市名 + 旧温度」，已经错了一次，不能再让它显形。 */
+    setGeoMode('manual');
     state.weather = null;
     ls.set('city', state.city);
     pushRecentCity(state.city);
@@ -552,18 +592,17 @@ registerView(async function home(main) {
   if (freshMe?.user) state.user = freshMe.user;
   else if (previousUser) state.user = previousUser;
 
-  /* 不再自动申请定位权限.
-     原来首次进首页就调 locate()，桌面浏览器一律弹授权框；用户点了拒绝，
-     还要再吃一个红色「定位失败」的 toast——等于每开一次页面先添一次堵。
-     现在默认用上次选过的城市（从没选过就用北京），想定位的人自己点
-     「选城市 → 用当前位置定位」。定位从「默认动作」降级成「可选动作」。
-     面板第一行是城市名搜索：没人知道自己脚下的经纬度是多少，
-     输入「荆州」就该能切到荆州。 */
+  // 先用上次城市的缓存/天气快速绘制首页；自动定位在首屏绘制后静默完成。
   try { await loadWeather(); } catch (e) { /* 离线降级 */ }
   // 必须显式带上浏览器本地日期：服务器可能跑在 UTC，跨零点时按它自己算
   // 会把今天算成昨天，刚记的便签就变成「存进去却看不见」。
   homeData = await api.get('/home', { date: ymd() });
   renderHome();
+  if (state.geoMode === 'auto') {
+    locate({ silent: true }).then((city) => {
+      if (city) applyCityWeather({ silent: true });
+    });
+  }
   /* 拉一次云端布局：另一台设备排过的话，这里自动换成那一套。
      没登录云端、或云端没有记录时什么都不会发生，本地这份照常用。 */
   pullLayoutCloud().catch(() => {});
@@ -573,14 +612,14 @@ registerView(async function home(main) {
    两件事分开做是有意的——天气是外网请求，可能慢、可能失败；
    失败了也不能让「城市名已经切了但温度还是旧的」这种半吊子状态留在页面上，
    所以失败时把旧天气清掉，让界面老实显示「天气加载中…」。 */
-async function applyCityWeather() {
+async function applyCityWeather({ silent = false } = {}) {
   const brief = document.getElementById('wx-brief');
-  if (brief) brief.innerHTML = weatherBriefHTML();   // 先落城市名，别让用户以为没点上
+  if (brief) brief.innerHTML = weatherBriefHTML();
   try {
     await loadWeather(true);
   } catch {
     state.weather = null;
-    toast('天气没拉到，可点天气卡右上角的刷新重试', 'warn');
+    if (!silent) toast('天气没拉到，可点天气卡中的刷新按钮重试', 'warn');
   }
   renderWeatherOnly();
 }
@@ -678,8 +717,8 @@ function renderHome() {
         <div class="home-clock-main">
           <div class="home-clock-time-wrap">
             <div class="clock" id="clock"><span class="hm">--:--</span><span class="sec">--</span></div>
-            <div class="home-clock-foot"><span>今日剩余</span><strong id="home-day-remaining">--:--:--</strong></div>
           </div>
+          <div class="home-clock-foot"><span>今日剩余</span><strong id="home-day-remaining">--:--:--</strong></div>
           <div class="home-day-progress-wrap" aria-label="今日时间进度">
             <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
               <circle class="home-day-track" cx="50" cy="50" r="41"></circle>
@@ -755,7 +794,7 @@ function renderHome() {
         </div>
         <div class="wx-body">
           <div id="wx-brief">${weatherBriefHTML()}</div>
-          <div class="home-weather-week" id="home-weather-week">${wxForecastHTML()}</div>
+          <div class="home-weather-week" id="home-weather-week"></div>
         </div>
       </section>
     </div>
@@ -833,7 +872,7 @@ function startClock() {
       const wd = now.getDay();
       const weekend = wd === 0 || wd === 6;
       dEl.innerHTML = `<span class="home-date-full">${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}</span>`
-        + `<span class="wd-badge${weekend ? ' weekend' : ''}">星期${WD_CN[wd]}</span>`
+        + `<span class="wd-badge${weekend ? ' weekend' : ''}">${WD_CN[wd]}</span>`
         + `<span class="home-week-badge">第 ${isoWeek(now)} 周</span>`;
     }
     // 周数 / 本月剩余天数：一天只变一次，用 key 挡住，别每秒重算
