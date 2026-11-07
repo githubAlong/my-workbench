@@ -90,7 +90,7 @@ async function renderMe(main) {
     </section>
 
     <div class="me-home-accordions" id="me-home-accordions">
-      <details class="me-accordion" data-me-accordion="profile" open>
+      <details class="me-accordion" data-me-accordion="profile">
         <summary class="me-accordion-head">
           <span class="me-accordion-icon">${icon('user', 19)}</span>
           <span class="me-accordion-copy"><strong>个人信息</strong><small>头像、姓名、学校、学科及职务</small></span>
