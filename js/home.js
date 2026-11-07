@@ -544,7 +544,15 @@ let lastFootKey = '';
 registerView(async function home(main) {
   clearInterval(clockTimer);
   main.innerHTML = `<div class="empty"><div class="em">⏳</div>正在准备今天的工作台…</div>`;
-  /* 不再自动申请定位权限。
+  /* 首页个人信息与「我的 → 个人信息」保持同一数据源：
+     每次进入首页先轻量刷新登录资料，避免另一处修改昵称/学校/学科/职务后，
+     首页仍显示旧的 state.user。请求失败时保留当前会话中的资料，不清空用户态。 */
+  const previousUser = state.user;
+  const freshMe = await api.get('/auth/me', null).catch(() => null);
+  if (freshMe?.user) state.user = freshMe.user;
+  else if (previousUser) state.user = previousUser;
+
+  /* 不再自动申请定位权限.
      原来首次进首页就调 locate()，桌面浏览器一律弹授权框；用户点了拒绝，
      还要再吃一个红色「定位失败」的 toast——等于每开一次页面先添一次堵。
      现在默认用上次选过的城市（从没选过就用北京），想定位的人自己点
