@@ -60,23 +60,23 @@ export const cardTitle = (id) => CARD_MAP.get(id)?.title || id;
 const DEFAULT_HIDDEN = ['weekLessons', 'invigilation', 'prepDeadline', 'recentNotes'];
 const DEFAULTS = {
   desktop: [
-    ['profile', 0, 0, 4, 4], ['timeline', 4, 0, 4, 4], ['todayCourse', 8, 0, 4, 4],
-    ['todayTodo', 0, 4, 4, 7], ['calendar', 4, 4, 4, 7], ['weather', 8, 4, 4, 7],
+    ['profile', 0, 0, 4, 4], ['timeline', 4, 0, 4, 4], ['weather', 8, 0, 4, 4],
+    ['todayTodo', 0, 4, 4, 7], ['todayCourse', 4, 4, 4, 7], ['calendar', 8, 4, 4, 7],
     ['weekLessons', 0, 11, 3, 2], ['invigilation', 3, 11, 3, 2],
     ['prepDeadline', 6, 11, 3, 2], ['recentNotes', 9, 11, 3, 2],
   ],
   tablet: [
     ['profile', 0, 0, 6, 4], ['timeline', 6, 0, 6, 4],
-    ['todayCourse', 0, 4, 12, 4],
-    ['todayTodo', 0, 8, 6, 7], ['calendar', 6, 8, 6, 7],
-    ['weather', 0, 15, 12, 5],
+    ['weather', 0, 4, 12, 5],
+    ['todayTodo', 0, 9, 6, 7], ['todayCourse', 6, 9, 6, 7],
+    ['calendar', 0, 16, 12, 7],
     ['weekLessons', 0, 20, 6, 2], ['invigilation', 6, 20, 6, 2],
     ['prepDeadline', 0, 22, 6, 2], ['recentNotes', 6, 22, 6, 2],
   ],
   mobile: [
     ['profile', 0, 0, 12, 4], ['timeline', 0, 4, 12, 4],
-    ['todayCourse', 0, 8, 12, 4], ['todayTodo', 0, 12, 12, 7],
-    ['calendar', 0, 19, 12, 7], ['weather', 0, 26, 12, 6],
+    ['weather', 0, 8, 12, 6], ['todayTodo', 0, 14, 12, 7],
+    ['todayCourse', 0, 21, 12, 7], ['calendar', 0, 28, 12, 7],
     ['weekLessons', 0, 32, 12, 2], ['invigilation', 0, 34, 12, 2],
     ['prepDeadline', 0, 36, 12, 2], ['recentNotes', 0, 38, 12, 2],
   ],
@@ -91,7 +91,7 @@ function defaultSeg(bp) {
 
 export function defaultState() {
   return {
-    version: 5,
+    version: 6,
     /* 【为什么这里是空串而不是 new Date()】
        updatedAt 用来判断「云端和本地谁更新」。如果默认状态取"现在"，
        那一个从没排过布局的新设备，其本地时间永远比云端那次保存更晚，
@@ -184,13 +184,13 @@ function normalize(raw) {
   const rawVersion = Number(raw.version) || 1;
   /* v5 首页重排：旧布局只迁移辅助卡片的隐藏偏好，核心六张卡片恢复为参考图默认布局。
      只更新展示布局，不触碰课程、事项、天气或其他业务数据。 */
-  if (rawVersion < 5) {
+  if (rawVersion < 6) {
     const auxiliary = new Set(['weekLessons', 'invigilation', 'prepDeadline', 'recentNotes']);
     const oldHidden = (raw.breakpoints.desktop?.hidden || []).map(String).filter((id) => auxiliary.has(id));
     const hidden = [...new Set([...DEFAULT_HIDDEN, ...oldHidden])];
     for (const bp of Object.keys(out.breakpoints)) out.breakpoints[bp].hidden = hidden;
     out.updatedAt = raw.updatedAt || '';
-    out.version = 5;
+    out.version = 6;
     return out;
   }
   out.version = rawVersion;
