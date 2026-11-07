@@ -104,7 +104,7 @@ registerView(async function work(main, { tab, third }) {
      点进「考勤」看到的还是「工作」，会让人怀疑自己点错了。 */
   const meta = {
     lessons: ['上课记录', '记录授课进度，管理课时与代课结算'],
-    timetable: ['课表', '这周几节课、哪个班、上课地点在哪里'],
+    timetable: ['周课表', '一周课程安排、上课时间与班级一目了然'],
     prep: ['电子备课记录表', '统一记录信息课与特色课备课内容，按类型筛选和追踪进度'],
     repairs: ['维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底'],
     attendance: ['考勤', '按年级分开管：花名册、每日三张表、统计'],
@@ -136,7 +136,7 @@ registerView(async function work(main, { tab, third }) {
   }
   if (t === 'lessons') return renderLessons(body);
   if (t === 'prep') return renderPreps(body);
-  if (t === 'timetable') return renderTimetable(body);
+  if (t === 'timetable') { headEl.remove(); return renderTimetable(body); }
   if (t === 'attendance') {
     /* PRD 第 4 节：两级。第三段是年级（#/work/attendance/高一），
        没有第三段就是年级列表页。中文要解码，URL 里是 %E9%AB%98%E4%B8%80。 */
@@ -813,57 +813,120 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
 /* ================= 课表 ================= */
 async function renderTimetable(box) {
   const load = async () => {
-    const [courses, periods] = await Promise.all([api.get('/courses'), api.get('/periods')]);
-    const maxP = Math.max(8, ...periods.map((p) => Number(p.period_no)));
-    /* 【列顺序】周一到周日，周日放最后。
-       数据里 weekday 用 0 表示周日（跟 Date.getDay() 一致），
-       但「0 排最前」是 JS 的约定，不是人的习惯 —— 老师看课表都是从周一开始。
-       所以这里单独定一张显示顺序表，不直接拿数字排序。 */
+    const [courseResult, periodResult] = await Promise.all([api.get('/courses'), api.get('/periods')]);
+    const courses = Array.isArray(courseResult) ? courseResult : [];
+    const periods = Array.isArray(periodResult) ? periodResult : [];
+    const maxP = Math.max(8, ...periods.map((p) => Number(p.period_no) || 0), ...courses.map((c) => Number(c.period_no) || 0));
+    /* 数据 weekday：0=周日；界面固定按周一至周日展示。 */
     const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
     const wd = WD_ORDER;
+    const today = new Date().getDay();
+    const periodByNo = new Map(periods.map((p) => [Number(p.period_no), p]));
     const get = (d, p) => courses.find((c) => Number(c.weekday) === d && Number(c.period_no) === p);
+    const fmtTime = (value) => String(value || '').slice(0, 5);
+    const timeRange = (start, end) => {
+      const a = fmtTime(start);
+      const b = fmtTime(end);
+      return a && b ? a + '–' + b : (a || b || '时间待设置');
+    };
+    const courseTime = (course, period) => timeRange(
+      course?.start_time || period?.start_time,
+      course?.end_time || period?.end_time
+    );
+
     box.innerHTML = `
-      <div class="row wrap" style="margin-bottom:12px">
-        <button class="btn primary sm" id="add-course">${icon('plus', 15)} 添加课程</button>
-        <button class="btn ghost sm" id="import-tt">${icon('download', 15)} 导入课表</button>
-        <button class="btn ghost sm" id="edit-periods">编辑节次时间</button>
-        <button class="btn ghost sm" id="print-tt">${icon('download', 15)} 打印/导出课表</button>
-        <span style="flex:1"></span>
-        <span class="tiny muted">点击任意格子即可修改，时间、节次、班级都会变的情况也支持</span>
-      </div>
-      <div class="table-wrap"><table class="tbl" style="min-width:860px">
-        <thead><tr><th style="width:96px">节次</th>${wd.map((d) => `<th>周${WD_SHORT[d]}</th>`).join('')}</tr></thead>
-        <tbody>${Array.from({ length: maxP }, (_, i) => i + 1).map((p) => {
-          const per = periods.find((x) => Number(x.period_no) === p);
-          /* 【第 40 条：课表中间没有午休】
-             老师看课表的习惯是「上午四节 → 午休 → 下午四节」，
-             真实贴在墙上的课表中间一定有一条「午休」。
-             这里按节次时间的空隙自动判断：
-               上一节结束到这一节开始，跨过了 12:00 且间隔 ≥ 40 分钟 → 就是午休。
-             不去读「午休」这种行，是因为节次表里根本没存它；
-             按时间算出来的，改了节次时间也自动跟着对。 */
-          const prev = periods.find((x) => Number(x.period_no) === p - 1);
-          const lunch = lunchGap(prev, per);
-          const lunchRow = lunch ? `<tr class="tt-lunch">
-            <td colspan="${wd.length + 1}">🍚 午休 ${lunch}</td></tr>` : '';
-          return `${lunchRow}<tr><td><b>第${p}节</b><div class="tiny muted mono">${per ? per.start_time + '-' + per.end_time : '未设置'}</div></td>
-            ${wd.map((d) => {
-              const c = get(d, p);
-              return `<td data-cell="${d}-${p}" ${c ? `data-course-id="${esc(c.id)}" draggable="true"` : ''} style="cursor:${c ? 'grab' : 'pointer'};min-width:104px;height:52px;background:${c ? colorBg(c.class_name) : 'transparent'}">
-                ${c ? `<div class="tt-course-chip"><span class="tt-drag-handle" aria-hidden="true">⠿</span><div><div class="small bold">${esc(c.class_name)}</div><div class="tiny muted">${esc(c.subject)} ${esc(c.room || '')}</div></div></div>` : '<span class="tiny muted">＋</span>'}
-              </td>`;
-            }).join('')}
-          </tr>`;
-        }).join('')}</tbody>
-      </table></div>
-      <div class="small muted" style="margin-top:10px">课时统计：本表每周共 ${courses.length} 节，按 4.3 周/月估算约 ${Math.round(courses.length * 4.3)} 节。实际以「上课」中的记录为准。</div>`;
+      <section class="tt-workspace" aria-label="周课表">
+        <div class="tt-workspace-head">
+          <div class="tt-workspace-title-wrap">
+            <h2 class="tt-workspace-title">周课表</h2>
+          </div>
+          <div class="tt-toolbar-actions">
+            <button class="btn ghost sm" id="edit-periods" type="button">作息设置</button>
+            <button class="btn primary sm" id="add-course" type="button">${icon('plus', 15)} 新增课程</button>
+            <details class="tt-more-actions">
+              <summary>更多操作</summary>
+              <div class="tt-more-menu">
+                <button type="button" id="import-tt">${icon('download', 14)} 导入课表</button>
+                <button type="button" id="print-tt">${icon('printer', 14)} 打印 / 导出课表</button>
+              </div>
+            </details>
+          </div>
+        </div>
+        <p class="tt-workspace-hint">点空格直接加课；课程块可以按住拖到别的节次或星期（落点有课则对调），点一下能改班级、时间或删除；右侧「作息设置」可以调整节次名称、上下课时间和午休时段。</p>
+        <div class="tt-grid-scroll">
+          <table class="tt-grid-table" aria-label="周课程安排">
+            <colgroup>
+              <col class="tt-col-time">
+              <col class="tt-col-period">
+              ${wd.map(() => '<col class="tt-col-day">').join('')}
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col" class="tt-fixed-head">时间</th>
+                <th scope="col" class="tt-fixed-head">节次</th>
+                ${wd.map((d) => `<th scope="col" class="tt-weekday-head ${d === today ? 'is-today' : ''}">周${WD_SHORT[d]}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${Array.from({ length: maxP }, (_, i) => i + 1).map((p) => {
+                const period = periodByNo.get(p);
+                const prev = periodByNo.get(p - 1);
+                const lunch = lunchGap(prev, period);
+                const lunchRow = lunch ? `
+                  <tr class="tt-lunch-row">
+                    <td colspan="${wd.length + 2}">
+                      <strong>午休</strong><span>${esc(lunch)}</span>
+                    </td>
+                  </tr>` : '';
+                return lunchRow + `
+                  <tr class="tt-period-row">
+                    <td class="tt-time-cell">
+                      <span>${esc(period ? timeRange(period.start_time, period.end_time) : '时间待设置')}</span>
+                    </td>
+                    <td class="tt-period-cell">第${p}节</td>
+                    ${wd.map((d) => {
+                      const course = get(d, p);
+                      const time = course ? courseTime(course, period) : '';
+                      const detail = course ? [course.subject, course.room].filter(Boolean).join(' · ') : '';
+                      const label = course
+                        ? [course.class_name || course.subject || '课程', time, detail].filter(Boolean).join('，')
+                        : '周' + WD_SHORT[d] + '第' + p + '节，点击新增课程';
+                      return `
+                        <td class="tt-slot ${course ? 'has-course' : 'is-empty'}"
+                          data-cell="${d}-${p}"
+                          ${course ? `data-course-id="${esc(course.id)}" draggable="true"` : ''}
+                          aria-label="${esc(label)}">
+                          ${course ? `
+                            <div class="tt-course-card" title="${esc(detail || label)}">
+                              <strong>${esc(course.class_name || course.subject || '课程')}</strong>
+                              <span>${esc(time)}</span>
+                            </div>` : '<span class="tt-empty-add" aria-hidden="true">＋</span>'}
+                        </td>`;
+                    }).join('')}
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="tt-summary-bar">
+          <span>本周共 ${courses.length} 节课程，按 4.3 周/月估算约 ${Math.round(courses.length * 4.3)} 节；实际以「上课」中的记录为准。</span>
+          <span>与「信息课教师工作台」的课表是同一份数据</span>
+        </div>
+      </section>`;
+
     let draggedCourseId = null;
     let suppressCellClick = false;
     box.querySelectorAll('[data-cell]').forEach((td) => {
       td.onclick = () => {
         if (suppressCellClick) { suppressCellClick = false; return; }
         const [d, p] = td.dataset.cell.split('-').map(Number);
-        courseEditor(get(d, p) || { weekday: d, period_no: p }, load);
+        const period = periodByNo.get(p) || {};
+        courseEditor(get(d, p) || {
+          weekday: d,
+          period_no: p,
+          start_time: period.start_time || '',
+          end_time: period.end_time || ''
+        }, load);
       };
       td.addEventListener('dragover', (event) => {
         if (!draggedCourseId) return;
@@ -880,9 +943,8 @@ async function renderTimetable(box) {
         const [toDay, toPeriod] = td.dataset.cell.split('-').map(Number);
         if (Number(source.weekday) === toDay && Number(source.period_no) === toPeriod) return;
         const target = get(toDay, toPeriod);
-        const periodMap = new Map(periods.map((item) => [Number(item.period_no), item]));
-        const sourceTime = periodMap.get(Number(source.period_no)) || {};
-        const targetTime = periodMap.get(toPeriod) || {};
+        const sourceTime = periodByNo.get(Number(source.period_no)) || {};
+        const targetTime = periodByNo.get(toPeriod) || {};
         try {
           const sourcePayload = {
             weekday: target ? Number(target.weekday) : toDay,
@@ -891,7 +953,8 @@ async function renderTimetable(box) {
             end_time: targetTime.end_time || (target ? target.end_time : '') || ''
           };
           const targetPayload = target ? {
-            weekday: Number(source.weekday), period_no: Number(source.period_no),
+            weekday: Number(source.weekday),
+            period_no: Number(source.period_no),
             start_time: sourceTime.start_time || target.start_time || '',
             end_time: sourceTime.end_time || target.end_time || ''
           } : null;
@@ -905,8 +968,10 @@ async function renderTimetable(box) {
           } catch (error) {
             if (target && targetUpdated) {
               await api.patch('/courses/' + target.id, {
-                weekday: Number(target.weekday), period_no: Number(target.period_no),
-                start_time: target.start_time || '', end_time: target.end_time || ''
+                weekday: Number(target.weekday),
+                period_no: Number(target.period_no),
+                start_time: target.start_time || '',
+                end_time: target.end_time || ''
               }).catch(() => {});
             }
             throw error;
@@ -937,10 +1002,15 @@ async function renderTimetable(box) {
       });
     });
     box.querySelector('#add-course').onclick = () => courseEditor(null, load);
-    box.querySelector('#import-tt').onclick = () => importTimetableDialog(load);
     box.querySelector('#edit-periods').onclick = () => periodEditor(periods, load);
-    box.querySelector('#print-tt').onclick = async () => {
+    box.querySelector('#import-tt').onclick = () => {
+      box.querySelector('.tt-more-actions').open = false;
+      importTimetableDialog(load);
+    };
+    box.querySelector('#print-tt').onclick = () => {
+      box.querySelector('.tt-more-actions').open = false;
       const w = window.open('', '_blank');
+      if (!w) return toast('浏览器拦截了打印窗口，请允许本站弹出窗口', 'warn');
       w.document.write(printTimetableHTML(courses, periods, maxP));
       w.document.close();
     };
@@ -1516,7 +1586,7 @@ function periodEditor(periods, reload) {
       <td><button class="icon-btn sm" data-delp="1">${icon('close', 14)}</button></td></tr>`).join('')}</tbody></table></div>
     <div class="row" style="margin-top:10px"><button class="btn ghost sm" id="addp">＋ 加一节</button><span style="flex:1"></span><button class="btn primary" id="savep">保存</button></div>
   </div>`);
-  const s = sheet({ title: '编辑节次时间', body, wide: true });
+  const s = sheet({ title: '作息设置', body, wide: true });
   body.querySelector('#addp').onclick = async () => {
     const next = (Math.max(0, ...periods.map((p) => Number(p.period_no))) || 0) + 1;
     await api.post('/periods', { period_no: next, name: `第${next}节`, start_time: '00:00', end_time: '00:00' });
