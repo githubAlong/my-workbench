@@ -2623,3 +2623,14 @@ html[data-theme="dark"] .home-redesign .home-weather-card { background:var(--car
   .home-redesign .home-clock-foot { gap:6px; font-size:11px; }
   .home-redesign .home-clock-foot strong { font-size:14px; }
 }
+
+/* 天气卡操作入口：城市/定位在右上角，详细天气固定在右下角 */
+.home-redesign .home-weather-card .home-card-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.home-redesign .home-weather-card #wx-city-pick { margin-left:auto; flex:0 0 auto; }
+.home-redesign .home-weather-card .home-weather-footer {
+  display:flex;
+  justify-content:flex-end;
+  align-items:center;
+  padding:0 18px 14px;
+}
+.home-redesign .home-weather-card #wx-more { margin:0; }
