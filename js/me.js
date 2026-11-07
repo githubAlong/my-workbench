@@ -194,6 +194,20 @@ async function renderMe(main) {
   renderAccountSettings(main.querySelector('#me-account-panel'), { inline: true });
   renderMessages(main.querySelector('#me-messages-panel'), { inline: true });
 
+  // 手动接管折叠行为：避免部分浏览器/页面样式下 details/summary 原生点击未切换。
+  // 整个标题栏（包括最右侧箭头）都可点击；再次点击恢复收起。
+  main.querySelectorAll('.me-accordion').forEach((section) => {
+    const summary = section.querySelector(':scope > summary.me-accordion-head');
+    if (!summary) return;
+    summary.setAttribute('aria-expanded', String(section.open));
+    summary.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      section.open = !section.open;
+      summary.setAttribute('aria-expanded', String(section.open));
+    });
+  });
+
   const avatarButton = main.querySelector('#avatar-btn');
   if (avatarButton) avatarButton.onclick = () => avatarSheet();
 
