@@ -2730,3 +2730,126 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
   .home-redesign .home-profile-role { font-size:12px; }
   .home-redesign .home-calendar-card .cal-legend { gap:7px 10px; padding:10px 14px 13px; }
 }
+
+
+/* 首页个人名片、每日一句喇叭与日历区域布局修正 */
+.home-redesign .home-profile-head {
+  display:grid;
+  grid-template-columns:60px minmax(150px,.9fr) minmax(220px,1.1fr);
+  align-items:center;
+  gap:12px;
+  min-width:0;
+  padding-right:78px;
+}
+.home-redesign .home-profile-info {
+  min-width:0;
+}
+.home-redesign .home-profile-details {
+  display:flex;
+  align-items:center;
+  align-content:center;
+  flex-wrap:wrap;
+  gap:4px 8px;
+  min-width:0;
+  color:var(--text-2);
+  font-size:12px;
+  font-weight:650;
+  line-height:1.65;
+}
+.home-redesign .home-profile-detail-item {
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+.home-redesign .home-profile-separator {
+  flex:0 0 auto;
+  color:var(--text-3);
+  font-weight:500;
+}
+.home-redesign .home-quote {
+  position:relative;
+  padding-bottom:30px;
+}
+.home-redesign .home-quote .quote-en {
+  display:block;
+  padding-right:0;
+}
+.home-redesign .home-quote .speak-btn {
+  position:absolute;
+  right:0;
+  bottom:0;
+  margin:0;
+}
+.home-redesign .home-quote .quote-author {
+  padding-right:36px;
+}
+.home-redesign .home-calendar-card .cal-title {
+  color:var(--text);
+  font-size:18px;
+  font-weight:850;
+  line-height:1.35;
+}
+.home-redesign .home-calendar-card .cal-grid {
+  display:grid;
+  flex:1 1 auto;
+  min-height:0;
+  grid-template-columns:repeat(7,minmax(0,1fr));
+  grid-auto-rows:minmax(34px,1fr);
+  align-content:stretch;
+  gap:5px 3px;
+}
+.home-redesign .home-calendar-card .cal-cell {
+  height:100%;
+  min-height:0;
+  aspect-ratio:auto;
+  border-radius:10px;
+}
+.home-redesign .home-calendar-card.is-day-open .cal-grid {
+  flex:0 0 auto;
+  grid-auto-rows:minmax(40px,auto);
+}
+.home-redesign .home-calendar-card.is-day-open .cal-day {
+  flex:1 1 auto;
+}
+@media(max-width:900px) {
+  .home-redesign .home-profile-head {
+    grid-template-columns:56px minmax(0,1fr);
+    align-items:center;
+    padding-right:72px;
+  }
+  .home-redesign .home-profile-head .ah-btn {
+    width:56px!important;
+    height:56px!important;
+    flex-basis:56px;
+  }
+  .home-redesign .home-profile-details {
+    grid-column:2;
+    margin-top:2px;
+    font-size:11px;
+  }
+  .home-redesign .home-calendar-card .cal-grid {
+    grid-auto-rows:minmax(32px,1fr);
+  }
+}
+@media(max-width:640px) {
+  .home-redesign .home-profile-head {
+    grid-template-columns:48px minmax(0,1fr);
+    gap:9px;
+  }
+  .home-redesign .home-profile-head .ah-btn {
+    width:48px!important;
+    height:48px!important;
+    flex-basis:48px;
+  }
+  .home-redesign .home-profile-details {
+    grid-column:1 / -1;
+    padding-left:57px;
+    font-size:11px;
+  }
+  .home-redesign .home-calendar-card .cal-title {
+    font-size:16px;
+  }
+  .home-redesign .home-calendar-card .cal-grid {
+    grid-auto-rows:minmax(30px,1fr);
+    gap:4px 2px;
+  }
+}
