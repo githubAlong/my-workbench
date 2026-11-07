@@ -543,6 +543,62 @@ let lastFootKey = '';
 
 registerView(async function home(main) {
   clearInterval(clockTimer);
+  main.innerHTML = `<div class="empty"><div class="em">⏳</div>正在准备今天的工作台…</div>`;
+  /* 不再自动申请定位权限。
+     原来首次进首页就调 locate()，桌面浏览器一律弹授权框；用户点了拒绝，
+     还要再吃一个红色「定位失败」的 toast——等于每开一次页面先添一次堵。
+     现在默认用上次选过的城市（从没选过就用北京），想定位的人自己点
+     「选城市 → 用当前位置定位」。定位从「默认动作」降级成「可选动作」。
+     面板第一行是城市名搜索：没人知道自己脚下的经纬度是多少，
+     输入「荆州」就该能切到荆州。 */
+  try { await loadWeather(); } catch (e) { /* 离线降级 */ }
+  // 必须显式带上浏览器本地日期：服务器可能跑在 UTC，跨零点时按它自己算
+  // 会把今天算成昨天，刚记的便签就变成「存进去却看不见」。
+  homeData = await api.get('/home', { date: ymd() });
+  renderHome();
+  /* 拉一次云端布局：另一台设备排过的话，这里自动换成那一套。
+     没登录云端、或云端没有记录时什么都不会发生，本地这份照常用。 */
+  pullLayoutCloud().catch(() => {});
+});
+
+/* 换城市之后统一走这里：先把天气真正换成新城市的，再只重绘天气区块。
+   两件事分开做是有意的——天气是外网请求，可能慢、可能失败；
+   失败了也不能让「城市名已经切了但温度还是旧的」这种半吊子状态留在页面上，
+   所以失败时把旧天气清掉，让界面老实显示「天气加载中…」。 */
+async function applyCityWeather() {
+  const brief = document.getElementById('wx-brief');
+  if (brief) brief.innerHTML = weatherBriefHTML();   // 先落城市名，别让用户以为没点上
+  try {
+    await loadWeather(true);
+  } catch {
+    state.weather = null;
+    toast('天气没拉到，可点天气卡右上角的刷新重试', 'warn');
+  }
+  renderWeatherOnly();
+}
+
+async function refreshHome() {
+  homeData = await api.get('/home', { date: ymd() }).catch(() => homeData);
+  renderHome();
+}
+
+function renderHome() {
+  const main = document.getElementById('main');
+  if (!main || !homeData) return;
+  const d = homeData;
+  const today = new Date();
+  const nick = state.user?.nickname || '老师';
+  /* 用户名要出现在问候里（「张老师，上午好」），但不能是「xx老师，上午好」这种叠字，
+     所以去掉结尾的「老师」再拼。全名只有一个字时退回「老师」，避免「王，上午好」。 */
+  const name = nick.replace(/老师$/, '').trim() || '老师';
+  const [defaultG1, defaultG2] = greetFor(name);
+  const g1 = defaultG1;
+  const g2 = defaultG2;
+  const profileSchoolSubject = [state.user?.school, state.user?.subject].filter(Boolean).join(' · ');
+  const profileRole = [state.user?.title, state.user?.grade_group].filter(Boolean).join(' · ');
+  const todayCourses = d.courses.filter((c) => c.date === d.date);
+
+  main.classList.add('home-redesign');
   main.innerHTML = `
   <div class="teacher-toolbar home-topbar">
     <div class="searchbar" id="searchbar">
