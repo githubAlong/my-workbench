@@ -101,7 +101,7 @@ test("high-two 2026 autumn timetable keeps source row numbers, lunch span and ti
     "period_no: 7, class_name: \"16班\"",
     "period_no: 9, class_name: \"15班\"",
     "period_no: 9, class_name: \"18班\"",
-    "13:[\\"21:10\\",\\"21:55\\"]",
+    '13:[\"21:10\",\"21:55\"]',
   ]) assert.ok(source.includes(marker), "missing exact source schedule marker: " + marker);
   assert.match(source, /await api\.patch\("\/courses\/" \+ target\.id, data\)/);
 });
