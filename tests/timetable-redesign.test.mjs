@@ -24,11 +24,12 @@ test("timetable normalizes imported period identifiers before rendering", () => 
   assert.match(source, /WINTER_PERIOD_TIMES/);
 });
 
-test("timetable rows use lesson order, with lunch between lessons 5 and 6", () => {
+test("timetable rows use the fixed early, nine-lesson and evening axis", () => {
   assert.match(source, /function periodOrder\(period\)/);
-  assert.match(source, /if \(name\.includes\('午休'\)\) return 5\.5/);
+  assert.match(source, /for \(const number of \[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10\]\)/);
   assert.match(source, /const orderDiff = periodOrder\(a\) - periodOrder\(b\)/);
-  assert.match(source, /samePeriodName\(period\.name, label\)/);
+  assert.match(source, /晚自习第一节/);
+  assert.match(source, /samePeriodName\(periodName\(period\), label\)/);
 });
 
 test("course editing supports editable weekday/period, free-text times and closeable sheet", () => {
