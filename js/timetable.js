@@ -360,7 +360,7 @@ export async function renderTimetable(box) {
       return '<tr><td class="tt-period-cell"><strong>' + esc(periodName(period)) + '</strong></td><td class="tt-time-cell"><span>' + esc(time || '时间待设置') + '</span></td>' + cells + '</tr>';
     }).join('');
     const title = appliedType === TYPE_WINTER && appliedGrade === '高二' ? '<div class="tt-grid-title">2026年秋季信息课表</div>' : '';
-    return title + '<div class="tt-grid-scroll"><table class="tt-grid-table tt-week-grid" aria-label="周课表"><colgroup><col class="tt-col-period">' + DAYS.map(() => '<col class="tt-col-day">').join('') + '</colgroup><thead><tr><th class="tt-grid-corner">节次</th>' + DAYS.map((day) => '<th class="tt-weekday-head ' + (day === new Date().getDay() ? 'is-today' : '') + '">' + DAY_NAMES[DAYS.indexOf(day)] + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    return title + '<div class="tt-grid-scroll"><table class="tt-grid-table tt-week-grid" aria-label="周课表"><colgroup><col class="tt-col-period"><col class="tt-col-time">' + DAYS.map(() => '<col class="tt-col-day">').join('') + '</colgroup><thead><tr><th class="tt-grid-corner">节次</th><th class="tt-grid-corner">时间</th>' + DAYS.map((day) => '<th class="tt-weekday-head ' + (day === new Date().getDay() ? 'is-today' : '') + '">' + DAY_NAMES[DAYS.indexOf(day)] + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
   function paint() {
