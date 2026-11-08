@@ -18,6 +18,13 @@ test("timetable implements the approved five page regions and grade/type apply b
   assert.match(source, /addEventListener\('click', async \(\) => \{\s*appliedType = typeSelect\.value/);
 });
 
+test("timetable rows use lesson order, with lunch between lessons 5 and 6", () => {
+  assert.match(source, /function periodOrder\(period\)/);
+  assert.match(source, /if \(name\.includes\('午休'\)\) return 5\.5/);
+  assert.match(source, /const orderDiff = periodOrder\(a\) - periodOrder\(b\)/);
+  assert.match(source, /samePeriodName\(period\.name, label\)/);
+});
+
 test("course editing supports editable weekday/period, free-text times and closeable sheet", () => {
   for (const token of ["tt-course-name", "tt-course-grade", "tt-course-weekday", "tt-course-period", "tt-course-start", "tt-course-end", "tt-course-class", "tt-course-cancel"]) {
     assert.ok(source.includes(token), "missing " + token);

@@ -84,12 +84,27 @@ function visibleByGrade(course, grade) {
 function courseKey(course) {
   return [course.weekday, course.period_no, course.grade, course.class_name, course.subject].map((x) => String(x || '').trim().toLowerCase()).join('|');
 }
+function periodOrder(period) {
+  const name = String(period?.name || '').trim();
+  if (/早自习|早读/.test(name)) return 0;
+  if (name.includes('午休')) return 5.5;
+  const number = parsePeriodNumber(name) || Number(period?.period_no) || 0;
+  return number;
+}
+function samePeriodName(a, b) {
+  const left = String(a || '').trim();
+  const right = String(b || '').trim();
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (left.includes('午休') || right.includes('午休')) return left.includes('午休') && right.includes('午休');
+  return periodOrder({ name: left }) > 0 && periodOrder({ name: left }) === periodOrder({ name: right });
+}
 function sortPeriods(periods) {
   return [...periods].sort((a, b) => {
+    const orderDiff = periodOrder(a) - periodOrder(b);
+    if (orderDiff) return orderDiff;
     const am = timeMinutes(a.start_time), bm = timeMinutes(b.start_time);
     if (am != null && bm != null && am !== bm) return am - bm;
-    if (am != null && bm == null) return -1;
-    if (am == null && bm != null) return 1;
     return Number(a.period_no) - Number(b.period_no);
   });
 }
@@ -465,7 +480,8 @@ export async function renderTimetable(box) {
   async function ensurePeriod(name, startTime, endTime) {
     const label = String(name || '').trim();
     if (!label) throw new Error('请填写节次名称');
-    let hit = allPeriods.find((period) => String(period.name || '').trim() === label);
+    let hit = allPeriods.find((period) => samePeriodName(period.name, label));
+    if (!hit) hit = allPeriods.find((period) => Number(period.period_no) === periodOrder({ name: label }) && periodOrder({ name: label }) > 0);
     if (hit) return hit;
     const nextNo = Math.max(0, ...allPeriods.map((period) => Number(period.period_no) || 0)) + 1;
     const lunch = label.includes('午休');
