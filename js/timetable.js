@@ -2,6 +2,7 @@ import { api, el, esc, toast, sheet, saving, confirmDialog, WD_SHORT, ymd } from
 import { state, icon, onViewLeave } from './ui.js';
 import { detectTimetable } from './ttimage.js';
 import { readXlsx, readDelimited } from './xlsx-lite.js';
+import { cleanPeriodTime, getCanonicalPeriodNumber, normalizeTimetablePeriods } from './timetable-periods.mjs';
 
 const DAYS = [1, 2, 3, 4, 5, 6, 0];
 const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
@@ -85,11 +86,7 @@ function courseKey(course) {
   return [course.weekday, course.period_no, course.grade, course.class_name, course.subject].map((x) => String(x || '').trim().toLowerCase()).join('|');
 }
 function periodOrder(period) {
-  const name = String(period?.name || '').trim();
-  if (/早自习|早读/.test(name)) return 0;
-  if (name.includes('午休')) return 5.5;
-  const number = parsePeriodNumber(name) || Number(period?.period_no) || 0;
-  return number;
+  return getCanonicalPeriodNumber(period) ?? 0;
 }
 function samePeriodName(a, b) {
   const left = String(a || '').trim();
@@ -123,14 +120,28 @@ function countdownText(ms) {
   const s = total % 60;
   return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':');
 }
+const WINTER_PERIOD_TIMES = {
+  1: ['08:00', '08:40'], 2: ['08:50', '09:30'], 3: ['10:00', '10:40'],
+  4: ['10:50', '11:30'], 5: ['11:40', '12:20'], 6: ['14:10', '14:50'],
+  7: ['15:20', '16:00'], 8: ['16:15', '16:55'], 9: ['17:05', '17:45'],
+  10: ['18:25', '18:40'], 11: ['19:30', '20:10'], 12: ['20:20', '21:00'],
+  13: ['21:10', '21:55'],
+};
 function periodName(period) {
-  return String(period?.name || ('第' + period?.period_no + '节'));
+  const name = String(period?.name || '').trim();
+  const number = getCanonicalPeriodNumber(period);
+  if (name && !/^第?\s*[一二三四五六七八九十\d]+\s*节$/.test(name)) return name;
+  if (number === 0) return '早自习';
+  if (number === 5.5) return '午休';
+  return number == null ? name : '第' + number + '节';
 }
 function courseTime(course, period, periodTimes, scheduleType) {
-  const override = periodTimes?.[scheduleType]?.[String(course?.period_no)] || {};
-  const start = override.start_time || course?.start_time || period?.start_time || '';
-  const end = override.end_time || course?.end_time || period?.end_time || '';
-  return start && end ? String(start).slice(0, 5) + '–' + String(end).slice(0, 5) : (start || end || '时间待设置');
+  const periodNo = getCanonicalPeriodNumber(course) ?? getCanonicalPeriodNumber(period);
+  const override = periodTimes?.[scheduleType]?.[String(periodNo)] || {};
+  const fallback = scheduleType === TYPE_WINTER ? WINTER_PERIOD_TIMES[periodNo] || [] : [];
+  const start = cleanPeriodTime(override.start_time) || cleanPeriodTime(course?.start_time) || cleanPeriodTime(period?.start_time) || fallback[0] || '';
+  const end = cleanPeriodTime(override.end_time) || cleanPeriodTime(course?.end_time) || cleanPeriodTime(period?.end_time) || fallback[1] || '';
+  return start && end ? start + '–' + end : (start || end || '时间待设置');
 }
 function gradeClassName(grade) {
   if (String(grade || '').includes('高二')) return 'tt-grade-2';
@@ -189,8 +200,17 @@ export async function renderTimetable(box) {
         api.get('/periods'),
         api.get('/me').catch(() => ({ settings: {} })),
       ]);
-      allCourses = Array.isArray(results[0]) ? results[0] : [];
-      allPeriods = Array.isArray(results[1]) ? results[1] : [];
+      const rawCourses = Array.isArray(results[0]) ? results[0] : [];
+      allCourses = rawCourses.map((course) => {
+        const number = getCanonicalPeriodNumber(course);
+        return {
+          ...course,
+          ...(number == null ? {} : { period_no: number }),
+          start_time: cleanPeriodTime(course.start_time),
+          end_time: cleanPeriodTime(course.end_time),
+        };
+      });
+      allPeriods = normalizeTimetablePeriods(Array.isArray(results[1]) ? results[1] : []);
       settings = parseJson(results[2]?.settings, {});
       const timetable = parseJson(settings.timetable, {});
       courseTypes = parseJson(timetable.courseTypes, {});
@@ -213,10 +233,11 @@ export async function renderTimetable(box) {
   function getPeriods(visibleCourses) {
     const byNo = new Map(allPeriods.map((period) => [Number(period.period_no), period]));
     for (const course of visibleCourses) {
-      const number = Number(course.period_no);
+      const number = getCanonicalPeriodNumber(course);
+      if (number == null) continue;
       if (!byNo.has(number)) byNo.set(number, {
         id: 'fallback-' + number, period_no: number,
-        name: '第' + number + '节', start_time: course.start_time || '', end_time: course.end_time || '',
+        name: periodName({ period_no: number }), start_time: course.start_time || '', end_time: course.end_time || '',
       });
     }
     return sortPeriods([...byNo.values()]);
@@ -298,11 +319,9 @@ export async function renderTimetable(box) {
     if (!periods.length) return '<div class="tt-state"><b>还没有设置上课节次</b><span>新增课程时输入节次名称即可自动创建。</span></div>';
     const rows = periods.map((period) => {
       const pNo = Number(period.period_no);
-      const rowCourses = courses.filter((course) => Number(course.period_no) === pNo);
-      const timeOverride = periodTimes?.[appliedType]?.[String(pNo)] || {};
+      const rowCourses = courses.filter((course) => getCanonicalPeriodNumber(course) === pNo);
       const firstCourse = rowCourses.find((course) => course.start_time || course.end_time) || {};
-      const time = (timeOverride.start_time || firstCourse.start_time || period.start_time || '') +
-        (timeOverride.end_time || firstCourse.end_time || period.end_time ? '–' + (timeOverride.end_time || firstCourse.end_time || period.end_time) : '');
+      const time = courseTime({ ...firstCourse, period_no: pNo }, period, periodTimes, appliedType);
       const cells = DAYS.map((day) => {
         const list = rowCourses.filter((course) => Number(course.weekday) === day);
         return '<td class="tt-slot ' + (list.length ? 'has-course' : 'is-empty') + '" data-slot="1" data-day="' + day + '" data-period="' + pNo + '">' +
@@ -480,8 +499,9 @@ export async function renderTimetable(box) {
   async function ensurePeriod(name, startTime, endTime) {
     const label = String(name || '').trim();
     if (!label) throw new Error('请填写节次名称');
-    let hit = allPeriods.find((period) => samePeriodName(period.name, label));
-    if (!hit) hit = allPeriods.find((period) => Number(period.period_no) === periodOrder({ name: label }) && periodOrder({ name: label }) > 0);
+    const requestedNo = getCanonicalPeriodNumber({ name: label });
+    let hit = allPeriods.find((period) => samePeriodName(periodName(period), label));
+    if (!hit && requestedNo != null) hit = allPeriods.find((period) => getCanonicalPeriodNumber(period) === requestedNo);
     if (hit) return hit;
     const nextNo = Math.max(0, ...allPeriods.map((period) => Number(period.period_no) || 0)) + 1;
     const lunch = label.includes('午休');
@@ -504,8 +524,9 @@ export async function renderTimetable(box) {
 
   function openCourseEditor(row, periods, preset = {}) {
     const isNew = !row?.id;
-    const period = periods.find((item) => Number(item.period_no) === Number(row?.period_no || preset.period_no)) || {};
-    const periodValue = row ? period.name || ('第' + row.period_no + '节') : (preset.period_name || '');
+    const requestedPeriodNo = getCanonicalPeriodNumber({ period_no: row?.period_no ?? preset.period_no, name: row?.period_name || preset.period_name || '' });
+    const period = periods.find((item) => getCanonicalPeriodNumber(item) === requestedPeriodNo) || {};
+    const periodValue = row ? periodName(period) || ('第' + requestedPeriodNo + '节') : (preset.period_name || '');
     const defaultLunch = String(periodValue).includes('午休');
     const body = el('<div class="sheet-body"><div class="form-grid">' +
       '<div class="field"><label class="field-label" for="tt-course-name">课程名称</label><input class="input" id="tt-course-name" value="' + esc(row?.subject || (defaultLunch ? '午休' : '')) + '" placeholder="如：语文课、数学课、英语课" required></div>' +
@@ -624,11 +645,9 @@ export async function renderTimetable(box) {
     const rows = [['节次 / 时间', ...DAY_NAMES]];
     for (const period of periods) {
       const pNo = Number(period.period_no);
-      const override = periodTimes?.[appliedType]?.[String(pNo)] || {};
-      const rowCourses = visible.filter((course) => Number(course.period_no) === pNo);
+      const rowCourses = visible.filter((course) => getCanonicalPeriodNumber(course) === pNo);
       const first = rowCourses.find((course) => course.start_time || course.end_time) || {};
-      const time = (override.start_time || first.start_time || period.start_time || '') +
-        (override.end_time || first.end_time || period.end_time ? '–' + (override.end_time || first.end_time || period.end_time) : '');
+      const time = courseTime({ ...first, period_no: pNo }, period, periodTimes, appliedType);
       const cells = DAYS.map((day) => rowCourses.filter((course) => Number(course.weekday) === day).map((course) =>
         [course.subject || '课程', gradeClass(course.grade, course.class_name), courseTime(course, period, periodTimes, appliedType)].filter(Boolean).join('\n')
       ).join('\n\n'));
@@ -774,10 +793,9 @@ export async function renderTimetable(box) {
       ctx.fillText(periodName(period), left / 2, y + 34);
       ctx.fillStyle = '#6B7280'; ctx.font = '11px "Microsoft YaHei",sans-serif';
       const pNo = Number(period.period_no);
-      const override = periodTimes?.[appliedType]?.[String(pNo)] || {};
-      const rowCourses = visible.filter((course) => Number(course.period_no) === pNo);
+      const rowCourses = visible.filter((course) => getCanonicalPeriodNumber(course) === pNo);
       const first = rowCourses.find((course) => course.start_time || course.end_time) || {};
-      const range = (override.start_time || first.start_time || period.start_time || '') + '–' + (override.end_time || first.end_time || period.end_time || '');
+      const range = courseTime({ ...first, period_no: pNo }, period, periodTimes, appliedType);
       ctx.fillText(range, left / 2, y + 56);
       for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
         const x = left + dayWidth * dayIndex;

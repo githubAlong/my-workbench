@@ -18,6 +18,12 @@ test("timetable implements the approved five page regions and grade/type apply b
   assert.match(source, /addEventListener\('click', async \(\) => \{\s*appliedType = typeSelect\.value/);
 });
 
+test("timetable normalizes imported period identifiers before rendering", () => {
+  assert.match(source, /normalizeTimetablePeriods/);
+  assert.match(source, /getCanonicalPeriodNumber\(course\)/);
+  assert.match(source, /WINTER_PERIOD_TIMES/);
+});
+
 test("timetable rows use lesson order, with lunch between lessons 5 and 6", () => {
   assert.match(source, /function periodOrder\(period\)/);
   assert.match(source, /if \(name\.includes\('午休'\)\) return 5\.5/);
