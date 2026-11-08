@@ -28,7 +28,10 @@ test("timetable rows use the fixed early, nine-lesson and evening axis", () => {
   assert.match(source, /function periodOrder\(period\)/);
   assert.match(source, /for \(const number of \[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10\]\)/);
   assert.match(source, /const orderDiff = periodOrder\(a\) - periodOrder\(b\)/);
-  assert.match(source, /晚自习第一节/);
+  assert.match(source, /晚一/);
+  assert.match(source, /晚二/);
+  assert.match(source, /晚三/);
+  assert.match(source, /晚四/);
   assert.match(source, /samePeriodName\(periodName\(period\), label\)/);
 });
 
