@@ -98,7 +98,7 @@ export async function renderClassRecords(root) {
     const types = new Map(TYPES.map(([key,label])=>[label,0]));
     const subjects = new Map();
     rows.forEach(r=>{const label=TYPE_LABEL[r.class_type] || r.class_type || '未分类';types.set(label,(types.get(label)||0)+1);const sub=String(r.subject||'').trim();if(sub)subjects.set(sub,(subjects.get(sub)||0)+1);});
-    const makeData = (map) => ({labels:[...map.keys()],datasets:[{data:[...map.values()],backgroundColor:[...map.keys()].map((_,i)=>chartColors[i%chartColors.length]),borderWidth:2,borderColor:'var(--card)'}]});
+    const makeData = (map) => ({labels:[...map.keys()],datasets:[{data:[...map.values()],backgroundColor:[...map.keys()].map((_,i)=>chartColors[i%chartColors.length]),borderWidth:2,borderColor:'#ffffff'}]});
     const options = {responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10,usePointStyle:true,padding:14}}}};
     if (chartType) {chartType.data=makeData(types);chartType.update();}
     else chartType=new ChartCtor(q('#cr-type-chart'),{type:'pie',data:makeData(types),options});
