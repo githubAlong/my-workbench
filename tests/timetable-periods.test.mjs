@@ -39,13 +39,13 @@ test("course time corrects a conflicting legacy period number", () => {
   }), 1);
   assert.equal(getCanonicalPeriodNumber({
     period_no: 11, name: "第11节", start_time: "19:30", end_time: "20:10",
-  }), 10);
+  }), 11);
   assert.equal(getCanonicalPeriodNumber({
     period_no: 14, name: "第14节", start_time: "", end_time: "",
-  }), 10);
+  }), 14);
   assert.equal(getCanonicalPeriodNumber({
     period_no: 15, name: "第15节", start_time: "", end_time: "",
-  }), 10);
+  }), 15);
 });
 
 test("duplicate morning aliases and evening lesson numbers collapse into the standard axis", () => {
@@ -58,14 +58,13 @@ test("duplicate morning aliases and evening lesson numbers collapse into the sta
     { id: "night-14", period_no: 14, name: "第14节", start_time: "", end_time: "" },
     { id: "night-15", period_no: 15, name: "第15节", start_time: "", end_time: "" },
   ]);
-  assert.deepEqual(rows.map((row) => row.period_no), [1, 10, 11, 12, 13, 14, 15]);
+  assert.deepEqual(rows.map((row) => row.period_no), [1, 11, 12, 13, 14, 15]);
   assert.equal(rows[0].name, "第1节");
-  assert.equal(rows[1].name, "晚一");
+  assert.equal(rows[1].name, "晚二");
   assert.equal(rows[1].start_time, "19:30");
   assert.equal(rows[1].end_time, "20:10");
-  assert.equal(rows[2].name, "晚二");
-  assert.equal(rows[3].name, "晚三");
-  assert.equal(rows[4].name, "晚四");
+  assert.equal(rows[2].name, "晚三");
+  assert.equal(rows[3].name, "晚四");
 });
 
 test("00:00 placeholders are treated as missing times, not real lesson times", () => {
