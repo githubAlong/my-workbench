@@ -4,7 +4,10 @@ function parsePeriodLabel(value) {
   if (!text) return null;
   if (/早自习|早读/.test(text)) return 0;
   if (/午休|午间休息/.test(text)) return 5.5;
-  if (/晚自习|晚一|晚二|晚三|晚四/.test(text)) return 10;
+  if (/晚四/.test(text)) return 13;
+  if (/晚三/.test(text)) return 12;
+  if (/晚二/.test(text)) return 11;
+  if (/晚一|晚自习/.test(text)) return 10;
 
   const numericOnly = text.match(/^\s*(\d+(?:\.\d+)?)\s*$/);
   if (numericOnly) {
@@ -35,7 +38,7 @@ export function cleanPeriodTime(value) {
 function canonicalNumber(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return null;
-  if (number >= 10 && number <= 15) return 10;
+  if (number >= 10 && number <= 15) return number;
   return number;
 }
 
@@ -80,7 +83,10 @@ export function getCanonicalPeriodNumber(record, options = {}) {
 
   if (/早自习|早读/.test(name)) return 0;
   if (/午休|午间休息/.test(name)) return 5.5;
-  if (/晚自习|晚一|晚二|晚三|晚四/.test(name)) return 10;
+  if (/晚四/.test(name)) return 13;
+  if (/晚三/.test(name)) return 12;
+  if (/晚二/.test(name)) return 11;
+  if (/晚一|晚自习/.test(name)) return 10;
 
   /* 时间是更可靠的纠错依据：旧数据可能把第一节误存成第10节。 */
   const byTime = isObject ? periodNumberFromTime(record, options) : null;
@@ -107,7 +113,10 @@ function normalizedPeriodName(period, number) {
   const chinese = ['', '第1节', '第2节', '第3节', '第4节', '第5节', '第6节', '第7节', '第8节', '第9节'];
   if (number === 0) return '早自习';
   if (number === 5.5) return '午休';
-  if (number === 10) return '晚自习第一节';
+  if (number === 10) return '晚一';
+  if (number === 11) return '晚二';
+  if (number === 12) return '晚三';
+  if (number === 13) return '晚四';
   if (number >= 1 && number <= 9) return chinese[number];
   if (name && !isGenericPeriodName(name)) return name;
   return number == null ? name : '第' + number + '节';
@@ -133,7 +142,7 @@ function mergePeriodRows(first, second, number) {
   const primaryName = normalizedPeriodName(primary, number);
   const secondaryName = normalizedPeriodName(secondary, number);
   const genericName = (value) => /^第\d+(?:\.\d+)?节$/.test(value);
-  const name = number === 10 ? '晚自习第一节'
+  const name = number === 10 ? '晚一'
     : genericName(primaryName) && !genericName(secondaryName) ? secondaryName : primaryName;
   const starts = [cleanPeriodTime(first.start_time), cleanPeriodTime(second.start_time)].filter(Boolean).sort();
   const ends = [cleanPeriodTime(first.end_time), cleanPeriodTime(second.end_time)].filter(Boolean).sort();
@@ -143,8 +152,8 @@ function mergePeriodRows(first, second, number) {
     id: primary.id ?? secondary.id,
     period_no: number,
     name: name || secondaryName,
-    start_time: number === 10 ? (starts[0] || '') : (cleanPeriodTime(primary.start_time) || cleanPeriodTime(secondary.start_time)),
-    end_time: number === 10 ? (ends[ends.length - 1] || '') : (cleanPeriodTime(primary.end_time) || cleanPeriodTime(secondary.end_time)),
+    start_time: cleanPeriodTime(primary.start_time) || cleanPeriodTime(secondary.start_time),
+    end_time: cleanPeriodTime(primary.end_time) || cleanPeriodTime(secondary.end_time),
   };
 }
 
