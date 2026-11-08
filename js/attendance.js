@@ -57,6 +57,7 @@ const TYPE_LABEL = { seat: '教师坐班表', research: '教师教研签到表',
 const TYPE_SHORT = { seat: '坐班表', research: '教研签到表', class: '上课检查表' };
 /* V1.0 always builds all three independent daily tables. */
 const TYPE_ORDER = ['seat', 'research', 'class'];
+const ATTENDANCE_WORKSPACE_TABS = new Set(['roster', 'seat', 'class', 'leave', 'stats']);
 let attendanceWorkspaceLiveOff = null;
 
 /* 两个主 tab。学校的考勤只管高一高二；要加年级走「＋」那个按钮。
@@ -153,8 +154,9 @@ export async function renderAttendance(box, opts = {}) {
   let viewDate = sessionStorage.getItem('wb_att_date') || dayStr();
   let selectedPeriod = String(sessionStorage.getItem('wb_att_period') || '1');
   let timeRange = sessionStorage.getItem('wb_att_time_range') || '全天';
-  // 每次进入年级工作台都从花名册开始；切换其他表只在本次工作台会话内生效。
-  let activeTab = 'roster';
+  // 恢复本次会话最后选中的页签，避免重新渲染时被强制退回花名册。
+  const savedTab = sessionStorage.getItem('wb_att_tab') || 'roster';
+  let activeTab = ATTENDANCE_WORKSPACE_TABS.has(savedTab) ? savedTab : 'roster';
   sessionStorage.setItem('wb_att_tab', activeTab);
   let gradesData = { grades: [], counts: {}, tabs: [] };
   let tables = [];
@@ -164,6 +166,8 @@ export async function renderAttendance(box, opts = {}) {
   let searchText = '';
   let subjectFilter = '';
   let busy = false;
+  let loadPending = false;
+  let pendingLoadOptions = null;
   let periodSchedule = [];
 
   const typeForTab = { seat: 'seat', research: 'research', class: 'class' };
@@ -226,7 +230,12 @@ export async function renderAttendance(box, opts = {}) {
   };
 
   const load = async ({ makeToday = true } = {}) => {
-    if (busy) return;
+    if (busy) {
+      // 当前请求尚未完成时保留最后一次刷新请求，不能丢弃页签/日期切换。
+      loadPending = true;
+      pendingLoadOptions = { makeToday };
+      return;
+    }
     busy = true;
     try {
       [gradesData, tables, periodSchedule] = await Promise.all([
@@ -285,12 +294,23 @@ export async function renderAttendance(box, opts = {}) {
         });
       }
       if (detail && activeTab === 'research') detail = await ensureResearchColumns(detail);
+      // 请求期间如有新的页签/日期操作，跳过旧视图绘制，交给排队的最新请求。
+      if (loadPending) return;
       dirty = false;
       paint();
     } catch (e) {
+      if (loadPending) return;
       box.innerHTML = `<div class="att-work-error">${esc(e.message || '考勤数据加载失败')}<button class="btn primary sm" id="att-work-retry">重新加载</button></div>`;
       box.querySelector('#att-work-retry')?.addEventListener('click', () => load());
-    } finally { busy = false; }
+    } finally {
+      busy = false;
+      if (loadPending) {
+        const nextOptions = pendingLoadOptions || { makeToday: false };
+        loadPending = false;
+        pendingLoadOptions = null;
+        void load(nextOptions);
+      }
+    }
   };
 
   const periodCols = () => getPeriodCols(detail);
@@ -458,15 +478,13 @@ export async function renderAttendance(box, opts = {}) {
 
     box.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => {
       const tab = b.dataset.tab;
-      activeTab = tab; sessionStorage.setItem('wb_att_tab', tab); searchText = ''; subjectFilter = '';
-      (async () => {
-        try {
-          if (!['roster', 'stats', 'leave'].includes(tab) && !listFor(tab).length) {
-            await createSlot({ date: viewDate, grade: activeGrade, type: tab, period: tab === 'research' ? '' : selectedPeriod });
-          }
-          await load({ makeToday: false });
-        } catch (e) { toast(e.message || '表格加载失败', 'err'); await load({ makeToday: false }); }
-      })();
+      if (!ATTENDANCE_WORKSPACE_TABS.has(tab)) return;
+      activeTab = tab;
+      sessionStorage.setItem('wb_att_tab', tab);
+      searchText = '';
+      subjectFilter = '';
+      // load() 负责按需创建当天表；若已有请求进行中，会自动排队刷新。
+      void load({ makeToday: false });
     });
     box.querySelector('#att-work-grade').onchange = (e) => { activeGrade = e.target.value; sessionStorage.setItem('wb_att_grade', activeGrade); load(); };
     box.querySelector('#att-work-create-group')?.addEventListener('click', async (event) => {
