@@ -4214,7 +4214,7 @@ export async function handle(method, path, query = {}, body = undefined) {
    漏写它不会报错，只会安静地走本地逻辑 —— 表现为「云端有数据但页面是空的」，
    这种 bug 最难查，所以这里单独写一句提醒。 */
 const CLOUD_TABLES = new Set([
-  'lessons', 'invigilations',
+  'class_records', 'invigilations',
   'attendance',        // 路由前缀：/attendance、/attendance/:id、/attendance/:id/rows
   'attendance_tables', // 前端删表走 /attendance_tables/:id
   'attendance_rows',
