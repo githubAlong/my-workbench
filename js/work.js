@@ -133,11 +133,15 @@ registerView(async function work(main, { tab, third }) {
   if (t === 'prep') return renderPreps(body);
   if (t === 'timetable') { headEl.remove(); return renderMyTimetable(body); }
   if (t === 'attendance') {
-    /* PRD 第 4 节：两级。第三段是年级（#/work/attendance/高一），
-       没有第三段就是年级列表页。中文要解码，URL 里是 %E9%AB%98%E4%B8%80。 */
+    /* 考勤管理两级入口：
+       没有年级参数时恢复原有年级总览；选择年级后进入当前考勤工作台。
+       中文年级名需要解码，URL 形如 #/work/attendance/高一。 */
     const grade = third ? decodeURIComponent(third) : '';
-    if (grade) headEl.innerHTML = pageHead('考勤管理', '按年级独立管理坐班、教研与上课记录；完成后人工确认生效');
-    else headEl.remove();
+    if (!grade) {
+      headEl.remove();
+      return renderAttendance(body);
+    }
+    headEl.innerHTML = pageHead('考勤管理', '按年级独立管理坐班、教研与上课记录；完成后人工确认生效');
     return renderAttendancePRD(body, { grade });
   }
   if (t === 'invigilation') return renderInvigilation(body);
