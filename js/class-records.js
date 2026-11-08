@@ -84,8 +84,16 @@ export async function renderClassRecords(root) {
   };
   const refreshCharts = async () => {
     if (!ChartCtor) {
-      try { const mod = await import('https://cdn.jsdelivr.net/npm/chart.js@4.4.7/auto/auto.js'); ChartCtor = mod.Chart || mod.default; }
-      catch { return; }
+      if (!window.Chart) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
+          script.onload = resolve; script.onerror = () => reject(new Error('图表组件加载失败'));
+          document.head.appendChild(script);
+        }).catch(() => { toast('图表加载失败，请检查网络后刷新页面', 'warn'); return; });
+      }
+      ChartCtor = window.Chart;
+      if (!ChartCtor) return;
     }
     const types = new Map(TYPES.map(([key,label])=>[label,0]));
     const subjects = new Map();
