@@ -428,7 +428,7 @@ export async function renderAttendance(box, opts = {}) {
       ? `<div class="att-work-double-grid">${renderRowsTable(rows.slice(0, seatMid))}${renderRowsTable(rows.slice(seatMid))}</div>`
       : renderRowsTable([]);
     const tableHTML = isSpecial ? `<div id="att-work-special" class="att-work-special"></div>` : isRoster ? rosterHTML : detail
-      ? `${classViewNote}${activeTab === 'seat' ? seatTablesHTML : renderRowsTable(rows)}`
+      ? `${classViewNote}${activeTab === 'seat' || activeTab === 'class' ? seatTablesHTML : renderRowsTable(rows)}`
       : `<div class="att-work-empty"><b>当天这张表尚未生成</b><p>请检查本年级花名册，或生成这张表后开始录入。</p><button class="btn primary sm" id="att-work-create">生成${esc(TYPE_SHORT[type] || '考勤表')}草稿</button></div>`;
 
 
