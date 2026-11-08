@@ -895,14 +895,7 @@ export async function createAttachment(meta) {
 /* 删附件走软删，和别处一致（回收站还能找回） */
 export const deleteAttachment = (id) => deleteRow('attachments', id);
 
-/* ---------------- 课时（保留原接口名，别的地方还在调） ---------------- */
-
-const ORDER = TABLES.lessons.order;
-
-export const listLessons = (query = {}) => listRows('lessons', query);
-export const createLesson = (body) => createRow('lessons', body);
-export const updateLesson = (id, body) => updateRow('lessons', id, body);
-export const deleteLesson = (id) => deleteRow('lessons', id);
+/* 上课记录统一使用 class_records，不再保留旧 lessons 云端接口。 */
 
 /* ---------------- 考勤：主表 + 明细 ---------------- */
 
