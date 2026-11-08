@@ -549,7 +549,8 @@ async function rest(path, opts = {}) {
       const sql = path.split('?')[0].startsWith('attachments') ? 'step4_attachments.sql'
         : path.split('?')[0].startsWith('attendance') ? 'step2_attendance_invigilation.sql'
           : path.split('?')[0].startsWith('invigilations') ? 'step2_attendance_invigilation.sql'
-            : 'step1_lessons.sql';
+            : path.split('?')[0].startsWith('class_records') ? 'step_class_records.sql'
+              : '请联系管理员检查对应数据表迁移';
       throw new Error(`云端还没建 ${path.split('?')[0]} 表：去 Supabase 的 SQL Editor 跑一遍 ${sql}`);
     }
     if (/row-level security/i.test(msg)) {
