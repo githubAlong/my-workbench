@@ -130,7 +130,7 @@ registerView(async function work(main, { tab, third }) {
       }[third] || '');
     }
   }
-  if (t === 'lessons') return renderLessons(body);
+  if (t === 'lessons') { const m = await import('./class-records.js'); return m.renderClassRecords(body); }
   if (t === 'prep') return renderPreps(body);
   if (t === 'timetable') { headEl.remove(); return renderMyTimetable(body); }
   if (t === 'attendance') {
