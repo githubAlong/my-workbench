@@ -247,7 +247,7 @@ export async function renderTimetable(box) {
     const byNo = new Map(allPeriods.map((period) => [Number(period.period_no), period]));
     /* 页面只显示固定节次轴：早自习、1–9 节、晚自习；旧数据里的 10–15
        已在归一化层并入晚自习，不再生成额外行。 */
-    for (const number of [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10]) {
+    for (const number of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       if (byNo.has(number)) continue;
       const fallback = periodDefaults(number, appliedType);
       byNo.set(number, {
