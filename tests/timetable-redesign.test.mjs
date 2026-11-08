@@ -85,7 +85,7 @@ test("timetable supports grade/type scoped period editing and high-two winter im
   assert.match(source, /periodDefinitions/);
   assert.match(source, /tt-import-high2/);
   assert.match(source, /导入2026秋季高二课表/);
-  assert.match(source, /grade: "高二"/);
+  assert.match(source, /grade:\s*"高二"/);
   assert.match(source, /subject: "信息技术"/);
   assert.match(source, /晚四/);
 });
@@ -101,7 +101,7 @@ test("high-two 2026 autumn timetable keeps source row numbers, lunch span and ti
     "period_no: 7, class_name: \"16班\"",
     "period_no: 9, class_name: \"15班\"",
     "period_no: 9, class_name: \"18班\"",
-    "period_no: 13",
+    "13:[\\"21:10\\",\\"21:55\\"]",
   ]) assert.ok(source.includes(marker), "missing exact source schedule marker: " + marker);
   assert.match(source, /await api\.patch\("\/courses\/" \+ target\.id, data\)/);
 });
