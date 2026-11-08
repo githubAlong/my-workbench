@@ -82,6 +82,7 @@ test("timetable supports grade/type scoped period editing and high-two winter im
   assert.match(source, /periodDefinitions/);
   assert.match(source, /tt-import-high2/);
   assert.match(source, /导入2026秋季高二课表/);
-  assert.match(source, /高二.*信息技术/);
+  assert.match(source, /grade: "高二"/);
+  assert.match(source, /subject: "信息技术"/);
   assert.match(source, /晚四/);
 });
