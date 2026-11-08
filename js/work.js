@@ -2,7 +2,6 @@ import { api, el, esc, clsName, startPoll, toast, sheet, saving, confirmDialog, 
 import { printStatement } from './pdfprint.js';
 import { registerView, state, icon, go, pageHead, onViewLeave, subCurrentOf, NAV } from './ui.js';
 import { renderAttendance } from './attendance.js';
-import { renderAttendancePRD } from './attendance-prd.js';
 import { renderTimetable as renderMyTimetable } from './timetable.js';
 import { detectTimetable } from './ttimage.js';
 import { loginBanner, hookBanner } from './auth.js';
@@ -145,7 +144,7 @@ registerView(async function work(main, { tab, third }) {
     const grade = third ? decodeURIComponent(third) : '';
     if (grade) headEl.innerHTML = pageHead('考勤管理', '按年级独立管理坐班、教研与上课记录；完成后人工确认生效');
     else headEl.remove();
-    return renderAttendancePRD(body, { grade });
+    return renderAttendance(body, { grade });
   }
   if (t === 'invigilation') return renderInvigilation(body);
   if (t === 'trips') return renderTrips(body);
