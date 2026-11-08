@@ -143,6 +143,9 @@ function periodName(period) {
   if (number === 0) return '早自习';
   if (number === 5.5) return '午休';
   if (number === 10) return name || '晚一';
+  if (number === 11) return name || '晚二';
+  if (number === 12) return name || '晚三';
+  if (number === 13) return name || '晚四';
   const labels = ['', '第一节', '第二节', '第三节', '第四节', '第五节', '第六节', '第七节', '第八节', '第九节'];
   if (number >= 1 && number <= 9) return labels[number];
   return name;
@@ -348,19 +351,16 @@ export async function renderTimetable(box) {
       const pNo = Number(period.period_no);
       const rowCourses = courses.filter((course) => getCanonicalPeriodNumber(course) === pNo);
       const firstCourse = rowCourses.find((course) => course.start_time || course.end_time) || {};
-      const time = courseTime({ ...firstCourse, period_no: pNo }, period, periodTimes, appliedType);
+      const time = courseTime({ ...firstCourse, period_no:pNo }, period, periodTimes, appliedType);
+      if (pNo === 5.5 || String(period.name || '').includes('午休')) return '<tr class="tt-lunch-row"><td class="tt-period-cell"><strong>午休</strong></td><td class="tt-lunch-cell" colspan="7"><span>' + esc(time || '12:20–14:10') + '</span></td></tr>';
       const cells = DAYS.map((day) => {
         const list = rowCourses.filter((course) => Number(course.weekday) === day);
-        return '<td class="tt-slot ' + (list.length ? 'has-course' : 'is-empty') + '" data-slot="1" data-day="' + day + '" data-period="' + pNo + '">' +
-          (list.length ? list.map((course) => renderCourse(course, period)).join('') : '<button class="tt-empty-add" type="button" aria-label="新增课程">＋</button>') +
-          '</td>';
+        return '<td class="tt-slot ' + (list.length ? 'has-course' : 'is-empty') + '" data-slot="1" data-day="' + day + '" data-period="' + pNo + '">' + (list.length ? list.map((course) => renderCourse(course, period)).join('') : '<button class="tt-empty-add" type="button" aria-label="新增课程">＋</button>') + '</td>';
       }).join('');
       return '<tr><td class="tt-period-cell"><strong>' + esc(periodName(period)) + '</strong><span>' + esc(time || '时间待设置') + '</span></td>' + cells + '</tr>';
     }).join('');
-    return '<div class="tt-grid-scroll"><table class="tt-grid-table tt-week-grid" aria-label="周课表">' +
-      '<colgroup><col class="tt-col-period">' + DAYS.map(() => '<col class="tt-col-day">').join('') + '</colgroup>' +
-      '<thead><tr><th class="tt-grid-corner">节次 / 时间</th>' + DAYS.map((day) => '<th class="tt-weekday-head ' + (day === new Date().getDay() ? 'is-today' : '') + '">' + DAY_NAMES[DAYS.indexOf(day)] + '</th>').join('') + '</tr></thead>' +
-      '<tbody>' + rows + '</tbody></table></div>';
+    const title = appliedType === TYPE_WINTER && appliedGrade === '高二' ? '<div class="tt-grid-title">2026年秋季信息课表</div>' : '';
+    return title + '<div class="tt-grid-scroll"><table class="tt-grid-table tt-week-grid" aria-label="周课表"><colgroup><col class="tt-col-period">' + DAYS.map(() => '<col class="tt-col-day">').join('') + '</colgroup><thead><tr><th class="tt-grid-corner">节次</th>' + DAYS.map((day) => '<th class="tt-weekday-head ' + (day === new Date().getDay() ? 'is-today' : '') + '">' + DAY_NAMES[DAYS.indexOf(day)] + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
   function paint() {
