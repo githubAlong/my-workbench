@@ -8,7 +8,7 @@
  * 一起迁过去；删除是软删（进回收站），提示里说清楚会连带删掉什么。
  */
 
-import { api, el, esc, toast, sheet, confirmDialog } from './core.js';
+import { api, el, esc, toast, sheet, confirmDialog, saving } from './core.js';
 
 /* 年级列表只显示用户在年级管理中实际创建的项目，不预置任何默认年级。 */
 export function gradeTabs(data) {
@@ -55,9 +55,8 @@ export async function gradeManageDialog(reload, onChanged) {
     </div>
     <div class="confirm-actions">
       <button class="btn ghost" id="gm-add">＋ 新建年级</button>
-      <button class="btn ghost" id="gm-rename">修改</button>
       <button class="btn ghost gm-del" id="gm-delete">删除</button>
-      <button class="btn primary" id="gm-close">关闭</button>
+      <button class="btn primary" id="gm-save">保存</button>
     </div>`;
     body.querySelectorAll('[data-g]').forEach((row) => {
       const choose = () => {
@@ -74,21 +73,20 @@ export async function gradeManageDialog(reload, onChanged) {
         if (event.key === 'Enter' || event.key === ' ') choose();
       });
     });
-    body.querySelector('#gm-rename').onclick = async () => {
+    saving(body.querySelector('#gm-save'), async () => {
       const old = selected;
-      const row = body.querySelector(`.gm-row[data-g="${CSS.escape(old)}"]`);
-      const name = String(row?.querySelector('.gm-name').value || '').trim();
       if (!old) return toast('请先选择一个年级', 'warn');
+      const row = body.querySelector(`.gm-row[data-g="${CSS.escape(old)}"]`);
+      const input = row?.querySelector('.gm-name');
+      const name = String(input?.value || '').trim();
       if (!name) return toast('年级名不能为空', 'warn');
-      if (name === old) return toast('名字没变', 'warn');
-      try {
-        const r = await api.patch('/grades/' + encodeURIComponent(old), { name });
-        selected = name;
-        toast(`已改名为「${name}」，${r?.migrated?.teachers ?? 0} 位老师、${r?.migrated?.tables ?? 0} 张表一起迁过去了`, 'ok', 4200);
-        await refresh();
-        onChanged?.();
-      } catch (e) { toast(e.message || '改名失败', 'err'); }
-    };
+      if (name === old) return toast('没有需要保存的修改', 'warn');
+      const r = await api.patch('/grades/' + encodeURIComponent(old), { name });
+      selected = name;
+      toast(`已保存「${name}」，${r?.migrated?.teachers ?? 0} 位老师、${r?.migrated?.tables ?? 0} 张表已同步更新`, 'ok', 4200);
+      s.close();
+      await onChanged?.();
+    });
     body.querySelector('#gm-delete').onclick = async () => {
       const g = selected;
       if (!g) return toast('请先选择一个年级', 'warn');
@@ -106,7 +104,6 @@ export async function gradeManageDialog(reload, onChanged) {
       } catch (e) { toast(e.message || '删除失败', 'err'); }
     };
     body.querySelector('#gm-add').onclick = () => { s.close(); addGradeDialog(() => { reload?.(); onChanged?.(); }); };
-    body.querySelector('#gm-close').onclick = s.close;
   };
   const refresh = async () => {
     data = await api.get('/grades').catch(() => data);
