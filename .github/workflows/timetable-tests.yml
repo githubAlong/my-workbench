@@ -3,11 +3,10 @@ name: Timetable import and drag checks
 on:
   push:
     branches:
-      - test
+      - dev
     paths:
       - "js/ttimage.js"
-      - "js/timetable.js"
-      - "js/timetable-periods.mjs"
+      - "js/work.js"
       - "tests/timetable-row-mapping.test.mjs"
       - ".github/workflows/timetable-tests.yml"
   pull_request:
@@ -33,7 +32,6 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           node --check js/ttimage.js
-          node --check js/timetable.js
-          node --check js/timetable-periods.mjs
+          node --check js/work.js
       - name: Test timetable lesson numbering
         run: node --test tests/timetable-row-mapping.test.mjs
