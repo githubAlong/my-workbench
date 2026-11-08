@@ -252,7 +252,7 @@ export async function renderTimetable(box) {
   function getPeriods(visibleCourses) {
     const key = appliedType + "|" + appliedGrade;
     const configured = periodDefinitions[key];
-    if (Array.isArray(configured) && configured.length) {
+    if (Array.isArray(configured)) {
       return [...configured].sort((a, b) => Number(a.order) - Number(b.order)).map((item) => ({
         id: item.id || "custom-" + item.period_no,
         period_no: Number(item.period_no),
@@ -261,16 +261,8 @@ export async function renderTimetable(box) {
         end_time: cleanPeriodTime(item.end_time),
       }));
     }
-    const byNo = new Map(allPeriods.map((period) => [Number(period.period_no), period]));
-    for (const number of [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9]) {
-      if (byNo.has(number)) continue;
-      const fallback = periodDefaults(number, appliedType);
-      byNo.set(number, {
-        id: "fallback-" + number, period_no: number,
-        name: periodName({ period_no: number }), start_time: fallback[0] || "", end_time: fallback[1] || "",
-      });
-    }
-    return sortPeriods([...byNo.values()].filter((period) => [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10].includes(Number(period.period_no))));
+    // 节次由用户作息配置决定；已清空的作息表必须保持空白，不能自动补回固定默认节次。
+    return sortPeriods(allPeriods);
   }
 
   function currentLesson(courses) {
@@ -667,19 +659,21 @@ export async function renderTimetable(box) {
     });
   }
 
-  async function ensurePeriod(name, startTime, endTime) {
+  async function ensurePeriod(name, startTime, endTime, requestedPeriodNo = null) {
     const label = String(name || '').trim();
     if (!label) throw new Error('请填写节次名称');
-    const requestedNo = getCanonicalPeriodNumber({ name: label });
+    const requestedNo = Number.isFinite(Number(requestedPeriodNo)) && requestedPeriodNo !== null
+      ? Number(requestedPeriodNo) : getCanonicalPeriodNumber({ name: label });
     let hit = allPeriods.find((period) => samePeriodName(periodName(period), label));
     if (!hit && requestedNo != null) hit = allPeriods.find((period) => getCanonicalPeriodNumber(period) === requestedNo);
     if (hit) return hit;
     const nextNo = Math.max(0, ...allPeriods.map((period) => Number(period.period_no) || 0)) + 1;
     const lunch = label.includes('午休');
     const created = await api.post('/periods', {
-      period_no: nextNo,
+      // 不能按“当前最大编号+1”分配：图片导入常从第3节开始出现有课单元格，前面空节次也必须保留编号。
+      period_no: requestedNo ?? nextNo,
       name: label,
-      start_time: normalizeTime(startTime) || (lunch ? '12:10' : '00:00'),
+      start_time: normalizeTime(startTime) || (lunch ? '12:20' : '00:00'),
       end_time: normalizeTime(endTime) || (lunch ? '14:10' : '00:00'),
     });
     allPeriods.push(created);
@@ -1024,15 +1018,24 @@ export async function renderTimetable(box) {
       const subject = selectedSubject();
       const defaultGrade = selectedGrade();
       if (rawImage) {
-        entries = rawImage.cells.map((cell) => ({
-          weekday: Number(cell.weekday),
-          periodLabel: '第' + Number(cell.periodGuess || 1) + '节',
-          subject,
-          grade: defaultGrade || '',
-          class_name: classFromText(cell.classGuess || '', defaultGrade),
-          start_time: '', end_time: '',
-          sourceText: cell.classGuess || '',
-        }));
+        const configKey = appliedType + "|" + (defaultGrade || appliedGrade);
+        const configuredRows = Array.isArray(periodDefinitions[configKey])
+          ? [...periodDefinitions[configKey]].sort((a, b) => Number(a.order) - Number(b.order)) : [];
+        entries = rawImage.cells.map((cell) => {
+          const rowIndex = Math.max(0, Number(cell.periodGuess || 1) - 1);
+          const configured = configuredRows[rowIndex];
+          return {
+            weekday: Number(cell.weekday) === 7 ? 0 : Number(cell.weekday),
+            periodGuess: Number(cell.periodGuess || 1),
+            periodNo: configured ? Number(configured.period_no) : Number(cell.periodGuess || 1),
+            periodLabel: configured?.name || ('第' + Number(cell.periodGuess || 1) + '节'),
+            subject,
+            grade: defaultGrade || '',
+            class_name: classFromText(cell.classGuess || '', defaultGrade),
+            start_time: configured?.start_time || '', end_time: configured?.end_time || '',
+            sourceText: cell.classGuess || '',
+          };
+        });
         sourceNote = '图片识别可定位有课单元格并读取班号；学科由你选择，橙色空白班级需要手动补全。';
       } else if (rawRows) {
         entries = parseScheduleRows(rawRows, subject, defaultGrade, body.querySelector('#tt-import-fill-subject').checked);
@@ -1145,15 +1148,23 @@ export async function renderTimetable(box) {
       const nextTypes = { ...courseTypes };
       const nextPeriodTimes = { ...periodTimes, [appliedType]: { ...(periodTimes?.[appliedType] || {}) } };
       for (const entry of entries) {
-        const periodRow = await ensurePeriod(entry.periodLabel, entry.start_time, entry.end_time);
+        const configKey = appliedType + "|" + (entry.grade || appliedGrade);
+        const configuredRows = Array.isArray(periodDefinitions[configKey])
+          ? [...periodDefinitions[configKey]].sort((a, b) => Number(a.order) - Number(b.order)) : [];
+        const configured = Number(entry.periodGuess) > 0 ? configuredRows[Number(entry.periodGuess) - 1] : null;
+        const requestedPeriodNo = entry.periodNo ?? configured?.period_no ?? getCanonicalPeriodNumber({ name: entry.periodLabel });
+        const periodLabel = configured?.name || entry.periodLabel;
+        const startTime = entry.start_time || configured?.start_time || '';
+        const endTime = entry.end_time || configured?.end_time || '';
+        const periodRow = await ensurePeriod(periodLabel, startTime, endTime, requestedPeriodNo);
         const candidate = {
-          weekday: Number(entry.weekday),
+          weekday: Number(entry.weekday) === 7 ? 0 : Number(entry.weekday),
           period_no: Number(periodRow.period_no),
           grade: entry.grade,
           class_name: entry.class_name,
           subject: entry.subject,
-          start_time: normalizeTime(entry.start_time) || periodRow.start_time || '',
-          end_time: normalizeTime(entry.end_time) || periodRow.end_time || '',
+          start_time: normalizeTime(startTime) || periodRow.start_time || '',
+          end_time: normalizeTime(endTime) || periodRow.end_time || '',
         };
         const key = courseKey(candidate);
         if (existingKeys.has(key)) continue;
