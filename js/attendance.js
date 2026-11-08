@@ -419,21 +419,27 @@ export async function renderAttendance(box, opts = {}) {
           <div><h2>${esc(activeGrade)} · 考勤</h2><div class="att-work-sync"><i></i> 数据已加载</div></div>
           <div class="att-work-head-actions">${!isRoster && !isSpecial ? '<button class="btn ghost sm" id="att-work-create-group">补齐三张表</button>' : ''}<select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
         </div>
-${isRoster || isSpecial ? '' : `<div class="att-work-meta-controls">
-          <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
-          <label>时间段 <select class="input" id="att-work-time-range"><option value="全天">全天</option><option value="上午">上午</option><option value="下午">下午</option></select></label>
-          ${activeTab === 'research' ? '' : `<label class="att-work-period-control">节次 <select class="input" id="att-work-period" aria-label="选择节次">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" ${String(p) === selectedPeriod ? 'selected' : ''}>第 ${p} 节</option>`).join('')}</select><span id="att-work-period-time" class="att-work-period-time">${esc(currentPeriodTime)}</span></label>`}
-          <span class="att-work-meta-hint">日期、时间段和节次可手动调整</span>
-        </div>`}
+        ${!isSpecial ? `<div class="att-work-sticky-controls">
+          ${isRoster ? '' : `<div class="att-work-meta-controls">
+            <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
+            <label>时间段 <select class="input" id="att-work-time-range"><option value="全天">全天</option><option value="上午">上午</option><option value="下午">下午</option></select></label>
+            ${activeTab === 'research' ? '' : `<label class="att-work-period-control">节次 <select class="input" id="att-work-period" aria-label="选择节次">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" ${String(p) === selectedPeriod ? 'selected' : ''}>第 ${p} 节</option>`).join('')}</select><span id="att-work-period-time" class="att-work-period-time">${esc(currentPeriodTime)}</span></label>`}
+            <span class="att-work-meta-hint">日期、时间段和节次可手动调整</span>
+          </div>`}
+          <div class="att-work-subjectbar">${subjectButtons}</div>
+        </div>` : ''}
         <nav class="att-work-tabs" aria-label="考勤管理页签">
-          <button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button><button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button><button data-tab="stats" class="${activeTab === 'stats' ? 'on' : ''}">统计</button><button data-tab="leave" class="${activeTab === 'leave' ? 'on' : ''}">请假</button>
+          <button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button>
+          <button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button>
+          <button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button>
+          <button data-tab="leave" class="${activeTab === 'leave' ? 'on' : ''}">请假</button>
+          <button data-tab="stats" class="${activeTab === 'stats' ? 'on' : ''}">统计</button>
         </nav>
         ${isRoster || isSpecial ? '' : `<div class="att-work-stats">${(st.items || []).map((item) => `<div class="aw-stat ${item.tone || ''}"><span>${item.label}</span><b>${item.value}</b><small>人</small></div>`).join('')}</div>`}
         <section class="att-work-panel">
           ${isSpecial ? `<div id="att-work-special" class="att-work-special"></div>` : `
 
           <div class="att-work-toolbar">
-            ${subjectButtons}
             <input class="input aw-search" id="att-work-search" placeholder="⌕ 搜索教师姓名" value="${esc(searchText)}">
             ${isRoster ? `<button class="btn primary sm" id="att-work-add">＋ 管理花名册</button><button class="btn ghost sm" id="att-work-photo">${icon('camera', 14)} 拍照建册</button>` : `<button class="btn ghost sm" id="att-work-photo">${icon('camera', 14)} 拍照导入</button><button class="btn primary sm" id="att-work-voice">${icon('mic', 14)} 语音录入</button>${isClass ? `<button class="btn ghost sm" id="att-work-add">＋ 新增临时老师</button>` : ''}`}
             <span class="att-work-spacer"></span>
