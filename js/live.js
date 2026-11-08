@@ -41,7 +41,6 @@ export function registerLiveHook(fn) {
    否则切回来会发现课时页被重置了筛选条件。 */
 const AFFECTS = {
   class_records: ['work/lessons', 'home'],
-  lessons: ['work/lessons', 'work/prep', 'home'],
   invigilations: ['work/invigilation', 'home'],
   attendance_tables: ['work/attendance', 'home'],
   attendance_rows: ['work/attendance', 'home'],
