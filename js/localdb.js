@@ -33,7 +33,6 @@ export const TABLES = {
   periods: ['period_no', 'name', 'start_time', 'end_time'],
   courses: ['weekday', 'period_no', 'start_time', 'end_time', 'start_date', 'end_date', 'grade', 'class_name', 'subject', 'room', 'weeks', 'color', 'remark'],
   class_records: ['class_type', 'subject', 'class_name', 'class_time', 'related_person', 'amount', 'pay_time', 'pay_status', 'remark', 'class_month'],
-  lessons: ['date', 'period_no', 'time_range', 'start_time', 'end_time', 'grade', 'class_name', 'subject', 'teacher', 'substitute', 'sub_type', 'sub_note', 'content', 'progress', 'next_content', 'discipline', 'hours', 'remark', 'peer_name', 'peer_id', 'orig_teacher', 'pay_hours', 'unit_price', 'pay_amount', 'settle_note', 'swap_from', 'swap_to', 'settled_at', 'settle_key'],
   invigilations: ['date', 'type', 'person', 'subject', 'grade', 'start_at', 'end_at', 'minutes', 'amount', 'paid', 'place', 'need_paper', 'paper_place', 'remark', 'exam_name', 'duty_type', 'peer_name', 'peer_id', 'start_time', 'end_time', 'duration_min', 'room', 'seat_count', 'pay_amount', 'pay_rule', 'pay_note', 'settled_at', 'settle_key', 'status', 'school_paid'],
   trips: ['start_date', 'end_date', 'from_place', 'to_place', 'reason', 'companions', 'km', 'toll', 'parking', 'other', 'status', 'approve_note', 'remark', 'days', 'hotel', 'transport', 'taxi', 'subsidy_food', 'subsidy_local', 'advance', 'reimb_status', 'paid_at'],
   materials: ['category_id', 'title', 'grade', 'class_name', 'descr', 'public'],
@@ -64,7 +63,7 @@ export const TABLES = {
 };
 
 /* 序号作用域：服务端用 seqs 表按用户维护连续编号 */
-const SEQ_SCOPE = { lessons: 'lesson', invigilations: 'invig', trips: 'trip', materials: 'material', notes: 'note', homework: 'homework', studies: 'study', preps: 'prep', selfstudy: 'selfstudy', repairs: 'repair' };
+const SEQ_SCOPE = { invigilations: 'invig', trips: 'trip', materials: 'material', notes: 'note', homework: 'homework', studies: 'study', preps: 'prep', selfstudy: 'selfstudy', repairs: 'repair' };
 
 /* ---------------- 存取 ---------------- */
 let _db = null;
@@ -166,7 +165,6 @@ function nextSeq(t) {
 const ORDER = {
   courses: (a, b) => (a.weekday - b.weekday) || ((a.period_no || 0) - (b.period_no || 0)),
   class_records: (a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || (b.id - a.id),
-  lessons: (a, b) => String(b.date).localeCompare(String(a.date)) || ((b.period_no || 0) - (a.period_no || 0)),
   preps: (a, b) => String(b.date).localeCompare(String(a.date)) || (b.id - a.id),
   selfstudy: (a, b) => String(b.date).localeCompare(String(a.date)) || ((b.period_no || 0) - (a.period_no || 0)) || (b.id - a.id),
   repairs: (a, b) => {
