@@ -88,6 +88,15 @@ export function getCanonicalPeriodNumber(record, options = {}) {
   if (/晚二|晚自习第?二节/.test(name)) return 11;
   if (/晚一|晚自习第?一节|晚自习/.test(name)) return 10;
 
+  /* 晚间节次10–15优先保留原编号；只有时间明确落在早间1–9节时才纠正旧数据错号。 */
+  const rawNumber = parsePeriodLabel(raw);
+  if (isObject && rawNumber >= 10 && rawNumber <= 15) {
+    const start = cleanPeriodTime(record.start_time), end = cleanPeriodTime(record.end_time);
+    const morning = periodNumberFromTime({ start_time: start, end_time: end }, options);
+    if (morning != null && morning >= 1 && morning <= 9) return morning;
+    return rawNumber;
+  }
+
   /* 时间是更可靠的纠错依据：旧数据可能把第一节误存成第10节。 */
   const byTime = isObject ? periodNumberFromTime(record, options) : null;
   if (byTime != null) return byTime;
