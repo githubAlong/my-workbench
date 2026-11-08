@@ -22,7 +22,7 @@ export const ATTENDANCE_COLUMNS = {
 };
 
 export function nextTriState(value) {
-  return value === 'y' ? 'n' : value === 'n' ? 'u' : 'y';
+  return value === 'y' ? 'n' : 'y';
 }
 
 export function leaveCoversDate(leave, date) {
