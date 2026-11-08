@@ -57,7 +57,7 @@ test("duplicate morning aliases and evening lesson numbers collapse into the sta
     { id: "night-15", period_no: 15, name: "第15节", start_time: "", end_time: "" },
   ]);
   assert.deepEqual(rows.map((row) => row.period_no), [1, 10]);
-  assert.equal(rows[0].name, "第一节");
+  assert.equal(rows[0].name, "第1节");
   assert.equal(rows[1].name, "晚自习第一节");
   assert.equal(rows[1].start_time, "19:30");
   assert.equal(rows[1].end_time, "21:55");
