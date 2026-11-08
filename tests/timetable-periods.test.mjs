@@ -7,7 +7,9 @@ test("Arabic and Chinese lesson labels resolve to one canonical period number", 
   assert.equal(getCanonicalPeriodNumber({ period_no: "第一节", name: "第一节" }), 1);
   assert.equal(getCanonicalPeriodNumber({ period_no: 3, name: "第三节" }), 3);
   assert.equal(getCanonicalPeriodNumber({ name: "晚自习一" }), 10);
-  assert.equal(getCanonicalPeriodNumber({ name: "晚自习第二节", period_no: 12 }), 10);
+  assert.equal(getCanonicalPeriodNumber({ name: "晚自习第二节", period_no: 12 }), 11);
+  assert.equal(getCanonicalPeriodNumber({ name: "晚三", period_no: 12 }), 12);
+  assert.equal(getCanonicalPeriodNumber({ name: "晚四", period_no: 13 }), 13);
   assert.equal(getCanonicalPeriodNumber({ name: "午休" }), 5.5);
 });
 
@@ -56,15 +58,29 @@ test("duplicate morning aliases and evening lesson numbers collapse into the sta
     { id: "night-14", period_no: 14, name: "第14节", start_time: "", end_time: "" },
     { id: "night-15", period_no: 15, name: "第15节", start_time: "", end_time: "" },
   ]);
-  assert.deepEqual(rows.map((row) => row.period_no), [1, 10]);
+  assert.deepEqual(rows.map((row) => row.period_no), [1, 10, 11, 12, 13, 14, 15]);
   assert.equal(rows[0].name, "第1节");
-  assert.equal(rows[1].name, "晚自习第一节");
+  assert.equal(rows[1].name, "晚一");
   assert.equal(rows[1].start_time, "19:30");
-  assert.equal(rows[1].end_time, "21:55");
+  assert.equal(rows[1].end_time, "20:10");
+  assert.equal(rows[2].name, "晚二");
+  assert.equal(rows[3].name, "晚三");
+  assert.equal(rows[4].name, "晚四");
 });
 
 test("00:00 placeholders are treated as missing times, not real lesson times", () => {
   assert.equal(cleanPeriodTime("00:00"), "");
   assert.equal(cleanPeriodTime("8:00"), "08:00");
   assert.equal(cleanPeriodTime("08:40"), "08:40");
+});
+
+test("four evening periods remain separate", () => {
+  const rows = normalizeTimetablePeriods([
+    { id: "late-1", period_no: 10, name: "晚一", start_time: "18:25", end_time: "18:40" },
+    { id: "late-2", period_no: 11, name: "晚二", start_time: "19:30", end_time: "20:10" },
+    { id: "late-3", period_no: 12, name: "晚三", start_time: "20:20", end_time: "21:00" },
+    { id: "late-4", period_no: 13, name: "晚四", start_time: "21:10", end_time: "21:55" },
+  ]);
+  assert.deepEqual(rows.map((row) => row.period_no), [10, 11, 12, 13]);
+  assert.deepEqual(rows.map((row) => row.name), ["晚一", "晚二", "晚三", "晚四"]);
 });
