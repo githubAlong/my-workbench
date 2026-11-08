@@ -12,6 +12,8 @@ test('class records page presents a course dashboard', () => {
     'id="cr-month-normal"',
     'id="cr-month-substitute"',
     'id="cr-month-swap"',
+    '上课类型分布',
+    '学科分布',
     'id="cr-record-grid"',
     'cr-record-card',
     'data-edit=',
@@ -29,10 +31,4 @@ test('class records dashboard keeps all four lesson types and monthly export', (
   assert.ok(source.includes('currentMonthKey()'));
   assert.ok(source.includes('rowMonth(r) === month'));
   assert.ok(source.includes('上课记录统计_'));
-});
-
-test('class records page removes both distribution chart sections and chart loading', () => {
-  assert.doesNotMatch(source, /上课类型分布|学科分布|cr-chart-grid|cr-type-chart|cr-subject-chart|refreshCharts|ChartCtor/);
-  assert.match(source, /cr-month-total/);
-  assert.match(source, /cr-record-grid/);
 });

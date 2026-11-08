@@ -26,12 +26,9 @@ test("timetable normalizes imported period identifiers before rendering", () => 
 
 test("timetable rows use the fixed early, nine-lesson and evening axis", () => {
   assert.match(source, /function periodOrder\(period\)/);
-  assert.match(source, /for \(const number of \[0, 1, 2, 3, 4, 5, 5\.5, 6, 7, 8, 9\]\)/);
+  assert.match(source, /for \(const number of \[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10\]\)/);
   assert.match(source, /const orderDiff = periodOrder\(a\) - periodOrder\(b\)/);
-  assert.match(source, /晚一/);
-  assert.match(source, /晚二/);
-  assert.match(source, /晚三/);
-  assert.match(source, /晚四/);
+  assert.match(source, /晚自习第一节/);
   assert.match(source, /samePeriodName\(periodName\(period\), label\)/);
 });
 
@@ -77,31 +74,4 @@ test("empty, loading and error states are present", () => {
   assert.match(source, /正在加载课表/);
   assert.match(source, /课表加载失败/);
   assert.match(source, /当前课表还没有课程/);
-});
-
-test("timetable supports grade/type scoped period editing and high-two winter import", () => {
-  assert.match(source, /tt-period-settings/);
-  assert.match(source, /function openPeriodSettings/);
-  assert.match(source, /periodDefinitions/);
-  assert.match(source, /tt-import-high2/);
-  assert.match(source, /导入2026秋季高二课表/);
-  assert.match(source, /grade:\s*"高二"/);
-  assert.match(source, /subject: "信息技术"/);
-  assert.match(source, /晚四/);
-});
-
-test("high-two 2026 autumn timetable keeps source row numbers, lunch span and title", () => {
-  for (const marker of [
-    "2026年秋季信息课表",
-    "colspan=\"7\"",
-    "period_no: 1, class_name: \"11班\"",
-    "period_no: 3, class_name: \"5班\"",
-    "period_no: 5, class_name: \"7班\"",
-    "period_no: 6, class_name: \"9班\"",
-    "period_no: 7, class_name: \"16班\"",
-    "period_no: 9, class_name: \"15班\"",
-    "period_no: 9, class_name: \"18班\"",
-    '13:[\"21:10\",\"21:55\"]',
-  ]) assert.ok(source.includes(marker), "missing exact source schedule marker: " + marker);
-  assert.match(source, /await api\.patch\("\/courses\/" \+ target\.id, data\)/);
 });

@@ -90,17 +90,3 @@
 .tt-import-empty{padding:15px;color:var(--text-3);font-size:12px}
 @media(max-width:900px){.tt-workspace-head{align-items:flex-start}.tt-grid-table{min-width:1100px}.tt-summary-bar{align-items:flex-start;flex-direction:column;gap:4px}}
 @media(max-width:640px){.tt-workspace-head{flex-direction:column;gap:9px}.tt-toolbar-actions{width:100%;justify-content:flex-start}.tt-reminder{align-items:flex-start;gap:10px;padding:14px;flex-wrap:wrap}.tt-reminder-date{min-width:84px;padding-right:10px}.tt-reminder-weekday{font-size:18px}.tt-reminder-countdown{margin-left:auto}.tt-reminder-number{font-size:22px}.tt-query-item{flex:1;min-width:130px}.tt-query-item select{min-width:0;width:100%}.tt-import-settings{grid-template-columns:1fr}.tt-export-options{gap:6px}.tt-export-option{padding:12px 5px}}
-
-.tt-period-editor-row{display:grid;grid-template-columns:minmax(130px,1.4fr) minmax(90px,1fr) minmax(90px,1fr) repeat(3,auto);align-items:center;gap:7px;margin:8px 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg-sunken)}
-.tt-period-editor-row .input{min-width:0;width:100%}
-@media(max-width:720px){.tt-period-editor-row{grid-template-columns:1fr 1fr;}.tt-period-editor-row input:first-child{grid-column:1/-1}}
-
-.tt-grid-title{padding:12px 10px;text-align:center;border:1px solid var(--line);border-bottom:0;border-radius:9px 9px 0 0;background:var(--card);color:#7b4aa6;font-size:22px;font-weight:600;letter-spacing:2px}
-.tt-grid-title+.tt-grid-scroll{border-top-left-radius:0;border-top-right-radius:0}
-.tt-lunch-row .tt-period-cell{font-weight:700}
-.tt-lunch-cell{height:48px!important;background:var(--bg-sunken)!important;text-align:center!important;color:var(--primary)!important;font-weight:700;font-size:13px;letter-spacing:1px}
-
-.tt-grid-table .tt-col-period{width:58px}
-.tt-grid-table .tt-col-time{width:128px}
-.tt-grid-table .tt-time-cell{background:var(--card);color:var(--text-2);text-align:center;white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums}
-.tt-grid-table .tt-time-cell span{display:block}

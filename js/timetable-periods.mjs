@@ -4,10 +4,7 @@ function parsePeriodLabel(value) {
   if (!text) return null;
   if (/早自习|早读/.test(text)) return 0;
   if (/午休|午间休息/.test(text)) return 5.5;
-  if (/晚四|晚自习第?四节/.test(text)) return 13;
-  if (/晚三|晚自习第?三节/.test(text)) return 12;
-  if (/晚二|晚自习第?二节/.test(text)) return 11;
-  if (/晚一|晚自习第?一节|晚自习/.test(text)) return 10;
+  if (/晚自习|晚一|晚二|晚三|晚四/.test(text)) return 10;
 
   const numericOnly = text.match(/^\s*(\d+(?:\.\d+)?)\s*$/);
   if (numericOnly) {
@@ -38,7 +35,7 @@ export function cleanPeriodTime(value) {
 function canonicalNumber(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return null;
-  if (number >= 10 && number <= 15) return number;
+  if (number >= 10 && number <= 15) return 10;
   return number;
 }
 
@@ -64,8 +61,8 @@ function periodNumberFromTime(record, options = {}) {
     ['15:20', '16:00', 7], ['16:00', '16:45', 7],
     ['16:15', '16:55', 8], ['16:55', '17:40', 8],
     ['17:05', '17:45', 9], ['17:50', '18:35', 9],
-    ['18:25', '18:40', 10], ['19:00', '19:45', 10], ['19:30', '20:10', 11],
-    ['20:20', '21:00', 12], ['21:10', '21:55', 13],
+    ['19:00', '19:45', 10], ['19:30', '20:10', 10],
+    ['20:20', '21:00', 10], ['21:10', '21:55', 10],
   ];
   const match = known.find(([from, to]) => from === start && to === end);
   return match ? match[2] : null;
@@ -83,19 +80,7 @@ export function getCanonicalPeriodNumber(record, options = {}) {
 
   if (/早自习|早读/.test(name)) return 0;
   if (/午休|午间休息/.test(name)) return 5.5;
-  if (/晚四|晚自习第?四节/.test(name)) return 13;
-  if (/晚三|晚自习第?三节/.test(name)) return 12;
-  if (/晚二|晚自习第?二节/.test(name)) return 11;
-  if (/晚一|晚自习第?一节|晚自习/.test(name)) return 10;
-
-  /* 晚间节次10–15优先保留原编号；只有时间明确落在早间1–9节时才纠正旧数据错号。 */
-  const rawNumber = parsePeriodLabel(raw);
-  if (isObject && rawNumber >= 10 && rawNumber <= 15) {
-    const start = cleanPeriodTime(record.start_time), end = cleanPeriodTime(record.end_time);
-    const morning = periodNumberFromTime({ start_time: start, end_time: end }, options);
-    if (morning != null && morning >= 1 && morning <= 9) return morning;
-    return rawNumber;
-  }
+  if (/晚自习|晚一|晚二|晚三|晚四/.test(name)) return 10;
 
   /* 时间是更可靠的纠错依据：旧数据可能把第一节误存成第10节。 */
   const byTime = isObject ? periodNumberFromTime(record, options) : null;
@@ -106,7 +91,7 @@ export function getCanonicalPeriodNumber(record, options = {}) {
 
   const byRaw = parsePeriodLabel(raw);
   if (byRaw != null) {
-    if (byRaw >= 10 && byRaw <= 15) return byRaw;
+    if (byRaw >= 10 && byRaw <= 15) return 10;
     if (byRaw >= 1 && byRaw <= 9) return byRaw;
     if (byRaw === 0 || byRaw === 5.5) return byRaw;
     if (byRaw > 15 && isObject && !isGenericPeriodName(name) &&
@@ -122,10 +107,7 @@ function normalizedPeriodName(period, number) {
   const chinese = ['', '第1节', '第2节', '第3节', '第4节', '第5节', '第6节', '第7节', '第8节', '第9节'];
   if (number === 0) return '早自习';
   if (number === 5.5) return '午休';
-  if (number === 10) return '晚一';
-  if (number === 11) return '晚二';
-  if (number === 12) return '晚三';
-  if (number === 13) return '晚四';
+  if (number === 10) return '晚自习第一节';
   if (number >= 1 && number <= 9) return chinese[number];
   if (name && !isGenericPeriodName(name)) return name;
   return number == null ? name : '第' + number + '节';
@@ -151,7 +133,7 @@ function mergePeriodRows(first, second, number) {
   const primaryName = normalizedPeriodName(primary, number);
   const secondaryName = normalizedPeriodName(secondary, number);
   const genericName = (value) => /^第\d+(?:\.\d+)?节$/.test(value);
-  const name = number === 10 ? '晚一'
+  const name = number === 10 ? '晚自习第一节'
     : genericName(primaryName) && !genericName(secondaryName) ? secondaryName : primaryName;
   const starts = [cleanPeriodTime(first.start_time), cleanPeriodTime(second.start_time)].filter(Boolean).sort();
   const ends = [cleanPeriodTime(first.end_time), cleanPeriodTime(second.end_time)].filter(Boolean).sort();
@@ -161,8 +143,8 @@ function mergePeriodRows(first, second, number) {
     id: primary.id ?? secondary.id,
     period_no: number,
     name: name || secondaryName,
-    start_time: cleanPeriodTime(primary.start_time) || cleanPeriodTime(secondary.start_time),
-    end_time: cleanPeriodTime(primary.end_time) || cleanPeriodTime(secondary.end_time),
+    start_time: number === 10 ? (starts[0] || '') : (cleanPeriodTime(primary.start_time) || cleanPeriodTime(secondary.start_time)),
+    end_time: number === 10 ? (ends[ends.length - 1] || '') : (cleanPeriodTime(primary.end_time) || cleanPeriodTime(secondary.end_time)),
   };
 }
 
