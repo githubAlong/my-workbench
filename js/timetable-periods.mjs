@@ -104,7 +104,7 @@ export function getCanonicalPeriodNumber(record, options = {}) {
 
 function normalizedPeriodName(period, number) {
   const name = String(period?.name || period?.period_name || '').trim();
-  const chinese = ['', '第一节', '第二节', '第三节', '第四节', '第五节', '第六节', '第七节', '第八节', '第九节'];
+  const chinese = ['', '第1节', '第2节', '第3节', '第4节', '第5节', '第6节', '第7节', '第8节', '第9节'];
   if (number === 0) return '早自习';
   if (number === 5.5) return '午休';
   if (number === 10) return '晚自习第一节';
