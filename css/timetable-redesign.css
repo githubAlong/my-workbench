@@ -99,3 +99,8 @@
 .tt-grid-title+.tt-grid-scroll{border-top-left-radius:0;border-top-right-radius:0}
 .tt-lunch-row .tt-period-cell{font-weight:700}
 .tt-lunch-cell{height:48px!important;background:var(--bg-sunken)!important;text-align:center!important;color:var(--primary)!important;font-weight:700;font-size:13px;letter-spacing:1px}
+
+.tt-grid-table .tt-col-period{width:58px}
+.tt-grid-table .tt-col-time{width:128px}
+.tt-grid-table .tt-time-cell{background:var(--card);color:var(--text-2);text-align:center;white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums}
+.tt-grid-table .tt-time-cell span{display:block}
