@@ -450,6 +450,7 @@ function syncItemToTodo(itemId, changed) {
 const RECYCLE_KEEP_DAYS = 30;
 const RECYCLE_TITLE = {
   items: (r) => r.title, todos: (r) => r.title,
+  class_records: (r) => `${r.class_time || ''} ${r.subject || ''} ${r.class_name || ''}`.trim(),
   lessons: (r) => `${r.date} ${r.class_name || ''} ${r.content || ''}`.trim(),
   invigilations: (r) => `${r.date} ${r.subject || ''} 监考`,
   trips: (r) => `${r.to_place || ''} 出差`,
@@ -474,7 +475,7 @@ const RECYCLE_GROUP = {
   todos: { group: 'task', at: '日常 → 便签' },
   studies: { group: 'study', at: '学习 → 记录' },
   notes: { group: 'study', at: '学习 / 工作 → 笔记' },
-  lessons: { group: 'work', at: '工作 → 上课' },
+  class_records: { group: 'work', at: '工作 → 上课' },
   courses: { group: 'work', at: '工作 → 课表' },
   periods: { group: 'work', at: '工作 → 课表 → 节次' },
   invigilations: { group: 'work', at: '工作 → 监考' },
@@ -4054,7 +4055,7 @@ on('POST', '/backup/restore', ({ body }) => {
 /* 服务端的自动路由表：/api/{table} 的 GET / POST / PATCH / bulk。
    表名来自 localdb.TABLES 里与服务端 CRUD 对齐的那 18 张。 */
 const CRUD_TABLES = [
-  'periods', 'courses', 'lessons', 'invigilations', 'trips', 'materials', 'notes', 'preps',
+  'periods', 'courses', 'class_records', 'invigilations', 'trips', 'materials', 'notes', 'preps',
   'categories', 'homework', 'studies', 'students', 'rosters', 'punishments', 'exceptions',
   'selfstudy', 'repairs', 'teachers',
 ];
@@ -4068,7 +4069,7 @@ for (const table of CRUD_TABLES) {
        别的入口调到的，只在界面拦等于没拦。
        挑的都是「空着这条记录就没意义」的字段，不做格式校验，不打扰正常录入。 */
     const REQUIRED = {
-      lessons: [['class_name', '班级不能为空']],
+      class_records: [['class_type', '请选择上课类型'], ['subject', '请填写学科']],
       preps: [['topic', '请填写备课主题'], ['prep_type', '请选择备课类型']],
       trips: [['to_place', '目的地不能为空']],
       invigilations: [['__atLeastOne', '考试名称 / 考场 / 开始时间至少填一个']],
@@ -4213,7 +4214,7 @@ export async function handle(method, path, query = {}, body = undefined) {
    漏写它不会报错，只会安静地走本地逻辑 —— 表现为「云端有数据但页面是空的」，
    这种 bug 最难查，所以这里单独写一句提醒。 */
 const CLOUD_TABLES = new Set([
-  'lessons', 'invigilations',
+  'class_records', 'invigilations',
   'attendance',        // 路由前缀：/attendance、/attendance/:id、/attendance/:id/rows
   'attendance_tables', // 前端删表走 /attendance_tables/:id
   'attendance_rows',

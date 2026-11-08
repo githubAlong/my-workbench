@@ -549,7 +549,8 @@ async function rest(path, opts = {}) {
       const sql = path.split('?')[0].startsWith('attachments') ? 'step4_attachments.sql'
         : path.split('?')[0].startsWith('attendance') ? 'step2_attendance_invigilation.sql'
           : path.split('?')[0].startsWith('invigilations') ? 'step2_attendance_invigilation.sql'
-            : 'step1_lessons.sql';
+            : path.split('?')[0].startsWith('class_records') ? 'step_class_records.sql'
+              : '请联系管理员检查对应数据表迁移';
       throw new Error(`云端还没建 ${path.split('?')[0]} 表：去 Supabase 的 SQL Editor 跑一遍 ${sql}`);
     }
     if (/row-level security/i.test(msg)) {
@@ -607,10 +608,7 @@ const DROP = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'seq']);
    ========================================================================== */
 
 const TABLES = {
-  lessons: {
-    order: 'order=date.desc.nullslast,period_no.desc.nullslast',
-    filter: ['date', 'month', 'grade', 'class_name', 'subject', 'period_no'],
-  },
+  class_records: { order: 'order=created_at.desc,id.desc', filter: ['class_month'], num: ['amount'] },
   invigilations: {
     /* start_at / end_at 在库里是 timestamptz，但前端把它当"日期+时间"直接显示，
        排序用 date 更稳：同一天多场按开始时间排。 */
@@ -898,14 +896,7 @@ export async function createAttachment(meta) {
 /* 删附件走软删，和别处一致（回收站还能找回） */
 export const deleteAttachment = (id) => deleteRow('attachments', id);
 
-/* ---------------- 课时（保留原接口名，别的地方还在调） ---------------- */
-
-const ORDER = TABLES.lessons.order;
-
-export const listLessons = (query = {}) => listRows('lessons', query);
-export const createLesson = (body) => createRow('lessons', body);
-export const updateLesson = (id, body) => updateRow('lessons', id, body);
-export const deleteLesson = (id) => deleteRow('lessons', id);
+/* 上课记录统一使用 class_records，不再保留旧 lessons 云端接口。 */
 
 /* ---------------- 考勤：主表 + 明细 ---------------- */
 

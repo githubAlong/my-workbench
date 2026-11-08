@@ -100,7 +100,7 @@ registerView(async function work(main, { tab, third }) {
   /* 页头标题跟着二级项走：以前所有二级页都顶着「工作」两个字，
      点进「考勤」看到的还是「工作」，会让人怀疑自己点错了。 */
   const meta = {
-    lessons: ['上课记录', '记录授课进度，管理课时与代课结算'],
+    lessons: ['上课记录台账', '登记正常上课、代课与换课记录'],
     timetable: ['周课表', '一周课程安排、上课时间与班级一目了然'],
     prep: ['电子备课记录台账', '线上编写教案，管理备课记录与附件素材'],
     repairs: ['维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底'],
@@ -115,8 +115,7 @@ registerView(async function work(main, { tab, third }) {
   main.innerHTML = '<div id="work-body"></div>';
   const body = main.querySelector('#work-body');
   const headEl = el(`<div>${pageHead(meta[0], meta[1], '')}</div>`);
-  if (t === 'lessons') headEl.classList.add('lessons-head');
-  main.insertBefore(headEl, body);
+  if (t !== 'lessons') main.insertBefore(headEl, body);
   /* 三级页把自己的标题写进 url 的第三段，页头用子项名字，副标题用子项说明 */
   if (t === 'materials' && third) {
     const sub = (NAV.find((n) => n.id === 'work')?.sub || []).find((x) => x.id === 'materials')?.sub || [];
@@ -130,7 +129,7 @@ registerView(async function work(main, { tab, third }) {
       }[third] || '');
     }
   }
-  if (t === 'lessons') return renderLessons(body);
+  if (t === 'lessons') { const m = await import('./class-records.js'); return m.renderClassRecords(body); }
   if (t === 'prep') return renderPreps(body);
   if (t === 'timetable') { headEl.remove(); return renderMyTimetable(body); }
   if (t === 'attendance') {

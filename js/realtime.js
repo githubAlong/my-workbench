@@ -26,7 +26,7 @@ import { cfg as cloudCfg, SESSION_STORAGE_KEY } from './cloud.js';
 /* 需要实时的表。加表只改这里一行 ——
    SQL 那边也要把同名表加进 supabase_realtime 发布，两处必须对得上。 */
 export const REALTIME_TABLES = [
-  'lessons',
+  'class_records',
   'invigilations',
   'attendance_tables',
   'attendance_rows',
