@@ -11,7 +11,7 @@ import { registerView, icon, pageHead, onViewLeave } from './ui.js';
    =================================================================== */
 
 const LABEL = {
-  items: '事项/任务', todos: '便签', lessons: '上课记录', invigilations: '监考', trips: '出差',
+  items: '事项/任务', todos: '便签', class_records: '上课记录', invigilations: '监考', trips: '出差',
   trip_items: '出差发票', materials: '课件', notes: '笔记', homework: '作业',
   studies: '学习记录', courses: '课程', periods: '节次', categories: '分类',
   students: '学生', teachers: '教师', attendance_tables: '考勤表', attendance_rows: '考勤人员',
