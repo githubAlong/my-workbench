@@ -638,16 +638,28 @@ async function refreshHome() {
 }
 
 function profileDetailsHTML(user = state.user || {}) {
-  const fields = [
+  const schoolFields = [
     { key: 'school', label: '学校', value: user.school },
     { key: 'grade_group', label: '年级组', value: user.grade_group },
+  ].filter((field) => field.value != null && String(field.value).trim());
+  const roleFields = [
     { key: 'subject', label: '科目', value: user.subject },
     { key: 'title', label: '职务', value: user.title },
   ].filter((field) => field.value != null && String(field.value).trim());
-  return fields.map((field, index) => `
+  const renderFields = (fields) => fields.map((field, index) => `
     ${index ? '<span class="home-profile-separator" aria-hidden="true">·</span>' : ''}
     <span class="home-profile-detail-item" data-profile-field="${field.key}" aria-label="${field.label}">${esc(String(field.value).trim())}</span>
   `).join('');
+  return `
+    ${schoolFields.length ? `<div class="home-profile-details-school">${renderFields(schoolFields)}</div>` : ''}
+    ${roleFields.length ? `
+      <div class="home-profile-details-role">
+        <span class="home-profile-role-line" aria-hidden="true"></span>
+        <span class="home-profile-role-pill">${renderFields(roleFields)}</span>
+        <span class="home-profile-role-line" aria-hidden="true"></span>
+      </div>
+    ` : ''}
+  `;
 }
 
 function renderHome() {
