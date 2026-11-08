@@ -607,6 +607,7 @@ const DROP = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'seq']);
    ========================================================================== */
 
 const TABLES = {
+  class_records: { order: 'order=created_at.desc,id.desc', filter: ['class_month'] },
   lessons: {
     order: 'order=date.desc.nullslast,period_no.desc.nullslast',
     filter: ['date', 'month', 'grade', 'class_name', 'subject', 'period_no'],
