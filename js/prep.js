@@ -225,7 +225,7 @@ export async function renderPreps(box) {
       '<div class="lp-filter-row"><label for="lp-type-filter">备课类型</label><select class="input lp-type-filter" id="lp-type-filter"><option value="">全部类型</option>' +
       PREP_TYPE_OPTIONS.map((item) => '<option value="' + esc(item.value) + '" ' + (typeFilter === item.value ? 'selected' : '') + '>' + esc(item.label) + '</option>').join('') +
       '<option value="' + PREP_UNCLASSIFIED + '" ' + (typeFilter === PREP_UNCLASSIFIED ? 'selected' : '') + '>待分类</option></select></div></div>' +
-      '<button class="btn primary" id="prep-add" type="button">＋ 新建备课记录</button></div>'
+      '<button class="btn primary" id="prep-add" type="button">＋ 新建备课记录</button></div>' +
       '<div class="lp-table-wrap"><table class="lp-table" id="lp-record-table">' +
       '<thead><tr><th>学科</th><th>课题</th><th>年级</th><th>备课日期</th><th>操作</th></tr></thead>' +
       '<tbody>' + (rows || '<tr><td colspan="5" class="lp-empty">暂时还没有备课记录，点击右上角「新建备课记录」开始填写。</td></tr>') + '</tbody>' +
