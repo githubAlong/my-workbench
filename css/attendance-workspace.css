@@ -782,3 +782,53 @@
  .leave-editor-form .field-row{grid-template-columns:1fr}
  .att-work-period-control{width:auto!important}
 }
+
+
+/* ===== 考勤工作台：日期栏 + 学科筛选栏双层吸顶 =====
+   日期栏在上，学科快捷筛选紧贴其下；两栏作为整体吸顶，
+   页签紧随其后，保持用户要求的「日期 → 学科 → 功能页签」层级。 */
+.att-work-shell .att-work-sticky-controls{
+  position:sticky;
+  top:14px;
+  z-index:40;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  min-width:0;
+  margin:0 0 8px;
+  padding:0 0 3px;
+  background:var(--card,#fff);
+}
+.att-work-shell .att-work-sticky-controls>.att-work-meta-controls{
+  flex:0 0 auto;
+  width:100%;
+  margin:0;
+}
+.att-work-shell .att-work-subjectbar{
+  display:flex;
+  align-items:center;
+  min-width:0;
+  width:100%;
+  padding:5px 10px 1px;
+  border:1px solid #e0e8f2;
+  border-radius:11px;
+  background:#fff;
+  box-shadow:0 3px 12px rgba(35,65,105,.06);
+}
+.att-work-shell .att-work-subjectbar .att-work-subjects{
+  flex:1 1 auto;
+  min-width:0;
+  max-width:100%;
+  padding:1px 0 5px;
+  overflow-x:auto;
+  scrollbar-width:thin;
+}
+@media(max-width:1100px){
+  .att-work-shell .att-work-sticky-controls{
+    top:calc(66px + env(safe-area-inset-top,0px));
+    z-index:45;
+  }
+  .att-work-shell .att-work-subjectbar{
+    padding:5px 8px 1px;
+  }
+}
