@@ -75,3 +75,13 @@ test("empty, loading and error states are present", () => {
   assert.match(source, /课表加载失败/);
   assert.match(source, /当前课表还没有课程/);
 });
+
+test("timetable supports grade/type scoped period editing and high-two winter import", () => {
+  assert.match(source, /tt-period-settings/);
+  assert.match(source, /function openPeriodSettings/);
+  assert.match(source, /periodDefinitions/);
+  assert.match(source, /tt-import-high2/);
+  assert.match(source, /导入2026秋季高二课表/);
+  assert.match(source, /高二.*信息技术/);
+  assert.match(source, /晚四/);
+});
