@@ -142,7 +142,7 @@ function periodName(period) {
   const number = getCanonicalPeriodNumber(period);
   if (number === 0) return '早自习';
   if (number === 5.5) return '午休';
-  if (number === 10) return '晚自习第一节';
+  if (number === 10) return name || '晚一';
   const labels = ['', '第一节', '第二节', '第三节', '第四节', '第五节', '第六节', '第七节', '第八节', '第九节'];
   if (number >= 1 && number <= 9) return labels[number];
   return name;
@@ -267,7 +267,7 @@ export async function renderTimetable(box) {
         name: periodName({ period_no: number }), start_time: fallback[0] || "", end_time: fallback[1] || "",
       });
     }
-    return sortPeriods([...byNo.values()]);
+    return sortPeriods([...byNo.values()].filter((period) => [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10].includes(Number(period.period_no))));
   }
 
   function currentLesson(courses) {
