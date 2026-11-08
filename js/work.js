@@ -115,8 +115,7 @@ registerView(async function work(main, { tab, third }) {
   main.innerHTML = '<div id="work-body"></div>';
   const body = main.querySelector('#work-body');
   const headEl = el(`<div>${pageHead(meta[0], meta[1], '')}</div>`);
-  if (t === 'lessons') headEl.classList.add('lessons-head');
-  main.insertBefore(headEl, body);
+  if (t !== 'lessons') main.insertBefore(headEl, body);
   /* 三级页把自己的标题写进 url 的第三段，页头用子项名字，副标题用子项说明 */
   if (t === 'materials' && third) {
     const sub = (NAV.find((n) => n.id === 'work')?.sub || []).find((x) => x.id === 'materials')?.sub || [];
