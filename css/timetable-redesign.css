@@ -94,3 +94,8 @@
 .tt-period-editor-row{display:grid;grid-template-columns:minmax(130px,1.4fr) minmax(90px,1fr) minmax(90px,1fr) repeat(3,auto);align-items:center;gap:7px;margin:8px 0;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg-sunken)}
 .tt-period-editor-row .input{min-width:0;width:100%}
 @media(max-width:720px){.tt-period-editor-row{grid-template-columns:1fr 1fr;}.tt-period-editor-row input:first-child{grid-column:1/-1}}
+
+.tt-grid-title{padding:12px 10px;text-align:center;border:1px solid var(--line);border-bottom:0;border-radius:9px 9px 0 0;background:var(--card);color:#7b4aa6;font-size:22px;font-weight:600;letter-spacing:2px}
+.tt-grid-title+.tt-grid-scroll{border-top-left-radius:0;border-top-right-radius:0}
+.tt-lunch-row .tt-period-cell{font-weight:700}
+.tt-lunch-cell{height:48px!important;background:var(--bg-sunken)!important;text-align:center!important;color:var(--primary)!important;font-weight:700;font-size:13px;letter-spacing:1px}
