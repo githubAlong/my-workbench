@@ -4,10 +4,10 @@ function parsePeriodLabel(value) {
   if (!text) return null;
   if (/早自习|早读/.test(text)) return 0;
   if (/午休|午间休息/.test(text)) return 5.5;
-  if (/晚四/.test(text)) return 13;
-  if (/晚三/.test(text)) return 12;
-  if (/晚二/.test(text)) return 11;
-  if (/晚一|晚自习/.test(text)) return 10;
+  if (/晚四|晚自习第?四节/.test(text)) return 13;
+  if (/晚三|晚自习第?三节/.test(text)) return 12;
+  if (/晚二|晚自习第?二节/.test(text)) return 11;
+  if (/晚一|晚自习第?一节|晚自习/.test(text)) return 10;
 
   const numericOnly = text.match(/^\s*(\d+(?:\.\d+)?)\s*$/);
   if (numericOnly) {
@@ -83,10 +83,10 @@ export function getCanonicalPeriodNumber(record, options = {}) {
 
   if (/早自习|早读/.test(name)) return 0;
   if (/午休|午间休息/.test(name)) return 5.5;
-  if (/晚四/.test(name)) return 13;
-  if (/晚三/.test(name)) return 12;
-  if (/晚二/.test(name)) return 11;
-  if (/晚一|晚自习/.test(name)) return 10;
+  if (/晚四|晚自习第?四节/.test(name)) return 13;
+  if (/晚三|晚自习第?三节/.test(name)) return 12;
+  if (/晚二|晚自习第?二节/.test(name)) return 11;
+  if (/晚一|晚自习第?一节|晚自习/.test(name)) return 10;
 
   /* 时间是更可靠的纠错依据：旧数据可能把第一节误存成第10节。 */
   const byTime = isObject ? periodNumberFromTime(record, options) : null;
