@@ -103,7 +103,7 @@ export const NAV = [
   {
     id: 'work', label: '工作', icon: 'work',
     sub: [
-      { id: 'lessons', label: '上课记录', icon: 'zap' },
+      { id: 'lessons', label: '上课', icon: 'zap' },
       /* 上课之后紧跟课表：先知道今天上什么，再记上没上。 */
       { id: 'timetable', label: '课表', icon: 'cal' },
       /* 备课紧接课表：课前看图、课后备课，动线是连着的。 */

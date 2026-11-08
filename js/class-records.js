@@ -58,7 +58,7 @@ export async function renderClassRecords(root) {
         @media print{body *{visibility:hidden!important}#cr-print-root,#cr-print-root *{visibility:visible!important}#cr-print-root{position:absolute;inset:0;width:100%;padding:24px;background:#fff;color:#111}}
       </style>
       <div class="cr-toolbar">
-        <div><div class="page-title">上课记录台账</div><div class="page-sub">登记正常上课、代课与换课记录</div></div>
+        <div><div class="page-title">上课</div><div class="page-sub">登记正常上课、代课与换课记录</div></div>
         <div class="cr-actions">
           <button class="cr-btn" id="cr-export">导出本月统计</button>
           <button class="cr-btn primary" id="cr-add">＋ 新增上课记录</button>
