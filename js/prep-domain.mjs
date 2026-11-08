@@ -61,3 +61,36 @@ export function validatePrepRecord(payload, { isNew = false } = {}) {
   if (!String(payload?.topic || '').trim()) return '请填「备的是哪一课」';
   return '';
 }
+
+
+/* 电子备课 PRD V1.0：完整内容放入现有 preps.content，不新增数据库列。 */
+export const LESSON_PLAN_CONTENT_PREFIX = 'WB_LESSON_PLAN_V1\n';
+export const LESSON_PLAN_CONTENT_FIELDS = Object.freeze([
+  'grade', 'target', 'keyPoint', 'hardPoint', 'prepare', 'process',
+  'blackboard', 'homeMust', 'homeExtra', 'reflect',
+]);
+
+export function encodeLessonPlanContent(fields = {}) {
+  const payload = { version: 1 };
+  for (const key of LESSON_PLAN_CONTENT_FIELDS) payload[key] = String(fields[key] ?? '');
+  return LESSON_PLAN_CONTENT_PREFIX + JSON.stringify(payload);
+}
+
+export function decodeLessonPlanContent(record = {}) {
+  const raw = String(record?.content ?? '');
+  if (raw.startsWith(LESSON_PLAN_CONTENT_PREFIX)) {
+    try {
+      const payload = JSON.parse(raw.slice(LESSON_PLAN_CONTENT_PREFIX.length));
+      const result = {};
+      for (const key of LESSON_PLAN_CONTENT_FIELDS) {
+        result[key] = String(payload[key] ?? (key === 'grade' ? record?.class_name : '') ?? '');
+      }
+      return result;
+    } catch { /* 非法新格式回退为旧版纯文本 */ }
+  }
+  return {
+    grade: String(record?.class_name || ''),
+    target: '', keyPoint: '', hardPoint: '', prepare: '',
+    process: raw, blackboard: '', homeMust: '', homeExtra: '', reflect: '',
+  };
+}

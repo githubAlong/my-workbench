@@ -457,3 +457,35 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
     progressHandler = () => {};
   }
 }
+
+
+/* 电子备课图片 OCR：复用工作台已加载的中文 Tesseract Worker，返回原始文字供教师核对。 */
+export async function recognizeLessonPlanImage(file, onProgress = () => {}) {
+  if (!file || !String(file.type || '').startsWith('image/')) throw new Error('请选择 JPG、PNG 或 WebP 图片');
+  if (file.size > 30 * 1024 * 1024) throw new Error('图片超过 30MB，请先压缩后再识别');
+  progressHandler = typeof onProgress === 'function' ? onProgress : () => {};
+  let image = null;
+  let canvas = null;
+  try {
+    report('正在读取备课照片…');
+    image = await decodeImage(file);
+    const size = dimensions(image);
+    if (!size.width || !size.height) throw new Error('图片尺寸无效');
+    const worker = await getWorker();
+    canvas = makeCanvas(image, 0, 2800);
+    await worker.setParameters({
+      tessedit_pageseg_mode: '6',
+      preserve_interword_spaces: '1',
+    });
+    report('正在识别备课文字…');
+    const result = await worker.recognize(canvas);
+    const text = String(result?.data?.text || '').trim();
+    if (!text) throw new Error('没有识别到可用文字，请换一张更清晰的照片');
+    report('识别完成，请检查并修正文字后保存。');
+    return { text, confidence: Math.round(Number(result?.data?.confidence) || 0) };
+  } finally {
+    if (canvas) { canvas.width = 0; canvas.height = 0; }
+    if (image && typeof image.close === 'function') image.close();
+    progressHandler = () => {};
+  }
+}

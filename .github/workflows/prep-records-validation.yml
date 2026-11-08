@@ -6,6 +6,8 @@ on:
       - test
     paths:
       - "js/work.js"
+      - "js/prep.js"
+      - "js/ocr.js"
       - "js/localdb.js"
       - "js/localapi.js"
       - "js/prep-domain.mjs"

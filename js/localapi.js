@@ -3689,7 +3689,7 @@ on('GET', '/attachments', ({ query }) => {
        一起改，那时才是一次完整的改动。
      ⚠️ 以后谁要把 material / trip 上云，必须把这里也改成不带 url，
         否则前端会同时拿到「有 url」和「没 url」两种形状，很难查。 */
-  const withUrl = query.owner_type !== 'attendance';
+  const withUrl = !['attendance', 'prep'].includes(query.owner_type);
   return list.sort((a, b) => a.id - b.id)
     .map((a) => (withUrl ? { ...a, url: a.url || '' } : { ...a, url: '' }));
 });
