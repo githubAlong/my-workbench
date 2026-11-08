@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-test-v150-my-timetable-redesign';
+const CACHE = 'wb-test-v151-attendance-prd-workspace';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -44,6 +44,7 @@ const ASSETS = [
   './css/app.css',
   './css/teacher-ui.css',
   './css/attendance-workspace.css',
+  './css/attendance-prd.css',
   './css/workbench-unified.css',
   './css/timetable-redesign.css',
   './css/auth-redesign.css',
@@ -80,6 +81,8 @@ const ASSETS = [
   './js/selfstudy.js',
   /* 功能模块 */
   './js/attendance.js',
+  './js/attendance-prd.js',
+  './js/attendance-prd-domain.mjs',
   './js/ocr.js',
   './js/alarm.js',
   './js/qrdecode.js',
