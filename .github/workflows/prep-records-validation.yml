@@ -59,6 +59,8 @@ jobs:
       - name: Check JavaScript syntax and Service Worker assets
         run: npm run check
       - name: Run complete Node test suite
+        id: full-suite
+        continue-on-error: true
         run: npm test
       - name: Build static Pages output
         run: npm run build:pages
@@ -77,6 +79,13 @@ jobs:
           exit 1
       - name: Run desktop and mobile browser tests
         run: npx playwright test tests/browser/homepage-smoke.spec.mjs tests/browser/prep-records-smoke.spec.mjs --reporter=line
+      - name: Preserve complete-suite regression gate
+        if: always()
+        run: |
+          if [ "${{ steps.full-suite.outcome }}" != "success" ]; then
+            echo "The full repository suite still has pre-existing failures; see the Node test log." >&2
+            exit 1
+          fi
       - name: Upload browser test artifacts
         if: always()
         uses: actions/upload-artifact@v4
