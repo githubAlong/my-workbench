@@ -142,10 +142,7 @@ function periodName(period) {
   const number = getCanonicalPeriodNumber(period);
   if (number === 0) return '早自习';
   if (number === 5.5) return '午休';
-  if (number === 10) return name || '晚一';
-  if (number === 11) return name || '晚二';
-  if (number === 12) return name || '晚三';
-  if (number === 13) return name || '晚四';
+  if (number === 10) return '晚自习第一节';
   const labels = ['', '第一节', '第二节', '第三节', '第四节', '第五节', '第六节', '第七节', '第八节', '第九节'];
   if (number >= 1 && number <= 9) return labels[number];
   return name;
@@ -185,7 +182,6 @@ export async function renderTimetable(box) {
   let settings = {};
   let courseTypes = {};
   let periodTimes = {};
-  let periodDefinitions = {};
   let appliedType = loadViewPreference().type;
   let appliedGrade = loadViewPreference().grade;
   let clockTimer = null;
@@ -204,7 +200,6 @@ export async function renderTimetable(box) {
     settings = nextSettings;
     courseTypes = parseJson(timetable.courseTypes, {});
     periodTimes = parseJson(timetable.periodTimes, {});
-    periodDefinitions = parseJson(timetable.periodDefinitions, {});
   }
 
   async function loadData(showLoading = true) {
@@ -221,7 +216,6 @@ export async function renderTimetable(box) {
       const timetable = parseJson(settings.timetable, {});
       courseTypes = parseJson(timetable.courseTypes, {});
       periodTimes = parseJson(timetable.periodTimes, {});
-      periodDefinitions = parseJson(timetable.periodDefinitions, {});
       const periodOptions = { periodTimes, scheduleType: appliedType };
       const rawCourses = Array.isArray(results[0]) ? results[0] : [];
       allCourses = rawCourses.map((course) => {
@@ -250,27 +244,20 @@ export async function renderTimetable(box) {
   }
 
   function getPeriods(visibleCourses) {
-    const key = appliedType + "|" + appliedGrade;
-    const configured = periodDefinitions[key];
-    if (Array.isArray(configured) && configured.length) {
-      return [...configured].sort((a, b) => Number(a.order) - Number(b.order)).map((item) => ({
-        id: item.id || "custom-" + item.period_no,
-        period_no: Number(item.period_no),
-        name: String(item.name || ("第" + item.period_no + "节")),
-        start_time: cleanPeriodTime(item.start_time),
-        end_time: cleanPeriodTime(item.end_time),
-      }));
-    }
     const byNo = new Map(allPeriods.map((period) => [Number(period.period_no), period]));
-    for (const number of [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9]) {
+    /* 页面只显示固定节次轴：早自习、1–9 节、晚自习；旧数据里的 10–15
+       已在归一化层并入晚自习，不再生成额外行。 */
+    for (const number of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       if (byNo.has(number)) continue;
       const fallback = periodDefaults(number, appliedType);
       byNo.set(number, {
-        id: "fallback-" + number, period_no: number,
-        name: periodName({ period_no: number }), start_time: fallback[0] || "", end_time: fallback[1] || "",
+        id: 'fallback-' + number, period_no: number,
+        name: periodName({ period_no: number }), start_time: fallback[0] || '', end_time: fallback[1] || '',
       });
     }
-    return sortPeriods([...byNo.values()].filter((period) => [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10].includes(Number(period.period_no))));
+    return sortPeriods([...byNo.values()].filter((period) =>
+      [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10].includes(Number(period.period_no))
+    ));
   }
 
   function currentLesson(courses) {
@@ -351,16 +338,19 @@ export async function renderTimetable(box) {
       const pNo = Number(period.period_no);
       const rowCourses = courses.filter((course) => getCanonicalPeriodNumber(course) === pNo);
       const firstCourse = rowCourses.find((course) => course.start_time || course.end_time) || {};
-      const time = courseTime({ ...firstCourse, period_no:pNo }, period, periodTimes, appliedType);
-      if (pNo === 5.5 || String(period.name || '').includes('午休')) return '<tr class="tt-lunch-row"><td class="tt-period-cell"><strong>午休</strong></td><td class="tt-time-cell"></td><td class="tt-lunch-cell" colspan="7"><span>' + esc(time || '12:20–14:10') + '</span></td></tr>';
+      const time = courseTime({ ...firstCourse, period_no: pNo }, period, periodTimes, appliedType);
       const cells = DAYS.map((day) => {
         const list = rowCourses.filter((course) => Number(course.weekday) === day);
-        return '<td class="tt-slot ' + (list.length ? 'has-course' : 'is-empty') + '" data-slot="1" data-day="' + day + '" data-period="' + pNo + '">' + (list.length ? list.map((course) => renderCourse(course, period)).join('') : '<button class="tt-empty-add" type="button" aria-label="新增课程">＋</button>') + '</td>';
+        return '<td class="tt-slot ' + (list.length ? 'has-course' : 'is-empty') + '" data-slot="1" data-day="' + day + '" data-period="' + pNo + '">' +
+          (list.length ? list.map((course) => renderCourse(course, period)).join('') : '<button class="tt-empty-add" type="button" aria-label="新增课程">＋</button>') +
+          '</td>';
       }).join('');
-      return '<tr><td class="tt-period-cell"><strong>' + esc(periodName(period)) + '</strong></td><td class="tt-time-cell"><span>' + esc(time || '时间待设置') + '</span></td>' + cells + '</tr>';
+      return '<tr><td class="tt-period-cell"><strong>' + esc(periodName(period)) + '</strong><span>' + esc(time || '时间待设置') + '</span></td>' + cells + '</tr>';
     }).join('');
-    const title = appliedType === TYPE_WINTER && appliedGrade === '高二' ? '<div class="tt-grid-title">2026年秋季信息课表</div>' : '';
-    return title + '<div class="tt-grid-scroll"><table class="tt-grid-table tt-week-grid" aria-label="周课表"><colgroup><col class="tt-col-period"><col class="tt-col-time">' + DAYS.map(() => '<col class="tt-col-day">').join('') + '</colgroup><thead><tr><th class="tt-grid-corner">节次</th><th class="tt-grid-corner">时间</th>' + DAYS.map((day) => '<th class="tt-weekday-head ' + (day === new Date().getDay() ? 'is-today' : '') + '">' + DAY_NAMES[DAYS.indexOf(day)] + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    return '<div class="tt-grid-scroll"><table class="tt-grid-table tt-week-grid" aria-label="周课表">' +
+      '<colgroup><col class="tt-col-period">' + DAYS.map(() => '<col class="tt-col-day">').join('') + '</colgroup>' +
+      '<thead><tr><th class="tt-grid-corner">节次 / 时间</th>' + DAYS.map((day) => '<th class="tt-weekday-head ' + (day === new Date().getDay() ? 'is-today' : '') + '">' + DAY_NAMES[DAYS.indexOf(day)] + '</th>').join('') + '</tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
   }
 
   function paint() {
@@ -373,8 +363,6 @@ export async function renderTimetable(box) {
       '<div class="tt-toolbar-actions">' +
         '<button class="btn ghost sm" type="button" id="tt-export">' + icon('download', 14) + ' 导出课表</button>' +
         '<button class="btn ghost sm" type="button" id="tt-import">' + icon('upload', 14) + ' 导入课表</button>' +
-        (appliedType === TYPE_WINTER && appliedGrade === '高二' ? '<button class="btn ghost sm" type="button" id="tt-import-high2">导入2026秋季高二课表</button>' : '') +
-        '<button class="btn ghost sm" type="button" id="tt-period-settings">作息设置</button>' +
         '<button class="btn primary sm" type="button" id="tt-add">' + icon('plus', 14) + ' 新增课程</button>' +
       '</div></div>' +
       reminderHtml(visible) +
@@ -448,144 +436,6 @@ export async function renderTimetable(box) {
     }
   }
 
-  function openPeriodSettings() {
-    const key = appliedType + "|" + appliedGrade;
-    const base = Array.isArray(periodDefinitions[key]) ? periodDefinitions[key] : getPeriods(getVisibleCourses()).map((p, index) => ({
-      id: p.id, period_no: Number(p.period_no), name: p.name,
-      start_time: p.start_time || "", end_time: p.end_time || "", order: index,
-    }));
-    let rows = base.map((p, index) => ({ ...p, order: index }));
-    const body = el('<div class="sheet-body"><p class="small muted">当前设置：' + esc(appliedType + " · " + appliedGrade) + '。可新增、修改、删除和调整节次顺序。存在课程的节次不能删除。</p><div id="tt-period-rows"></div><div class="confirm-actions"><button class="btn ghost" id="tt-period-add">新增时间段</button><button class="btn ghost" id="tt-period-cancel">取消</button><button class="btn primary" id="tt-period-save">保存作息</button></div></div>');
-    const modal = sheet({ title: "作息时间管理", body, wide: true });
-    const list = body.querySelector("#tt-period-rows");
-    const draw = () => {
-      list.innerHTML = rows.map((p, i) => '<div class="tt-period-editor-row" data-row="' + i + '">' +
-        '<input class="input" data-field="name" aria-label="节次名称" value="' + esc(p.name) + '" placeholder="节次名称">' +
-        '<input class="input" data-field="start_time" aria-label="开始时间" value="' + esc(p.start_time) + '" placeholder="08:00">' +
-        '<input class="input" data-field="end_time" aria-label="结束时间" value="' + esc(p.end_time) + '" placeholder="08:40">' +
-        '<button class="btn ghost sm" data-up="' + i + '" type="button">↑</button><button class="btn ghost sm" data-down="' + i + '" type="button">↓</button><button class="btn ghost danger sm" data-remove="' + i + '" type="button">删除</button></div>').join("");
-      list.querySelectorAll("[data-field]").forEach((input) => input.addEventListener("change", () => {
-        const row = Number(input.closest("[data-row]").dataset.row);
-        rows[row][input.dataset.field] = input.value.trim();
-      }));
-      list.querySelectorAll("[data-up]").forEach((button) => button.onclick = () => {
-        const i = Number(button.dataset.up); if (i <= 0) return;
-        [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; draw();
-      });
-      list.querySelectorAll("[data-down]").forEach((button) => button.onclick = () => {
-        const i = Number(button.dataset.down); if (i >= rows.length - 1) return;
-        [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]]; draw();
-      });
-      list.querySelectorAll("[data-remove]").forEach((button) => button.onclick = () => {
-        const i = Number(button.dataset.remove), no = Number(rows[i].period_no);
-        if (allCourses.some((c) => typeOfCourse(c, courseTypes) === appliedType && visibleByGrade(c, appliedGrade) && Number(c.period_no) === no)) {
-          toast("该节次已有课程，请先调整或删除相关课程", "warn"); return;
-        }
-        rows.splice(i, 1); draw();
-      });
-    };
-    draw();
-    body.querySelector("#tt-period-add").onclick = () => {
-      const used = new Set(rows.map((p) => Number(p.period_no)));
-      let no = 1; while (used.has(no)) no++;
-      rows.push({ id: "custom-" + no, period_no: no, name: "第" + no + "节", start_time: "", end_time: "", order: rows.length }); draw();
-    };
-    body.querySelector("#tt-period-cancel").onclick = modal.close;
-    saving(body.querySelector("#tt-period-save"), async () => {
-      rows = rows.map((p, i) => ({ ...p, order: i, period_no: Number(p.period_no) }));
-      const seen = new Set();
-      for (const p of rows) {
-        if (!p.name) throw new Error("请填写所有节次名称");
-        if (!p.start_time || !p.end_time || !normalizeTime(p.start_time) || !normalizeTime(p.end_time)) throw new Error("请填写有效的开始和结束时间");
-        if (timeMinutes(p.end_time) <= timeMinutes(p.start_time)) throw new Error("结束时间必须晚于开始时间");
-        if (seen.has(p.period_no)) throw new Error("节次编号重复，请检查");
-        seen.add(p.period_no);
-      }
-      const nextDefs = { ...periodDefinitions, [key]: rows };
-      const nextTimes = { ...periodTimes, [appliedType]: { ...(periodTimes?.[appliedType] || {}) } };
-      rows.forEach((p) => { nextTimes[appliedType][String(p.period_no)] = { start_time: normalizeTime(p.start_time), end_time: normalizeTime(p.end_time) }; });
-      await saveTimetablePrefs({ periodDefinitions: nextDefs, periodTimes: nextTimes });
-      modal.close(); toast("作息时间已保存"); await loadData(false);
-    });
-  }
-
-  async function importHigh2Winter() {
-    const key = TYPE_WINTER + "|高二";
-    const schedule = [
-      { weekday: 3, period_no: 1, class_name: "11班" },
-      { weekday: 5, period_no: 1, class_name: "13班" },
-      { weekday: 1, period_no: 3, class_name: "5班" },
-      { weekday: 3, period_no: 3, class_name: "12班" },
-      { weekday: 1, period_no: 5, class_name: "7班" },
-      { weekday: 2, period_no: 5, class_name: "6班" },
-      { weekday: 4, period_no: 5, class_name: "10班" },
-      { weekday: 4, period_no: 6, class_name: "9班" },
-      { weekday: 4, period_no: 7, class_name: "16班" },
-      { weekday: 2, period_no: 9, class_name: "15班" },
-      { weekday: 3, period_no: 9, class_name: "8班" },
-      { weekday: 4, period_no: 9, class_name: "14班" },
-      { weekday: 5, period_no: 9, class_name: "18班" },
-    ];
-    const times = {
-      1:["08:00","08:40"], 2:["08:50","09:30"], 3:["10:00","10:40"],
-      4:["10:50","11:30"], 5:["11:40","12:20"], 5.5:["12:20","14:10"],
-      6:["14:10","14:50"], 7:["15:20","16:00"], 8:["16:15","16:55"],
-      9:["17:05","17:45"], 10:["18:25","18:40"], 11:["19:30","20:10"],
-      12:["20:20","21:00"], 13:["21:10","21:55"],
-    };
-    const names = {1:"第一节",2:"第二节",3:"第三节",4:"第四节",5:"第五节",5.5:"午休",6:"第六节",7:"第七节",8:"第八节",9:"第九节",10:"晚一",11:"晚二",12:"晚三",13:"晚四"};
-    const defs = Object.entries(times).map(([no, range], order) => ({
-      id:"high2-winter-"+no, period_no:Number(no), name:names[no],
-      start_time:range[0], end_time:range[1], order,
-    }));
-    const ok = await confirmDialog("将按原件重建高二冬令时信息课表：逐项校正13条课程的星期、节次和时间；不会修改高一、高三或其他学科课程。是否继续？", {
-      title:"按原件重建高二课表", okText:"确认重建",
-    });
-    if (!ok) return;
-
-    const normalizeClass = (value) => String(value || "").replace(/^高二/, "").replace(/\s+/g, "").trim();
-    const high2InformationCourses = allCourses.filter((c) =>
-      String(c.grade || "").includes("高二") &&
-      String(c.subject || "").trim() === "信息技术" &&
-      ["5班","6班","7班","8班","9班","10班","11班","12班","13班","14班","15班","16班","18班"].includes(normalizeClass(c.class_name))
-    );
-    const byClass = new Map();
-    for (const course of high2InformationCourses) {
-      const className = normalizeClass(course.class_name);
-      if (!byClass.has(className)) byClass.set(className, []);
-      byClass.get(className).push(course);
-    }
-    const nextTypes = { ...courseTypes };
-    let updated = 0, added = 0;
-    for (const row of schedule) {
-      const data = {
-        weekday:row.weekday, period_no:row.period_no, grade:"高二",
-        class_name:row.class_name, subject:"信息技术",
-        start_time:times[row.period_no][0], end_time:times[row.period_no][1],
-        room:"", weeks:"", color:"", remark:"", start_date:null, end_date:null,
-      };
-      const matches = byClass.get(row.class_name) || [];
-      if (matches.length) {
-        const target = matches[0];
-        await api.patch("/courses/" + target.id, data);
-        nextTypes[String(target.id)] = TYPE_WINTER;
-        updated++;
-      } else {
-        const saved = await api.post("/courses", data);
-        nextTypes[String(saved.id)] = TYPE_WINTER;
-        added++;
-      }
-    }
-    const nextDefs = { ...periodDefinitions, [key]:defs };
-    const nextTimes = { ...periodTimes, [TYPE_WINTER]:{ ...(periodTimes?.[TYPE_WINTER] || {}) } };
-    Object.entries(times).forEach(([no, range]) => {
-      nextTimes[TYPE_WINTER][no] = { start_time:range[0], end_time:range[1] };
-    });
-    await saveTimetablePrefs({ courseTypes:nextTypes, periodDefinitions:nextDefs, periodTimes:nextTimes });
-    toast("已按原件校正高二课表：更新 " + updated + " 条，新增 " + added + " 条");
-    await loadData(false);
-  }
-
   function bind(visible, periods) {
     const typeSelect = box.querySelector('#tt-type');
     const gradeSelect = box.querySelector('#tt-grade');
@@ -596,12 +446,8 @@ export async function renderTimetable(box) {
       await loadData(true);
     });
     box.querySelector('#tt-add')?.addEventListener('click', () => openCourseEditor(null, periods));
-    box.querySelector('#tt-period-settings')?.addEventListener('click', () => openPeriodSettings());
     box.querySelector('#tt-empty-add')?.addEventListener('click', () => openCourseEditor(null, periods));
     box.querySelector('#tt-import')?.addEventListener('click', () => openImportDialog());
-    box.querySelector('#tt-import-high2')?.addEventListener('click', async () => {
-      try { await importHigh2Winter(); } catch (error) { toast(error?.message || '高二课表导入失败', 'err'); }
-    });
     box.querySelector('#tt-export')?.addEventListener('click', () => openExportDialog(visible, periods));
     box.querySelectorAll('[data-slot]').forEach((slot) => {
       slot.addEventListener('click', (event) => {
