@@ -10,6 +10,7 @@ on:
       - "js/localapi.js"
       - "js/prep-domain.mjs"
       - "js/ui.js"
+      - "js/attendance.js"
       - "css/app.css"
       - "sw.js"
       - "tests/**"

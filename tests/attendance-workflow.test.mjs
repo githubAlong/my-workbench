@@ -50,3 +50,14 @@ test('mobile and tablet responsive rules exist for attendance workspace', async 
   assert.match(css, /@media\(max-width:680px\)/);
   assert.match(css, /\.att-work-table-scroll\{max-height:65vh/);
 });
+
+test('attendance tabs persist selection and queue reloads without dropping the latest click', async () => {
+  const source = await readFile(new URL('../js/attendance.js', import.meta.url), 'utf8');
+  assert.match(source, /const savedTab = sessionStorage\.getItem\('wb_att_tab'\)/);
+  assert.match(source, /ATTENDANCE_WORKSPACE_TABS\.has\(savedTab\)/);
+  assert.match(source, /if \(busy\) \{[\s\S]*?loadPending = true/);
+  assert.match(source, /if \(loadPending\) return;[\s\S]*?paint\(\)/);
+  assert.match(source, /if \(loadPending\) \{[\s\S]*?void load\(nextOptions\)/);
+  assert.match(source, /sessionStorage\.setItem\('wb_att_tab', tab\)/);
+  assert.doesNotMatch(source, /await createSlot\(\{ date: viewDate, grade: activeGrade, type: tab/);
+});
