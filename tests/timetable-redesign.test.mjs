@@ -86,3 +86,19 @@ test("timetable supports grade/type scoped period editing and high-two winter im
   assert.match(source, /subject: "信息技术"/);
   assert.match(source, /晚四/);
 });
+
+test("high-two 2026 autumn timetable keeps source row numbers, lunch span and title", () => {
+  for (const marker of [
+    "2026年秋季信息课表",
+    "colspan=\"7\"",
+    "period_no: 1, class_name: \"11班\"",
+    "period_no: 3, class_name: \"5班\"",
+    "period_no: 5, class_name: \"7班\"",
+    "period_no: 6, class_name: \"9班\"",
+    "period_no: 7, class_name: \"16班\"",
+    "period_no: 9, class_name: \"15班\"",
+    "period_no: 9, class_name: \"18班\"",
+    "period_no: 13",
+  ]) assert.ok(source.includes(marker), "missing exact source schedule marker: " + marker);
+  assert.match(source, /await api\.patch\("\/courses\/" \+ target\.id, data\)/);
+});
