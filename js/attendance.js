@@ -420,12 +420,12 @@ export async function renderAttendance(box, opts = {}) {
           <div class="att-work-head-actions">${!isRoster && !isSpecial ? '<button class="btn ghost sm" id="att-work-create-group">补齐三张表</button>' : ''}<select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
         </div>
         ${!isSpecial ? `<div class="att-work-sticky-controls">
-          ${isRoster ? '' : `<div class="att-work-meta-controls">
+          <div class="att-work-meta-controls">
             <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
             <label>时间段 <select class="input" id="att-work-time-range"><option value="全天">全天</option><option value="上午">上午</option><option value="下午">下午</option></select></label>
             ${activeTab === 'research' ? '' : `<label class="att-work-period-control">节次 <select class="input" id="att-work-period" aria-label="选择节次">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" ${String(p) === selectedPeriod ? 'selected' : ''}>第 ${p} 节</option>`).join('')}</select><span id="att-work-period-time" class="att-work-period-time">${esc(currentPeriodTime)}</span></label>`}
             <span class="att-work-meta-hint">日期、时间段和节次可手动调整</span>
-          </div>`}
+          </div>
           <div class="att-work-subjectbar">${subjectButtons}</div>
         </div>` : ''}
         <nav class="att-work-tabs" aria-label="考勤管理页签">
@@ -664,26 +664,78 @@ export async function renderAttendance(box, opts = {}) {
   };
 
   let workspaceLiveTimer = null;
-  attendanceWorkspaceLiveOff = registerLiveHook((event) => {
+  const unregisterWorkspaceLive = registerLiveHook((event) => {
+    // 花名册不依赖考勤表推送；无关表格更新不能触发花名册重绘。
+    if (activeTab === 'roster') return true;
+
+    const isUtilityTab = activeTab === 'stats' || activeTab === 'leave';
     const tableRecord = event.table === 'attendance_tables' ? (event.record || event.old) : null;
     const rowTableId = event.table === 'attendance_rows'
       ? String(event.record?.table_id ?? event.old?.table_id ?? '')
       : '';
     const currentTableId = detail?.id == null ? '' : String(detail.id);
+    const currentType = typeForTab[activeTab];
     const currentTableEvent = tableRecord && (
       (currentTableId && String(tableRecord.id) === currentTableId)
-      || (String(tableRecord.grade || '') === activeGrade && String(tableRecord.sheet_date || '') === viewDate)
+      || (
+        String(tableRecord.grade || '') === activeGrade
+        && String(tableRecord.sheet_date || '') === viewDate
+        && (isUtilityTab || String(tableRecord.sheet_type || tableRecord.kind || '') === currentType)
+      )
     );
-    const currentRowEvent = rowTableId && rowTableId === currentTableId;
-    if (!currentTableEvent && !currentRowEvent) return false;
+    const currentRowEvent = rowTableId && currentTableId && rowTableId === currentTableId;
+
+    // 仍留在考勤页时，拦截无关表格事件，避免 live.js 回退到整页 render()。
+    if (!currentTableEvent && !currentRowEvent) return true;
     if (dirty) {
       toast('另一台设备修改了当前考勤表；你的未保存内容仍在。请保存或刷新后核对冲突。', 'warn', 7000);
       return true;
     }
+
+    const refreshWorkspace = async () => {
+      if (busy) {
+        workspaceLiveTimer = setTimeout(refreshWorkspace, 1500);
+        return;
+      }
+      const active = document.activeElement;
+      const editing = !!active && box.contains(active)
+        && (['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) || active.isContentEditable);
+      const sheetOpen = !!document.querySelector('.sheet-mask, dialog[open]');
+      if (editing || sheetOpen) {
+        workspaceLiveTimer = setTimeout(refreshWorkspace, 1500);
+        return;
+      }
+      if (dirty) {
+        toast('另一台设备修改了当前考勤表；你的未保存内容仍在。请保存或刷新后核对冲突。', 'warn', 7000);
+        return;
+      }
+
+      // 静默重载当前表，并保留滚动位置，避免用户被带回页面顶部。
+      const scrollState = {
+        pageTop: window.scrollY || 0,
+        tableTop: box.querySelector('.att-work-table-scroll')?.scrollTop ?? null,
+        tableLeft: box.querySelector('.att-work-table-scroll')?.scrollLeft ?? null,
+        subjectLeft: box.querySelector('.att-work-subjects')?.scrollLeft ?? null,
+      };
+      await load({ makeToday: false });
+      window.scrollTo({ top: scrollState.pageTop, left: window.scrollX || 0, behavior: 'auto' });
+      const tableScroll = box.querySelector('.att-work-table-scroll');
+      if (tableScroll) {
+        if (scrollState.tableTop !== null) tableScroll.scrollTop = scrollState.tableTop;
+        if (scrollState.tableLeft !== null) tableScroll.scrollLeft = scrollState.tableLeft;
+      }
+      const subjectScroll = box.querySelector('.att-work-subjects');
+      if (subjectScroll && scrollState.subjectLeft !== null) subjectScroll.scrollLeft = scrollState.subjectLeft;
+    };
+
     clearTimeout(workspaceLiveTimer);
-    workspaceLiveTimer = setTimeout(() => load({ makeToday: false }), 350);
+    workspaceLiveTimer = setTimeout(refreshWorkspace, 1500);
     return true;
   });
+  attendanceWorkspaceLiveOff = () => {
+    clearTimeout(workspaceLiveTimer);
+    unregisterWorkspaceLive();
+  };
 
   await load();
 }
