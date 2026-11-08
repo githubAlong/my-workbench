@@ -2732,39 +2732,101 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
 }
 
 
-/* 首页个人名片、每日一句喇叭与日历区域布局修正 */
+/* 首页个人名片：左侧问候完整显示，右侧资料按确认稿分两层排布 */
 .home-redesign .home-profile-head {
+  position:relative;
   display:grid;
-  grid-template-columns:60px minmax(0,.9fr) minmax(0,1.1fr);
-  align-items:center;
+  grid-template-columns:60px minmax(0,1fr);
+  align-items:start;
   gap:12px;
   min-width:0;
+  min-height:96px;
+  padding-right:0;
 }
 .home-redesign .home-profile-info {
+  width:min(100%,225px);
   min-width:0;
+  max-width:225px;
+}
+.home-redesign .home-profile-info .clk-greet {
+  display:block;
+  max-width:none;
+  overflow:visible;
+  white-space:nowrap;
+  text-overflow:clip;
+}
+.home-redesign .home-profile-info .clk-greet-sub {
+  display:block;
+  max-width:none;
+  overflow:visible;
+  white-space:normal;
+  text-overflow:clip;
+  overflow-wrap:normal;
 }
 .home-redesign .home-profile-details {
+  position:absolute;
+  right:0;
+  bottom:10px;
   display:flex;
-  align-items:center;
-  align-content:center;
+  flex-direction:column;
+  align-items:stretch;
   justify-content:flex-end;
-  flex-wrap:wrap;
-  gap:4px 8px;
+  gap:8px;
+  width:46%;
+  max-width:700px;
   min-width:0;
   color:var(--text-2);
   font-size:12px;
   font-weight:650;
-  line-height:1.65;
-  text-align:right;
+  line-height:1.45;
+  text-align:center;
+}
+.home-redesign .home-profile-details-school {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:nowrap;
+  gap:10px;
+  min-width:0;
+  white-space:nowrap;
 }
 .home-redesign .home-profile-detail-item {
   min-width:0;
-  overflow-wrap:anywhere;
+  white-space:nowrap;
+  overflow-wrap:normal;
 }
 .home-redesign .home-profile-separator {
   flex:0 0 auto;
   color:var(--text-3);
   font-weight:500;
+}
+.home-redesign .home-profile-details-role {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.home-redesign .home-profile-role-line {
+  display:block;
+  width:100%;
+  height:1px;
+  background:color-mix(in srgb,var(--primary) 30%,var(--line));
+}
+.home-redesign .home-profile-role-pill {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:5px 14px;
+  border:1px solid color-mix(in srgb,var(--primary) 10%,var(--line));
+  border-radius:999px;
+  background:var(--primary-weak);
+  color:var(--text);
+  font-size:13px;
+  font-weight:750;
+  line-height:1.3;
+  white-space:nowrap;
 }
 .home-redesign .home-quote {
   position:relative;
@@ -2814,17 +2876,26 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
 @media(max-width:900px) {
   .home-redesign .home-profile-head {
     grid-template-columns:56px minmax(0,1fr);
-    align-items:center;
+    align-items:start;
+    min-height:0;
+    padding-right:0;
   }
   .home-redesign .home-profile-head .ah-btn {
     width:56px!important;
     height:56px!important;
     flex-basis:56px;
   }
+  .home-redesign .home-profile-info {
+    width:100%;
+    max-width:none;
+  }
   .home-redesign .home-profile-details {
-    grid-column:2;
-    margin-top:2px;
-    font-size:11px;
+    position:static;
+    grid-column:1 / -1;
+    width:100%;
+    max-width:none;
+    margin-top:14px;
+    font-size:12px;
   }
   .home-redesign .home-calendar-card .cal-grid {
     grid-auto-rows:minmax(32px,1fr);
@@ -2834,16 +2905,31 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
   .home-redesign .home-profile-head {
     grid-template-columns:48px minmax(0,1fr);
     gap:9px;
+    min-height:0;
   }
   .home-redesign .home-profile-head .ah-btn {
     width:48px!important;
     height:48px!important;
     flex-basis:48px;
   }
+  .home-redesign .home-profile-info {
+    width:100%;
+    max-width:none;
+  }
   .home-redesign .home-profile-details {
     grid-column:1 / -1;
-    padding-left:57px;
+    width:100%;
+    margin-top:12px;
+    padding-left:0;
     font-size:11px;
+  }
+  .home-redesign .home-profile-details-school {
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .home-redesign .home-profile-role-pill {
+    padding:4px 12px;
+    font-size:12px;
   }
   .home-redesign .home-calendar-card .cal-title {
     font-size:16px;
