@@ -92,21 +92,10 @@ export const state = {
   geoMode: ls.get('geoMode', 'auto'),
 };
 
-/* 【一级 / 二级 / 三级导航】
-   以前除了「工作」和「日常」，其余模块都各自占一格一级导航：
-   首页、工作、自习、维修、日常、学习、回收站、我的 —— 八格。
-   问题是「自习」和「维修」在业务上都属于工作，却和「工作」平级；
-   手机底部导航被挤到每项只剩 46px，「回收站」三个字要折行。
-
-   现在收成三层：
-     一级 6 格：首页 / 工作 / 日常 / 学习 / 回收站 / 我的
-     二级挂在「工作」下：上课、课表、备课、维修、考勤、监考、出差、课件、笔记
-     三级挂在「小助手」下（也就是学生看到的那个页面）：自习、教材、抽人、盲盒
-
-   为什么自习在课件下面而不是在「工作」的二级里：
-     它记录的是给学生的那个页面（student.html）里的模块，和电子教材、抽人、
-     盲盒放在同一个出口，用户才找得到「我给学生看的页面上到底有什么」。
-     记自己看哪个班的自习的入口没丢，在「小助手 → 自习」页里单独一块。 */
+/* 一级目录：首页 / 工作 / 小助手 / 日常 / 学习 / 回收站 / 我的。
+   工作下面只放教师日常工作模块；小助手独立成一级目录，
+   自习、教材、抽人、盲盒全部作为它的二级入口。
+   这里只调整教师工作台导航层级，不改变各模块的数据和业务。 */
 const navGroupOverrides = new Map();
 
 export const NAV = [
@@ -123,16 +112,16 @@ export const NAV = [
       { id: 'attendance', label: '考勤', icon: 'users' },
       { id: 'invigilation', label: '监考', icon: 'shield' },
       { id: 'trips', label: '出差', icon: 'car' },
-      {
-        id: 'materials', label: '小助手', icon: 'folder',
-        sub: [
-          { id: 'selfstudy', label: '自习', icon: 'clock' },
-          { id: 'textbook', label: '教材', icon: 'book' },
-          { id: 'pick', label: '抽人', icon: 'dice' },
-          { id: 'mystery', label: '盲盒', icon: 'gift' },
-        ],
-      },
       { id: 'notes', label: '笔记', icon: 'edit' },
+    ],
+  },
+  {
+    id: 'materials', label: '小助手', icon: 'folder',
+    sub: [
+      { id: 'selfstudy', label: '自习', icon: 'clock' },
+      { id: 'textbook', label: '教材', icon: 'book' },
+      { id: 'pick', label: '抽人', icon: 'dice' },
+      { id: 'mystery', label: '盲盒', icon: 'gift' },
     ],
   },
   { id: 'daily', label: '日常', icon: 'daily' },
@@ -368,7 +357,8 @@ function subNavHTML(n) {
 function isActive(id) {
   const r = state.route;
   if (id === 'home') return r === 'home' || r === '';
-  if (id === 'work') return r.startsWith('work') || r === 'selfstudy' || r === 'repairs';
+  if (id === 'work') return r.startsWith('work') || r === 'repairs';
+  if (id === 'materials') return r === 'materials' || r.startsWith('materials/');
   if (id === 'daily') return r.startsWith('daily');
   if (id === 'study') return r.startsWith('study');
   if (id === 'me') return r === 'me' || r === 'messages' || r === 'profile' || r.startsWith('me/');
@@ -461,16 +451,22 @@ export async function render() {
   /* 【旧地址兼容】
      #/selfstudy、#/repairs 以前是一级导航，收藏夹、群里的链接都可能是这个。
      直接 404 到首页太粗暴，原地 translate 成新地址，看起来只是「跳了一下」。 */
-  if (seg === 'selfstudy') { path = 'work/materials/selfstudy'; location.replace('#/' + path); return render(); }
+  if (seg === 'selfstudy') { path = 'materials/selfstudy'; location.replace('#/' + path); return render(); }
+  /* 兼容旧版「工作 → 小助手」地址，统一迁移到新的一级「小助手」目录。 */
+  if (seg === 'work' && tab === 'materials') {
+    path = third ? 'materials/' + third : 'materials';
+    location.replace('#/' + path); return render();
+  }
+  if (seg === 'work' && ['selfstudy', 'textbook', 'pick', 'mystery'].includes(tab)) {
+    path = 'materials/' + tab; location.replace('#/' + path); return render();
+  }
   if (seg === 'repairs') { path = 'work/repairs'; location.replace('#/' + path); return render(); }
   /* #/work 没有第二段时补一个默认二级，否则侧栏高亮会落空 */
   if (seg === 'work' && !tab) { path = 'work/lessons'; location.replace('#/' + path); return render(); }
   /* 其他一级导航补默认二级（#/daily → #/daily/notes），
      否则侧栏高亮只匹配到一级，「日常」下面的「便签」没有选中态。 */
   if (seg === 'daily' && !tab) { path = 'daily/notes'; location.replace('#/' + path); return render(); }
-  /* 旧的三级简写 #/work/selfstudy（没有 materials 这一段）也接住 */
-  if (seg === 'work' && (tab === 'selfstudy' || tab === 'textbook' || tab === 'pick' || tab === 'mystery')) {
-    path = 'work/materials/' + tab; location.replace('#/' + path); return render(); }
+  /* 旧版 #/work/selfstudy 等简写已在上方迁移到 materials/<tab>。 */
   /* 【#/timetable、#/attendance 这类「二级直接当一级用」的老地址】
      改造前「工作」的二级页是 #/work/lessons 这种形式，但用户手工改地址、
      或者从旧页面里复制出来的链接很可能是 #/timetable ——
