@@ -36,6 +36,10 @@ const rowSortValue = (row) => {
 
 export async function renderClassRecords(root) {
   let rows = [];
+  let chartType = null;
+  let chartSubject = null;
+  let ChartCtor = null;
+  const chartColors = ['#8b5cf6','#60a5fa','#34d399','#f59e0b','#f472b6','#22c55e','#06b6d4','#a78bfa','#fb7185'];
 
   root.innerHTML = `
     <section class="cr-page">
@@ -67,6 +71,23 @@ export async function renderClassRecords(root) {
         .cr-kpi-label{font-size:12px;color:var(--text-3,#86909c);font-weight:600}
         .cr-kpi-number{font-size:29px;line-height:1.25;font-weight:750;letter-spacing:-.03em;color:var(--text,#1d2129);margin-top:8px;font-variant-numeric:tabular-nums}
         .cr-kpi-foot{font-size:11px;color:var(--text-3,#86909c);margin-top:5px}
+        .cr-chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+        .cr-panel{background:var(--card,#fff);border:1px solid var(--line,#e5e6eb);border-radius:14px;padding:16px;min-width:0;box-shadow:var(--shadow-s,0 2px 8px rgba(31,35,41,.035))}
+        .cr-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+        .cr-panel-head h3,.cr-records-head h3{font-size:15px;font-weight:700;margin:0;color:var(--text,#1d2129)}
+        .cr-panel-head p,.cr-records-head p{font-size:12px;color:var(--text-3,#86909c);margin:5px 0 0}
+        .cr-total-pill{flex:none;padding:4px 9px;border-radius:99px;background:var(--surface-2,#f5f6f8);color:var(--text-2,#4e5969);font-size:11px;font-weight:650}
+        .cr-chart-layout{display:grid;grid-template-columns:minmax(160px,.9fr) minmax(150px,1fr);gap:14px;align-items:center}
+        .cr-chart-wrap{height:220px;position:relative;min-width:0}
+        .cr-chart-wrap canvas{width:100%!important;height:100%!important}
+        .cr-chart-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-3,#86909c);font-size:12px;pointer-events:none}
+        .cr-legend-list{display:grid;gap:11px;min-width:0}
+        .cr-legend-item{display:grid;grid-template-columns:9px minmax(0,1fr) auto auto;align-items:center;gap:7px;font-size:12px;min-width:0}
+        .cr-legend-dot{width:8px;height:8px;border-radius:50%}
+        .cr-legend-name{color:var(--text-2,#4e5969);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .cr-legend-count{font-weight:700;color:var(--text,#1d2129);font-variant-numeric:tabular-nums}
+        .cr-legend-pct{width:34px;text-align:right;color:var(--text-3,#86909c);font-size:11px;font-variant-numeric:tabular-nums}
+        .cr-legend-empty{font-size:12px;color:var(--text-3,#86909c);padding:8px 0}
         .cr-records-section{display:flex;flex-direction:column;gap:12px}
         .cr-records-head{margin-bottom:0}
         .cr-record-count{font-size:12px;color:var(--text-3,#86909c);white-space:nowrap}
@@ -107,6 +128,9 @@ export async function renderClassRecords(root) {
         .cr-field textarea{min-height:96px;resize:vertical}.cr-required{color:var(--red,#f53f3f)}
         .cr-hidden{display:none!important}
         .cr-form-foot{display:flex;justify-content:space-between;gap:8px;margin-top:18px;align-items:center}
+        @media(max-width:1100px){.cr-chart-layout{grid-template-columns:minmax(130px,.8fr) minmax(120px,1fr);gap:8px}.cr-chart-wrap{height:190px}.cr-record-bottom{align-items:flex-start;flex-direction:column}.cr-record-actions{justify-content:flex-start}}
+        @media(max-width:760px){.cr-page{gap:14px}.cr-title{font-size:20px}.cr-header{align-items:flex-start}.cr-header-actions{width:100%}.cr-header-actions .cr-btn{flex:1}.cr-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.cr-kpi-card{padding:13px 13px 12px}.cr-kpi-number{font-size:25px}.cr-chart-grid,.cr-record-grid{grid-template-columns:1fr}.cr-chart-layout{grid-template-columns:minmax(140px,.8fr) minmax(130px,1fr)}.cr-chart-wrap{height:200px}.cr-record-bottom{flex-direction:row;align-items:flex-end}.cr-record-actions{justify-content:flex-end}.cr-form-grid{grid-template-columns:1fr}}
+        @media(max-width:420px){.cr-chart-layout{grid-template-columns:1fr}.cr-chart-wrap{height:190px}.cr-legend-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.cr-record-bottom{flex-direction:column;align-items:flex-start}.cr-record-actions{width:100%;justify-content:flex-start}.cr-action{flex:1}}
         @media print{body *{visibility:hidden!important}#cr-print-root,#cr-print-root *{visibility:visible!important}#cr-print-root{position:absolute;inset:0;width:100%;padding:24px;background:#fff;color:#111}}
 
       </style>
@@ -139,6 +163,23 @@ export async function renderClassRecords(root) {
         </div>
       </section>
 
+      <div class="cr-chart-grid">
+        <section class="cr-panel">
+          <div class="cr-panel-head"><div><h3>上课类型分布</h3><p>四种上课类型的记录数量与占比</p></div><span class="cr-total-pill" id="cr-type-total">0 条记录</span></div>
+          <div class="cr-chart-layout">
+            <div class="cr-chart-wrap"><canvas id="cr-type-chart"></canvas><div class="cr-chart-empty" id="cr-type-empty">暂无上课记录</div></div>
+            <div class="cr-legend-list" id="cr-type-legend"></div>
+          </div>
+        </section>
+        <section class="cr-panel">
+          <div class="cr-panel-head"><div><h3>学科分布</h3><p>按登记学科统计全部课程记录</p></div><span class="cr-total-pill" id="cr-subject-total">0 个学科</span></div>
+          <div class="cr-chart-layout">
+            <div class="cr-chart-wrap"><canvas id="cr-subject-chart"></canvas><div class="cr-chart-empty" id="cr-subject-empty">暂无学科数据</div></div>
+            <div class="cr-legend-list" id="cr-subject-legend"></div>
+          </div>
+        </section>
+      </div>
+
       <section class="cr-records-section">
         <div class="cr-records-head">
           <div><h3>我的上课记录</h3><p>每张课程卡片展示学科、班级、上课类型、时间和结算情况</p></div>
@@ -156,6 +197,100 @@ export async function renderClassRecords(root) {
     paint();
   };
 
+  const renderLegend = (target, entries, total) => {
+    if (!entries.length) {
+      target.innerHTML = '<div class="cr-legend-empty">暂无记录</div>';
+      return;
+    }
+    target.innerHTML = entries.map(([label, count], i) => {
+      const pct = total ? Math.round(count / total * 100) : 0;
+      return '<div class="cr-legend-item">' +
+        '<i class="cr-legend-dot" style="background:' + chartColors[i % chartColors.length] + '"></i>' +
+        '<span class="cr-legend-name" title="' + esc(label) + '">' + esc(label) + '</span>' +
+        '<b class="cr-legend-count">' + count + '</b>' +
+        '<small class="cr-legend-pct">' + pct + '%</small>' +
+      '</div>';
+    }).join('');
+  };
+
+  const refreshCharts = async () => {
+    const typeCounts = new Map(TYPES.map(([key, label]) => [label, 0]));
+    const subjectCounts = new Map();
+    rows.forEach((r) => {
+      const label = TYPE_LABEL[r.class_type] || r.class_type || '未分类';
+      typeCounts.set(label, (typeCounts.get(label) || 0) + 1);
+      const subject = String(r.subject || '').trim();
+      if (subject) subjectCounts.set(subject, (subjectCounts.get(subject) || 0) + 1);
+    });
+    const typeEntries = [...typeCounts.entries()];
+    const subjectEntries = [...subjectCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'));
+    const typeTotal = rows.length;
+    const subjectTotal = subjectEntries.reduce((sum, item) => sum + item[1], 0);
+
+    q('#cr-type-total').textContent = typeTotal + ' 条记录';
+    q('#cr-subject-total').textContent = subjectEntries.length + ' 个学科';
+    q('#cr-type-empty').classList.toggle('cr-hidden', typeTotal > 0);
+    q('#cr-subject-empty').classList.toggle('cr-hidden', subjectTotal > 0);
+    renderLegend(q('#cr-type-legend'), typeEntries, typeTotal);
+    renderLegend(q('#cr-subject-legend'), subjectEntries, subjectTotal);
+
+    if (!ChartCtor) {
+      if (!window.Chart) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
+          script.onload = resolve;
+          script.onerror = () => reject(new Error('图表组件加载失败'));
+          document.head.appendChild(script);
+        }).catch(() => {
+          toast('图表加载失败，请检查网络后刷新页面', 'warn');
+          return;
+        });
+      }
+      ChartCtor = window.Chart;
+      if (!ChartCtor) return;
+    }
+
+    const makeData = (entries) => ({
+      labels: entries.map((item) => item[0]),
+      datasets: [{
+        data: entries.map((item) => item[1]),
+        backgroundColor: entries.map((_, i) => chartColors[i % chartColors.length]),
+        borderWidth: 3,
+        borderColor: '#ffffff',
+        hoverOffset: 5,
+      }],
+    });
+    const options = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const total = ctx.dataset.data.reduce((sum, n) => sum + Number(n || 0), 0);
+              const value = Number(ctx.raw || 0);
+              const pct = total ? Math.round(value / total * 100) : 0;
+              return ctx.label + '：' + value + ' 条（' + pct + '%）';
+            },
+          },
+        },
+      },
+    };
+    if (chartType) {
+      chartType.data = makeData(typeEntries);
+      chartType.update();
+    } else {
+      chartType = new ChartCtor(q('#cr-type-chart'), { type: 'pie', data: makeData(typeEntries), options });
+    }
+    if (chartSubject) {
+      chartSubject.data = makeData(subjectEntries);
+      chartSubject.update();
+    } else {
+      chartSubject = new ChartCtor(q('#cr-subject-chart'), { type: 'pie', data: makeData(subjectEntries), options });
+    }
+  };
 
   const paint = () => {
     const month = currentMonthKey();
@@ -179,6 +314,7 @@ export async function renderClassRecords(root) {
         '<b>还没有上课记录</b>' +
         '<span>点击右上角「新增上课记录」，开始登记你的授课、代课和换课情况</span>' +
       '</div>';
+      refreshCharts();
       return;
     }
 
@@ -229,6 +365,7 @@ export async function renderClassRecords(root) {
     body.querySelectorAll('[data-print]').forEach((b) => {
       b.onclick = () => printRow(rows.find((r) => String(r.id) === b.dataset.print));
     });
+    refreshCharts();
   };
   const openEditor = (row=null) => {
     const editing=!!row;
