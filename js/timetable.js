@@ -120,6 +120,12 @@ function countdownText(ms) {
   const s = total % 60;
   return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':');
 }
+const SUMMER_PERIOD_TIMES = {
+  0: ['07:00', '07:50'], 1: ['08:00', '08:45'], 2: ['08:55', '09:40'],
+  3: ['09:50', '10:35'], 4: ['10:55', '11:40'], 5: ['14:10', '14:55'],
+  6: ['15:05', '15:50'], 7: ['16:00', '16:45'], 8: ['16:55', '17:40'],
+  9: ['17:50', '18:35'], 10: ['19:00', '19:45'],
+};
 const WINTER_PERIOD_TIMES = {
   1: ['08:00', '08:40'], 2: ['08:50', '09:30'], 3: ['10:00', '10:40'],
   4: ['10:50', '11:30'], 5: ['11:40', '12:20'], 6: ['14:10', '14:50'],
@@ -127,13 +133,20 @@ const WINTER_PERIOD_TIMES = {
   10: ['18:25', '18:40'], 11: ['19:30', '20:10'], 12: ['20:20', '21:00'],
   13: ['21:10', '21:55'],
 };
+function periodDefaults(number, scheduleType) {
+  const map = scheduleType === TYPE_WINTER ? WINTER_PERIOD_TIMES : SUMMER_PERIOD_TIMES;
+  if (number === 5.5) return ['12:20', '14:10'];
+  return map[number] || [];
+}
 function periodName(period) {
   const name = String(period?.name || '').trim();
   const number = getCanonicalPeriodNumber(period);
-  if (name && !/^第?\s*[一二三四五六七八九十\d]+\s*节$/.test(name)) return name;
   if (number === 0) return '早自习';
   if (number === 5.5) return '午休';
-  return number == null ? name : '第' + number + '节';
+  if (number === 10) return '晚自习第一节';
+  const labels = ['', '第一节', '第二节', '第三节', '第四节', '第五节', '第六节', '第七节', '第八节', '第九节'];
+  if (number >= 1 && number <= 9) return labels[number];
+  return name;
 }
 function courseTime(course, period, periodTimes, scheduleType) {
   const periodNo = getCanonicalPeriodNumber(course) ?? getCanonicalPeriodNumber(period);
@@ -200,9 +213,14 @@ export async function renderTimetable(box) {
         api.get('/periods'),
         api.get('/me').catch(() => ({ settings: {} })),
       ]);
+      settings = parseJson(results[2]?.settings, {});
+      const timetable = parseJson(settings.timetable, {});
+      courseTypes = parseJson(timetable.courseTypes, {});
+      periodTimes = parseJson(timetable.periodTimes, {});
+      const periodOptions = { periodTimes, scheduleType: appliedType };
       const rawCourses = Array.isArray(results[0]) ? results[0] : [];
       allCourses = rawCourses.map((course) => {
-        const number = getCanonicalPeriodNumber(course);
+        const number = getCanonicalPeriodNumber(course, periodOptions);
         return {
           ...course,
           ...(number == null ? {} : { period_no: number }),
@@ -210,11 +228,7 @@ export async function renderTimetable(box) {
           end_time: cleanPeriodTime(course.end_time),
         };
       });
-      allPeriods = normalizeTimetablePeriods(Array.isArray(results[1]) ? results[1] : []);
-      settings = parseJson(results[2]?.settings, {});
-      const timetable = parseJson(settings.timetable, {});
-      courseTypes = parseJson(timetable.courseTypes, {});
-      periodTimes = parseJson(timetable.periodTimes, {});
+      allPeriods = normalizeTimetablePeriods(Array.isArray(results[1]) ? results[1] : [], periodOptions);
       paint();
     } catch (error) {
       box.innerHTML = errorHtml(error?.message || '课表数据加载失败');
@@ -232,15 +246,19 @@ export async function renderTimetable(box) {
 
   function getPeriods(visibleCourses) {
     const byNo = new Map(allPeriods.map((period) => [Number(period.period_no), period]));
-    for (const course of visibleCourses) {
-      const number = getCanonicalPeriodNumber(course);
-      if (number == null) continue;
-      if (!byNo.has(number)) byNo.set(number, {
+    /* 页面只显示固定节次轴：早自习、1–9 节、晚自习；旧数据里的 10–15
+       已在归一化层并入晚自习，不再生成额外行。 */
+    for (const number of [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10]) {
+      if (byNo.has(number)) continue;
+      const fallback = periodDefaults(number, appliedType);
+      byNo.set(number, {
         id: 'fallback-' + number, period_no: number,
-        name: periodName({ period_no: number }), start_time: course.start_time || '', end_time: course.end_time || '',
+        name: periodName({ period_no: number }), start_time: fallback[0] || '', end_time: fallback[1] || '',
       });
     }
-    return sortPeriods([...byNo.values()]);
+    return sortPeriods([...byNo.values()].filter((period) =>
+      [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10].includes(Number(period.period_no))
+    ));
   }
 
   function currentLesson(courses) {
