@@ -12,16 +12,15 @@
    用户从工作台登录页注册或登录；11位数字账号不做号码归属验证，也不发送短信。
 
    【为什么还要保留旧的手动同步】
-   旧数据还在 localStorage 里（29 张表）。这一版只把「课时」搬上云，
-   其余表仍是本地。所以「数据导出与备份」和「搬到另一台设备」保留不动，
-   等所有表都搬完再统一下线。贸然删掉，教师的旧数据就真的拿不出来了。
+   本机数据仍由 localStorage 保存；当前云端上课记录统一使用 class_records，
+   监考与考勤保留独立迁移流程。数据导出与备份功能不在本次改动范围内。
    ========================================================================== */
 
 import { toast, el, esc, sheet, confirmDialog } from './core.js';
 import { icon } from './ui.js';
 import * as cloud from './cloud.js';
 import { setActiveAccount } from './localdb.js';
-import { migrateLessons, previewMigration, migrateInvigilations, migrateAttendance, migrateAttachments } from './migrate.js';
+import { migrateInvigilations, migrateAttendance, migrateAttachments } from './migrate.js';
 
 /* 云端地址和公开 key 由 environment-config.mjs 的固定 hostname 配置提供，
    再由 cloud.js 统一校验；这里不保存第二份地址。 */
@@ -281,10 +280,10 @@ export function loginSheet(opts = {}) {
          main.js 只在这个事件上挂了一次，不会有重复订阅。 */
       try { window.dispatchEvent(new Event('wb:auth-changed')); } catch { }
       say('登录成功', 'ok');
-      /* 登录后立刻探一下课时表能不能读，把「表没建 / 权限没配」这类问题
+      /* 登录后立刻探一下上课记录表能不能读，把「表没建 / 权限没配」这类问题
          在登录这一刻就说清楚，而不是等用户点进课时页看到一个报错 */
       try {
-        await cloud.listLessons({});
+        await cloud.listRows('class_records', {});
         say('登录成功，云端可读写', 'ok');
       } catch (err) {
         say('登录成功，但云端还没准备好：' + (err.message || err), 'err');
@@ -363,7 +362,7 @@ function accountSheet() {
   const sh = sheet({ title: '云同步', body: b });
   const n = b.querySelector('#cl-n');
 
-  cloud.listLessons({}).then((rows) => {
+  cloud.listRows('class_records', {}).then((rows) => {
     n.textContent = `${rows.length} 条已同步`;
     n.classList.remove('muted');
   }).catch((e) => {
@@ -376,7 +375,7 @@ function accountSheet() {
   b.querySelector('#cl-mig').onclick = () => { sh.close(); setTimeout(migrateSheet, 200); };
 
   b.querySelector('#cl-out').onclick = async () => {
-    if (!(await confirmDialog('退出后课时数据在云端保留，重新登录还能看到。确定退出？'))) return;
+    if (!(await confirmDialog('退出后上课记录仍保留在云端，重新登录还能看到。确定退出？'))) return;
     window.dispatchEvent(new Event('wb:signout'));
     toast('已退出登录', 'ok');
     sh.close();
@@ -473,7 +472,7 @@ async function migrateSheet() {
     <div class="cl-hero">
       <div class="cl-ico">${icon('upload', 24)}</div>
       <div>
-        <div class="bold">把本机数据搬到云端</div>
+        <div class="bold">把本机考勤与监考数据搬到云端</div>
         <div class="tiny muted" style="margin-top:3px" id="mg-sub">先检查一下本机数据…</div>
       </div>
     </div>
@@ -482,12 +481,8 @@ async function migrateSheet() {
   const sh = sheet({ title: '数据迁移', body: b });
   const body = b.querySelector('#mg-body');
   const sub = b.querySelector('#mg-sub');
-
-  /* 三类数据一起体检：课时、监考、考勤。
-     一张表一张表搬太累，老师只想点一次。 */
-  let lessons = null; let invig = 0; let attTables = 0; let attRows = 0;
+  let invig = 0, attTables = 0, attRows = 0;
   try {
-    lessons = await previewMigration();
     const m = await import('./localdb.js');
     const db = m.load() || {};
     invig = (db.invigilations || []).filter((r) => !r.deleted_at).length;
@@ -501,45 +496,29 @@ async function migrateSheet() {
   }
 
   sub.textContent = '检查完毕，请确认';
-
-  const anyData = (lessons?.realRows || 0) + invig + attTables > 0;
-  if (!anyData) {
-    body.innerHTML = `<div class="card card-pad small">本机没有需要迁移的记录。</div>`;
+  if (!invig && !attTables && !attRows) {
+    body.innerHTML = `<div class="card card-pad small">本机没有需要迁移的监考或考勤记录。</div>`;
     return;
   }
 
-  const warn = [];
-  if (lessons?.badDate) warn.push(`${lessons.badDate} 条课时的日期认不出来，会存成空日期（记录本身不会丢）`);
-  if (lessons?.emptyRows) warn.push(`${lessons.emptyRows} 条空课时记录（没日期也没内容），会自动跳过`);
-
   body.innerHTML = `
     <div class="cl-list">
-      <div class="cl-row"><span>课时</span><b>${lessons?.realRows || 0} 条</b></div>
       <div class="cl-row"><span>监考</span><b>${invig} 场</b></div>
       <div class="cl-row"><span>考勤表</span><b>${attTables} 张（${attRows} 人次）</b></div>
     </div>
-
-    ${warn.length ? `<div class="cl-tip">
-      <b>需要注意：</b><br>${warn.map((w) => '· ' + esc(w)).join('<br>')}
-    </div>` : ''}
-
     <div class="cl-tip" style="margin-top:10px">
-      <b>放心几点：</b><br>
-      · 只往云端<b>复制</b>，本机数据一条都不删<br>
-      · 已经传过的会自动跳过，重复点不会重复插<br>
-      · 中途断了可以再点一次，接着传<br>
-      · 考勤表的明细会挂到对应的表下面，不会串行
+      <b>说明：</b><br>
+      · 只迁移监考与考勤，不再迁移已经停用的旧上课记录表<br>
+      · 只往云端复制，本机数据不删除<br>
+      · 已存在的记录会自动跳过；中断后可以重试<br>
+      · 考勤明细和附件会关联到对应考勤表
     </div>
-
-    <button class="btn primary block" id="mg-go" style="margin-top:14px;justify-content:center">
-      开始迁移
-    </button>
+    <button class="btn primary block" id="mg-go" style="margin-top:14px;justify-content:center">开始迁移</button>
     <div id="mg-prog" class="tiny muted" style="margin-top:10px;text-align:center;min-height:18px"></div>
   `;
 
   const go = body.querySelector('#mg-go');
   const prog = body.querySelector('#mg-prog');
-
   const showProg = (text, pct) => {
     prog.innerHTML = `${esc(text)}<div style="height:4px;border-radius:2px;background:var(--line,#e6e8ec);margin-top:6px;overflow:hidden">
       <div style="height:100%;width:${pct}%;background:var(--blue,#2563eb);transition:width .2s"></div></div>`;
@@ -549,66 +528,41 @@ async function migrateSheet() {
     go.disabled = true;
     go.textContent = '迁移中…';
     try {
-      /* 三块依次跑。任何一块抛错都记下来继续跑下一块 ——
-         不能因为监考表没建好，把考勤也一起卡死。 */
       const fails = [];
-      let l = { total: 0, added: 0, skipped: 0, failed: 0, errors: [] };
       let iv = { total: 0, added: 0, skipped: 0, failed: 0, errors: [] };
       let at = { total: 0, added: 0, skipped: 0, failed: 0, errors: [], tables: 0, rows: 0 };
       let att = { total: 0, added: 0, skipped: 0, failed: 0, errors: [] };
 
-      if (lessons?.realRows) {
-        try {
-          l = await migrateLessons(({ done, total, text }) => showProg(text, total ? Math.round((done / total) * 100) : 0));
-        } catch (e) { fails.push('课时：' + (e.message || e)); }
-      }
       if (invig) {
-        try {
-          iv = await migrateInvigilations(({ done, total, text }) => showProg(text, total ? Math.round((done / total) * 100) : 0));
-        } catch (e) { fails.push('监考：' + (e.message || e)); }
+        try { iv = await migrateInvigilations(({ done, total, text }) => showProg(text, total ? Math.round(done / total * 100) : 0)); }
+        catch (e) { fails.push('监考：' + (e.message || e)); }
       }
       if (attTables) {
-        try {
-          at = await migrateAttendance(({ done, total, text }) => showProg(text, total ? Math.round((done / total) * 100) : 0));
-        } catch (e) { fails.push('考勤：' + (e.message || e)); }
+        try { at = await migrateAttendance(({ done, total, text }) => showProg(text, total ? Math.round(done / total * 100) : 0)); }
+        catch (e) { fails.push('考勤：' + (e.message || e)); }
       }
-      /* 附件（原表 + 照片）必须排在考勤之后 ——
-         它要靠「考勤表本地 id → 云端 id」的对应关系才知道该挂到哪张表。
-         前面考勤没搬成时，这里会全部跳过（不会挂错），是安全的行为。 */
-      try {
-        att = await migrateAttachments(({ done, total, text }) => showProg(text, total ? Math.round((done / total) * 100) : 0));
-      } catch (e) { fails.push('附件：' + (e.message || e)); }
+      try { att = await migrateAttachments(({ done, total, text }) => showProg(text, total ? Math.round(done / total * 100) : 0)); }
+      catch (e) { fails.push('附件：' + (e.message || e)); }
 
-      const errors = [...l.errors, ...iv.errors, ...at.errors, ...att.errors];
-      const totalFailed = l.failed + iv.failed + at.failed + att.failed + fails.length;
+      const errors = [...iv.errors, ...at.errors, ...att.errors];
+      const totalFailed = iv.failed + at.failed + att.failed + fails.length;
       const bad = (errors.length || fails.length)
-        ? `<div class="cl-tip" style="margin-top:10px;color:var(--red)">
-             ${fails.map(esc).join('<br>')}
-             ${errors.length ? `<br>${errors.slice(0, 5).map(esc).join('<br>')}` : ''}
-             ${errors.length > 5 ? '<br>…还有其他 ' + (errors.length - 5) + ' 条' : ''}
-           </div>`
+        ? `<div class="cl-tip" style="margin-top:10px;color:var(--red)">${fails.map(esc).join('<br>')}${errors.length ? '<br>' + errors.slice(0, 5).map(esc).join('<br>') : ''}${errors.length > 5 ? '<br>…还有其他 ' + (errors.length - 5) + ' 条' : ''}</div>`
         : '';
-
       body.innerHTML = `
         <div class="cl-list">
-          <div class="cl-row"><span>课时 新上传</span><b style="color:#166534">${l.added} 条</b></div>
-          <div class="cl-row"><span>监考 新上传</span><b style="color:#166534">${iv.added} 场</b></div>
-          <div class="cl-row"><span>考勤 新上传</span><b style="color:#166534">${at.tables || 0} 张 / ${at.rows || 0} 人</b></div>
-          <div class="cl-row"><span>原表 + 照片</span><b style="color:#166534">${att.added} 个</b></div>
-          <div class="cl-row"><span>跳过（已存在/空）</span><b>${l.skipped + iv.skipped + at.skipped + att.skipped} 条</b></div>
+          <div class="cl-row"><span>监考新上传</span><b>${iv.added} 场</b></div>
+          <div class="cl-row"><span>考勤新上传</span><b>${at.tables || 0} 张 / ${at.rows || 0} 人</b></div>
+          <div class="cl-row"><span>附件新上传</span><b>${att.added} 个</b></div>
+          <div class="cl-row"><span>跳过（已存在/空）</span><b>${iv.skipped + at.skipped + att.skipped} 条</b></div>
           <div class="cl-row"><span>失败</span><b style="color:${totalFailed ? 'var(--red)' : 'inherit'}">${totalFailed} 条</b></div>
         </div>
         ${bad}
-        <div class="tiny muted" style="margin-top:10px;line-height:1.7">
-          ${totalFailed ? '有失败的，可以再点一次「开始迁移」重试（已成功的会自动跳过）。' : '迁移完成。去「上课」「监考」「考勤」各刷新一下就能看到。'}
-        </div>
+        <div class="tiny muted" style="margin-top:10px;line-height:1.7">${totalFailed ? '有失败的，可以再点一次「开始迁移」重试。' : '迁移完成。去「监考」「考勤」刷新即可查看。'}</div>
         <button class="btn primary block" id="mg-done" style="margin-top:14px;justify-content:center">知道了</button>
       `;
-      body.querySelector('#mg-done').onclick = () => {
-        sh.close();
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-      };
-      const sum = l.added + iv.added + (at.tables || 0) + (att.added || 0);
+      body.querySelector('#mg-done').onclick = () => { sh.close(); window.dispatchEvent(new HashChangeEvent('hashchange')); };
+      const sum = iv.added + (at.tables || 0) + (att.added || 0);
       toast(`迁移完成：新增 ${sum} 项`, totalFailed ? 'warn' : 'ok', 6000);
     } catch (e) {
       go.disabled = false;
