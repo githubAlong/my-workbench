@@ -22,6 +22,7 @@ import {
 } from './localdb.js';
 import { accountIdentifierFromPhone } from './auth-identifier.mjs';
 import { attRowState } from './att-parse.js';
+import { buildInvigSummary as buildInvigSummaryV2 } from './invigilation-domain.mjs';
 import {
   dedupeAttendanceRows,
   dayKeyOf as attendanceDayKey,
@@ -659,7 +660,8 @@ function lessonSummaryPayload(month, rows) {
 
 /* ============================ 监考汇总 ============================ */
 const DEFAULT_INVIG_RULES = {
-  mode: '场次',
+  mode: '分钟',
+  perMinute: 0.4,
   perSession: 60,
   perHour: 30,
   peerPerSession: 50,
@@ -675,79 +677,10 @@ function getInvigRules() {
 }
 
 function buildInvSummary(rows, rules = {}) {
-  const out = {
-    total: 0,
-    school: { count: 0, amount: 0, paid: 0, unpaid: 0 },
-    sub_out: { count: 0, hours: 0, amount: 0, open_amount: 0 },
-    sub_in: { count: 0, hours: 0, amount: 0, open_amount: 0 },
-    net: { amount: 0, direction: 'even' },
-    people: [], by_room: {}, minutes: 0, rules,
-  };
-  const peopleMap = new Map();
-
-  for (const r of rows) {
-    if ((r.status || 'done') === 'canceled') continue;
-    const amt = num(r.pay_amount, num(r.amount, 0));
-    out.total += 1;
-    out.minutes += num(r.duration_min, num(r.minutes, 0));
-    if (r.room) out.by_room[r.room] = (out.by_room[r.room] || 0) + 1;
-
-    const t = r.duty_type || 'school';
-    if (t === 'school') {
-      out.school.count += 1;
-      out.school.amount += amt;
-      if (r.school_paid) out.school.paid += amt; else out.school.unpaid += amt;
-      continue;
-    }
-
-    const isOut = t === '替他人';
-    const bucket = isOut ? out.sub_out : out.sub_in;
-    bucket.count += 1;
-    bucket.hours += 1;
-    bucket.amount += amt;
-
-    const name = String(r.peer_name || r.person || '').trim() || '(未填对方)';
-    const key = name + '|' + (isOut ? 'out' : 'in');
-    if (!peopleMap.has(key)) {
-      peopleMap.set(key, {
-        name, direction: isOut ? 'out' : 'in',
-        count: 0, amount: 0, open_amount: 0,
-        settled: false, partial: false, settled_count: 0,
-        open_ids: [], open_items: [],
-      });
-    }
-    const p = peopleMap.get(key);
-    p.count += 1;
-    p.amount += amt;
-    if (r.settled_at) {
-      p.settled_count += 1;
-    } else {
-      p.open_amount += amt;
-      p.open_ids.push(r.id);
-      p.open_items.push({
-        id: r.id, date: r.date || '', start_time: r.start_time || '',
-        exam_name: r.exam_name || r.subject || '', room: r.room || r.place || '',
-        amount: amt,
-      });
-      bucket.open_amount += amt;
-    }
-  }
-
-  for (const p of peopleMap.values()) {
-    p.settled = p.count > 0 && p.settled_count === p.count;
-    p.partial = p.settled_count > 0 && !p.settled;
-    p.open_items.sort((a, b) => (a.date === b.date ? (a.start_time < b.start_time ? -1 : 1) : (a.date < b.date ? -1 : 1)));
-    out.people.push(p);
-  }
-  out.people.sort((a, b) => (a.direction === b.direction ? b.open_amount - a.open_amount : a.direction === 'out' ? -1 : 1));
-
-  let net = 0;
-  for (const p of out.people) net += (p.direction === 'out' ? 1 : -1) * p.open_amount;
-  out.net.amount = n2(net);
-  out.net.direction = net > 0 ? 'receivable' : net < 0 ? 'payable' : 'even';
-  return out;
+  return buildInvigSummaryV2(rows, rules);
 }
 
+/* 旧版汇总算法保留在 Git 历史中；当前统一使用支持分次收付的纯规则模块。 */
 /* ============================ 出差报销 ============================ */
 const TRIP_DEFAULT = { foodPerDay: 100, localPerDay: 40 };
 const KIND_TXT = { transport: '交通', hotel: '住宿', taxi: '打车', meal: '餐饮', toll: '过路费', parking: '停车费', other: '其他' };
@@ -3000,7 +2933,8 @@ on('PATCH', '/invig/rules', ({ body }) => {
   const u = currentUser();
   const cur = getInvigRules();
   const next = {
-    mode: body?.mode === '时长' ? '时长' : '场次',
+    mode: body?.mode === '时长' ? '时长' : body?.mode === '分钟' ? '分钟' : '场次',
+    perMinute: Number(body?.perMinute ?? cur.perMinute) || 0,
     perSession: Number(body?.perSession ?? cur.perSession) || 0,
     perHour: Number(body?.perHour ?? cur.perHour) || 0,
     peerPerSession: Number(body?.peerPerSession ?? cur.peerPerSession) || 0,
