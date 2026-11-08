@@ -83,3 +83,20 @@ test("four evening periods remain separate", () => {
   assert.deepEqual(rows.map((row) => row.period_no), [10, 11, 12, 13]);
   assert.deepEqual(rows.map((row) => row.name), ["晚一", "晚二", "晚三", "晚四"]);
 });
+
+test("evening labels map to four separate period numbers", () => {
+  assert.equal(getCanonicalPeriodNumber({name:"晚一",period_no:10}),10);
+  assert.equal(getCanonicalPeriodNumber({name:"晚二",period_no:11}),11);
+  assert.equal(getCanonicalPeriodNumber({name:"晚三",period_no:12}),12);
+  assert.equal(getCanonicalPeriodNumber({name:"晚四",period_no:13}),13);
+  const rows = normalizeTimetablePeriods([
+    {period_no:10,name:"晚一",start_time:"18:25",end_time:"18:40"},
+    {period_no:11,name:"晚二",start_time:"19:30",end_time:"20:10"},
+    {period_no:12,name:"晚三",start_time:"20:20",end_time:"21:00"},
+    {period_no:13,name:"晚四",start_time:"21:10",end_time:"21:55"},
+  ]);
+  assert.deepEqual(rows.map(row=>row.period_no),[10,11,12,13]);
+  assert.deepEqual(rows.map(row=>[row.start_time,row.end_time]),[
+    ["18:25","18:40"],["19:30","20:10"],["20:20","21:00"],["21:10","21:55"]
+  ]);
+});
