@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-test-v161-electronic-prep-prd';
+const CACHE = 'wb-test-v162-electronic-prep-prd';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -74,6 +74,7 @@ const ASSETS = [
   /* 各业务页面 */
   './js/home.js',
   './js/work.js',
+  './js/class-records.js',
   './js/prep.js',
   './js/timetable.js',
   './js/daily.js',
