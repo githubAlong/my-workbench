@@ -1413,7 +1413,7 @@ export function detectTimetable(img) {  const { mono, w, h } = imageToMono(img);
   const firstDayCol = prefixEnd;
 
   /* 表头文字认不出（不做 OCR），按「第 N 列 = 周 N」的顺序推。 */
-  const dayOrder = [1, 2, 3, 4, 5, 6, 7];
+  const dayOrder = [1, 2, 3, 4, 5, 6, 0];
   const dayOfCol = [];
   for (let c = firstDayCol; c < cols; c++) dayOfCol[c] = dayOrder[c - firstDayCol] || 0;
 
