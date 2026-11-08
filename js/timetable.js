@@ -373,6 +373,7 @@ export async function renderTimetable(box) {
       '<div class="tt-toolbar-actions">' +
         '<button class="btn ghost sm" type="button" id="tt-export">' + icon('download', 14) + ' 导出课表</button>' +
         '<button class="btn ghost sm" type="button" id="tt-import">' + icon('upload', 14) + ' 导入课表</button>' +
+        (appliedType === TYPE_WINTER && appliedGrade === '高二' ? '<button class="btn ghost sm" type="button" id="tt-import-high2">导入2026秋季高二课表</button>' : '') +
         '<button class="btn ghost sm" type="button" id="tt-period-settings">作息设置</button>' +
         '<button class="btn primary sm" type="button" id="tt-add">' + icon('plus', 14) + ' 新增课程</button>' +
       '</div></div>' +
@@ -508,6 +509,67 @@ export async function renderTimetable(box) {
     });
   }
 
+  async function importHigh2Winter() {
+    const key = TYPE_WINTER + "|高二";
+    const schedule = [
+      { weekday: 3, period_no: 1, class_name: "11班" },
+      { weekday: 5, period_no: 1, class_name: "13班" },
+      { weekday: 1, period_no: 3, class_name: "5班" },
+      { weekday: 3, period_no: 3, class_name: "12班" },
+      { weekday: 1, period_no: 5, class_name: "7班" },
+      { weekday: 2, period_no: 5, class_name: "6班" },
+      { weekday: 4, period_no: 5, class_name: "10班" },
+      { weekday: 4, period_no: 6, class_name: "9班" },
+      { weekday: 4, period_no: 7, class_name: "16班" },
+      { weekday: 2, period_no: 9, class_name: "15班" },
+      { weekday: 3, period_no: 9, class_name: "8班" },
+      { weekday: 4, period_no: 9, class_name: "14班" },
+      { weekday: 5, period_no: 9, class_name: "18班" },
+    ];
+    const times = {
+      1: ["08:00", "08:40"], 2: ["08:50", "09:30"], 3: ["10:00", "10:40"],
+      4: ["10:50", "11:30"], 5: ["11:40", "12:20"], 5.5: ["12:20", "14:10"],
+      6: ["14:10", "14:50"], 7: ["15:20", "16:00"], 8: ["16:15", "16:55"],
+      9: ["17:05", "17:45"], 10: ["18:25", "18:40"], 11: ["19:30", "20:10"],
+      12: ["20:20", "21:00"], 13: ["21:10", "21:55"],
+    };
+    const names = { 1:"第一节",2:"第二节",3:"第三节",4:"第四节",5:"第五节",5.5:"午休",6:"第六节",7:"第七节",8:"第八节",9:"第九节",10:"晚一",11:"晚二",12:"晚三",13:"晚四" };
+    const defs = Object.entries(times).map(([no, range], order) => ({
+      id: "high2-winter-" + no, period_no: Number(no), name: names[no],
+      start_time: range[0], end_time: range[1], order,
+    }));
+    const currentDefs = periodDefinitions[key];
+    if (Array.isArray(currentDefs) && currentDefs.length) {
+      const ok = await confirmDialog("高二冬令时已存在作息配置。重新导入会更新高二冬令时节次时间，但不会删除其他年级课程。是否继续？", { title: "更新高二课表", okText: "继续导入" });
+      if (!ok) return;
+    }
+    const candidates = schedule.map((row) => ({
+      ...row, grade: "高二", subject: "信息技术",
+      period_no: Number(row.period_no),
+      start_time: times[row.period_no][0], end_time: times[row.period_no][1],
+    }));
+    const existing = new Set(allCourses.filter((c) => typeOfCourse(c, courseTypes) === TYPE_WINTER && String(c.grade) === "高二").map(courseKey));
+    let added = 0;
+    const nextTypes = { ...courseTypes };
+    for (const course of candidates) {
+      const keyValue = courseKey(course);
+      if (existing.has(keyValue)) continue;
+      const saved = await api.post("/courses", {
+        ...course, room: "", weeks: "", color: "", remark: "", start_date: null, end_date: null,
+      });
+      nextTypes[String(saved.id)] = TYPE_WINTER;
+      existing.add(keyValue); added++;
+    }
+    const nextDefs = { ...periodDefinitions, [key]: defs };
+    const nextTimes = { ...periodTimes, [TYPE_WINTER]: { ...(periodTimes?.[TYPE_WINTER] || {}) } };
+    Object.entries(times).forEach(([no, range]) => {
+      nextTimes[TYPE_WINTER][no] = { start_time: range[0], end_time: range[1] };
+    });
+    await saveTimetablePrefs({ courseTypes: nextTypes, periodDefinitions: nextDefs, periodTimes: nextTimes });
+    toast("高二冬令时课表已导入，新增 " + added + " 条课程");
+    await loadData(false);
+  }
+
   function bind(visible, periods) {
     const typeSelect = box.querySelector('#tt-type');
     const gradeSelect = box.querySelector('#tt-grade');
@@ -521,6 +583,9 @@ export async function renderTimetable(box) {
     box.querySelector('#tt-period-settings')?.addEventListener('click', () => openPeriodSettings());
     box.querySelector('#tt-empty-add')?.addEventListener('click', () => openCourseEditor(null, periods));
     box.querySelector('#tt-import')?.addEventListener('click', () => openImportDialog());
+    box.querySelector('#tt-import-high2')?.addEventListener('click', async () => {
+      try { await importHigh2Winter(); } catch (error) { toast(error?.message || '高二课表导入失败', 'err'); }
+    });
     box.querySelector('#tt-export')?.addEventListener('click', () => openExportDialog(visible, periods));
     box.querySelectorAll('[data-slot]').forEach((slot) => {
       slot.addEventListener('click', (event) => {
