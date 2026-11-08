@@ -2735,11 +2735,10 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
 /* 首页个人名片、每日一句喇叭与日历区域布局修正 */
 .home-redesign .home-profile-head {
   display:grid;
-  grid-template-columns:60px minmax(150px,.9fr) minmax(220px,1.1fr);
+  grid-template-columns:60px minmax(0,.9fr) minmax(0,1.1fr);
   align-items:center;
   gap:12px;
   min-width:0;
-  padding-right:78px;
 }
 .home-redesign .home-profile-info {
   min-width:0;
@@ -2748,6 +2747,7 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
   display:flex;
   align-items:center;
   align-content:center;
+  justify-content:flex-end;
   flex-wrap:wrap;
   gap:4px 8px;
   min-width:0;
@@ -2755,6 +2755,7 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
   font-size:12px;
   font-weight:650;
   line-height:1.65;
+  text-align:right;
 }
 .home-redesign .home-profile-detail-item {
   min-width:0;
@@ -2814,7 +2815,6 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
   .home-redesign .home-profile-head {
     grid-template-columns:56px minmax(0,1fr);
     align-items:center;
-    padding-right:72px;
   }
   .home-redesign .home-profile-head .ah-btn {
     width:56px!important;
