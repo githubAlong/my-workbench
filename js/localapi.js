@@ -450,6 +450,7 @@ function syncItemToTodo(itemId, changed) {
 const RECYCLE_KEEP_DAYS = 30;
 const RECYCLE_TITLE = {
   items: (r) => r.title, todos: (r) => r.title,
+  class_records: (r) => `${r.class_time || ''} ${r.subject || ''} ${r.class_name || ''}`.trim(),
   lessons: (r) => `${r.date} ${r.class_name || ''} ${r.content || ''}`.trim(),
   invigilations: (r) => `${r.date} ${r.subject || ''} 监考`,
   trips: (r) => `${r.to_place || ''} 出差`,
@@ -474,7 +475,7 @@ const RECYCLE_GROUP = {
   todos: { group: 'task', at: '日常 → 便签' },
   studies: { group: 'study', at: '学习 → 记录' },
   notes: { group: 'study', at: '学习 / 工作 → 笔记' },
-  lessons: { group: 'work', at: '工作 → 上课' },
+  class_records: { group: 'work', at: '工作 → 上课' },
   courses: { group: 'work', at: '工作 → 课表' },
   periods: { group: 'work', at: '工作 → 课表 → 节次' },
   invigilations: { group: 'work', at: '工作 → 监考' },
