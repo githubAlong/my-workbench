@@ -4055,7 +4055,7 @@ on('POST', '/backup/restore', ({ body }) => {
 /* 服务端的自动路由表：/api/{table} 的 GET / POST / PATCH / bulk。
    表名来自 localdb.TABLES 里与服务端 CRUD 对齐的那 18 张。 */
 const CRUD_TABLES = [
-  'periods', 'courses', 'class_records', 'lessons', 'invigilations', 'trips', 'materials', 'notes', 'preps',
+  'periods', 'courses', 'class_records', 'invigilations', 'trips', 'materials', 'notes', 'preps',
   'categories', 'homework', 'studies', 'students', 'rosters', 'punishments', 'exceptions',
   'selfstudy', 'repairs', 'teachers',
 ];
@@ -4069,7 +4069,6 @@ for (const table of CRUD_TABLES) {
        别的入口调到的，只在界面拦等于没拦。
        挑的都是「空着这条记录就没意义」的字段，不做格式校验，不打扰正常录入。 */
     const REQUIRED = {
-      lessons: [['class_name', '班级不能为空']],
       class_records: [['class_type', '请选择上课类型'], ['subject', '请填写学科']],
       preps: [['topic', '请填写备课主题'], ['prep_type', '请选择备课类型']],
       trips: [['to_place', '目的地不能为空']],
