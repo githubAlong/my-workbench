@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-test-v152-attendance-prd-recovery';
+const CACHE = 'wb-test-v153-attendance-prd-syntax-fix';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -80,6 +80,8 @@ const ASSETS = [
   './js/selfstudy.js',
   /* 功能模块 */
   './js/attendance.js',
+  './js/attendance-prd.js',
+  './js/attendance-prd-domain.mjs',
   './js/ocr.js',
   './js/alarm.js',
   './js/qrdecode.js',
