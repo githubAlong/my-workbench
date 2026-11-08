@@ -182,6 +182,7 @@ export async function renderTimetable(box) {
   let settings = {};
   let courseTypes = {};
   let periodTimes = {};
+  let periodDefinitions = {};
   let appliedType = loadViewPreference().type;
   let appliedGrade = loadViewPreference().grade;
   let clockTimer = null;
@@ -200,6 +201,7 @@ export async function renderTimetable(box) {
     settings = nextSettings;
     courseTypes = parseJson(timetable.courseTypes, {});
     periodTimes = parseJson(timetable.periodTimes, {});
+    periodDefinitions = parseJson(timetable.periodDefinitions, {});
   }
 
   async function loadData(showLoading = true) {
@@ -216,6 +218,7 @@ export async function renderTimetable(box) {
       const timetable = parseJson(settings.timetable, {});
       courseTypes = parseJson(timetable.courseTypes, {});
       periodTimes = parseJson(timetable.periodTimes, {});
+      periodDefinitions = parseJson(timetable.periodDefinitions, {});
       const periodOptions = { periodTimes, scheduleType: appliedType };
       const rawCourses = Array.isArray(results[0]) ? results[0] : [];
       allCourses = rawCourses.map((course) => {
@@ -244,20 +247,27 @@ export async function renderTimetable(box) {
   }
 
   function getPeriods(visibleCourses) {
+    const key = appliedType + "|" + appliedGrade;
+    const configured = periodDefinitions[key];
+    if (Array.isArray(configured) && configured.length) {
+      return [...configured].sort((a, b) => Number(a.order) - Number(b.order)).map((item) => ({
+        id: item.id || "custom-" + item.period_no,
+        period_no: Number(item.period_no),
+        name: String(item.name || ("第" + item.period_no + "节")),
+        start_time: cleanPeriodTime(item.start_time),
+        end_time: cleanPeriodTime(item.end_time),
+      }));
+    }
     const byNo = new Map(allPeriods.map((period) => [Number(period.period_no), period]));
-    /* 页面只显示固定节次轴：早自习、1–9 节、晚自习；旧数据里的 10–15
-       已在归一化层并入晚自习，不再生成额外行。 */
-    for (const number of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+    for (const number of [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9]) {
       if (byNo.has(number)) continue;
       const fallback = periodDefaults(number, appliedType);
       byNo.set(number, {
-        id: 'fallback-' + number, period_no: number,
-        name: periodName({ period_no: number }), start_time: fallback[0] || '', end_time: fallback[1] || '',
+        id: "fallback-" + number, period_no: number,
+        name: periodName({ period_no: number }), start_time: fallback[0] || "", end_time: fallback[1] || "",
       });
     }
-    return sortPeriods([...byNo.values()].filter((period) =>
-      [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10].includes(Number(period.period_no))
-    ));
+    return sortPeriods([...byNo.values()]);
   }
 
   function currentLesson(courses) {
@@ -363,6 +373,7 @@ export async function renderTimetable(box) {
       '<div class="tt-toolbar-actions">' +
         '<button class="btn ghost sm" type="button" id="tt-export">' + icon('download', 14) + ' 导出课表</button>' +
         '<button class="btn ghost sm" type="button" id="tt-import">' + icon('upload', 14) + ' 导入课表</button>' +
+        '<button class="btn ghost sm" type="button" id="tt-period-settings">作息设置</button>' +
         '<button class="btn primary sm" type="button" id="tt-add">' + icon('plus', 14) + ' 新增课程</button>' +
       '</div></div>' +
       reminderHtml(visible) +
@@ -436,6 +447,67 @@ export async function renderTimetable(box) {
     }
   }
 
+  function openPeriodSettings() {
+    const key = appliedType + "|" + appliedGrade;
+    const base = Array.isArray(periodDefinitions[key]) ? periodDefinitions[key] : getPeriods(getVisibleCourses()).map((p, index) => ({
+      id: p.id, period_no: Number(p.period_no), name: p.name,
+      start_time: p.start_time || "", end_time: p.end_time || "", order: index,
+    }));
+    let rows = base.map((p, index) => ({ ...p, order: index }));
+    const body = el('<div class="sheet-body"><p class="small muted">当前设置：' + esc(appliedType + " · " + appliedGrade) + '。可新增、修改、删除和调整节次顺序。存在课程的节次不能删除。</p><div id="tt-period-rows"></div><div class="confirm-actions"><button class="btn ghost" id="tt-period-add">新增时间段</button><button class="btn ghost" id="tt-period-cancel">取消</button><button class="btn primary" id="tt-period-save">保存作息</button></div></div>');
+    const modal = sheet({ title: "作息时间管理", body, wide: true });
+    const list = body.querySelector("#tt-period-rows");
+    const draw = () => {
+      list.innerHTML = rows.map((p, i) => '<div class="tt-period-editor-row" data-row="' + i + '">' +
+        '<input class="input" data-field="name" aria-label="节次名称" value="' + esc(p.name) + '" placeholder="节次名称">' +
+        '<input class="input" data-field="start_time" aria-label="开始时间" value="' + esc(p.start_time) + '" placeholder="08:00">' +
+        '<input class="input" data-field="end_time" aria-label="结束时间" value="' + esc(p.end_time) + '" placeholder="08:40">' +
+        '<button class="btn ghost sm" data-up="' + i + '" type="button">↑</button><button class="btn ghost sm" data-down="' + i + '" type="button">↓</button><button class="btn ghost danger sm" data-remove="' + i + '" type="button">删除</button></div>').join("");
+      list.querySelectorAll("[data-field]").forEach((input) => input.addEventListener("change", () => {
+        const row = Number(input.closest("[data-row]").dataset.row);
+        rows[row][input.dataset.field] = input.value.trim();
+      }));
+      list.querySelectorAll("[data-up]").forEach((button) => button.onclick = () => {
+        const i = Number(button.dataset.up); if (i <= 0) return;
+        [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; draw();
+      });
+      list.querySelectorAll("[data-down]").forEach((button) => button.onclick = () => {
+        const i = Number(button.dataset.down); if (i >= rows.length - 1) return;
+        [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]]; draw();
+      });
+      list.querySelectorAll("[data-remove]").forEach((button) => button.onclick = () => {
+        const i = Number(button.dataset.remove), no = Number(rows[i].period_no);
+        if (allCourses.some((c) => typeOfCourse(c, courseTypes) === appliedType && visibleByGrade(c, appliedGrade) && Number(c.period_no) === no)) {
+          toast("该节次已有课程，请先调整或删除相关课程", "warn"); return;
+        }
+        rows.splice(i, 1); draw();
+      });
+    };
+    draw();
+    body.querySelector("#tt-period-add").onclick = () => {
+      const used = new Set(rows.map((p) => Number(p.period_no)));
+      let no = 1; while (used.has(no)) no++;
+      rows.push({ id: "custom-" + no, period_no: no, name: "第" + no + "节", start_time: "", end_time: "", order: rows.length }); draw();
+    };
+    body.querySelector("#tt-period-cancel").onclick = modal.close;
+    saving(body.querySelector("#tt-period-save"), async () => {
+      rows = rows.map((p, i) => ({ ...p, order: i, period_no: Number(p.period_no) }));
+      const seen = new Set();
+      for (const p of rows) {
+        if (!p.name) throw new Error("请填写所有节次名称");
+        if (!p.start_time || !p.end_time || !normalizeTime(p.start_time) || !normalizeTime(p.end_time)) throw new Error("请填写有效的开始和结束时间");
+        if (timeMinutes(p.end_time) <= timeMinutes(p.start_time)) throw new Error("结束时间必须晚于开始时间");
+        if (seen.has(p.period_no)) throw new Error("节次编号重复，请检查");
+        seen.add(p.period_no);
+      }
+      const nextDefs = { ...periodDefinitions, [key]: rows };
+      const nextTimes = { ...periodTimes, [appliedType]: { ...(periodTimes?.[appliedType] || {}) } };
+      rows.forEach((p) => { nextTimes[appliedType][String(p.period_no)] = { start_time: normalizeTime(p.start_time), end_time: normalizeTime(p.end_time) }; });
+      await saveTimetablePrefs({ periodDefinitions: nextDefs, periodTimes: nextTimes });
+      modal.close(); toast("作息时间已保存"); await loadData(false);
+    });
+  }
+
   function bind(visible, periods) {
     const typeSelect = box.querySelector('#tt-type');
     const gradeSelect = box.querySelector('#tt-grade');
@@ -446,6 +518,7 @@ export async function renderTimetable(box) {
       await loadData(true);
     });
     box.querySelector('#tt-add')?.addEventListener('click', () => openCourseEditor(null, periods));
+    box.querySelector('#tt-period-settings')?.addEventListener('click', () => openPeriodSettings());
     box.querySelector('#tt-empty-add')?.addEventListener('click', () => openCourseEditor(null, periods));
     box.querySelector('#tt-import')?.addEventListener('click', () => openImportDialog());
     box.querySelector('#tt-export')?.addEventListener('click', () => openExportDialog(visible, periods));
