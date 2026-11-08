@@ -97,7 +97,7 @@ export function getCanonicalPeriodNumber(record, options = {}) {
 
   const byRaw = parsePeriodLabel(raw);
   if (byRaw != null) {
-    if (byRaw >= 10 && byRaw <= 15) return 10;
+    if (byRaw >= 10 && byRaw <= 15) return byRaw;
     if (byRaw >= 1 && byRaw <= 9) return byRaw;
     if (byRaw === 0 || byRaw === 5.5) return byRaw;
     if (byRaw > 15 && isObject && !isGenericPeriodName(name) &&
