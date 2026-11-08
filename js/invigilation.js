@@ -133,9 +133,11 @@ export async function renderInvigilation(box) {
       rules = { ...DEFAULT_RULES, ...(data.rules || {}) };
       summary = buildInvigSummary(rows, rules);
       render();
+      return true;
     } catch (error) {
       box.innerHTML = '<div class="iv-error"><b>监考台账加载失败</b><span>' + esc(error.message || '请检查网络后重试') + '</span><button class="btn primary" data-retry>重新加载</button></div>';
       box.querySelector('[data-retry]').onclick = reload;
+      return false;
     }
   };
 
@@ -364,9 +366,15 @@ export async function renderInvigilation(box) {
         const warning = state.paid > 0 ? '这场已有收付记录，删除后会影响历史对账。' : '';
         if (!(await confirmDialog('确定删除 ' + (row.exam_name || '这场监考') + '？' + (warning ? '\n' + warning : ''), { danger: true, okText: '删除' }))) return;
         try {
-          await api.del('/invigilations/' + row.id);
+          const deletedId = String(row.id);
+          await api.del('/invigilations/' + deletedId);
+          const refreshed = await reload();
+          if (!refreshed) return;
+          if (rowById(deletedId)) {
+            toast('删除请求已提交，但刷新后记录仍存在，请稍后重试', 'err');
+            return;
+          }
           toast('监考记录已删除');
-          reload();
         } catch (error) { toast(error.message || '删除失败', 'err'); }
       };
     });

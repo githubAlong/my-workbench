@@ -2945,9 +2945,24 @@ on('PATCH', '/invig/rules', ({ body }) => {
   saveUser(u);
   return { rules: next };
 });
-on('GET', '/invig/summary', ({ query }) => {
+on('GET', '/invig/summary', async ({ query }) => {
   const month = /^\d{4}-\d{2}$/.test(String(query.month || '')) ? String(query.month) : cnDate().slice(0, 7);
-  const rows = rowsOf('invigilations')
+  let sourceRows = rowsOf('invigilations');
+
+  /* 监考 CRUD 已走云端 invigilations 表；列表汇总也必须读取同一数据源。
+     否则云端删除成功后，本地 /invig/summary 仍会把旧副本显示出来。 */
+  if (await cloudReady()) {
+    try {
+      const cloud = await import('./cloud.js');
+      sourceRows = await cloud.listRows('invigilations', { month });
+    } catch (error) {
+      /* 测试库尚未迁移该表时，沿用本地数据；其他云端错误必须明确报出，
+         不能静默回退到旧数据并误报删除成功。 */
+      if (!isCloudSchemaUnavailable(error)) throw error;
+    }
+  }
+
+  const rows = sourceRows
     .filter((r) => String(r.date || '').startsWith(month))
     .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.start_time || '').localeCompare(String(a.start_time || '')))
     .map(fillInvigTime);
