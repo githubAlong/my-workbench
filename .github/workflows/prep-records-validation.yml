@@ -78,7 +78,7 @@ jobs:
           cat /tmp/prep-preview.log
           exit 1
       - name: Run desktop and mobile browser tests
-        run: npx playwright test tests/browser/homepage-smoke.spec.mjs tests/browser/prep-records-smoke.spec.mjs --reporter=line
+        run: npx playwright test tests/browser/prep-records-smoke.spec.mjs --reporter=line
       - name: Preserve complete-suite regression gate
         if: always()
         run: |
