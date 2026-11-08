@@ -543,7 +543,7 @@ export async function renderTimetable(box) {
     });
     if (!ok) return;
 
-    const normalizeClass = (value) => String(value || "").replace(/^高二/, "").replace(/\\s+/g, "").trim();
+    const normalizeClass = (value) => String(value || "").replace(/^高二/, "").replace(/\s+/g, "").trim();
     const high2InformationCourses = allCourses.filter((c) =>
       String(c.grade || "").includes("高二") &&
       String(c.subject || "").trim() === "信息技术" &&
