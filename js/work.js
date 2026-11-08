@@ -1,6 +1,6 @@
 import { api, el, esc, clsName, startPoll, toast, sheet, saving, confirmDialog, promptDialog, ymd, pad2, WD_SHORT, fmtDateTime, fmtTime, parseDT, exportUrl, download, doExport, STATIC, studentUrl, shortPath } from './core.js';
 import { printStatement } from './pdfprint.js';
-import { registerView, state, icon, go, pageHead, onViewLeave, subCurrentOf, NAV } from './ui.js';
+import { registerView, state, icon, go, pageHead, onViewLeave } from './ui.js';
 import { renderAttendance } from './attendance.js';
 import { renderAttendancePRD } from './attendance-prd.js';
 import { renderTimetable as renderMyTimetable } from './timetable.js';
@@ -94,12 +94,7 @@ export function importSheet(kind, reload) {
 }
 
 /* ================= 工作（二级导航分发） ================= */
-/* 路由：work/<tab>，tab 取自 ui.js 的 NAV.work.sub。
-   小助手（materials）下面还有子级入口 work/materials/<third>：
-     selfstudy 自习 · textbook 教材 · pick 抽人 · mystery 盲盒
-   这四项对应的是**学生看到的那个页面**（student.html）里的模块，
-   老师这边需要的是「发链接、配内容、看谁用了」，所以第三级不是把学生页
-   照搬过来，而是给它做后台。 */
+/* 路由：work/<tab>，tab 取自工作一级目录下的二级导航。 */
 registerView(async function work(main, { tab, third }) {
   const t = tab || 'lessons';
   /* 页头标题跟着二级项走：以前所有二级页都顶着「工作」两个字，
@@ -112,11 +107,10 @@ registerView(async function work(main, { tab, third }) {
     attendance: ['考勤', '按年级分开管：花名册、每日三张表、统计'],
     invigilation: ['监考', '监考场次、时间、补贴，一场不漏'],
     trips: ['出差', '行程、报销、补贴，按天自动算'],
-    materials: ['小助手', '学生端互动工具统一管理：自习、教材、抽人、盲盒'],
     notes: ['笔记', '随手记的教学笔记，可搜索、可归档'],
   }[t] || ['工作', ''];
 
-  /* 页头先不放进 main：课件下面的三级页（自习/教材/抽人/盲盒）要换成自己的标题，
+  /* 页头先不放进 main：工作二级页面使用各自的标题，
      先画「课件」再改字符串会闪一下。所以正文容器先给出来，标题由正文渲染完再定。 */
   main.innerHTML = '<div id="work-body"></div>';
   const body = main.querySelector('#work-body');
@@ -153,18 +147,34 @@ registerView(async function work(main, { tab, third }) {
     const m = await import('./repairs.js');
     return m.renderRepairsBody(body);
   }
-  if (t === 'materials') {
-    if (third === 'selfstudy') {
-      const m = await import('./selfstudy.js');
-      return m.renderSelfstudyBody(body, { studentTab: 'checkin' });
-    }
-    if (third === 'textbook') return renderStudentModule(body, 'textbook');
-    if (third === 'pick') return renderStudentModule(body, 'pick');
-    if (third === 'mystery') return renderStudentModule(body, 'mystery');
-    return renderMaterials(body);
-  }
   if (t === 'notes') return renderNotes(body);
   return renderLessons(body);
+});
+
+/* ================= 小助手（一级目录，二级功能分发） ================= */
+registerView(async function materials(main, { tab }) {
+  const t = tab || '';
+  const meta = {
+    selfstudy: ['自习', '学生端「自习」：开一场签到，学生点「我到了」，这里实时看人数'],
+    textbook: ['教材', '学生端「教材」：你勾了「学生可见」的资料，就是学生看到的全部'],
+    pick: ['抽人', '学生端「抽人」：按号码或按名单，抽过的不重复'],
+    mystery: ['盲盒', '学生端「盲盒」：点一下随机弹一个任务，这一轮不重复'],
+  }[t] || ['小助手', '学生端互动工具统一管理：自习、教材、抽人、盲盒'];
+
+  main.innerHTML = '<div id="materials-body"></div>';
+  const body = main.querySelector('#materials-body');
+  const headEl = el(`<div>${pageHead(meta[0], meta[1], '')}</div>`);
+  main.insertBefore(headEl, body);
+
+  if (!t) return renderMaterials(body);
+  if (t === 'selfstudy') {
+    const m = await import('./selfstudy.js');
+    return m.renderSelfstudyBody(body, { studentTab: 'checkin' });
+  }
+  if (t === 'textbook') return renderStudentModule(body, 'textbook');
+  if (t === 'pick') return renderStudentModule(body, 'pick');
+  if (t === 'mystery') return renderStudentModule(body, 'mystery');
+  return renderMaterials(body);
 });
 
 /* ================= 上课（课时统计 & 代课对账） ================= */
@@ -2430,12 +2440,12 @@ function askStatus() {
   });
 }
 
-/* ================= 学生页面的三个模块（小助手下面的子级入口） =================
+/* ================= 学生页面的三个模块（小助手下面的二级入口） =================
    教材 / 抽人 / 盲盒，对应 student.html 顶部的三个页签：
      material → 老师在「课件」里上传、勾了「学生可见」的资料
      roll     → 抽人（按号码或按名单，不重复）
      punish   → 惩罚盲盒（点一下随机弹一个任务）
-   第三级页面不做「学生页的复刻」，而是给这三件事做后台：
+   二级页面不做「学生页的复刻」，而是给这三件事做后台：
    看学生到底能拿到什么、把要用的东西配好、看用了几次。
    自习那个模块因为本身就是「开一场签到 + 看名单」，逻辑更重，
    单独放在 selfstudy.js 里（见 renderSelfstudyBody）。 */
