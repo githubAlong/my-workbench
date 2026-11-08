@@ -608,10 +608,6 @@ const DROP = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'seq']);
 
 const TABLES = {
   class_records: { order: 'order=created_at.desc,id.desc', filter: ['class_month'] },
-  lessons: {
-    order: 'order=date.desc.nullslast,period_no.desc.nullslast',
-    filter: ['date', 'month', 'grade', 'class_name', 'subject', 'period_no'],
-  },
   invigilations: {
     /* start_at / end_at 在库里是 timestamptz，但前端把它当"日期+时间"直接显示，
        排序用 date 更稳：同一天多场按开始时间排。 */
