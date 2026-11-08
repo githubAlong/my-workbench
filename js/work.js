@@ -2,6 +2,7 @@ import { api, el, esc, clsName, startPoll, toast, sheet, saving, confirmDialog, 
 import { printStatement } from './pdfprint.js';
 import { registerView, state, icon, go, pageHead, onViewLeave, subCurrentOf, NAV } from './ui.js';
 import { renderAttendance } from './attendance.js';
+import { renderTimetable as renderMyTimetable } from './timetable.js';
 import { detectTimetable } from './ttimage.js';
 import { loginBanner, hookBanner } from './auth.js';
 import { PREP_TYPE_OPTIONS, PREP_UNCLASSIFIED, normalizePrepType, prepTypeLabel, filterPrepRecords, validatePrepRecord } from './prep-domain.mjs';
@@ -136,7 +137,7 @@ registerView(async function work(main, { tab, third }) {
   }
   if (t === 'lessons') return renderLessons(body);
   if (t === 'prep') return renderPreps(body);
-  if (t === 'timetable') { headEl.remove(); return renderTimetable(body); }
+  if (t === 'timetable') { headEl.remove(); return renderMyTimetable(body); }
   if (t === 'attendance') {
     /* PRD 第 4 节：两级。第三段是年级（#/work/attendance/高一），
        没有第三段就是年级列表页。中文要解码，URL 里是 %E9%AB%98%E4%B8%80。 */
