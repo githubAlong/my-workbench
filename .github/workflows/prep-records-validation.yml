@@ -6,6 +6,7 @@ on:
       - test
     paths:
       - "js/work.js"
+      - "js/class-records.js"
       - "js/prep.js"
       - "js/ocr.js"
       - "js/localdb.js"
