@@ -97,6 +97,10 @@ function formatDate(date) {
   const d = date || new Date();
   return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
 }
+function formatClockMinutes(value) {
+  const minutes = Number(value);
+  return String(Math.floor(minutes / 60)).padStart(2, '0') + ':' + String(minutes % 60).padStart(2, '0');
+}
 function countdownText(ms) {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
@@ -109,8 +113,8 @@ function periodName(period) {
 }
 function courseTime(course, period, periodTimes, scheduleType) {
   const override = periodTimes?.[scheduleType]?.[String(course?.period_no)] || {};
-  const start = course?.start_time || override.start_time || period?.start_time || '';
-  const end = course?.end_time || override.end_time || period?.end_time || '';
+  const start = override.start_time || course?.start_time || period?.start_time || '';
+  const end = override.end_time || course?.end_time || period?.end_time || '';
   return start && end ? String(start).slice(0, 5) + '–' + String(end).slice(0, 5) : (start || end || '时间待设置');
 }
 function gradeClassName(grade) {
@@ -236,7 +240,7 @@ export async function renderTimetable(box) {
       const c = info.current.course;
       const grade = gradeClass(c.grade, c.class_name);
       const nextText = info.next
-        ? '下一节课：' + (info.next.course.subject || '课程') + '（' + gradeClass(info.next.course.grade, info.next.course.class_name) + '）' + info.next.start.toString().padStart(2, '0') + ':' + String(info.next.start % 60).padStart(2, '0') + '开始'
+        ? '下一节课：' + (info.next.course.subject || '课程') + '（' + gradeClass(info.next.course.grade, info.next.course.class_name) + '）' + formatClockMinutes(info.next.start) + '开始'
         : '本节课结束后，今日课程安排已完成';
       title = '当前正在上课：' + (c.subject || '课程') + (grade ? '（' + grade + '）' : '');
       desc = (info.current.period ? periodName(info.current.period) : '当前课程') + ' ' + courseTime(c, info.current.period, periodTimes, appliedType) + (info.next ? ' ｜ ' + nextText : ' ｜ ' + nextText);
