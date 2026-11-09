@@ -3228,8 +3228,8 @@ html[data-theme="dark"] .weather-city-chip { border-color:#344a64; background:#2
 html[data-theme="dark"] .weather-city-locate-row { border-color:#344a64; }
 html[data-theme="dark"] .home-redesign .home-weather-card .wxb-location-name { color:#dbe8fa; }
 @media(max-width:640px) {
+  .sheet-mask:has(> .sheet.weather-city-sheet) { align-items:center; padding:12px; }
   .sheet.weather-city-sheet { width:calc(100vw - 24px); max-width:448px; border-radius:17px; }
-  .sheet.weather-city-sheet { align-items:center; padding:12px; }
   .sheet.weather-city-sheet .sheet-head { padding:15px 16px 11px; }
   .sheet.weather-city-sheet .sheet-body { padding:7px 16px 16px; }
   .weather-city-locate-row { align-items:flex-start; flex-direction:column; gap:7px; }
