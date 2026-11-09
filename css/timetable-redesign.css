@@ -59,9 +59,9 @@
 .tt-course-lunch{border-left-color:#D97706!important;background:#FFF4E5!important;color:#92400E!important}
 .tt-course-block.tt-dragging{opacity:.4}
 .tt-slot.tt-drop-target{outline:3px solid var(--primary);outline-offset:-3px;background:var(--primary-weak)}
-.tt-empty-state,.tt-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;min-height:220px;padding:28px 16px;border:1px dashed var(--line-2);border-radius:10px;background:var(--card);color:var(--text-2);text-align:center}
-.tt-empty-state b,.tt-state b{font-size:15px;color:var(--text)}
-.tt-empty-state span,.tt-state span{font-size:12px;color:var(--text-3)}
+.tt-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;min-height:220px;padding:28px 16px;border:1px dashed var(--line-2);border-radius:10px;background:var(--card);color:var(--text-2);text-align:center}
+.tt-state b{font-size:15px;color:var(--text)}
+.tt-state span{font-size:12px;color:var(--text-3)}
 .tt-empty-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;background:var(--primary-weak);color:var(--primary)}
 .tt-state-error{color:var(--red)}
 .tt-spinner{width:24px;height:24px;border:3px solid var(--line);border-top-color:var(--primary);border-radius:50%;animation:tt-spin .8s linear infinite}
