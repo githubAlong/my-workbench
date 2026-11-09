@@ -20,6 +20,44 @@ const currentMonthKey = () => {
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 };
+const splitClassTime = (value) => {
+  const text = String(value || '').trim();
+  const dateMatch = text.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:日)?/);
+  const date = dateMatch
+    ? dateMatch[1] + '-' + String(Number(dateMatch[2])).padStart(2, '0') + '-' + String(Number(dateMatch[3])).padStart(2, '0')
+    : '';
+  let rest = dateMatch ? text.replace(dateMatch[0], '').trim() : text;
+  const periodMatch = rest.match(/(?:第\s*)?([^\s，,;；]+?)\s*节/);
+  const timeMatch = rest.match(/\d{1,2}[:：]\d{2}\s*[-–—~至]\s*\d{1,2}[:：]\d{2}/);
+  const period = periodMatch ? periodMatch[0].replace(/\s+/g, '') : '';
+  const time = timeMatch ? timeMatch[0].replace(/：/g, ':').replace(/\s+/g, '') : '';
+  if (periodMatch) rest = rest.replace(periodMatch[0], '').trim();
+  if (timeMatch) rest = rest.replace(timeMatch[0], '').trim();
+  return { date, period, time: time || (!period && !date ? rest : '') };
+};
+const joinClassTime = (date, period, time) => [date, period, time].map((v) => String(v || '').trim()).filter(Boolean).join(' ');
+const parseRelatedPeople = (value, classType) => {
+  const raw = String(value || '').trim();
+  if (!raw) return { substitute_person: '', original_teacher: '' };
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') return {
+      substitute_person: String(parsed.substitute_person || parsed.substitutePerson || ''),
+      original_teacher: String(parsed.original_teacher || parsed.originalTeacher || ''),
+    };
+  } catch {}
+  // Older records used one free-text related_person field.
+  if (classType === 'i_substitute') return { substitute_person: '', original_teacher: raw };
+  if (classType === 'substituted_for_me') return { substitute_person: raw, original_teacher: '' };
+  return { substitute_person: raw, original_teacher: '' };
+};
+const packRelatedPeople = (substitutePerson, originalTeacher) => {
+  const value = {
+    substitute_person: String(substitutePerson || '').trim(),
+    original_teacher: String(originalTeacher || '').trim(),
+  };
+  return value.substitute_person || value.original_teacher ? JSON.stringify(value) : null;
+};
 const rowMonth = (row) => row.class_month || parseMonth(row.class_time);
 const monthLabel = (key) => {
   const parts = String(key || '').split('-');
@@ -93,6 +131,7 @@ export async function renderClassRecords(root) {
         .cr-status{display:inline-flex;align-items:center;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:650;white-space:nowrap}
         .cr-status.paid{color:#12835b;background:#e8f7f0}
         .cr-status.unpaid{color:#b7791f;background:#fff4df}
+        .cr-status.custom{color:#5b55a5;background:#f0efff}
         .cr-status.settled{color:var(--text-2,#4e5969);background:var(--surface-2,#f5f6f8)}
         .cr-record-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
         .cr-action{border:1px solid var(--line,#e5e6eb);border-radius:7px;padding:6px 9px;background:var(--card,#fff);color:var(--text-2,#4e5969);font:inherit;font-size:11px;font-weight:600;cursor:pointer}
@@ -113,8 +152,7 @@ export async function renderClassRecords(root) {
 
       <div class="cr-header">
         <div class="cr-heading">
-          <div class="cr-eyebrow">课程数据驾驶舱</div>
-          <div class="cr-title">上课记录台账</div>
+          <div class="cr-title">上课记录</div>
           <div class="cr-subtitle">按课程、上课类型和结算状态，清晰查看每一条授课记录</div>
         </div>
         <div class="cr-header-actions">
@@ -194,8 +232,10 @@ export async function renderClassRecords(root) {
       const swap = r.class_type === 'swap';
       const amount = swap ? '无费用' : (r.amount == null || r.amount === '' ? '未填写' : money(r.amount) + ' 元');
       const status = swap ? '无需结算' : (r.pay_status || '未支付');
-      const statusClass = swap ? 'settled' : (status === '已支付' ? 'paid' : 'unpaid');
+      const statusClass = swap ? 'settled' : (status === '已支付' ? 'paid' : status === '未支付' ? 'unpaid' : 'custom');
       const className = r.class_name ? esc(r.class_name) : '班级未填写';
+      const classTime = splitClassTime(r.class_time);
+      const people = parseRelatedPeople(r.related_person, r.class_type);
       return '<article class="cr-record-card">' +
         '<div class="cr-record-top">' +
           '<div class="cr-record-subject">' + esc(r.subject || '未填写学科') + '</div>' +
@@ -203,8 +243,11 @@ export async function renderClassRecords(root) {
         '</div>' +
         '<div class="cr-record-class">' + className + '</div>' +
         '<div class="cr-record-info">' +
-          '<div class="cr-info-item"><span>上课时间</span><strong>' + esc(r.class_time || '未填写') + '</strong></div>' +
-          '<div class="cr-info-item"><span>相关人员</span><strong>' + esc(r.related_person || '—') + '</strong></div>' +
+          '<div class="cr-info-item"><span>上课日期</span><strong>' + esc(classTime.date || '未填写') + '</strong></div>' +
+          '<div class="cr-info-item"><span>节次</span><strong>' + esc(classTime.period || '未填写') + '</strong></div>' +
+          '<div class="cr-info-item"><span>时间</span><strong>' + esc(classTime.time || '未填写') + '</strong></div>' +
+          '<div class="cr-info-item"><span>代课人</span><strong>' + esc(people.substitute_person || '—') + '</strong></div>' +
+          '<div class="cr-info-item"><span>原上课人</span><strong>' + esc(people.original_teacher || '—') + '</strong></div>' +
         '</div>' +
         '<div class="cr-record-bottom">' +
           '<div class="cr-finance">' +
@@ -233,24 +276,37 @@ export async function renderClassRecords(root) {
   const openEditor = (row=null) => {
     const editing=!!row;
     const initialType=row?.class_type||'normal';
+    const initialTime=splitClassTime(row?.class_time);
+    const initialPeople=parseRelatedPeople(row?.related_person,initialType);
     const form=el(`<div class="sheet-body">
       <div class="cr-form-grid">
         <div class="cr-field"><label>上课类型 <span class="cr-required">*</span></label><select id="cr-type">${TYPES.map(([v,t])=>`<option value="${v}" ${initialType===v?'selected':''}>${t}</option>`).join('')}</select></div>
         <div class="cr-field"><label>学科 <span class="cr-required">*</span></label><input id="cr-subject" value="${esc(row?.subject||'')}" placeholder="例如：信息技术、语文"></div>
         <div class="cr-field"><label>班级</label><input id="cr-class" value="${esc(row?.class_name||'')}"></div>
-        <div class="cr-field"><label>上课时间</label><input id="cr-time" value="${esc(row?.class_time||'')}" placeholder="例如：2026-11-09 第2节"></div>
-        <div class="cr-field"><label>相关人员（代课/换课对象）</label><input id="cr-person" value="${esc(row?.related_person||'')}"></div>
+        <div class="cr-field"><label>上课日期</label><input id="cr-date" type="date" value="${esc(initialTime.date)}"></div>
+        <div class="cr-field"><label>节次</label><input id="cr-period" value="${esc(initialTime.period)}" placeholder="例如：第2节、早自习"></div>
+        <div class="cr-field"><label>时间</label><input id="cr-time" value="${esc(initialTime.time)}" placeholder="例如：08:00-08:45，可手动输入"></div>
+        <div class="cr-field"><label>代课人</label><input id="cr-substitute-person" value="${esc(initialPeople.substitute_person)}" placeholder="手动填写代课人"></div>
+        <div class="cr-field"><label>原上课人</label><input id="cr-original-teacher" value="${esc(initialPeople.original_teacher)}" placeholder="手动填写原上课人"></div>
         <div class="cr-field" id="cr-money-wrap"><label>课时费（元）</label><input id="cr-money" type="number" min="0" step="0.01" value="${row?.amount??(initialType==='normal'?'30':'')}" placeholder="请输入金额"></div>
         <div class="cr-field" id="cr-paytime-wrap"><label>支付时间</label><input id="cr-paytime" value="${esc(row?.pay_time||'')}" placeholder="手动输入"></div>
-        <div class="cr-field" id="cr-status-wrap"><label>支付状态</label><select id="cr-status"><option value="未支付">未支付</option><option value="已支付">已支付</option></select></div>
+        <div class="cr-field" id="cr-status-wrap"><label>支付状态</label><input id="cr-status" value="${esc(row?.pay_status||'未支付')}" placeholder="手动输入支付状态"></div>
       </div>
       <div class="cr-field" style="margin-top:14px"><label>备注说明</label><textarea id="cr-remark" placeholder="换课说明、特殊情况备注等">${esc(row?.remark||'')}</textarea></div>
       <div class="cr-form-foot"><button class="cr-btn" id="cr-print-current" type="button">打印本条记录</button><button class="cr-btn primary" id="cr-save" type="button">${editing?'保存修改':'保存记录'}</button></div>
     </div>`);
     const sh=sheet({title:editing?'编辑上课记录':'新增上课记录',body:form,wide:true});
     const type=form.querySelector('#cr-type'), moneyInput=form.querySelector('#cr-money');
-    form.querySelector('#cr-status').value=row?.pay_status||'未支付';
     let changedType=false;
+    const currentClassTime=()=>joinClassTime(
+      form.querySelector('#cr-date').value,
+      form.querySelector('#cr-period').value,
+      form.querySelector('#cr-time').value
+    );
+    const currentPeople=()=>packRelatedPeople(
+      form.querySelector('#cr-substitute-person').value,
+      form.querySelector('#cr-original-teacher').value
+    );
     type.onchange=()=>{changedType=true;toggle();};
     function toggle(){
       const swap=type.value==='swap';
@@ -260,17 +316,30 @@ export async function renderClassRecords(root) {
       if(!editing && changedType && type.value!=='normal') moneyInput.value='';
     }
     toggle();
-    form.querySelector('#cr-print-current').onclick=()=>printRow({...row,class_type:type.value,subject:form.querySelector('#cr-subject').value,class_name:form.querySelector('#cr-class').value,class_time:form.querySelector('#cr-time').value,related_person:form.querySelector('#cr-person').value,amount:moneyInput.value,pay_time:form.querySelector('#cr-paytime').value,pay_status:form.querySelector('#cr-status').value,remark:form.querySelector('#cr-remark').value});
+    form.querySelector('#cr-print-current').onclick=()=>printRow({
+      ...row,
+      class_type:type.value,
+      subject:form.querySelector('#cr-subject').value,
+      class_name:form.querySelector('#cr-class').value,
+      class_time:currentClassTime(),
+      related_person:currentPeople(),
+      amount:moneyInput.value,
+      pay_time:form.querySelector('#cr-paytime').value,
+      pay_status:form.querySelector('#cr-status').value,
+      remark:form.querySelector('#cr-remark').value
+    });
     saving(form.querySelector('#cr-save'),async()=>{
+      const classTime=currentClassTime();
       const data={
         class_type:type.value,subject:form.querySelector('#cr-subject').value.trim(),
-        class_name:form.querySelector('#cr-class').value.trim()||null,class_time:form.querySelector('#cr-time').value.trim()||null,
-        related_person:form.querySelector('#cr-person').value.trim()||null,
+        class_name:form.querySelector('#cr-class').value.trim()||null,
+        class_time:classTime||null,
+        related_person:currentPeople(),
         amount:type.value==='swap'?null:(moneyInput.value===''?null:Number(moneyInput.value)),
         pay_time:type.value==='swap'?null:(form.querySelector('#cr-paytime').value.trim()||null),
-        pay_status:type.value==='swap'?null:form.querySelector('#cr-status').value,
+        pay_status:type.value==='swap'?null:(form.querySelector('#cr-status').value.trim()||null),
         remark:form.querySelector('#cr-remark').value.trim()||null,
-        class_month:parseMonth(form.querySelector('#cr-time').value)||null,
+        class_month:parseMonth(form.querySelector('#cr-date').value)||parseMonth(classTime)||row?.class_month||null,
       };
       if(!data.class_type||!data.subject)throw new Error('请填写上课类型和学科');
       if(editing)await api.patch('/class_records/'+row.id,data);else await api.post('/class_records',data);
@@ -287,7 +356,9 @@ export async function renderClassRecords(root) {
     if(!r)return;
     const win=window.open('','_blank','width=800,height=700');
     if(!win)return toast('浏览器拦截了打印窗口，请允许弹出窗口','warn');
-    const fields=[['上课类型',TYPE_LABEL[r.class_type]||r.class_type],['学科',r.subject],['班级',r.class_name],['上课时间',r.class_time],['相关人员',r.related_person],['金额',r.class_type==='swap'?'无费用':(r.amount==null?'—':money(r.amount)+' 元')],['支付时间',r.class_type==='swap'?'—':r.pay_time],['支付状态',r.class_type==='swap'?'无需结算':r.pay_status],['备注说明',r.remark]];
+    const classTime=splitClassTime(r.class_time);
+    const people=parseRelatedPeople(r.related_person,r.class_type);
+    const fields=[['上课类型',TYPE_LABEL[r.class_type]||r.class_type],['学科',r.subject],['班级',r.class_name],['上课日期',classTime.date],['节次',classTime.period],['时间',classTime.time],['代课人',people.substitute_person],['原上课人',people.original_teacher],['金额',r.class_type==='swap'?'无费用':(r.amount==null?'—':money(r.amount)+' 元')],['支付时间',r.class_type==='swap'?'—':r.pay_time],['支付状态',r.class_type==='swap'?'无需结算':r.pay_status],['备注说明',r.remark]];
     win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>上课记录</title><style>body{font-family:Microsoft YaHei,sans-serif;padding:32px;color:#111}h2{font-size:20px;margin:0 0 24px}table{width:100%;border-collapse:collapse}td{border:1px solid #ddd;padding:12px}td:first-child{width:130px;background:#f7f7f7;font-weight:bold}</style><h2>上课记录</h2><table>'+fields.map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+esc(v||'—')+'</td></tr>').join('')+'</table><script>window.onload=()=>window.print()<\/script></html>');
     win.document.close();
   };
@@ -295,18 +366,25 @@ export async function renderClassRecords(root) {
   const exportMonth = () => {
     const month = currentMonthKey();
     const list = rows.filter((r) => rowMonth(r) === month);
-    const headers = ['上课类型', '学科', '班级', '上课时间', '相关人员', '金额', '支付时间', '支付状态', '备注说明'];
-    const data = list.map((r) => [
-      TYPE_LABEL[r.class_type] || r.class_type,
-      r.subject,
-      r.class_name,
-      r.class_time,
-      r.related_person,
-      r.class_type === 'swap' ? '无费用' : r.amount,
-      r.pay_time,
-      r.class_type === 'swap' ? '无需结算' : r.pay_status,
-      r.remark,
-    ]);
+    const headers = ['上课类型', '学科', '班级', '上课日期', '节次', '时间', '代课人', '原上课人', '金额', '支付时间', '支付状态', '备注说明'];
+    const data = list.map((r) => {
+      const classTime = splitClassTime(r.class_time);
+      const people = parseRelatedPeople(r.related_person, r.class_type);
+      return [
+        TYPE_LABEL[r.class_type] || r.class_type,
+        r.subject,
+        r.class_name,
+        classTime.date,
+        classTime.period,
+        classTime.time,
+        people.substitute_person,
+        people.original_teacher,
+        r.class_type === 'swap' ? '无费用' : r.amount,
+        r.pay_time,
+        r.class_type === 'swap' ? '无需结算' : r.pay_status,
+        r.remark,
+      ];
+    });
     const csv = '\ufeff' + [headers, ...data].map((row) => row.map(escapeCsv).join(',')).join('\r\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     download(url, '上课记录统计_' + month + '.csv');

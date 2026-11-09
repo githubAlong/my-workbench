@@ -6,7 +6,7 @@ const source = await readFile(new URL('../js/class-records.js', import.meta.url)
 
 test('class records page presents a course dashboard', () => {
   for (const marker of [
-    '课程数据驾驶舱',
+    '上课记录',
     '本月课程概况',
     'id="cr-month-total"',
     'id="cr-month-normal"',
@@ -22,6 +22,11 @@ test('class records page presents a course dashboard', () => {
   ]) {
     assert.ok(source.includes(marker), 'missing dashboard marker: ' + marker);
   }
+  assert.ok(!source.includes('课程数据驾驶舱'), 'legacy dashboard eyebrow should be removed');
+  for (const marker of ['id="cr-date"', 'id="cr-period"', 'id="cr-time"', 'id="cr-substitute-person"', 'id="cr-original-teacher"', 'id="cr-status"']) {
+    assert.ok(source.includes(marker), 'missing editable form field: ' + marker);
+  }
+  assert.ok(source.includes('placeholder="手动输入支付状态"'));
 });
 
 test('class records dashboard keeps all four lesson types and monthly export', () => {
