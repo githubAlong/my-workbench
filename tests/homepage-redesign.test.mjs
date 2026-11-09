@@ -48,6 +48,35 @@ test('天气卡保留城市切换、刷新和详细天气入口', () => {
   assert.match(home, /function openWeatherSheet\(/);
 });
 
+test('天气城市搜索支持县级行政区和完整行政路径', () => {
+  assert.match(home, /kw2 \+ '县'/);
+  assert.match(home, /kw2 \+ '区'/);
+  assert.match(home, /r\.admin1, r\.admin2, r\.admin3, r\.admin4/);
+  assert.match(home, /ADM1/);
+  assert.match(home, /ADM2/);
+  assert.match(home, /ADM3/);
+  assert.match(home, /ADM4/);
+  assert.match(home, /function cityFullName\(/);
+  assert.match(home, /fullName/);
+});
+
+test('当前位置定位后保存并显示省市区县完整信息', () => {
+  assert.match(home, /async function reverseGeocode\(lat, lon\)/);
+  assert.match(home, /r\.locality \|\| r\.localityName/);
+  assert.match(home, /r\.localityInfo\?\.administrative/);
+  assert.match(home, /source: 'geo'/);
+  assert.match(home, /wxb-location-source/);
+  assert.match(home, /使用当前位置定位/);
+});
+
+test('城市选择弹窗采用独立的现代化样式并兼容深色主题', () => {
+  assert.match(home, /cls: 'weather-city-sheet'/);
+  assert.match(home, /weather-city-current/);
+  assert.match(home, /weather-city-result/);
+  assert.match(styles, /\.sheet\.weather-city-sheet/);
+  assert.match(styles, /html\[data-theme="dark"\] \.sheet\.weather-city-sheet/);
+});
+
 test('课程、待办和日历保留真实业务渲染节点与联动', () => {
   for (const marker of ['id="today-courses"', 'id="today-items"', 'id="cal-grid"',
     'id="cal-prev"', 'id="cal-next"', 'id="cal-today"']) {
