@@ -2,6 +2,7 @@ import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_
 import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
 import { syncDay, DAY_SYNC } from './homelayout.js';
 import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud, setTemporaryHeight as setGridTemporaryHeight } from './homegrid.js';
+import { getCanonicalPeriodNumber } from './timetable-periods.mjs';
 
 /* ================= 欢迎语 =================
    【第 5 条：按时段问候 + 头像上移】
@@ -43,6 +44,28 @@ function greetIcon() {
   if (h >= 18 && h < 20) return '🌇';
   if (h >= 20 && h < 23) return '🌙';
   return '🌛';
+}
+
+function parseHomeObject(value) {
+  if (value && typeof value === 'object') return value;
+  try {
+    const parsed = JSON.parse(String(value || ''));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/* 首页课程提醒与我的课表共用同一节次归一化规则。
+   /home 返回的是某一天的课程实例，id 是实例 id，course_id 才是原始周课表课程 id；
+   必须用 course_id 读取 courseTypes，才能与 timetable.js 的 typeOfCourse() 一致。 */
+function homeTimetablePeriodSettings() {
+  const userSettings = parseHomeObject(state.user?.settings);
+  const timetable = parseHomeObject(userSettings.timetable);
+  return {
+    courseTypes: parseHomeObject(timetable.courseTypes),
+    periodTimes: parseHomeObject(timetable.periodTimes),
+  };
 }
 
 const nowHM = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
@@ -1247,7 +1270,14 @@ function renderTodayCourses(coursesOverride = null, lessonsOverride = null, date
   if (!box || !homeData) return;
   const date = dateOverride || homeData.date;
   const allCourses = Array.isArray(coursesOverride) ? coursesOverride : (homeData.courses || []);
-  const list = allCourses.filter((course) => !course.date || course.date === date);
+  const { courseTypes, periodTimes } = homeTimetablePeriodSettings();
+  const list = allCourses
+    .filter((course) => !course.date || course.date === date)
+    .map((course) => {
+      const scheduleType = courseTypes[String(course.course_id ?? course.id)] || '夏令时课表';
+      const periodNo = getCanonicalPeriodNumber(course, { periodTimes, scheduleType });
+      return periodNo == null ? course : { ...course, period_no: periodNo };
+    });
   const lessonRows = Array.isArray(lessonsOverride) ? lessonsOverride : (homeData.lessons || []);
   updateHomeDayHeadings(date, null, list);
   if (!list.length) {
