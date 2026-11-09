@@ -297,35 +297,62 @@ export async function renderTimetable(box) {
     const info = currentLesson(courses);
     const weekday = '周' + WD_SHORT[now.getDay()];
     let mode = 'free';
-    let title = '今日无课，可安心备课/处理事务';
-    let desc = '今天没有安排课程，适合备课、处理事务或休息';
+    let statusText = '今日无课';
+    let title = '今天没有安排课程';
+    let desc = '今天暂无课程安排，适合备课、整理资料或处理其他事务。';
     let target = null;
     let label = '今日课程安排';
+
     if (info.current) {
       mode = 'class';
+      statusText = '正在上课';
       const c = info.current.course;
       const grade = gradeClass(c.grade, c.class_name);
-      const nextText = info.next
-        ? '下一节课：' + (info.next.course.subject || '课程') + '（' + gradeClass(info.next.course.grade, info.next.course.class_name) + '）' + formatClockMinutes(info.next.start) + '开始'
-        : '本节课结束后，今日课程安排已完成';
-      title = '当前正在上课：' + (c.subject || '课程') + (grade ? '（' + grade + '）' : '');
-      desc = (info.current.period ? periodName(info.current.period) : '当前课程') + ' ' + courseTime(c, info.current.period, periodTimes, appliedType) + (info.next ? ' ｜ ' + nextText : ' ｜ ' + nextText);
-      target = info.next ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(info.next.start / 60), info.next.start % 60) : new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(info.current.end / 60), info.current.end % 60);
-      label = info.next ? '距离下节课' : '距离本节课下课';
+      title = (c.subject || '课程') + (grade ? ' · ' + grade : '');
+      desc = (info.current.period ? periodName(info.current.period) : '当前课程') + ' · ' +
+        courseTime(c, info.current.period, periodTimes, appliedType);
+      if (info.next) {
+        const nextCourse = info.next.course;
+        desc += ' ｜ 下一节：' + (nextCourse.subject || '课程') + ' ' +
+          gradeClass(nextCourse.grade, nextCourse.class_name) + ' ' + formatClockMinutes(info.next.start);
+      }
+      target = info.next
+        ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(info.next.start / 60), info.next.start % 60)
+        : new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(info.current.end / 60), info.current.end % 60);
+      label = info.next ? '距离下一节课' : '距离下课';
     } else if (info.next) {
       mode = 'class';
+      statusText = '下一节课';
       const c = info.next.course;
-      title = '距离' + (c.subject || '课程') + '还有一段时间';
-      desc = (info.next.period ? periodName(info.next.period) : '下一节') + ' · ' + gradeClass(c.grade, c.class_name) + ' · ' + courseTime(c, info.next.period, periodTimes, appliedType);
+      title = (c.subject || '课程') + ' · ' + gradeClass(c.grade, c.class_name);
+      desc = (info.next.period ? periodName(info.next.period) : '下一节') + ' · ' +
+        courseTime(c, info.next.period, periodTimes, appliedType);
       target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(info.next.start / 60), info.next.start % 60);
-      label = '距离下一节课';
+      label = '距离上课还有';
     }
+
     const countdown = target ? countdownText(target.getTime() - now.getTime()) : '—';
+    const gradeLabel = appliedGrade === '全部' ? '全部年级' : appliedGrade;
     return '<div class="tt-reminder ' + mode + '" id="tt-reminder-card">' +
-      '<div class="tt-reminder-date"><div class="tt-reminder-weekday">' + weekday + '</div><div class="tt-reminder-date-text">' + formatDate(now) + '</div></div>' +
-      '<div class="tt-reminder-status"><div class="tt-reminder-title">' + esc(title) + '</div><div class="tt-reminder-desc">' + esc(desc) + '</div></div>' +
-      '<div class="tt-reminder-countdown"><div class="tt-reminder-number" id="tt-reminder-number">' + countdown + '</div><div class="tt-reminder-label" id="tt-reminder-label">' + label + '</div></div>' +
-      '</div>';
+      '<div class="tt-reminder-date">' +
+        '<span class="tt-reminder-date-icon">' + icon('cal', 26) + '</span>' +
+        '<span class="tt-reminder-date-copy"><strong class="tt-reminder-weekday">' + weekday + '</strong><span class="tt-reminder-date-text">' + formatDate(now) + '</span></span>' +
+      '</div>' +
+      '<div class="tt-reminder-status">' +
+        '<span class="tt-reminder-kicker">' + statusText + '</span>' +
+        '<div class="tt-reminder-title">' + esc(title) + '</div>' +
+        '<div class="tt-reminder-desc">' + esc(desc) + '</div>' +
+      '</div>' +
+      '<div class="tt-reminder-countdown">' +
+        '<div class="tt-reminder-label">' + label + '</div>' +
+        '<div class="tt-reminder-number" id="tt-reminder-number">' + countdown + '</div>' +
+      '</div>' +
+      '<div class="tt-reminder-facts">' +
+        '<div class="tt-reminder-fact"><span class="tt-reminder-fact-icon">' + icon('book', 20) + '</span><span class="tt-reminder-fact-copy"><small>课表类型</small><b>' + esc(appliedType) + '</b></span></div>' +
+        '<div class="tt-reminder-fact"><span class="tt-reminder-fact-icon">' + icon('users', 20) + '</span><span class="tt-reminder-fact-copy"><small>所属年级</small><b>' + esc(gradeLabel) + '</b></span></div>' +
+      '</div>' +
+      '<div class="tt-reminder-art" aria-hidden="true">' + icon('cal', 58) + '</div>' +
+    '</div>';
   }
 
   function renderCourse(course, period) {
@@ -338,10 +365,12 @@ export async function renderTimetable(box) {
         '<button class="tt-course-action" type="button" data-edit-course="' + esc(course.id) + '" aria-label="编辑课程" title="编辑">' + icon('edit', 12) + '</button>' +
         '<button class="tt-course-action danger" type="button" data-delete-course="' + esc(course.id) + '" aria-label="删除课程" title="删除">' + icon('trash', 12) + '</button>' +
       '</div>' +
-      '<span class="tt-grade-tag ' + gradeClassName(grade) + '">' + esc(grade) + '</span>' +
-      '<strong class="tt-course-subject">' + esc(course.subject || '未命名课程') + '</strong>' +
-      '<span class="tt-course-class">' + esc(className || '班级待填写') + '</span>' +
-      '<span class="tt-course-time">' + esc(time) + '</span>' +
+      '<span class="tt-course-icon" aria-hidden="true">' + icon('grid', 17) + '</span>' +
+      '<div class="tt-course-content">' +
+        '<div class="tt-course-heading"><strong class="tt-course-subject">' + esc(course.subject || '未命名课程') + '</strong><span class="tt-grade-tag ' + gradeClassName(grade) + '">' + esc(grade === '全部' ? '全体' : grade) + '</span></div>' +
+        '<span class="tt-course-class">' + esc(className || '班级待填写') + '</span>' +
+        '<span class="tt-course-time">' + esc(time) + '</span>' +
+      '</div>' +
       '</div>';
   }
 
@@ -359,7 +388,7 @@ export async function renderTimetable(box) {
       }).join('');
       return '<tr><td class="tt-period-cell"><strong>' + esc(periodName(period)) + '</strong></td><td class="tt-time-cell"><span>' + esc(time || '时间待设置') + '</span></td>' + cells + '</tr>';
     }).join('');
-    const title = appliedType === TYPE_WINTER && appliedGrade === '高二' ? '<div class="tt-grid-title">2026年秋季信息课表</div>' : '';
+    const title = appliedType === TYPE_WINTER && appliedGrade === '高二' ? '<div class="tt-grid-title"><span class="tt-grid-title-icon">' + icon('cal', 20) + '</span><strong>2026年秋季信息课表</strong><span class="tt-grid-title-note">每周课程安排</span></div>' : '';
     return title + '<div class="tt-grid-scroll"><table class="tt-grid-table tt-week-grid" aria-label="周课表"><colgroup><col class="tt-col-period"><col class="tt-col-time">' + DAYS.map(() => '<col class="tt-col-day">').join('') + '</colgroup><thead><tr><th class="tt-grid-corner">节次</th><th class="tt-grid-corner">时间</th>' + DAYS.map((day) => '<th class="tt-weekday-head ' + (day === new Date().getDay() ? 'is-today' : '') + '">' + DAY_NAMES[DAYS.indexOf(day)] + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
@@ -381,9 +410,9 @@ export async function renderTimetable(box) {
       '<div class="tt-query-bar">' +
         '<label class="tt-query-item"><span>课表类型</span><select id="tt-type"><option value="' + TYPE_SUMMER + '"' + (appliedType === TYPE_SUMMER ? ' selected' : '') + '>' + TYPE_SUMMER + '</option><option value="' + TYPE_WINTER + '"' + (appliedType === TYPE_WINTER ? ' selected' : '') + '>' + TYPE_WINTER + '</option></select></label>' +
         '<label class="tt-query-item"><span>所属年级</span><select id="tt-grade"><option value="全部"' + (appliedGrade === '全部' ? ' selected' : '') + '>全部（跨年级总课表）</option><option value="高一"' + (appliedGrade === '高一' ? ' selected' : '') + '>高一</option><option value="高二"' + (appliedGrade === '高二' ? ' selected' : '') + '>高二</option><option value="高三"' + (appliedGrade === '高三' ? ' selected' : '') + '>高三</option></select></label>' +
-        '<button class="btn primary" type="button" id="tt-confirm">确认查看课表</button>' +
+        '<button class="btn primary" type="button" id="tt-confirm">' + icon('search', 14) + ' 确认查看课表</button>' +
+        '<div class="tt-current-tag"><span>当前查看</span><b>' + esc(appliedType + ' · ' + currentLabel) + '</b></div>' +
       '</div>' +
-      '<div class="tt-current-tag">当前查看：<b>' + esc(appliedType + ' - ' + currentLabel) + '</b></div>' +
       (empty ? '<div class="tt-empty-state"><div class="tt-empty-icon">' + icon('cal', 24) + '</div><b>当前课表还没有课程</b><span>可以新增课程，或导入教务处提供的课表。</span><button class="btn primary sm" type="button" id="tt-empty-add">新增第一门课程</button></div>' : '') +
       gridHtml(visible, periods) +
       '<div class="tt-summary-bar"><span>当前课表共 ' + visible.length + ' 节课程</span><span>课程数据在本机保存，并通过工作台现有云同步机制同步到其他设备</span></div>' +
