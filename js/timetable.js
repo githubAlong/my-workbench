@@ -395,7 +395,6 @@ export async function renderTimetable(box) {
   function paint() {
     const visible = getVisibleCourses();
     const periods = getPeriods(visible);
-    const empty = visible.length === 0;
     const currentLabel = appliedGrade === '全部' ? '全部年级总课表' : appliedGrade + '课表';
     box.innerHTML = '<section class="tt-workspace" aria-label="我的课表">' +
       '<div class="tt-workspace-head"><div class="tt-workspace-title-wrap"><h2 class="tt-workspace-title">我的课表</h2></div>' +
@@ -412,7 +411,6 @@ export async function renderTimetable(box) {
         '<button class="btn primary" type="button" id="tt-confirm">' + icon('search', 14) + ' 确认查看课表</button>' +
         '<div class="tt-current-tag"><span>当前查看</span><b>' + esc(appliedType + ' · ' + currentLabel) + '</b></div>' +
       '</div>' +
-      (empty ? '<div class="tt-empty-state"><div class="tt-empty-icon">' + icon('cal', 24) + '</div><b>当前课表还没有课程</b><span>可以新增课程，或导入教务处提供的课表。</span><button class="btn primary sm" type="button" id="tt-empty-add">新增第一门课程</button></div>' : '') +
       gridHtml(visible, periods) +
       '<div class="tt-summary-bar"><span>当前课表共 ' + visible.length + ' 节课程</span><span>课程数据在本机保存，并通过工作台现有云同步机制同步到其他设备</span></div>' +
       '</section>';
@@ -626,7 +624,6 @@ export async function renderTimetable(box) {
     });
     box.querySelector('#tt-add')?.addEventListener('click', () => openCourseEditor(null, periods));
     box.querySelector('#tt-period-settings')?.addEventListener('click', () => openPeriodSettings());
-    box.querySelector('#tt-empty-add')?.addEventListener('click', () => openCourseEditor(null, periods));
     box.querySelector('#tt-import')?.addEventListener('click', () => openImportDialog());
     box.querySelector('#tt-export')?.addEventListener('click', () => openExportDialog(visible, periods));
     box.querySelectorAll('[data-slot]').forEach((slot) => {
