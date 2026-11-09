@@ -46,7 +46,7 @@ export const TABLES = {
   punishments: ['text', 'level', 'active'],
   exceptions: ['type', 'date', 'ref_id', 'action', 'start_time', 'end_time', 'class_name', 'room', 'rescheduled', 'remark'],
   selfstudy: ['date', 'period_no', 'start_time', 'end_time', 'grade', 'class_name', 'subject', 'minutes', 'content', 'absent', 'billable', 'remark'],
-  repairs: ['date', 'place', 'item', 'fault', 'urgency', 'status', 'reporter', 'handler', 'cost', 'expect_at', 'fixed_at', 'remark'],
+  repairs: ['date', 'place', 'item', 'fault', 'urgency', 'status', 'reporter', 'handler', 'cost', 'expect_at', 'fixed_at', 'remark', 'follow_up'],
   /* 下面几张服务端不是走 CRUD 生成的，但前端在用，一并实现 */
   items: ['title', 'done', 'due_at', 'remind_at', 'note', 'priority', 'kind'],
   todos: ['title', 'done', 'due_at', 'note', 'priority'],

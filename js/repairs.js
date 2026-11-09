@@ -7,6 +7,7 @@ import {
   api, esc, toast, sheet, confirmDialog, ymd,
 } from './core.js';
 import { registerView, icon, pageHead } from './ui.js';
+import { summarizeRepairs, isRepairTracked } from './repairs-domain.mjs';
 
 const SS_META = {
   pending: { label: '待处理', chip: 'amber' },
@@ -38,15 +39,11 @@ const URG = {
   normal: { label: '一般', chip: 'blue' },
   high: { label: '急', chip: 'red' },
 };
-const FILTERS = [
-  ['open', '待修'],
-  ['all', '全部'],
-  ['done', '已修好'],
-];
+
 
 /* 老链接 #/repairs 兜底（render() 里会先 translate 成 work/repairs） */
 registerView(async function repairs(main) {
-  main.innerHTML = pageHead('维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底');
+  main.innerHTML = pageHead('维修记录表', '按月份查看维修记录、处理状态与待跟踪事项');
   const box = document.createElement('div');
   main.appendChild(box);
   return renderRepairsBody(box);
@@ -54,105 +51,120 @@ registerView(async function repairs(main) {
 
 /* 二级导航「工作 → 维修」直接调这里，正文挂到传入的容器上 */
 export async function renderRepairsBody(box) {
-
   let rows = [];
-  let filter = 'open';
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  let activeMonth = currentMonth;
 
   const load = async () => {
-    box.innerHTML = `<div class="empty">加载中…</div>`;
+    box.innerHTML = '<div class="empty">正在加载维修记录…</div>';
     try {
-      rows = await api.get('/repairs');
+      rows = await api.get('/repairs', { month: activeMonth });
+      if (!Array.isArray(rows)) rows = [];
     } catch (e) {
-      box.innerHTML = `<div class="empty">${esc(e.message || '加载失败')}<br>
-        <span class="tiny muted">如果是登录过期，刷新页面重新登录即可</span></div>`;
+      box.innerHTML = `<div class="empty">${esc(e.message || '维修记录加载失败')}
+        <div style="margin-top:10px"><button class="btn ghost sm" id="rp-retry">重新加载</button></div></div>`;
+      box.querySelector('#rp-retry')?.addEventListener('click', load);
       return;
     }
     paint();
   };
 
   const paint = () => {
-    const open = rows.filter((r) => r.status === 'pending' || r.status === 'doing');
-    const done = rows.filter((r) => r.status === 'done');
-    const shown = filter === 'open' ? open : filter === 'done' ? done : rows;
-    const cost = rows.filter((r) => r.status === 'done').reduce((s, r) => s + (Number(r.cost) || 0), 0);
+    const stats = summarizeRepairs(rows, activeMonth);
+    const tableRows = stats.rows.length ? stats.rows.map((r, index) => {
+      const fixed = r.status === 'done';
+      const tracked = isRepairTracked(r);
+      return `<tr>
+        <td class="rp-ledger-no">${esc(r.seq || index + 1)}</td>
+        <td>${esc(r.date || '—')}</td>
+        <td class="rp-ledger-item">${esc(r.item || '—')}</td>
+        <td>${esc(r.place || '—')}</td>
+        <td class="rp-ledger-record">${esc(r.fault || '—')}</td>
+        <td>${esc(r.reporter || '—')}</td>
+        <td><span class="rp-ledger-state ${fixed ? 'is-fixed' : 'is-open'}">${fixed ? '已修好' : '未修好'}</span></td>
+        <td><span class="rp-ledger-track ${tracked ? 'is-tracked' : ''}">${tracked ? '是' : '否'}</span></td>
+        <td class="rp-ledger-remark">${esc(r.remark || '—')}</td>
+        <td><div class="rp-ledger-actions">
+          <button type="button" class="rp-ledger-edit" data-rp-edit="${esc(r.id)}">编辑</button>
+          <button type="button" class="rp-ledger-delete" data-rp-del="${esc(r.id)}">删除</button>
+        </div></td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="10" class="rp-ledger-empty">这个月份暂无维修记录</td></tr>';
+
+    const reminderHTML = stats.reminders.length
+      ? stats.reminders.map((item) => `<span class="rp-ledger-reminder-item"><b>${esc(item.item)}</b>：${esc(item.remark)}</span>`).join('')
+      : '<span class="rp-ledger-reminder-empty">当前月份暂无待跟踪事项</span>';
 
     box.innerHTML = `
-      <div class="rp-stats">
-        <div class="card card-pad rp-stat"><div class="rp-k">待修</div>
-          <div class="rp-v" style="color:${open.length ? 'var(--amber)' : 'var(--text)'}">${open.length}</div>
-          <div class="tiny muted">${rows.filter((r) => r.status === 'pending').length} 条还没人接</div></div>
-        <div class="card card-pad rp-stat"><div class="rp-k">已修好</div>
-          <div class="rp-v">${done.length}</div>
-          <div class="tiny muted">累计花费 ¥${cost.toLocaleString('zh-CN')}</div></div>
-      </div>
+      <section class="rp-ledger">
+        <div class="rp-ledger-toolbar">
+          <div class="rp-ledger-month">
+            <label for="rp-ledger-month">选择统计月份：</label>
+            <input id="rp-ledger-month" type="month" value="${esc(activeMonth)}">
+            <button type="button" class="btn ghost sm" id="rp-ledger-view">查看该月数据</button>
+          </div>
+          <button type="button" class="btn primary sm rp-ledger-add" id="rp-ledger-add">${icon('plus', 15)} 新增维修记录</button>
+        </div>
+        <div class="rp-ledger-stats">
+          <article class="rp-ledger-stat rp-ledger-stat-blue">
+            <div class="rp-ledger-stat-label">本月总维修</div><div class="rp-ledger-stat-num">${stats.total}</div><div class="rp-ledger-stat-unit">条</div>
+          </article>
+          <article class="rp-ledger-stat rp-ledger-stat-green">
+            <div class="rp-ledger-stat-label">已修好</div><div class="rp-ledger-stat-num">${stats.fixed}</div><div class="rp-ledger-stat-unit">条</div>
+          </article>
+          <article class="rp-ledger-stat rp-ledger-stat-orange">
+            <div class="rp-ledger-stat-label">未修好</div><div class="rp-ledger-stat-num">${stats.unfinished}</div><div class="rp-ledger-stat-unit">条</div>
+          </article>
+          <article class="rp-ledger-stat rp-ledger-stat-red">
+            <div class="rp-ledger-stat-label">需要跟踪</div><div class="rp-ledger-stat-num">${stats.tracked}</div><div class="rp-ledger-stat-unit">条</div>
+          </article>
+        </div>
+        <div class="rp-ledger-reminders">
+          <div class="rp-ledger-reminders-title">${icon('pin', 15)} 待跟踪提醒</div>
+          <div class="rp-ledger-reminders-list">${reminderHTML}</div>
+        </div>
+        <div class="rp-ledger-table-wrap">
+          <table class="rp-ledger-table">
+            <thead><tr>
+              <th>序号</th><th>维修日期</th><th>设备名称</th><th>位置</th><th>维修记录</th>
+              <th>报修人</th><th>是否修好</th><th>是否跟踪</th><th>备注</th><th>操作</th>
+            </tr></thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+        </div>
+        <div class="rp-ledger-foot">共 ${stats.total} 条维修记录 · 统计月份：${esc(activeMonth)}</div>
+      </section>`;
 
-      <div class="seg" style="margin:14px 0 10px">
-        ${FILTERS.map(([k, l]) => `<button class="${k === filter ? 'on' : ''}" data-rp-f="${k}">${l}${k === 'open' ? ` <span class="tiny">${open.length}</span>` : ''}</button>`).join('')}
-      </div>
-
-      ${shown.length ? `<div class="rp-list">${shown.map(rowHTML).join('')}</div>` : `
-        <div class="card"><div class="empty" style="padding:36px 20px">
-          <div class="em">${icon('wrench', 32)}</div>
-          ${filter === 'open' ? '没有待修的，一切正常' : filter === 'done' ? '还没有修好的记录' : '还没有报修记录'}
-          <div class="tiny muted" style="margin-top:6px">有东西坏了，点右上角「报修」记一条</div>
-        </div></div>`}`;
-
-    box.querySelectorAll('[data-rp-f]').forEach((b) => {
-      b.onclick = () => { filter = b.dataset.rpF; paint(); };
+    box.querySelector('#rp-ledger-view').onclick = () => {
+      const nextMonth = box.querySelector('#rp-ledger-month')?.value || '';
+      if (!/^\d{4}-\d{2}$/.test(nextMonth)) return toast('请选择有效的统计月份', 'warn');
+      activeMonth = nextMonth;
+      load();
+    };
+    box.querySelector('#rp-ledger-month').onkeydown = (event) => {
+      if (event.key === 'Enter') box.querySelector('#rp-ledger-view').click();
+    };
+    box.querySelector('#rp-ledger-add').onclick = () => editor(null);
+    box.querySelectorAll('[data-rp-edit]').forEach((button) => {
+      button.onclick = () => editor(rows.find((row) => String(row.id) === button.dataset.rpEdit));
     });
-    box.querySelectorAll('[data-rp-edit]').forEach((b) => {
-      b.onclick = () => editor(rows.find((x) => String(x.id) === b.dataset.rpEdit));
-    });
-    // 一键「修好了」：报修最常见的动作，不该逼人进编辑框再改状态
-    box.querySelectorAll('[data-rp-done]').forEach((b) => {
-      b.onclick = async () => {
-        const r = rows.find((x) => String(x.id) === b.dataset.rpDone);
-        b.disabled = true;
+    box.querySelectorAll('[data-rp-del]').forEach((button) => {
+      button.onclick = async () => {
+        const row = rows.find((item) => String(item.id) === button.dataset.rpDel);
+        if (!row) return;
+        if (!await confirmDialog(`删除「${row.item || row.fault || '维修记录'}」这条维修记录？删除后可在全局回收站恢复。`)) return;
+        button.disabled = true;
         try {
-          await api.patch('/repairs/' + r.id, { status: 'done', fixed_at: ymd(new Date()) });
-          toast('已标记为修好');
-          load();
-        } catch (e) { b.disabled = false; toast(e.message || '操作失败', 'err'); }
+          await api.del('/repairs/' + row.id);
+          toast('已删除，记录已移入回收站');
+          await load();
+        } catch (e) {
+          button.disabled = false;
+          toast(e.message || '删除失败', 'err');
+        }
       };
     });
-    box.querySelectorAll('[data-rp-del]').forEach((b) => {
-      b.onclick = async () => {
-        const r = rows.find((x) => String(x.id) === b.dataset.rpDel);
-        if (!await confirmDialog(`删除「${r.item || r.fault}」这条报修？删除后可在回收站找回。`)) return;
-        try { await api.del('/repairs/' + r.id); toast('已删除'); load(); }
-        catch (e) { toast(e.message || '删除失败', 'err'); }
-      };
-    });
-  };
-
-  const rowHTML = (r) => {
-    const st = SS_META[r.status] || SS_META.pending;
-    const ug = URG[r.urgency] || URG.normal;
-    return `<div class="card card-pad rp-row ${r.status === 'done' ? 'is-done' : ''}">
-      <div class="rp-head">
-        <span class="rp-no">${esc(r.seq || '—')}</span>
-        <div class="rp-title">
-          <b>${esc(r.item || '报修')}</b>
-          ${r.place ? `<span class="tiny muted">· ${esc(r.place)}</span>` : ''}
-          <span class="chip ${st.chip}">${st.label}</span>
-          ${r.status !== 'done' && r.urgency !== 'normal' ? `<span class="chip ${ug.chip}">${ug.label}</span>` : ''}
-        </div>
-        <div class="rp-ops">
-          ${r.status !== 'done' ? `<button class="btn ghost sm" data-rp-done="${r.id}">${icon('check', 13)} 修好了</button>` : ''}
-          <button class="icon-btn sm" data-rp-edit="${r.id}" title="修改">${icon('edit', 15)}</button>
-          <button class="icon-btn sm danger" data-rp-del="${r.id}" title="删除">${icon('trash', 15)}</button>
-        </div>
-      </div>
-      <div class="rp-fault">${esc(r.fault)}</div>
-      <div class="rp-meta">
-        <span class="mono">${esc(r.date || '')}</span>
-        ${r.reporter ? `<span>报修人：${esc(r.reporter)}</span>` : ''}
-        ${r.handler ? `<span>维修：${esc(r.handler)}</span>` : ''}
-        ${Number(r.cost) ? `<span>费用 ¥${Number(r.cost).toLocaleString('zh-CN')}</span>` : ''}
-        ${r.fixed_at ? `<span>修好于 ${esc(r.fixed_at)}</span>` : ''}
-      </div>
-      ${r.remark ? `<div class="lc-remark">${icon('edit', 12)} ${esc(r.remark)}</div>` : ''}
-    </div>`;
   };
 
   async function editor(row) {
@@ -191,6 +203,8 @@ export async function renderRepairsBody(box) {
         <div class="field"><label class="field-label">费用（元）</label>
           <input class="input" id="co" type="number" min="0" step="0.01" value="${esc(row?.cost || '')}" placeholder="0"></div>
       </div>
+      <div class="field"><label class="field-label">是否跟踪</label>
+        <label class="rp-follow-control"><input type="checkbox" id="fu" ${row?.follow_up === true || row?.follow_up === 1 || row?.follow_up === '1' ? 'checked' : ''}><span>需要持续跟踪处理</span></label></div>
       <div class="field"><label class="field-label">备注</label>
         <input class="input" id="rm" value="${esc(row?.remark || '')}" placeholder="有什么要补充的？直接在这里写"></div>
       <div class="confirm-actions">
@@ -219,6 +233,7 @@ export async function renderRepairsBody(box) {
         reporter: $('rp').value.trim(),
         handler: $('hd').value.trim(),
         cost: Number($('co').value) || 0,
+        follow_up: $('fu').checked,
         remark: $('rm').value.trim(),
       };
       if (!payload.fault) return toast('写一下坏在哪、什么现象', 'warn');
@@ -239,12 +254,5 @@ export async function renderRepairsBody(box) {
     };
   }
 
-  /* 「报修」按钮原在页头上，现在页头由 work.js 画，按钮挪进正文 */
-  const bar = document.createElement('div');
-  bar.className = 'row wrap';
-  bar.style.cssText = 'gap:8px;margin:0 0 12px';
-  bar.innerHTML = `<button class="btn primary sm" id="rp-new">${icon('plus', 15)} 报修</button>`;
-  box.parentElement.insertBefore(bar, box);
-  bar.querySelector('#rp-new').onclick = () => editor(null);
   await load();
 }
