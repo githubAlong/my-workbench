@@ -1,7 +1,8 @@
-import { api, esc, toast, confirmDialog } from './core.js';
+import { api, esc, toast, confirmDialog, saveBlob } from './core.js';
 import { icon } from './ui.js';
 import { createSlot } from './attday.js';
 import { makeXlsx } from './attendance.js';
+import { parseRosterFile, parseRosterText } from './roster-batch.mjs';
 import {
   DEFAULT_PERIODS, LEAVE_TYPES, ATTENDANCE_COLUMNS,
   nextTriState, activeLeavesFor, deriveRosterState, calculateDailySummary,
@@ -32,7 +33,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   let grades = (await api.get('/grades').catch(() => ({grades:[]}))).grades || [];
   let grade = grades.includes(initialGrade) ? initialGrade : (grades[0] || initialGrade || '');
   let date = TODAY(), period = 1, tab = 'roster', search = '', subject = '';
-  let teachers = [], tables = [], details = {}, leaveRecords = [], prefs = {};
+  let teachers = [], allTeachers = [], tables = [], details = {}, leaveRecords = [], prefs = {};
   let busy = false;
   const load = async () => {
     if (busy) return; busy = true;
@@ -42,7 +43,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         api.get('/attendance',{grade,sheet_date:date}), api.get('/me').catch(()=>({user:{settings:{}}})),
       ]);
       grades = g.grades || grades;
-      teachers = (roster.list || []).filter(t => Number(t.active ?? 1) === 1);
+      allTeachers = roster.list || [];
+      teachers = allTeachers.filter(t => Number(t.active ?? 1) === 1);
       tables = list || [];
       prefs = me.user?.settings?.attendanceWorkspace || {};
       leaveRecords = Array.isArray(prefs.leaves) ? prefs.leaves : [];
@@ -91,6 +93,170 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const teacherMeta = {...(prefs.teacherMeta || {}),[String(t.id)]:{...(prefs.teacherMeta?.[String(t.id)] || {}),...patch}};
     await savePrefs({teacherMeta});
   };
+  const rosterKey = (row) => String(row.name || '').trim().replace(/\s+/g,'').toLowerCase() + '\u0000' + String(row.subject || '').trim().replace(/\s+/g,'').toLowerCase();
+  const rosterGrid = (list) => [
+    ['教师花名册 · '+grade],
+    ['序号','归属部门','归属年级','姓名','学科','备注'],
+    ...list.map((t,i)=>[i+1,deptOf(t),t.grade||grade,t.name,t.subject||'',noteOf(t)]),
+  ];
+  const downloadRosterTemplate = () => {
+    const grid=[['教师花名册导入模板'],['序号','归属部门','归属年级','姓名','学科'],['1','高中部',grade,'','']];
+    saveBlob(makeXlsx({title:'花名册导入模板',grid}),'教师花名册导入模板.xlsx');
+  };
+  const exportRoster = (format) => {
+    const scope=root.querySelector('#aprd-export-scope')?.value || 'all';
+    const list=scope==='filtered'?visibleTeachers():teachers.slice();
+    if(!list.length){toast('当前没有可导出的教师','warn');return;}
+    const grid=rosterGrid(list);
+    const fileBase=(grade||'教师')+'花名册';
+    if(format==='xlsx'){
+      saveBlob(makeXlsx({title:fileBase,grid}),fileBase+'.xlsx');
+    }else if(format==='csv'){
+      const csv='\uFEFF'+grid.map(row=>row.map(value=>'"'+String(value??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+      saveBlob(new Blob([csv],{type:'text/csv;charset=utf-8'}),fileBase+'.csv');
+    }else if(format==='pdf'){
+      const win=window.open('','_blank');
+      if(!win){toast('浏览器拦截了打印窗口，请允许本站弹出窗口后重试','warn');return;}
+      const body=grid.slice(2).map(row=>'<tr>'+row.map(cell=>'<td>'+esc(cell)+'</td>').join('')+'</tr>').join('');
+      win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>'+esc(fileBase)+'</title><style>body{font-family:Arial,"Microsoft YaHei",sans-serif;padding:24px;color:#1d2939}h1{font-size:20px}p{color:#667085;font-size:12px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d0d5dd;padding:8px;text-align:left}th{background:#f2f4f7}</style><h1>'+esc(fileBase)+'</h1><p>导出时间：'+esc(new Date().toLocaleString('zh-CN'))+'　共 '+list.length+' 人</p><table><thead><tr>'+grid[1].map(cell=>'<th>'+esc(cell)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table><script>window.onload=function(){window.print()}<\/script></html>');
+      win.document.close();
+    }else if(format==='png'){
+      const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+      const widths=[70,150,110,180,150,220], rowH=42, width=widths.reduce((a,b)=>a+b,0);
+      canvas.width=width;canvas.height=76+(list.length+1)*rowH;
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle='#172744';ctx.font='bold 22px "Microsoft YaHei",sans-serif';ctx.fillText(fileBase,20,30);
+      ctx.fillStyle='#667085';ctx.font='12px "Microsoft YaHei",sans-serif';ctx.fillText('导出时间：'+new Date().toLocaleString('zh-CN')+'　共 '+list.length+' 人',20,53);
+      const headers=grid[1];let y=76;
+      let x=0;
+      headers.forEach((label,i)=>{ctx.fillStyle='#eef3fa';ctx.fillRect(x,y,widths[i],rowH);ctx.strokeStyle='#d8e1ed';ctx.strokeRect(x,y,widths[i],rowH);ctx.fillStyle='#34445d';ctx.font='bold 12px "Microsoft YaHei",sans-serif';ctx.fillText(String(label),x+8,y+26);x+=widths[i];});
+      list.forEach((teacher,index)=>{
+        y+=rowH;x=0;
+        const values=[index+1,deptOf(teacher),teacher.grade||grade,teacher.name,teacher.subject||'',noteOf(teacher)];
+        values.forEach((value,i)=>{ctx.fillStyle=index%2?'#f9fbfe':'#fff';ctx.fillRect(x,y,widths[i],rowH);ctx.strokeStyle='#e3eaf3';ctx.strokeRect(x,y,widths[i],rowH);ctx.fillStyle='#34445d';ctx.font='12px "Microsoft YaHei",sans-serif';ctx.fillText(String(value??'').slice(0,24),x+8,y+26);x+=widths[i];});
+      });
+      canvas.toBlob(blob=>{if(blob)saveBlob(blob,fileBase+'.png');else toast('PNG 图片生成失败','err');},'image/png');
+    }
+    const menu=root.querySelector('[data-roster-export-menu]');if(menu)menu.hidden=true;
+  };
+  const openRosterImport = () => {
+    const dialog=document.createElement('div');dialog.className='aprd-dialog aprd-roster-dialog';
+    dialog.innerHTML='<section class="aprd-roster-import"><header><div><h3>批量导入教师名单</h3><p>导入目标年级：'+esc(grade)+' · 原有考勤记录不会被覆盖</p></div><button type="button" data-import-close aria-label="关闭">×</button></header><div class="aprd-import-body"><label class="aprd-upload-zone"><input id="aprd-import-file" type="file" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp"><span class="aprd-upload-icon">↑</span><b>选择 Excel、PDF 或图片文件</b><small>支持 XLSX / XLS / CSV / PDF / JPG / PNG / WebP</small></label><div class="aprd-import-paste"><label for="aprd-import-text">或者直接粘贴 Excel 表格</label><textarea id="aprd-import-text" rows="4" placeholder="复制 Excel 中的姓名、学科等列，然后粘贴到这里…"></textarea><button type="button" data-import-paste>解析粘贴内容</button><button type="button" data-import-template>下载 Excel 模板</button></div><div class="aprd-import-status" id="aprd-import-status" role="status">上传后会先识别并显示预览，只有点击“确认导入”才会写入花名册。</div><div class="aprd-import-warnings" id="aprd-import-warnings" hidden></div><div class="aprd-import-preview" id="aprd-import-preview" hidden><div class="aprd-import-summary" id="aprd-import-summary"></div><div class="aprd-import-table-wrap"><table><thead><tr><th>序号</th><th>姓名</th><th>学科</th><th>归属部门</th><th>来源年级</th><th>处理方式</th></tr></thead><tbody id="aprd-import-rows"></tbody></table></div></div></div><footer><button type="button" data-import-close>取消</button><button type="button" class="primary" data-import-confirm disabled>确认导入</button></footer></section>';
+    document.body.append(dialog);
+    let importRows=[];
+    const $=(selector)=>dialog.querySelector(selector);
+    const close=()=>dialog.remove();
+    dialog.querySelectorAll('[data-import-close]').forEach(button=>button.onclick=close);
+    $('[data-import-template]').onclick=downloadRosterTemplate;
+    const updateStatus=(message)=>{$('#aprd-import-status').textContent=message;};
+    const refreshDuplicates=()=>{
+      const seen=new Set();
+      importRows=importRows.map((row)=>{
+        const key=rosterKey(row);
+        const inFile=!!key&&seen.has(key);
+        if(key)seen.add(key);
+        const existing=allTeachers.find(t=>!t.deleted_at&&rosterKey(t)===key);
+        let duplicateKind=inFile?'file':existing?'existing':'';
+        let action=row.action||'add';
+        if(inFile)action='skip';
+        else if(existing){if(action==='add')action='skip';}
+        else action='add';
+        return {...row,duplicateKind,duplicateId:existing?.id||null,action};
+      });
+    };
+    const renderPreview=()=>{
+      refreshDuplicates();
+      const preview=$('#aprd-import-preview');
+      preview.hidden=false;
+      const invalid=importRows.filter(row=>!String(row.name||'').trim()||!String(row.subject||'').trim()).length;
+      const additions=importRows.filter(row=>row.action==='add').length;
+      const updates=importRows.filter(row=>row.action==='update').length;
+      const skipped=importRows.filter(row=>row.action==='skip').length;
+      $('#aprd-import-summary').innerHTML='<b>识别 '+importRows.length+' 条</b><span>新增 '+additions+' 条</span><span>更新 '+updates+' 条</span><span>跳过 '+skipped+' 条</span>'+(invalid?'<strong>有 '+invalid+' 条缺少姓名或学科，请修正或跳过</strong>':'');
+      $('#aprd-import-warnings').hidden=!importWarnings.length;
+      $('#aprd-import-warnings').textContent=importWarnings.join('；');
+      $('#aprd-import-rows').innerHTML=importRows.map((row,index)=>{
+        const status=row.duplicateKind==='file'?'文件内重复':row.duplicateKind==='existing'?'名册已存在':(!row.name||!row.subject?'信息不完整':'可导入');
+        const options=row.duplicateKind==='file'?'<option value="skip" selected>跳过重复行</option>':row.duplicateKind==='existing'?'<option value="skip" '+(row.action==='skip'?'selected':'')+'>跳过已存在</option><option value="update" '+(row.action==='update'?'selected':'')+'>更新已有人员</option>':'<option value="add" selected>新增人员</option>';
+        return '<tr><td>'+esc(row.serial||index+1)+'</td><td><input data-import-field="name" data-index="'+index+'" value="'+esc(row.name||'')+'" aria-label="姓名"></td><td><input data-import-field="subject" data-index="'+index+'" value="'+esc(row.subject||'')+'" aria-label="学科"></td><td><input data-import-field="department" data-index="'+index+'" value="'+esc(row.department||'')+'" aria-label="归属部门" placeholder="高中部"></td><td>'+esc(row.grade||grade)+'</td><td><select data-import-action="'+index+'">'+options+'</select><small class="aprd-import-row-status">'+status+'</small></td></tr>';
+      }).join('');
+      $('[data-import-confirm]').disabled=!importRows.some(row=>row.action!=='skip'&&String(row.name||'').trim()&&String(row.subject||'').trim());
+    };
+    let importWarnings=[];
+    const acceptParsed=(result)=>{
+      importRows=(result.rows||[]).map((row,index)=>({...row,serial:row.serial||index+1,action:'add'}));
+      importWarnings=[...(result.warnings||[])];
+      if(result.grade&&result.grade!==grade)importWarnings.unshift('文件标题识别到'+result.grade+'，当前导入目标为'+grade+'；请确认名单属于当前年级。');
+      renderPreview();
+    };
+    const parseFile=async(file)=>{
+      if(!file)return;
+      updateStatus('正在解析 '+file.name+'…');
+      $('[data-import-confirm]').disabled=true;
+      try{
+        const result=await parseRosterFile(file,grade,updateStatus);
+        acceptParsed(result);
+        updateStatus('识别完成：'+result.rows.length+' 条，请逐项核对后确认导入。');
+      }catch(error){updateStatus(error.message||'文件解析失败');toast(error.message||'文件解析失败','err');}
+    };
+    $('#aprd-import-file').onchange=()=>parseFile($('#aprd-import-file').files?.[0]);
+    $('[data-import-paste]').onclick=async()=>{
+      const text=$('#aprd-import-text').value.trim();
+      if(!text){toast('请先粘贴 Excel 表格内容','warn');return;}
+      updateStatus('正在解析粘贴的表格…');
+      try{acceptParsed(await parseRosterText(text,grade));updateStatus('解析完成，请检查预览后确认导入。');}
+      catch(error){updateStatus(error.message||'粘贴内容解析失败');toast(error.message||'解析失败','err');}
+    };
+    $('#aprd-import-rows').addEventListener('input',(event)=>{
+      const input=event.target.closest('[data-import-field]');
+      if(!input)return;
+      const index=Number(input.dataset.index),field=input.dataset.importField;
+      if(importRows[index])importRows[index][field]=input.value;
+    });
+    $('#aprd-import-rows').addEventListener('change',(event)=>{
+      const action=event.target.closest('[data-import-action]');
+      if(action){const row=importRows[Number(action.dataset.importAction)];if(row)row.action=action.value;renderPreview();return;}
+      const field=event.target.closest('[data-import-field]');
+      if(field&&['name','subject'].includes(field.dataset.importField))renderPreview();
+    });
+    $('[data-import-confirm]').onclick=async()=>{
+      refreshDuplicates();
+      const selected=importRows.filter(row=>row.action!=='skip');
+      const invalid=selected.filter(row=>!String(row.name||'').trim()||!String(row.subject||'').trim());
+      if(invalid.length){toast('请先补全 '+invalid.length+' 条记录的姓名和学科，或将其设为跳过','warn');return;}
+      const additions=selected.filter(row=>row.action==='add');
+      const updates=selected.filter(row=>row.action==='update'&&row.duplicateId);
+      try{
+        $('[data-import-confirm]').disabled=true;
+        updateStatus('正在写入教师名单…');
+        let addedIds=[];
+        if(additions.length){
+          const result=await api.post('/teachers',{grade,items:additions.map(row=>({name:row.name,subject:row.subject}))});
+          addedIds=Array.isArray(result?.ids)?result.ids:[];
+        }
+        for(const row of updates){
+          await api.patch('/teachers/'+row.duplicateId,{name:row.name,subject:row.subject,active:1});
+        }
+        const teacherMeta={...(prefs.teacherMeta||{})};
+        additions.forEach((row,index)=>{
+          const id=addedIds[index];
+          if(id&&(row.department||''))teacherMeta[String(id)]={...(teacherMeta[String(id)]||{}),department:row.department};
+        });
+        updates.forEach(row=>{
+          if(row.department)teacherMeta[String(row.duplicateId)]={...(teacherMeta[String(row.duplicateId)]||{}),department:row.department};
+        });
+        if(JSON.stringify(teacherMeta)!==JSON.stringify(prefs.teacherMeta||{}))await savePrefs({teacherMeta});
+        close();
+        await load();
+        toast('导入完成：新增 '+additions.length+' 人，更新 '+updates.length+' 人，跳过 '+(importRows.length-additions.length-updates.length)+' 人','ok',3600);
+      }catch(error){
+        $('[data-import-confirm]').disabled=false;
+        updateStatus(error.message||'导入失败，请检查名单后重试');
+        toast(error.message||'导入失败','err');
+      }
+    };
+  };
+
   const openEditor = (title, fields, initial, onSave) => {
     const dialog = document.createElement('div'); dialog.className='aprd-dialog';
     dialog.innerHTML = '<form class="aprd-editor"><h3>'+esc(title)+'</h3>'+
@@ -118,7 +284,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const mark=(key,val)=>'<button class="aprd-mark '+(val==='y'?'y':val==='n'?'n':'u')+'" data-person="'+t.id+'" data-key="'+key+'">'+CHECK_LABEL(val)+'</button>';
       return '<tr><td>'+(i+1)+'</td><td><button class="aprd-link" data-dept="'+t.id+'">'+esc(deptOf(t))+'</button></td><td><button class="aprd-link" data-grade="'+t.id+'">'+esc(t.grade||grade)+'</button></td><td><b>'+esc(t.name)+'</b></td><td>'+esc(t.subject||'')+'</td><td>'+mark('class',st.class)+'</td><td>'+mark('sit',st.sit)+'</td><td><button class="aprd-mark '+(st.listen?'y':'u')+'" data-person="'+t.id+'" data-key="listen">'+(st.listen?'✓':'—')+'</button></td><td><button class="aprd-mark '+(st.research?'y':'u')+'" data-person="'+t.id+'" data-key="research">'+(st.research?'✓':'—')+'</button></td><td><button class="aprd-mark" data-leave="'+t.id+'">'+esc(st.leave||'无')+'</button></td><td>'+esc(noteOf(t))+'</td><td><div class="aprd-actions"><button data-edit="'+t.id+'">编辑</button><button data-disable="'+t.id+'">停用</button></div></td></tr>';
     }).join('');
-    return '<div class="aprd-toolbar"><input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'"><select id="aprd-subject"><option value="">全部学科</option>'+subjects.map(s=>'<option '+(subject===s?'selected':'')+'>'+esc(s)+'</option>').join('')+'</select><button class="primary" data-add>新增人员</button><button data-copy>复制名单</button><button data-subject-manager>学科管理</button><span>当前筛：'+esc(subject||'全部')+' · '+list.length+' 人</span></div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.roster.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div><p class="aprd-note">花名册仅显示当前年级在岗教师；状态按当前日期和节次读取。</p>';
+    return '<div class="aprd-toolbar"><input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'"><select id="aprd-subject"><option value="">全部学科</option>'+subjects.map(s=>'<option '+(subject===s?'selected':'')+'>'+esc(s)+'</option>').join('')+'</select><button class="primary" data-add>新增人员</button><button data-roster-import>批量导入</button><div class="aprd-export-wrap"><button data-roster-export-toggle>批量导出 ▾</button><div class="aprd-export-menu" data-roster-export-menu hidden><label>导出范围 <select id="aprd-export-scope"><option value="all">全部在岗人员</option><option value="filtered">当前筛选结果</option></select></label><button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button></div></div><button data-copy>复制名单</button><button data-subject-manager>学科管理</button><span>当前筛：'+esc(subject||'全部')+' · '+list.length+' 人</span></div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.roster.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div><p class="aprd-note">花名册仅显示当前年级在岗教师；状态按当前日期和节次读取。</p>';
   };
   const seatHtml = () => {
     const t=details.seat, rows=(t?.rows||[]).filter(r=>teachers.some(x=>x.name===r.teacher));
@@ -157,6 +323,13 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     root.querySelectorAll('[data-leave]').forEach(b=>b.onclick=()=>{const t=teachers.find(x=>String(x.id)===b.dataset.leave);openEditor('登记请假',[{key:'type',label:'请假类型',type:'select',options:[{value:'',label:'无'},...LEAVE_TYPES.map(x=>({value:x,label:x}))]},{key:'remark',label:'备注'}],{type:'',remark:''},async d=>{leaveRecords=leaveRecords.filter(x=>x.name!==t.name||!activeLeavesFor([x],date,grade).length);if(d.type)leaveRecords.push({id:Date.now(),grade,name:t.name,subject:t.subject,type:d.type,start_date:date,end_date:date,days:1,status:'待批',remark:d.remark});await savePrefs({leaves:leaveRecords});await load();});});
     root.querySelectorAll('[data-grade]').forEach(()=>{});
     root.querySelector('[data-add]')?.addEventListener('click',()=>openEditor('新增教师',[{key:'name',label:'姓名',required:true},{key:'subject',label:'学科',required:true},{key:'department',label:'归属部门'}],{department:'高中部'},async d=>{await api.post('/teachers',{grade,name:d.name,subject:d.subject});const list=await api.get('/teachers',{grade,active:'all'});const t=list.list.find(x=>x.name===d.name);if(t)await setTeacherMeta(t,{department:d.department});await load();}));
+    root.querySelector('[data-roster-import]')?.addEventListener('click',openRosterImport);
+    root.querySelector('[data-roster-export-toggle]')?.addEventListener('click',()=>{
+      const menu=root.querySelector('[data-roster-export-menu]');
+      if(menu)menu.hidden=!menu.hidden;
+    });
+    root.querySelectorAll('[data-roster-export]').forEach(button=>button.addEventListener('click',()=>exportRoster(button.dataset.rosterExport)));
+
     root.querySelector('[data-copy]')?.addEventListener('click',()=>{const names=visibleTeachers().map(t=>t.name).join('\n');navigator.clipboard?.writeText(names);toast('已复制当前名单','ok');});
     root.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const t=teachers.find(x=>String(x.id)===b.dataset.edit);openEditor('编辑教师',[{key:'name',label:'姓名',required:true},{key:'subject',label:'学科',required:true},{key:'department',label:'归属部门'},{key:'remark',label:'备注'}],{name:t.name,subject:t.subject,department:deptOf(t),remark:noteOf(t)},async d=>{await api.patch('/teachers/'+t.id,{name:d.name,subject:d.subject});await setTeacherMeta(t,{department:d.department,remark:d.remark});await load();});});
     root.querySelectorAll('[data-disable]').forEach(b=>b.onclick=async()=>{if(await confirmDialog('停用该教师？')){await api.patch('/teachers/'+b.dataset.disable,{active:0});await load();}});

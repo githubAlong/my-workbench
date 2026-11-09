@@ -1,1 +1,50 @@
 .attendance-prd{color:#24324a;min-width:0}.attendance-prd .aprd-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}.attendance-prd h2{font-size:22px;margin:0;color:#172744}.attendance-prd .aprd-grade{display:flex;gap:6px}.attendance-prd button,.attendance-prd input,.attendance-prd select,.attendance-prd textarea{font:inherit}.attendance-prd .aprd-grade button,.attendance-prd .aprd-tabs button{border:1px solid #dce5f1;background:#fff;border-radius:8px;padding:7px 13px;color:#42536e;cursor:pointer}.attendance-prd .aprd-grade button.on,.attendance-prd .aprd-tabs button.on{background:#eaf2ff;color:#075cf2;border-color:#a9c8ff;font-weight:700}.attendance-prd .aprd-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px;background:#fff;border:1px solid #dce5f1;border-radius:12px;margin-bottom:12px}.attendance-prd .aprd-meta label{display:flex;align-items:center;gap:6px;font-size:12px;color:#687891}.attendance-prd .aprd-meta input,.attendance-prd .aprd-meta select,.attendance-prd .aprd-toolbar input,.attendance-prd .aprd-toolbar select,.attendance-prd .aprd-editor input,.attendance-prd .aprd-editor select,.attendance-prd .aprd-editor textarea{border:1px solid #dce5f1;border-radius:8px;padding:7px 9px;background:#fff;color:#263650;min-width:0}.attendance-prd .aprd-meta button,.attendance-prd .aprd-toolbar button,.attendance-prd .aprd-editor button{border:1px solid #dce5f1;background:#fff;border-radius:8px;padding:7px 12px;cursor:pointer;color:#354965}.attendance-prd .aprd-meta button.primary,.attendance-prd .aprd-toolbar button.primary,.attendance-prd .aprd-editor button.primary{background:#165dff;border-color:#165dff;color:white}.attendance-prd .aprd-tabs{display:flex;gap:8px;overflow:auto;padding:0 0 12px}.attendance-prd .aprd-panel{background:#fff;border:1px solid #dce5f1;border-radius:12px;padding:14px;min-width:0}.attendance-prd .aprd-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.attendance-prd .aprd-toolbar input[type=search]{width:min(260px,100%)}.attendance-prd .aprd-table-wrap{overflow:auto;border:1px solid #e3eaf3;border-radius:9px}.attendance-prd table{border-collapse:collapse;width:100%;min-width:760px;font-size:12px}.attendance-prd th{background:#f3f6fb;color:#53627a;text-align:left;white-space:nowrap;padding:10px 9px;border-bottom:1px solid #dfe7f1}.attendance-prd td{padding:8px 9px;border-bottom:1px solid #edf1f6;white-space:nowrap;vertical-align:middle}.attendance-prd tr:last-child td{border-bottom:0}.attendance-prd .aprd-mark{min-width:34px;padding:4px 7px;border:1px solid #dce5f1;border-radius:7px;background:#fff;cursor:pointer}.attendance-prd .aprd-mark.y{background:#e8f8ee;color:#168448;border-color:#b8e5c8}.attendance-prd .aprd-mark.n{background:#fff0f0;color:#d34b4b;border-color:#f0c6c6}.attendance-prd .aprd-mark.u{color:#8794a8}.attendance-prd .aprd-status{font-size:11px;padding:3px 7px;border-radius:6px;background:#f0f3f8}.attendance-prd .aprd-status.pending{background:#fff4df;color:#a56b12}.attendance-prd .aprd-status.approved{background:#e9f8ee;color:#168448}.attendance-prd .aprd-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:12px}.attendance-prd .aprd-kpi{border:1px solid #e1e8f2;border-radius:10px;padding:12px}.attendance-prd .aprd-kpi span{display:block;color:#7a899e;font-size:11px}.attendance-prd .aprd-kpi b{font-size:22px;color:#172744}.attendance-prd .aprd-empty{padding:32px;text-align:center;color:#8794a8}.attendance-prd .aprd-dialog{position:fixed;inset:0;background:#17274466;z-index:1000;display:grid;place-items:center;padding:16px}.attendance-prd .aprd-editor{background:white;border-radius:14px;padding:18px;width:min(560px,100%);max-height:88vh;overflow:auto;display:grid;gap:12px}.attendance-prd .aprd-editor h3{margin:0}.attendance-prd .aprd-editor label{display:grid;gap:5px;font-size:12px;color:#65758e}.attendance-prd .aprd-editor .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.attendance-prd .aprd-actions{display:flex;gap:6px}.attendance-prd .aprd-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}.attendance-prd .aprd-note{font-size:11px;color:#8794a8;margin-top:10px}@media(max-width:760px){.attendance-prd .aprd-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.attendance-prd .aprd-meta{gap:7px}.attendance-prd .aprd-tabs button{padding:7px 10px;white-space:nowrap}.attendance-prd .aprd-editor .two{grid-template-columns:1fr}}
+
+/* 花名册批量导入 / 导出 */
+.attendance-prd .aprd-export-wrap{position:relative;display:inline-flex}
+.attendance-prd .aprd-export-menu{position:absolute;top:calc(100% + 7px);right:0;z-index:30;min-width:190px;padding:8px;border:1px solid #dce5f1;border-radius:11px;background:#fff;box-shadow:0 12px 32px rgba(25,45,80,.16);display:grid;gap:5px}
+.attendance-prd .aprd-export-menu[hidden]{display:none}
+.attendance-prd .aprd-export-menu button{width:100%;text-align:left;border:0;background:#fff;padding:8px 10px;border-radius:7px}
+.attendance-prd .aprd-export-menu button:hover{background:#f2f6fd}
+.attendance-prd .aprd-export-menu label{display:grid;gap:5px;padding:5px 8px;color:#66758d;font-size:11px}
+.attendance-prd .aprd-export-menu select{width:100%;border:1px solid #dce5f1;border-radius:7px;padding:7px;background:#fff;color:#263650}
+.attendance-prd .aprd-roster-dialog{z-index:1100}
+.attendance-prd .aprd-roster-import{width:min(1080px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;border-radius:16px;background:#fff;box-shadow:0 20px 70px rgba(15,35,70,.24)}
+.attendance-prd .aprd-roster-import>header{display:flex;align-items:center;justify-content:space-between;padding:17px 20px;border-bottom:1px solid #e8edf4}
+.attendance-prd .aprd-roster-import h3{margin:0;color:#172744;font-size:18px}
+.attendance-prd .aprd-roster-import header p{margin:5px 0 0;color:#8290a5;font-size:12px}
+.attendance-prd .aprd-roster-import header button{width:32px;height:32px;border:0;border-radius:8px;background:#f2f5fa;color:#53627a;font-size:22px;cursor:pointer}
+.attendance-prd .aprd-import-body{padding:16px 20px;overflow:auto;display:grid;gap:13px}
+.attendance-prd .aprd-upload-zone{min-height:116px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:7px;border:1px dashed #9bb8e7;border-radius:12px;background:#f7faff;color:#315d9b;cursor:pointer}
+.attendance-prd .aprd-upload-zone input{display:none}
+.attendance-prd .aprd-upload-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:10px;background:#e8f1ff;color:#1764f5;font-size:22px}
+.attendance-prd .aprd-upload-zone small{color:#8795a9;font-size:11px}
+.attendance-prd .aprd-import-paste{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:end}
+.attendance-prd .aprd-import-paste label{grid-column:1/-1;font-size:12px;font-weight:650;color:#47566e}
+.attendance-prd .aprd-import-paste textarea{width:100%;min-height:76px;resize:vertical;border:1px solid #dce5f1;border-radius:9px;padding:9px 11px;font:12px/1.5 inherit}
+.attendance-prd .aprd-import-paste button{height:36px;padding:0 12px;border:1px solid #dce5f1;border-radius:8px;background:#fff;color:#3f526d;cursor:pointer}
+.attendance-prd .aprd-import-status{padding:9px 11px;border-radius:8px;background:#f2f6fc;color:#63748e;font-size:12px}
+.attendance-prd .aprd-import-warnings{padding:9px 11px;border-radius:8px;background:#fff7e8;color:#9a6718;font-size:12px;line-height:1.6}
+.attendance-prd .aprd-import-preview{display:grid;gap:9px}
+.attendance-prd .aprd-import-summary{display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#63748e;font-size:12px}
+.attendance-prd .aprd-import-summary b{color:#172744;font-size:14px}
+.attendance-prd .aprd-import-summary strong{color:#c33;font-weight:650}
+.attendance-prd .aprd-import-table-wrap{max-height:310px;overflow:auto;border:1px solid #e3eaf3;border-radius:9px}
+.attendance-prd .aprd-import-table-wrap table{min-width:760px}
+.attendance-prd .aprd-import-table-wrap td{white-space:normal}
+.attendance-prd .aprd-import-table-wrap input,.attendance-prd .aprd-import-table-wrap select{width:100%;min-width:78px;max-width:180px;border:1px solid #dce5f1;border-radius:7px;padding:6px 7px;background:#fff;color:#263650;font-size:12px}
+.attendance-prd .aprd-import-row-status{display:block;margin-top:4px;color:#8290a5;font-size:10px}
+.attendance-prd .aprd-roster-import>footer{display:flex;justify-content:flex-end;gap:9px;padding:13px 20px;border-top:1px solid #e8edf4;background:#fbfcfe}
+.attendance-prd .aprd-roster-import>footer button{height:38px;padding:0 15px;border:1px solid #dce5f1;border-radius:8px;background:#fff;color:#42536e;cursor:pointer}
+.attendance-prd .aprd-roster-import>footer button.primary{background:#165dff;border-color:#165dff;color:#fff}
+.attendance-prd .aprd-roster-import>footer button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:760px){
+ .attendance-prd .aprd-roster-import{width:100%;max-height:96vh;border-radius:14px}
+ .attendance-prd .aprd-import-body{padding:12px}
+ .attendance-prd .aprd-import-paste{grid-template-columns:1fr 1fr}
+ .attendance-prd .aprd-import-paste textarea{grid-column:1/-1}
+ .attendance-prd .aprd-import-paste label{grid-column:1/-1}
+ .attendance-prd .aprd-import-paste button{width:100%}
+ .attendance-prd .aprd-roster-import>header,.attendance-prd .aprd-roster-import>footer{padding:12px}
+ .attendance-prd .aprd-export-menu{right:auto;left:0}
+}
