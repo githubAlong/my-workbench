@@ -1642,9 +1642,44 @@ const money2 = (v) => (Math.round((Number(v) || 0) * 100) / 100).toFixed(2).repl
 
 async function renderTrips(box) {
   const ctx = { month: M() };
-  const load = async () => {
-    const d = await api.get('/trip/list', { month: ctx.month }).catch(() => ({ rows: [], rules: {} }));
-    const rows = d.rows || [];
+  const load = async (targetMonth) => {
+    if (/^\d{4}-\d{2}$/.test(String(targetMonth || ''))) ctx.month = String(targetMonth);
+    let d;
+    try {
+      d = await api.get('/trip/list', { month: ctx.month });
+      if (!d || !Array.isArray(d.rows)) throw new Error('出差列表返回的数据格式不正确');
+
+      /* 自定义列表接口为空时，再从通用出差主表核对一次。
+         创建入口写入 /trips，列表入口读取 /trip/list；两者应读取同一份数据。
+         这里做读后核对，避免主表已有记录却被页面误报为“暂无记录”。 */
+      if (!d.rows.length) {
+        const rawRows = await api.get('/trips', { month: ctx.month });
+        if (Array.isArray(rawRows) && rawRows.length) {
+          const rows = await Promise.all(rawRows.map((row) => api.get('/trip/' + row.id)));
+          d = { ...d, rows };
+        }
+      }
+    } catch (primaryError) {
+      /* 主列表接口异常时，使用主表 + 单条详情兜底，不能把接口错误伪装成空列表。 */
+      try {
+        const rawRows = await api.get('/trips', { month: ctx.month });
+        if (!Array.isArray(rawRows)) throw new Error('出差主表返回的数据格式不正确');
+        const [rules, rows] = await Promise.all([
+          api.get('/trip/rules'),
+          Promise.all(rawRows.map((row) => api.get('/trip/' + row.id))),
+        ]);
+        d = { rules, rows };
+      } catch (fallbackError) {
+        console.error('[trips] 列表读取失败', primaryError, fallbackError);
+        box.innerHTML = `<div class="card empty">
+          <div>${esc(fallbackError.message || primaryError.message || '出差记录加载失败')}</div>
+          <button class="btn ghost sm" id="trip-retry" style="margin-top:12px">重新加载</button>
+        </div>`;
+        box.querySelector('#trip-retry')?.addEventListener('click', () => load());
+        return;
+      }
+    }
+    const rows = Array.isArray(d.rows) ? d.rows : [];
     const rules = d.rules || { foodPerDay: 100, localPerDay: 40 };
     const sum = (f) => rows.reduce((s, r) => s + (f(r) || 0), 0);
     const reimbursement = sum((r) => r.calc.total);
@@ -2091,8 +2126,13 @@ function tripEditor(row, reload) {
       remark: body.querySelector('#remark').value,
     };
     try {
-      if (isNew) await api.post('/trips', payload); else await api.patch('/trips/' + row.id, payload);
-      s.close(); toast('已保存'); reload();
+      const saved = isNew
+        ? await api.post('/trips', payload)
+        : await api.patch('/trips/' + row.id, payload);
+      s.close();
+      toast('已保存');
+      const savedMonth = String(saved?.start_date || payload.start_date).slice(0, 7);
+      await reload(savedMonth);
     } catch (e) { toast(e.message || '保存失败', 'err'); }
   };
 }

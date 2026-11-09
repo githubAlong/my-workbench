@@ -740,9 +740,11 @@ function calcTrip(t, rules, items = []) {
 }
 
 function tripWithCalc(t, rules) {
-  const items = (load().trip_items || [])
-    .filter((r) => !r.deleted_at && String(r.trip_id) === String(t.id))
-    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || a.id - b.id);
+  const storedItems = load().trip_items;
+  /* 旧备份或旧版本可能没有 trip_items，异常结构不能让整张出差列表一起加载失败。 */
+  const items = (Array.isArray(storedItems) ? storedItems : [])
+    .filter((r) => r && typeof r === 'object' && !r.deleted_at && String(r.trip_id) === String(t.id))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || num(a.id) - num(b.id));
   return { ...t, items, calc: calcTrip(t, rules, items) };
 }
 
@@ -3429,11 +3431,15 @@ on('PATCH', '/trip/rules', ({ body }) => {
 on('GET', '/trip/list', ({ query }) => {
   const rules = tripRules();
   const month = String(query.month || '');
-  let rows = rowsOf('trips');
-  if (/^\d{4}-\d{2}$/.test(month)) rows = rows.filter((r) => String(r.start_date || '').startsWith(month + '-'));
-  rows.sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)) || b.id - a.id);
+  /* 直接读取主表并过滤异常空行，避免一条损坏数据令整个列表接口失败。 */
+  const source = Array.isArray(load().trips) ? load().trips : [];
+  let rows = source.filter((r) => r && typeof r === 'object' && !r.deleted_at);
+  if (/^\d{4}-\d{2}$/.test(month)) {
+    rows = rows.filter((r) => String(r.start_date || '').slice(0, 10).startsWith(month + '-'));
+  }
+  rows.sort((a, b) => String(b.start_date || '').localeCompare(String(a.start_date || '')) || num(b.id) - num(a.id));
   return { rules, rows: rows.map((r) => tripWithCalc(r, rules)) };
-});
+});;
 on('GET', '/trip/stats', ({ query }) => {
   const rules = tripRules();
   const year = String(query.year || new Date().getFullYear());
