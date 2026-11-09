@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { isRepairTracked, summarizeRepairs } from '../js/repairs-domain.mjs';
+import { isRepairTracked, summarizeRepairs, isRepairFixed, normalizeRepairStatus, repairStatusInputValue } from '../js/repairs-domain.mjs';
 
 const repairSource = await readFile(new URL('../js/repairs.js', import.meta.url), 'utf8');
 const localdbSource = await readFile(new URL('../js/localdb.js', import.meta.url), 'utf8');
@@ -57,4 +57,21 @@ test('跟踪字段纳入本地维修记录字段白名单，四种统计颜色�
   for (const color of ['#2b7cd3', '#28c9a7', '#ff8822', '#f53f3f']) {
     assert.ok(cssSource.includes(color), `缺少统计卡颜色 ${color}`);
   }
+});
+
+test('维修状态支持自由输入并兼容旧状态',()=>{
+ assert.equal(normalizeRepairStatus('待处理'),'pending');
+ assert.equal(normalizeRepairStatus('处理中'),'doing');
+ assert.equal(normalizeRepairStatus('已修好'),'done');
+ assert.equal(normalizeRepairStatus('等待配件'),'等待配件');
+ assert.equal(repairStatusInputValue('pending'),'待处理');
+ assert.equal(repairStatusInputValue('等待配件'),'等待配件');
+ assert.equal(isRepairFixed({status:'done'}),true);
+ assert.equal(isRepairFixed({status:'已修好'}),true);
+ assert.equal(isRepairFixed({status:'等待配件'}),false);
+});
+test('维修登记状态为自由文本输入框',()=>{
+ assert.match(repairSource,/<input class="input" id="s"/);
+ assert.doesNotMatch(repairSource,/<select class="input" id="s"/);
+ assert.ok(repairSource.includes('placeholder="手动输入状态'));
 });

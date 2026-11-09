@@ -7,33 +7,9 @@ import {
   api, esc, toast, sheet, confirmDialog, ymd,
 } from './core.js';
 import { registerView, icon, pageHead } from './ui.js';
-import { summarizeRepairs, isRepairTracked } from './repairs-domain.mjs';
+import { summarizeRepairs, isRepairTracked, isRepairFixed, normalizeRepairStatus, repairStatusInputValue } from './repairs-domain.mjs';
 
-const SS_META = {
-  pending: { label: '待处理', chip: 'amber' },
-  doing: { label: '处理中', chip: 'blue' },
-  done: { label: '已修好', chip: 'green' },
-  canceled: { label: '已取消', chip: 'grey' },
-};
-
-/* 【状态为什么不能随便选】
-   以前下拉里四项全开，于是可以把一条「已修好」的记录改回「待处理」，
-   保存时下面那行 `if (payload.status !== 'done') payload.fixed_at = ''` 顺手把
-   修好日期清空 —— 谁修的、什么时候修好的、花了多少钱那段时间线就没了，
-   事后想查都查不回来。
-   现在的规则：
-     - 没修好的可以往前走（待处理 → 处理中 → 已修好），也可以取消；
-     - 已经修好的只允许在「已修好 / 已取消」之间纠错，不给退回未完成；
-     - 取消掉的想重新开工，从「待处理」重来，但修好日期照样保留原值不再乱清。 */
-const SS_ORDER = ['pending', 'doing', 'done'];
-function statusOptions(cur) {
-  const c = cur || 'pending';
-  if (c === 'done') return ['done', 'canceled'];
-  if (c === 'canceled') return ['canceled', 'pending', 'doing'];
-  // 未完成：只能在本节点及之后推进，加一个「已取消」出口
-  const i = Math.max(0, SS_ORDER.indexOf(c));
-  return [...SS_ORDER.slice(i), 'canceled'];
-}
+/* 维修状态使用自由文本输入，保留旧状态兼容。 */
 const URG = {
   low: { label: '不急', chip: 'grey' },
   normal: { label: '一般', chip: 'blue' },
@@ -73,7 +49,7 @@ export async function renderRepairsBody(box) {
   const paint = () => {
     const stats = summarizeRepairs(rows, activeMonth);
     const tableRows = stats.rows.length ? stats.rows.map((r, index) => {
-      const fixed = r.status === 'done';
+      const fixed = isRepairFixed(r);
       const tracked = isRepairTracked(r);
       return `<tr>
         <td class="rp-ledger-no">${esc(r.seq || index + 1)}</td>
@@ -197,9 +173,7 @@ export async function renderRepairsBody(box) {
       </div>
       <div class="form-grid">
         <div class="field"><label class="field-label">状态</label>
-          <select class="input" id="s">
-            ${statusOptions(row?.status).map((k) => `<option value="${k}" ${(row?.status || 'pending') === k ? 'selected' : ''}>${SS_META[k].label}</option>`).join('')}
-          </select></div>
+          <input class="input" id="s" value="${esc(repairStatusInputValue(row?.status))}" placeholder="手动输入状态，如：待处理、等待配件、已修好" autocomplete="off"></div>
         <div class="field"><label class="field-label">费用（元）</label>
           <input class="input" id="co" type="number" min="0" step="0.01" value="${esc(row?.cost || '')}" placeholder="0"></div>
       </div>
@@ -229,7 +203,7 @@ export async function renderRepairsBody(box) {
         item: $('it').value.trim(),
         fault: $('fl').value.trim(),
         urgency: $('u').value,
-        status: $('s').value,
+        status: normalizeRepairStatus($('s').value),
         reporter: $('rp').value.trim(),
         handler: $('hd').value.trim(),
         cost: Number($('co').value) || 0,
@@ -241,7 +215,7 @@ export async function renderRepairsBody(box) {
          以前 status 一旦不是 done 就把 fixed_at 抹成空串，等于把「这台投影仪
          10 月 3 号修过」这件事直接删掉。改成「改成已修好时补今天，其余情况保留原值」，
          历史不会被一次误操作抹掉。 */
-      if (payload.status === 'done' && !row?.fixed_at) payload.fixed_at = today;
+      if (isRepairFixed({ status: payload.status }) && !row?.fixed_at) payload.fixed_at = today;
       const btn = $('ok'); btn.disabled = true; btn.textContent = '保存中…';
       try {
         if (isNew) await api.post('/repairs', payload);
