@@ -221,7 +221,7 @@ export async function renderPreps(box) {
     }).join('');
 
     box.innerHTML = '<section class="lesson-plan-list">' +
-      '<div class="lp-list-toolbar"><div><div class="lp-list-caption">电子备课记录台账</div>' +
+      '<div class="lp-list-toolbar"><div><div class="lp-list-caption">电子备课</div>' +
       '<div class="lp-filter-row"><label for="lp-type-filter">备课类型</label><select class="input lp-type-filter" id="lp-type-filter"><option value="">全部类型</option>' +
       PREP_TYPE_OPTIONS.map((item) => '<option value="' + esc(item.value) + '" ' + (typeFilter === item.value ? 'selected' : '') + '>' + esc(item.label) + '</option>').join('') +
       '<option value="' + PREP_UNCLASSIFIED + '" ' + (typeFilter === PREP_UNCLASSIFIED ? 'selected' : '') + '>待分类</option></select></div></div>' +
