@@ -2,7 +2,7 @@ import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_
 import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
 import { syncDay, DAY_SYNC } from './homelayout.js';
 import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud, setTemporaryHeight as setGridTemporaryHeight } from './homegrid.js';
-import { getCanonicalPeriodNumber } from './timetable-periods.mjs';
+import { cleanPeriodTime, getCanonicalPeriodNumber } from './timetable-periods.mjs';
 
 /* ================= 欢迎语 =================
    【第 5 条：按时段问候 + 头像上移】
@@ -65,7 +65,74 @@ function homeTimetablePeriodSettings() {
   return {
     courseTypes: parseHomeObject(timetable.courseTypes),
     periodTimes: parseHomeObject(timetable.periodTimes),
+    periodDefinitions: parseHomeObject(timetable.periodDefinitions),
   };
+}
+
+/* 首页提醒必须与「我的课表」使用同一组查看条件。
+   timetable.js 将课表类型、所属年级保存在同一个浏览器键中；
+   这里读取同一份设置，不再把所有课表类型/年级的课程混在首页。 */
+const HOME_TIMETABLE_VIEW_KEY = 'wb_timetable_view_v1';
+function homeTimetableViewPreference() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HOME_TIMETABLE_VIEW_KEY) || '{}');
+    return {
+      type: saved.type === '冬令时课表' ? '冬令时课表' : '夏令时课表',
+      grade: ['全部', '高一', '高二', '高三'].includes(saved.grade) ? saved.grade : '全部',
+    };
+  } catch {
+    return { type: '夏令时课表', grade: '全部' };
+  }
+}
+
+/* 将 /home 或 /calendar/day 返回的当天课程实例，与「我的课表」原始课程行关联。
+   只保留当前课表类型和年级；节次、时间按 timetable.js 相同优先级计算。
+   课程实例仍负责日期范围和停课/调课例外，原始课程行负责课表归属及课程设置。 */
+function getHomeTimetableCourses(instances, date) {
+  if (!Array.isArray(homeCourseRows)) return [];
+  const { courseTypes, periodTimes, periodDefinitions } = homeTimetablePeriodSettings();
+  const view = homeTimetableViewPreference();
+  const sourceById = new Map(homeCourseRows.map((course) => [String(course.id), course]));
+  const configuredPeriods = Array.isArray(periodDefinitions[view.type + '|' + view.grade])
+    ? periodDefinitions[view.type + '|' + view.grade]
+    : [];
+
+  return (Array.isArray(instances) ? instances : [])
+    .filter((instance) => String(instance.date || '') === String(date || ''))
+    .map((instance) => {
+      const source = sourceById.get(String(instance.course_id));
+      if (!source) return null;
+      const scheduleType = courseTypes[String(source.id)] || '夏令时课表';
+      if (scheduleType !== view.type) return null;
+      if (view.grade !== '全部') {
+        const grade = String(source.grade || '').trim();
+        if (grade !== view.grade && grade !== '全部' && grade !== '全体') return null;
+      }
+
+      const periodNo = getCanonicalPeriodNumber(source, { periodTimes, scheduleType });
+      const number = periodNo == null ? Number(instance.period_no) : periodNo;
+      const period = configuredPeriods.find((item) => Number(item.period_no) === Number(number));
+      const override = periodTimes?.[scheduleType]?.[String(number)] || {};
+      const startTime = instance.rescheduled
+        ? (cleanPeriodTime(instance.start_time) || cleanPeriodTime(override.start_time) || cleanPeriodTime(source.start_time) || cleanPeriodTime(period?.start_time))
+        : (cleanPeriodTime(override.start_time) || cleanPeriodTime(source.start_time) || cleanPeriodTime(period?.start_time) || cleanPeriodTime(instance.start_time));
+      const endTime = instance.rescheduled
+        ? (cleanPeriodTime(instance.end_time) || cleanPeriodTime(override.end_time) || cleanPeriodTime(source.end_time) || cleanPeriodTime(period?.end_time))
+        : (cleanPeriodTime(override.end_time) || cleanPeriodTime(source.end_time) || cleanPeriodTime(period?.end_time) || cleanPeriodTime(instance.end_time));
+
+      return {
+        ...instance,
+        period_no: number,
+        start_time: startTime || instance.start_time || '',
+        end_time: endTime || instance.end_time || '',
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) =>
+      String(a.start_time || '').localeCompare(String(b.start_time || '')) ||
+      Number(a.period_no) - Number(b.period_no) ||
+      String(a.class_name || '').localeCompare(String(b.class_name || ''))
+    );
 }
 
 const nowHM = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
@@ -756,6 +823,7 @@ function wxForecastHTML() {
 
 /* ================= 首页渲染 ================= */
 let homeData = null;
+let homeCourseRows = null;
 let clockTimer = null;
 let clockAlign = null;
 let lastGreetKey = '';
@@ -776,7 +844,15 @@ registerView(async function home(main) {
   try { await loadWeather(); } catch (e) { /* 离线降级 */ }
   // 必须显式带上浏览器本地日期：服务器可能跑在 UTC，跨零点时按它自己算
   // 会把今天算成昨天，刚记的便签就变成「存进去却看不见」。
-  homeData = await api.get('/home', { date: ymd() });
+  const [homeResult, courseRows] = await Promise.all([
+    api.get('/home', { date: ymd() }),
+    api.get('/courses').catch((error) => {
+      console.warn('[home] 读取课表原始课程失败', error);
+      return null;
+    }),
+  ]);
+  homeData = homeResult;
+  homeCourseRows = Array.isArray(courseRows) ? courseRows : null;
   renderHome();
   if (state.geoMode === 'auto') {
     locate({ silent: true }).then((city) => {
@@ -808,7 +884,15 @@ async function refreshHome() {
   const selectedDate = calState.selected;
   const calendarView = calState.view;
   const dayOpen = calState.dayOpen;
-  homeData = await api.get('/home', { date: ymd() }).catch(() => homeData);
+  const [homeResult, courseRows] = await Promise.all([
+    api.get('/home', { date: ymd() }).catch(() => homeData),
+    api.get('/courses').catch((error) => {
+      console.warn('[home] 刷新课表原始课程失败', error);
+      return null;
+    }),
+  ]);
+  homeData = homeResult;
+  if (Array.isArray(courseRows)) homeCourseRows = courseRows;
   renderHome();
   if (selectedDate) {
     await loadCal(selectedDate, { openDay: dayOpen });
@@ -854,7 +938,7 @@ function renderHome() {
   const [defaultG1, defaultG2] = greetFor(name);
   const g1 = defaultG1;
   const g2 = defaultG2;
-  const todayCourses = d.courses.filter((c) => c.date === d.date);
+  const todayCourses = getHomeTimetableCourses(d.courses, d.date);
 
   main.classList.add('home-redesign');
   main.innerHTML = `
@@ -1270,14 +1354,12 @@ function renderTodayCourses(coursesOverride = null, lessonsOverride = null, date
   if (!box || !homeData) return;
   const date = dateOverride || homeData.date;
   const allCourses = Array.isArray(coursesOverride) ? coursesOverride : (homeData.courses || []);
-  const { courseTypes, periodTimes } = homeTimetablePeriodSettings();
-  const list = allCourses
-    .filter((course) => !course.date || course.date === date)
-    .map((course) => {
-      const scheduleType = courseTypes[String(course.course_id ?? course.id)] || '夏令时课表';
-      const periodNo = getCanonicalPeriodNumber(course, { periodTimes, scheduleType });
-      return periodNo == null ? course : { ...course, period_no: periodNo };
-    });
+  if (!Array.isArray(homeCourseRows)) {
+    updateHomeDayHeadings(date, null, []);
+    box.innerHTML = '<div class="empty" style="padding:20px">课表数据暂时无法读取，请刷新首页重试</div>';
+    return;
+  }
+  const list = getHomeTimetableCourses(allCourses, date);
   const lessonRows = Array.isArray(lessonsOverride) ? lessonsOverride : (homeData.lessons || []);
   updateHomeDayHeadings(date, null, list);
   if (!list.length) {
