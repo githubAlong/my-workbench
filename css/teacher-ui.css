@@ -3234,3 +3234,9 @@ html[data-theme="dark"] .home-redesign .home-weather-card .wxb-location-name { c
   .sheet.weather-city-sheet .sheet-body { padding:7px 16px 16px; }
   .weather-city-locate-row { align-items:flex-start; flex-direction:column; gap:7px; }
 }
+
+
+/* 首页每日一句：喇叭按钮微调上移，不改变按钮尺寸和卡片布局 */
+.home-redesign .home-quote .speak-btn {
+  bottom:6px;
+}

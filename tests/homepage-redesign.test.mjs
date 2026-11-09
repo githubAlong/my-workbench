@@ -188,3 +188,11 @@ test('桌面首页取消1920px最大宽度并铺满侧栏以外的可用空间',
   assert.match(styles, /\.main:has\(#home-grid\)\s*\{\s*max-width:\s*none;/);
   assert.match(styles, /@media\s*\(min-width:\s*1101px\)\s*\{\s*#main\.main:has\(#home-grid\)\s*\{[\s\S]*?flex:\s*1 1 0;[\s\S]*?width:\s*0;[\s\S]*?max-width:\s*none;[\s\S]*?min-width:\s*0;[\s\S]*?margin:\s*0;/);
 });
+
+
+test('首页每日一句喇叭按钮仅向上微调，不改变原有尺寸与定位方式', () => {
+  assert.match(styles, /\.home-redesign \.home-quote \.speak-btn\s*\{[^}]*bottom:\s*6px;/s);
+  assert.match(styles, /\.home-redesign \.home-quote \.speak-btn\s*\{[^}]*position:\s*absolute;/s);
+  assert.match(styles, /\.home-redesign \.home-quote \.speak-btn\s*\{[^}]*width:\s*26px;/s);
+  assert.match(styles, /\.home-redesign \.home-quote \.speak-btn\s*\{[^}]*height:\s*26px;/s);
+});
