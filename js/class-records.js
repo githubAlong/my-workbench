@@ -105,41 +105,74 @@ export async function renderClassRecords(root) {
         .cr-kpi-label{font-size:12px;color:var(--text-3,#86909c);font-weight:600}
         .cr-kpi-number{font-size:29px;line-height:1.25;font-weight:750;letter-spacing:-.03em;color:var(--text,#1d2129);margin-top:8px;font-variant-numeric:tabular-nums}
         .cr-kpi-foot{font-size:11px;color:var(--text-3,#86909c);margin-top:5px}
-        .cr-records-section{display:flex;flex-direction:column;gap:12px}
-        .cr-records-head{margin-bottom:0}
+        .cr-records-section{display:flex;flex-direction:column;gap:12px;min-width:0}
+        .cr-records-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:0}
+        .cr-records-head h3{margin:0;font-size:18px;font-weight:750;color:var(--text,#1d2129)}
+        .cr-records-head p{margin:5px 0 0;font-size:12px;color:var(--text-3,#86909c)}
         .cr-record-count{font-size:12px;color:var(--text-3,#86909c);white-space:nowrap}
-        .cr-record-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-        .cr-record-card{min-width:0;background:var(--card,#fff);border:1px solid var(--line,#e5e6eb);border-radius:13px;padding:15px 16px;box-shadow:var(--shadow-s,0 2px 8px rgba(31,35,41,.035));transition:border-color .15s,box-shadow .15s}
-        .cr-record-card:hover{border-color:color-mix(in srgb,var(--primary,#4f46e5) 36%,var(--line,#e5e6eb));box-shadow:0 5px 16px rgba(31,35,41,.06)}
-        .cr-record-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
-        .cr-record-subject{font-size:18px;font-weight:750;color:var(--text,#1d2129);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .cr-type-badge{flex:none;display:inline-flex;align-items:center;padding:5px 9px;border-radius:7px;font-size:11px;font-weight:700;white-space:nowrap}
+        .cr-filter-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .cr-filter-bar select,.cr-search{height:38px;min-width:125px;padding:0 11px;border:1px solid var(--line,#e5e6eb);border-radius:9px;background:var(--card,#fff);color:var(--text-2,#4e5969);font:inherit;font-size:12px}
+        .cr-search{display:flex;align-items:center;gap:8px;flex:1 1 210px;min-width:180px}
+        .cr-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--text,#1d2129);font:inherit}
+        .cr-search:focus-within,.cr-filter-bar select:focus{border-color:var(--primary,#4f46e5);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary,#4f46e5) 10%,transparent)}
+        .cr-filter-reset{height:38px;padding:0 12px;border:1px solid var(--line,#e5e6eb);border-radius:9px;background:var(--card,#fff);color:var(--text-2,#4e5969);font:inherit;font-size:12px;cursor:pointer}
+        .cr-table-wrap{width:100%;overflow:auto;border:1px solid var(--line,#e5e6eb);border-radius:12px;background:var(--card,#fff);box-shadow:var(--shadow-s,0 2px 8px rgba(31,35,41,.035));-webkit-overflow-scrolling:touch}
+        .cr-table{width:100%;min-width:1020px;border-collapse:separate;border-spacing:0;font-size:12.5px}
+        .cr-table th{height:43px;padding:10px 13px;background:var(--surface-2,#f5f6f8);border-bottom:1px solid var(--line,#e5e6eb);color:var(--text-2,#4e5969);font-weight:700;text-align:left;white-space:nowrap}
+        .cr-table td{height:58px;padding:9px 13px;border-bottom:1px solid var(--line,#eef0f3);color:var(--text-2,#4e5969);vertical-align:middle}
+        .cr-table tbody tr:last-child td{border-bottom:0}
+        .cr-table tbody tr:hover td{background:color-mix(in srgb,var(--primary,#4f46e5) 3%,var(--card,#fff))}
+        .cr-subject-cell{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0}
+        .cr-subject-cell strong{font-size:13px;color:var(--text,#1d2129);font-weight:700}
+        .cr-type-badge{display:inline-flex;align-items:center;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:650;white-space:nowrap}
         .cr-type-badge.normal{color:#12835b;background:#e8f7f0}
         .cr-type-badge.i-substitute{color:#286fc5;background:#eaf3ff}
         .cr-type-badge.substituted{color:#7650c9;background:#f1ebff}
         .cr-type-badge.swap{color:#a86a12;background:#fff4df}
         .cr-type-badge.other{color:var(--text-2,#4e5969);background:var(--surface-2,#f5f6f8)}
-        .cr-record-class{font-size:15px;font-weight:650;color:var(--text-2,#4e5969);margin-top:7px}
-        .cr-record-info{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
-        .cr-info-item{min-width:0;display:flex;flex-direction:column;gap:4px}
-        .cr-info-item span,.cr-finance-label{font-size:11px;color:var(--text-3,#86909c)}
-        .cr-info-item strong{font-size:12px;color:var(--text-2,#4e5969);font-weight:600;overflow-wrap:anywhere}
-        .cr-record-bottom{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;border-top:1px solid var(--line,#e5e6eb);margin-top:14px;padding-top:12px}
-        .cr-finance{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
-        .cr-money-block{display:flex;flex-direction:column;gap:3px}
-        .cr-money{font-size:19px;font-weight:750;color:var(--text,#1d2129);font-variant-numeric:tabular-nums}
-        .cr-status{display:inline-flex;align-items:center;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:650;white-space:nowrap}
+        .cr-time-cell strong,.cr-time-cell small{display:block;white-space:nowrap}
+        .cr-time-cell strong{color:var(--text-2,#4e5969);font-size:12px;font-weight:650}
+        .cr-time-cell small{margin-top:3px;color:var(--text-3,#86909c);font-size:11px}
+        .cr-status{display:inline-flex;align-items:center;max-width:135px;padding:5px 9px;border-radius:7px;font-size:11px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .cr-status.paid{color:#12835b;background:#e8f7f0}
         .cr-status.unpaid{color:#b7791f;background:#fff4df}
         .cr-status.custom{color:#5b55a5;background:#f0efff}
         .cr-status.settled{color:var(--text-2,#4e5969);background:var(--surface-2,#f5f6f8)}
-        .cr-record-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
-        .cr-action{border:1px solid var(--line,#e5e6eb);border-radius:7px;padding:6px 9px;background:var(--card,#fff);color:var(--text-2,#4e5969);font:inherit;font-size:11px;font-weight:600;cursor:pointer}
-        .cr-action:hover{border-color:var(--primary,#4f46e5);color:var(--primary,#4f46e5)}
-        .cr-action.primary{color:var(--primary,#4f46e5);background:color-mix(in srgb,var(--primary,#4f46e5) 7%,var(--card,#fff));border-color:color-mix(in srgb,var(--primary,#4f46e5) 18%,var(--line,#e5e6eb))}
-        .cr-action.danger{color:#d84a4a}
-        .cr-empty-state{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:180px;padding:28px;border:1px dashed var(--line,#e5e6eb);border-radius:13px;background:var(--card,#fff);text-align:center;color:var(--text-3,#86909c);font-size:13px}
+        .cr-row-actions{display:flex;align-items:center;gap:8px;white-space:nowrap}
+        .cr-row-action{padding:0;border:0;background:none;color:var(--primary,#4f46e5);font:inherit;font-size:11.5px;cursor:pointer}
+        .cr-row-action:hover{text-decoration:underline}
+        .cr-row-action.danger{color:#d84a4a}
+        .cr-empty-state{grid-column:1/-1;display:flex;min-height:150px;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;border:1px dashed var(--line,#e5e6eb);border-radius:13px;background:var(--card,#fff);color:var(--text-3,#86909c);text-align:center;font-size:13px}
+        .cr-empty-state b{color:var(--text-2,#4e5969);font-size:14px}
         .cr-empty-icon{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:var(--surface-2,#f5f6f8);color:var(--primary,#4f46e5);font-size:19px}
+        .cr-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--text-3,#86909c);font-size:12px}
+        .cr-pagination-tools{display:flex;align-items:center;gap:8px}
+        .cr-pagination select,.cr-page-btn{height:32px;padding:0 9px;border:1px solid var(--line,#e5e6eb);border-radius:8px;background:var(--card,#fff);color:var(--text-2,#4e5969);font:inherit;font-size:12px}
+        .cr-page-btn{min-width:32px;cursor:pointer}
+        .cr-page-btn:disabled{opacity:.4;cursor:not-allowed}
+        .cr-page-number{display:inline-grid;min-width:28px;height:28px;place-items:center;border-radius:7px;background:var(--primary,#4f46e5);color:#fff;font-weight:700}
+        .cr-editor{padding:18px 22px 22px}
+        .cr-form-foot{position:sticky;bottom:-22px;display:flex;justify-content:flex-end;gap:10px;margin:22px -22px -22px;padding:13px 22px calc(13px + var(--safe-b,0px));border-top:1px solid var(--line,#e5e6eb);background:var(--card,#fff)}
+        .cr-form-foot .cr-btn{min-width:112px}
+        .sheet-mask.cr-record-drawer-mask{align-items:stretch;justify-content:flex-end;padding:0}
+        .sheet-mask.cr-record-drawer-mask .sheet{width:min(450px,100vw);max-width:450px;height:100dvh;max-height:100dvh;border-radius:16px 0 0 16px;transform:translateX(28px);transition:transform .22s cubic-bezier(.2,.8,.3,1)}
+        .sheet-mask.cr-record-drawer-mask.in .sheet{transform:translateX(0)}
+        .sheet-mask.cr-record-drawer-mask .sheet-head{min-height:66px;padding:18px 22px 14px;border-bottom:1px solid var(--line,#e5e6eb)}
+        .sheet-mask.cr-record-drawer-mask .sheet-title{font-size:19px;font-weight:750}
+        .sheet-mask.cr-record-drawer-mask .sheet-body{flex:1;min-height:0;padding:0;overflow:auto}
+        @media(max-width:1100px){.cr-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.cr-filter-bar select{min-width:115px}}
+        @media(max-width:720px){
+          .cr-page{gap:14px}.cr-header{align-items:flex-start}.cr-title{font-size:22px}
+          .cr-kpi-grid{gap:8px}.cr-kpi-card{padding:12px}.cr-kpi-number{font-size:24px}
+          .cr-records-head{align-items:flex-start}.cr-filter-bar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+          .cr-filter-bar select{width:100%;min-width:0}.cr-search{grid-column:1/-1;width:100%;min-width:0}
+          .cr-filter-reset{grid-column:1/-1}.cr-pagination{align-items:flex-start;flex-direction:column}
+          .sheet-mask.cr-record-drawer-mask{align-items:flex-end;justify-content:center}
+          .sheet-mask.cr-record-drawer-mask .sheet{width:100vw;max-width:100vw;height:92dvh;max-height:92dvh;border-radius:18px 18px 0 0;transform:translateY(24px)}
+          .sheet-mask.cr-record-drawer-mask.in .sheet{transform:translateY(0)}
+          .cr-editor{padding:15px 15px 18px}.cr-form-grid{grid-template-columns:1fr;gap:12px}
+          .cr-form-foot{bottom:-18px;margin:18px -15px -18px;padding:12px 15px calc(12px + var(--safe-b,0px))}
+        }
         .cr-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
         .cr-field{min-width:0}.cr-field label{display:block;font-size:13px;color:var(--text-2,#4e5969);margin-bottom:6px}
         .cr-field input,.cr-field select,.cr-field textarea{width:100%;min-height:40px;border:1px solid var(--line,#e5e6eb);border-radius:9px;padding:9px 11px;background:var(--card,#fff);color:var(--text,#1d2129);font:inherit}
@@ -179,15 +212,41 @@ export async function renderClassRecords(root) {
 
       <section class="cr-records-section">
         <div class="cr-records-head">
-          <div><h3>我的上课记录</h3><p>每张课程卡片展示学科、班级、上课类型、时间和结算情况</p></div>
+          <div><h3>我的上课记录</h3><p>按学科、班级和上课时间查看、管理每一条记录</p></div>
           <span class="cr-record-count" id="cr-record-count">共 0 条记录</span>
         </div>
-        <div class="cr-record-grid" id="cr-record-grid"><div class="cr-empty-state"><div class="cr-empty-icon">⌛</div><b>正在加载上课记录</b></div></div>
+        <div class="cr-filter-bar">
+          <select id="cr-filter-subject" aria-label="按学科筛选"><option value="">全部学科</option></select>
+          <select id="cr-filter-class" aria-label="按年级班级筛选"><option value="">全部年级班级</option></select>
+          <select id="cr-filter-type" aria-label="按上课类型筛选">
+            <option value="">全部上课类型</option><option value="normal">正常上课</option>
+            <option value="i_substitute">我代别人上课</option><option value="substituted_for_me">别人代我上课</option><option value="swap">换课</option>
+          </select>
+          <label class="cr-search"><span aria-hidden="true">⌕</span><input id="cr-search" type="search" placeholder="搜索学科、班级或老师"></label>
+          <button class="cr-filter-reset" id="cr-filter-reset" type="button">重置筛选</button>
+        </div>
+        <div class="cr-table-wrap">
+          <table class="cr-table" id="cr-record-table">
+            <thead><tr><th>学科</th><th>年级班级</th><th>上课时间</th><th>原上课人</th><th>代课人</th><th>课时费</th><th>支付状态</th><th>操作</th></tr></thead>
+            <tbody id="cr-record-tbody"><tr><td colspan="8"><div class="cr-empty-state">正在加载上课记录…</div></td></tr></tbody>
+          </table>
+        </div>
+        <div class="cr-pagination">
+          <span id="cr-page-info">共 0 条记录</span>
+          <div class="cr-pagination-tools">
+            <select id="cr-page-size" aria-label="每页显示条数"><option value="10">10 条/页</option><option value="20">20 条/页</option><option value="50">50 条/页</option></select>
+            <button class="cr-page-btn" id="cr-page-prev" type="button" aria-label="上一页">‹</button>
+            <span class="cr-page-number" id="cr-page-number">1</span>
+            <button class="cr-page-btn" id="cr-page-next" type="button" aria-label="下一页">›</button>
+          </div>
+        </div>
       </section>
 
     </section>`;
 
   const q = (s) => root.querySelector(s);
+  let page = 1;
+  let pageSize = 10;
   const load = async () => {
     rows = await api.get('/class_records').catch((e) => { toast(e.message || '上课记录加载失败','err'); return []; });
     rows = Array.isArray(rows) ? rows : [];
@@ -198,87 +257,91 @@ export async function renderClassRecords(root) {
   const paint = () => {
     const month = currentMonthKey();
     const monthRows = rows.filter((r) => rowMonth(r) === month);
-    const normalCount = monthRows.filter((r) => r.class_type === 'normal').length;
-    const substituteCount = monthRows.filter((r) => r.class_type === 'i_substitute' || r.class_type === 'substituted_for_me').length;
-    const swapCount = monthRows.filter((r) => r.class_type === 'swap').length;
-
     q('#cr-month-label').textContent = monthLabel(month);
     q('#cr-month-summary').textContent = monthLabel(month) + ' · 本月登记的课程记录';
     q('#cr-month-total').textContent = monthRows.length;
-    q('#cr-month-normal').textContent = normalCount;
-    q('#cr-month-substitute').textContent = substituteCount;
-    q('#cr-month-swap').textContent = swapCount;
-    q('#cr-record-count').textContent = '共 ' + rows.length + ' 条记录';
+    q('#cr-month-normal').textContent = monthRows.filter((r) => r.class_type === 'normal').length;
+    q('#cr-month-substitute').textContent = monthRows.filter((r) => r.class_type === 'i_substitute' || r.class_type === 'substituted_for_me').length;
+    q('#cr-month-swap').textContent = monthRows.filter((r) => r.class_type === 'swap').length;
 
-    const body = q('#cr-record-grid');
-    if (!rows.length) {
-      body.innerHTML = '<div class="cr-empty-state">' +
-        '<div class="cr-empty-icon">＋</div>' +
-        '<b>还没有上课记录</b>' +
-        '<span>点击右上角「新增上课记录」，开始登记你的授课、代课和换课情况</span>' +
-      '</div>';
+    const updateOptions = (selector, label, values) => {
+      const select = q(selector);
+      const current = select.value;
+      select.innerHTML = '<option value="">'+esc(label)+'</option>' + values.map((value) => '<option value="'+esc(value)+'">'+esc(value)+'</option>').join('');
+      if (values.includes(current)) select.value = current;
+    };
+    updateOptions('#cr-filter-subject','全部学科',[...new Set(rows.map((r)=>String(r.subject||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-Hans-CN')));
+    updateOptions('#cr-filter-class','全部年级班级',[...new Set(rows.map((r)=>String(r.class_name||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-Hans-CN')));
+
+    const subject = q('#cr-filter-subject').value;
+    const className = q('#cr-filter-class').value;
+    const type = q('#cr-filter-type').value;
+    const keyword = q('#cr-search').value.trim().toLowerCase();
+    const filtered = rows.filter((r) => {
+      if (subject && r.subject !== subject) return false;
+      if (className && r.class_name !== className) return false;
+      if (type && r.class_type !== type) return false;
+      if (keyword) {
+        const people = parseRelatedPeople(r.related_person,r.class_type);
+        const haystack = [r.subject,r.class_name,r.class_time,people.original_teacher,people.substitute_person,r.pay_status].join(' ').toLowerCase();
+        if (!haystack.includes(keyword)) return false;
+      }
+      return true;
+    }).sort((a,b) => rowSortValue(b)-rowSortValue(a));
+
+    const pageCount = Math.max(1,Math.ceil(filtered.length/pageSize));
+    page = Math.min(page,pageCount);
+    const visible = filtered.slice((page-1)*pageSize,page*pageSize);
+    q('#cr-record-count').textContent = '共 '+filtered.length+' 条记录';
+    q('#cr-page-info').textContent = filtered.length ? '共 '+filtered.length+' 条记录' : '暂无记录';
+    q('#cr-page-number').textContent = page;
+    q('#cr-page-prev').disabled = page <= 1;
+    q('#cr-page-next').disabled = page >= pageCount;
+
+    const body = q('#cr-record-tbody');
+    if (!filtered.length) {
+      const message = rows.length ? '没有符合条件的记录' : '还没有上课记录';
+      const hint = rows.length ? '请调整筛选条件，或点击重置筛选。' : '点击右上角「新增上课记录」，开始登记授课、代课和换课情况。';
+      body.innerHTML = '<tr><td colspan="8"><div class="cr-empty-state"><div class="cr-empty-icon">＋</div><b>'+message+'</b><span>'+hint+'</span></div></td></tr>';
       return;
     }
 
-    const ordered = rows.slice().sort((a, b) => rowSortValue(b) - rowSortValue(a));
-    body.innerHTML = ordered.map((r) => {
-      const typeClass = ({
-        normal: 'normal',
-        i_substitute: 'i-substitute',
-        substituted_for_me: 'substituted',
-        swap: 'swap',
-      })[r.class_type] || 'other';
+    body.innerHTML = visible.map((r) => {
+      const typeClass = ({normal:'normal',i_substitute:'i-substitute',substituted_for_me:'substituted',swap:'swap'})[r.class_type] || 'other';
       const typeLabel = TYPE_LABEL[r.class_type] || r.class_type || '未分类';
       const swap = r.class_type === 'swap';
-      const amount = swap ? '无费用' : (r.amount == null || r.amount === '' ? '未填写' : money(r.amount) + ' 元');
-      const status = swap ? '无需结算' : (r.pay_status || '未支付');
-      const statusClass = swap ? 'settled' : (status === '已支付' ? 'paid' : status === '未支付' ? 'unpaid' : 'custom');
-      const className = r.class_name ? esc(r.class_name) : '班级未填写';
+      const people = parseRelatedPeople(r.related_person,r.class_type);
       const classTime = splitClassTime(r.class_time);
-      const people = parseRelatedPeople(r.related_person, r.class_type);
-      return '<article class="cr-record-card">' +
-        '<div class="cr-record-top">' +
-          '<div class="cr-record-subject">' + esc(r.subject || '未填写学科') + '</div>' +
-          '<span class="cr-type-badge ' + typeClass + '">' + esc(typeLabel) + '</span>' +
-        '</div>' +
-        '<div class="cr-record-class">' + className + '</div>' +
-        '<div class="cr-record-info">' +
-          '<div class="cr-info-item"><span>上课日期</span><strong>' + esc(classTime.date || '未填写') + '</strong></div>' +
-          '<div class="cr-info-item"><span>节次</span><strong>' + esc(classTime.period || '未填写') + '</strong></div>' +
-          '<div class="cr-info-item"><span>时间</span><strong>' + esc(classTime.time || '未填写') + '</strong></div>' +
-          '<div class="cr-info-item"><span>代课人</span><strong>' + esc(people.substitute_person || '—') + '</strong></div>' +
-          '<div class="cr-info-item"><span>原上课人</span><strong>' + esc(people.original_teacher || '—') + '</strong></div>' +
-        '</div>' +
-        '<div class="cr-record-bottom">' +
-          '<div class="cr-finance">' +
-            '<div class="cr-money-block"><span class="cr-finance-label">课时费</span><strong class="cr-money">' + esc(amount) + '</strong></div>' +
-            '<span class="cr-status ' + statusClass + '">' + esc(status) + '</span>' +
-          '</div>' +
-          '<div class="cr-record-actions">' +
-            '<button class="cr-action primary" data-edit="' + esc(r.id) + '">查看/编辑</button>' +
-            '<button class="cr-action" data-print="' + esc(r.id) + '">打印</button>' +
-            '<button class="cr-action danger" data-delete="' + esc(r.id) + '">删除</button>' +
-          '</div>' +
-        '</div>' +
-      '</article>';
+      const status = swap ? '无需结算' : (r.pay_status || '未填写');
+      const statusClass = swap ? 'settled' : (status === '已支付' ? 'paid' : status === '未支付' ? 'unpaid' : 'custom');
+      const amount = swap ? '—' : (r.amount == null || r.amount === '' ? '—' : money(r.amount)+' 元');
+      const timeLines = [
+        classTime.date ? '<strong>'+esc(classTime.date)+'</strong>' : '<strong>—</strong>',
+        classTime.period ? '<small>'+esc(classTime.period)+'</small>' : '',
+        classTime.time ? '<small>'+esc(classTime.time)+'</small>' : '',
+      ].join('');
+      return '<tr>'+
+        '<td><div class="cr-subject-cell"><strong>'+esc(r.subject||'未填写学科')+'</strong><span class="cr-type-badge '+typeClass+'">'+esc(typeLabel)+'</span></div></td>'+
+        '<td>'+esc(r.class_name||'—')+'</td>'+
+        '<td><div class="cr-time-cell">'+timeLines+'</div></td>'+
+        '<td>'+esc(people.original_teacher||'—')+'</td>'+
+        '<td>'+esc(people.substitute_person||'—')+'</td>'+
+        '<td>'+esc(amount)+'</td>'+
+        '<td><span class="cr-status '+statusClass+'" title="'+esc(status)+'">'+esc(status)+'</span></td>'+
+        '<td><div class="cr-row-actions"><button class="cr-row-action" data-edit="'+esc(r.id)+'">查看/编辑</button><button class="cr-row-action" data-print="'+esc(r.id)+'">打印</button><button class="cr-row-action danger" data-delete="'+esc(r.id)+'">删除</button></div></td>'+
+      '</tr>';
     }).join('');
 
-    body.querySelectorAll('[data-edit]').forEach((b) => {
-      b.onclick = () => openEditor(rows.find((r) => String(r.id) === b.dataset.edit));
-    });
-    body.querySelectorAll('[data-delete]').forEach((b) => {
-      b.onclick = () => removeRow(b.dataset.delete);
-    });
-    body.querySelectorAll('[data-print]').forEach((b) => {
-      b.onclick = () => printRow(rows.find((r) => String(r.id) === b.dataset.print));
-    });
+    body.querySelectorAll('[data-edit]').forEach((b)=>{b.onclick=()=>openEditor(rows.find((r)=>String(r.id)===b.dataset.edit));});
+    body.querySelectorAll('[data-delete]').forEach((b)=>{b.onclick=()=>removeRow(b.dataset.delete);});
+    body.querySelectorAll('[data-print]').forEach((b)=>{b.onclick=()=>printRow(rows.find((r)=>String(r.id)===b.dataset.print));});
   };
   const openEditor = (row=null) => {
     const editing=!!row;
     const initialType=row?.class_type||'normal';
     const initialTime=splitClassTime(row?.class_time);
     const initialPeople=parseRelatedPeople(row?.related_person,initialType);
-    const form=el(`<div class="sheet-body">
+    const form=el(`<div class="cr-editor">
       <div class="cr-form-grid">
         <div class="cr-field"><label>上课类型 <span class="cr-required">*</span></label><select id="cr-type">${TYPES.map(([v,t])=>`<option value="${v}" ${initialType===v?'selected':''}>${t}</option>`).join('')}</select></div>
         <div class="cr-field"><label>学科 <span class="cr-required">*</span></label><input id="cr-subject" value="${esc(row?.subject||'')}" placeholder="例如：信息技术、语文"></div>
@@ -290,12 +353,13 @@ export async function renderClassRecords(root) {
         <div class="cr-field"><label>原上课人</label><input id="cr-original-teacher" value="${esc(initialPeople.original_teacher)}" placeholder="手动填写原上课人"></div>
         <div class="cr-field" id="cr-money-wrap"><label>课时费（元）</label><input id="cr-money" type="number" min="0" step="0.01" value="${row?.amount??(initialType==='normal'?'30':'')}" placeholder="请输入金额"></div>
         <div class="cr-field" id="cr-paytime-wrap"><label>支付时间</label><input id="cr-paytime" value="${esc(row?.pay_time||'')}" placeholder="手动输入"></div>
-        <div class="cr-field" id="cr-status-wrap"><label>支付状态</label><input id="cr-status" value="${esc(row?.pay_status||'未支付')}" placeholder="手动输入支付状态"></div>
+        <div class="cr-field" id="cr-status-wrap"><label>支付状态</label><input id="cr-status" type="text" value="${esc(row?.pay_status||'未支付')}" placeholder="手动输入支付状态"></div>
       </div>
       <div class="cr-field" style="margin-top:14px"><label>备注说明</label><textarea id="cr-remark" placeholder="换课说明、特殊情况备注等">${esc(row?.remark||'')}</textarea></div>
       <div class="cr-form-foot"><button class="cr-btn" id="cr-print-current" type="button">打印本条记录</button><button class="cr-btn primary" id="cr-save" type="button">${editing?'保存修改':'保存记录'}</button></div>
     </div>`);
-    const sh=sheet({title:editing?'编辑上课记录':'新增上课记录',body:form,wide:true});
+    const sh=sheet({title:editing?'编辑上课记录':'新增上课记录',body:form,cls:'cr-record-drawer'});
+    sh.wrap.classList.add('cr-record-drawer-mask');
     const type=form.querySelector('#cr-type'), moneyInput=form.querySelector('#cr-money');
     let changedType=false;
     const currentClassTime=()=>joinClassTime(
@@ -391,6 +455,12 @@ export async function renderClassRecords(root) {
     URL.revokeObjectURL(url);
     toast('已导出' + month + '共' + list.length + '条记录');
   };
+  ['#cr-filter-subject','#cr-filter-class','#cr-filter-type'].forEach((selector)=>{q(selector).onchange=()=>{page=1;paint();};});
+  q('#cr-search').oninput=()=>{page=1;paint();};
+  q('#cr-filter-reset').onclick=()=>{q('#cr-filter-subject').value='';q('#cr-filter-class').value='';q('#cr-filter-type').value='';q('#cr-search').value='';page=1;paint();};
+  q('#cr-page-size').onchange=()=>{pageSize=Number(q('#cr-page-size').value)||10;page=1;paint();};
+  q('#cr-page-prev').onclick=()=>{page=Math.max(1,page-1);paint();};
+  q('#cr-page-next').onclick=()=>{page+=1;paint();};
   q('#cr-add').onclick=()=>openEditor();
   q('#cr-export').onclick=exportMonth;
   await load();

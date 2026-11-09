@@ -18,6 +18,9 @@ create table if not exists public.class_records (
   deleted_at timestamptz
 );
 
+-- 支付状态允许手动输入任意文字，保留已有记录与相关人员字段。
+alter table public.class_records drop constraint if exists class_records_pay_status_check;
+
 create index if not exists class_records_user_month_idx
   on public.class_records (user_id, class_month, created_at desc);
 
