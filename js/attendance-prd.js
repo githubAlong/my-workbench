@@ -140,12 +140,15 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const menu=root.querySelector('[data-roster-export-menu]');if(menu)menu.hidden=true;
   };
   const openRosterImport = () => {
-    const dialog=document.createElement('div');dialog.className='aprd-dialog aprd-roster-dialog';
-    dialog.innerHTML='<section class="aprd-roster-import"><header><div><h3>批量导入教师名单</h3><p>导入目标年级：'+esc(grade)+' · 原有考勤记录不会被覆盖</p></div><button type="button" data-import-close aria-label="关闭">×</button></header><div class="aprd-import-body"><label class="aprd-upload-zone"><input id="aprd-import-file" type="file" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp"><span class="aprd-upload-icon">↑</span><b>选择 Excel、PDF 或图片文件</b><small>支持 XLSX / XLS / CSV / PDF / JPG / PNG / WebP</small></label><div class="aprd-import-paste"><label for="aprd-import-text">或者直接粘贴 Excel 表格</label><textarea id="aprd-import-text" rows="4" placeholder="复制 Excel 中的姓名、学科等列，然后粘贴到这里…"></textarea><button type="button" data-import-paste>解析粘贴内容</button><button type="button" data-import-template>下载 Excel 模板</button></div><div class="aprd-import-status" id="aprd-import-status" role="status">上传后会先识别并显示预览，只有点击“确认导入”才会写入花名册。</div><div class="aprd-import-warnings" id="aprd-import-warnings" hidden></div><div class="aprd-import-preview" id="aprd-import-preview" hidden><div class="aprd-import-summary" id="aprd-import-summary"></div><div class="aprd-import-table-wrap"><table><thead><tr><th>序号</th><th>姓名</th><th>学科</th><th>归属部门</th><th>来源年级</th><th>处理方式</th></tr></thead><tbody id="aprd-import-rows"></tbody></table></div></div></div><footer><button type="button" data-import-close>取消</button><button type="button" class="primary" data-import-confirm disabled>确认导入</button></footer></section>';
+    const dialog=document.createElement('div');dialog.className='attendance-prd aprd-dialog aprd-roster-dialog';
+    dialog.innerHTML='<section class="aprd-roster-import"><header><div><h3>批量导入教师名单</h3><p>导入目标年级：'+esc(grade)+' · 原有考勤记录不会被覆盖</p></div><button type="button" data-import-close aria-label="关闭">×</button></header><div class="aprd-import-body"><div class="aprd-upload-zone"><input id="aprd-import-file" type="file" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp"><span class="aprd-upload-icon">↑</span><b>上传教师名单文件</b><small>支持 XLSX / XLS / CSV / PDF / JPG / PNG / WebP</small><button type="button" data-import-browse>选择文件</button></div><div class="aprd-import-paste"><label for="aprd-import-text">或者直接粘贴 Excel 表格</label><textarea id="aprd-import-text" rows="4" placeholder="复制 Excel 中的姓名、学科等列，然后粘贴到这里…"></textarea><button type="button" data-import-paste>解析粘贴内容</button><button type="button" data-import-template>下载 Excel 模板</button></div><div class="aprd-import-status" id="aprd-import-status" role="status">上传后会先识别并显示预览，只有点击“确认导入”才会写入花名册。</div><div class="aprd-import-warnings" id="aprd-import-warnings" hidden></div><div class="aprd-import-preview" id="aprd-import-preview" hidden><div class="aprd-import-summary" id="aprd-import-summary"></div><div class="aprd-import-table-wrap"><table><thead><tr><th>序号</th><th>姓名</th><th>学科</th><th>归属部门</th><th>来源年级</th><th>处理方式</th></tr></thead><tbody id="aprd-import-rows"></tbody></table></div></div></div><footer><button type="button" data-import-close>取消</button><button type="button" class="primary" data-import-confirm disabled>确认导入</button></footer></section>';
     document.body.append(dialog);
     let importRows=[];
     const $=(selector)=>dialog.querySelector(selector);
-    const close=()=>dialog.remove();
+    const close=()=>{dialog.remove();document.removeEventListener('keydown',onDialogKeydown);};
+    const onDialogKeydown=(event)=>{if(event.key==='Escape')close();};
+    document.addEventListener('keydown',onDialogKeydown);
+    dialog.addEventListener('click',(event)=>{if(event.target===dialog)close();});
     dialog.querySelectorAll('[data-import-close]').forEach(button=>button.onclick=close);
     $('[data-import-template]').onclick=downloadRosterTemplate;
     const updateStatus=(message)=>{$('#aprd-import-status').textContent=message;};
@@ -199,7 +202,10 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         updateStatus('识别完成：'+result.rows.length+' 条，请逐项核对后确认导入。');
       }catch(error){updateStatus(error.message||'文件解析失败');toast(error.message||'文件解析失败','err');}
     };
-    $('#aprd-import-file').onchange=()=>parseFile($('#aprd-import-file').files?.[0]);
+    const fileInput=$('#aprd-import-file');
+    $('[data-import-browse]').addEventListener('click',(event)=>{event.preventDefault();fileInput.click();});
+    $('.aprd-upload-zone').addEventListener('click',(event)=>{if(!event.target.closest('[data-import-browse]'))fileInput.click();});
+    fileInput.onchange=()=>{const file=fileInput.files?.[0];fileInput.value='';if(file)parseFile(file);};
     $('[data-import-paste]').onclick=async()=>{
       const text=$('#aprd-import-text').value.trim();
       if(!text){toast('请先粘贴 Excel 表格内容','warn');return;}
@@ -284,7 +290,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const mark=(key,val)=>'<button class="aprd-mark '+(val==='y'?'y':val==='n'?'n':'u')+'" data-person="'+t.id+'" data-key="'+key+'">'+CHECK_LABEL(val)+'</button>';
       return '<tr><td>'+(i+1)+'</td><td><button class="aprd-link" data-dept="'+t.id+'">'+esc(deptOf(t))+'</button></td><td><button class="aprd-link" data-grade="'+t.id+'">'+esc(t.grade||grade)+'</button></td><td><b>'+esc(t.name)+'</b></td><td>'+esc(t.subject||'')+'</td><td>'+mark('class',st.class)+'</td><td>'+mark('sit',st.sit)+'</td><td><button class="aprd-mark '+(st.listen?'y':'u')+'" data-person="'+t.id+'" data-key="listen">'+(st.listen?'✓':'—')+'</button></td><td><button class="aprd-mark '+(st.research?'y':'u')+'" data-person="'+t.id+'" data-key="research">'+(st.research?'✓':'—')+'</button></td><td><button class="aprd-mark" data-leave="'+t.id+'">'+esc(st.leave||'无')+'</button></td><td>'+esc(noteOf(t))+'</td><td><div class="aprd-actions"><button data-edit="'+t.id+'">编辑</button><button data-disable="'+t.id+'">停用</button></div></td></tr>';
     }).join('');
-    return '<div class="aprd-toolbar"><input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'"><select id="aprd-subject"><option value="">全部学科</option>'+subjects.map(s=>'<option '+(subject===s?'selected':'')+'>'+esc(s)+'</option>').join('')+'</select><button class="primary" data-add>新增人员</button><button data-roster-import>批量导入</button><div class="aprd-export-wrap"><button data-roster-export-toggle>批量导出 ▾</button><div class="aprd-export-menu" data-roster-export-menu hidden><label>导出范围 <select id="aprd-export-scope"><option value="all">全部在岗人员</option><option value="filtered">当前筛选结果</option></select></label><button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button></div></div><button data-copy>复制名单</button><button data-subject-manager>学科管理</button><span>当前筛：'+esc(subject||'全部')+' · '+list.length+' 人</span></div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.roster.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div><p class="aprd-note">花名册仅显示当前年级在岗教师；状态按当前日期和节次读取。</p>';
+    return '<div class="aprd-toolbar"><input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'"><select id="aprd-subject"><option value="">全部学科</option>'+subjects.map(s=>'<option '+(subject===s?'selected':'')+'>'+esc(s)+'</option>').join('')+'</select><button class="primary" data-add>新增人员</button><button type="button" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button data-roster-export-toggle>批量导出 ▾</button><div class="aprd-export-menu" data-roster-export-menu hidden><label>导出范围 <select id="aprd-export-scope"><option value="all">全部在岗人员</option><option value="filtered">当前筛选结果</option></select></label><button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button></div></div><button data-copy>复制名单</button><button data-subject-manager>学科管理</button><span>当前筛：'+esc(subject||'全部')+' · '+list.length+' 人</span></div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.roster.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div><p class="aprd-note">花名册仅显示当前年级在岗教师；状态按当前日期和节次读取。</p>';
   };
   const seatHtml = () => {
     const t=details.seat, rows=(t?.rows||[]).filter(r=>teachers.some(x=>x.name===r.teacher));
@@ -323,7 +329,11 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     root.querySelectorAll('[data-leave]').forEach(b=>b.onclick=()=>{const t=teachers.find(x=>String(x.id)===b.dataset.leave);openEditor('登记请假',[{key:'type',label:'请假类型',type:'select',options:[{value:'',label:'无'},...LEAVE_TYPES.map(x=>({value:x,label:x}))]},{key:'remark',label:'备注'}],{type:'',remark:''},async d=>{leaveRecords=leaveRecords.filter(x=>x.name!==t.name||!activeLeavesFor([x],date,grade).length);if(d.type)leaveRecords.push({id:Date.now(),grade,name:t.name,subject:t.subject,type:d.type,start_date:date,end_date:date,days:1,status:'待批',remark:d.remark});await savePrefs({leaves:leaveRecords});await load();});});
     root.querySelectorAll('[data-grade]').forEach(()=>{});
     root.querySelector('[data-add]')?.addEventListener('click',()=>openEditor('新增教师',[{key:'name',label:'姓名',required:true},{key:'subject',label:'学科',required:true},{key:'department',label:'归属部门'}],{department:'高中部'},async d=>{await api.post('/teachers',{grade,name:d.name,subject:d.subject});const list=await api.get('/teachers',{grade,active:'all'});const t=list.list.find(x=>x.name===d.name);if(t)await setTeacherMeta(t,{department:d.department});await load();}));
-    root.querySelector('[data-roster-import]')?.addEventListener('click',openRosterImport);
+    const rosterImportButton=root.querySelector('[data-roster-import]');
+    if(rosterImportButton){
+      rosterImportButton.type='button';
+      rosterImportButton.addEventListener('click',(event)=>{event.preventDefault();openRosterImport();});
+    }
     root.querySelector('[data-roster-export-toggle]')?.addEventListener('click',()=>{
       const menu=root.querySelector('[data-roster-export-menu]');
       if(menu)menu.hidden=!menu.hidden;

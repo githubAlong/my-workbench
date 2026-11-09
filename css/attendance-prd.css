@@ -48,3 +48,11 @@
  .attendance-prd .aprd-roster-import>header,.attendance-prd .aprd-roster-import>footer{padding:12px}
  .attendance-prd .aprd-export-menu{right:auto;left:0}
 }
+
+
+/* 导入弹窗挂载在 body 下：弹窗根节点同时带 attendance-prd 类，
+   这里必须使用全局定位规则，不能依赖「.attendance-prd .aprd-dialog」后代选择器。 */
+.aprd-dialog.aprd-roster-dialog{position:fixed;inset:0;background:#17274466;z-index:1100;display:grid;place-items:center;padding:16px}
+.attendance-prd .aprd-upload-zone{position:relative}
+.attendance-prd .aprd-upload-zone button{height:34px;padding:0 16px;border:1px solid #c6d8f5;border-radius:8px;background:#fff;color:#1764f5;font-size:12px;font-weight:650;cursor:pointer}
+.attendance-prd .aprd-upload-zone button:hover{background:#edf4ff;border-color:#8fb5f6}
