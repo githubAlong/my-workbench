@@ -1647,16 +1647,15 @@ async function renderTrips(box) {
     const rows = d.rows || [];
     const rules = d.rules || { foodPerDay: 100, localPerDay: 40 };
     const sum = (f) => rows.reduce((s, r) => s + (f(r) || 0), 0);
-    const total = sum((r) => r.calc.total);
-    const pending = sum((r) => (r.reimb_status === 'paid' ? 0 : r.calc.net));
-    const km = sum((r) => Number(r.km) || 0);
-    const missing = sum((r) => r.calc.bigMissingCount);
+    const reimbursement = sum((r) => r.calc.total);
+    const km = sum((r) => r.calc.km);
+    const vehicleFee = sum((r) => r.calc.vehicleFee);
 
     box.innerHTML = `<div class="stat-cards" style="margin-bottom:14px">
       <div class="stat"><div class="k">本月出差</div><div class="v">${rows.length}<span class="u">次</span></div></div>
-      <div class="stat"><div class="k">应报总额</div><div class="v">${money2(total)}<span class="u">元</span></div></div>
-      <div class="stat"><div class="k">待报销</div><div class="v" style="color:${pending > 0 ? 'var(--amber)' : 'var(--text)'}">${money2(pending)}<span class="u">元</span></div></div>
-      <div class="stat"><div class="k">里程</div><div class="v">${km}<span class="u">km</span></div></div>
+      <div class="stat"><div class="k">累计行驶里程</div><div class="v">${money2(km)}<span class="u">km</span></div></div>
+      <div class="stat"><div class="k">车辆里程费用（单独统计）</div><div class="v" style="color:var(--green)">${money2(vehicleFee)}<span class="u">元</span></div></div>
+      <div class="stat"><div class="k">报销金额（不含里程费）</div><div class="v">${money2(reimbursement)}<span class="u">元</span></div></div>
     </div>
     ${toolbars('trips', ctx.month, `<button class="btn ghost sm" id="trip-stats">${icon('chart', 15)} 统计</button>
       <button class="btn ghost sm" id="trip-rules">${icon('settings', 15)} 补贴标准</button>
@@ -1681,9 +1680,21 @@ async function renderTrips(box) {
           <span class="bold">${esc(r.to_place || '未填目的地')}</span>
           <span class="chip ${rCls}">${rTxt}</span>
           ${c.bigMissingCount ? `<span class="chip red" title="住宿/交通等大额无票">缺票 ${c.bigMissingCount}</span>` : ''}
-          <span class="tiny muted">${esc(r.start_date)}${r.end_date && r.end_date !== r.start_date ? ' ~ ' + esc(r.end_date) : ''} · ${c.days} 天</span>
+          <span class="tiny muted">${esc(r.start_date || '')}${r.end_date && r.end_date !== r.start_date ? ' ~ ' + esc(r.end_date) : ''} · ${c.days} 天</span>
         </div>
-        <div class="small muted" style="margin-top:2px">${esc(r.reason || '')}${r.companions ? ' · 随行：' + esc(r.companions) : ''}</div>
+        <div class="small muted" style="margin-top:5px">${esc(r.reason || '未填写出差事由')}</div>
+        <div class="trip-people">
+          <span>驾驶人员：<b>${esc(r.driver || '未填写')}</b></span>
+          <span>随行人员：${esc(r.companions || '无')}</span>
+        </div>
+        <div class="trip-mileage">
+          <div class="trip-mileage-main">
+            <span>车辆里程</span><b>${money2(c.km)} km</b>
+            <span>× ¥${money2(c.kmRate)} / km</span>
+            <span class="trip-mileage-note">单独统计，不计入报销</span>
+          </div>
+          <div class="trip-mileage-fee">¥${money2(c.vehicleFee)}</div>
+        </div>
         <div class="trip-math">
           <span class="tm-piece">实报 <b>¥${money2(c.realTotal)}</b></span>
           <span class="tm-op">+</span>
@@ -1692,7 +1703,7 @@ async function renderTrips(box) {
           <span class="tm-res"><span class="tm-op">=</span><span class="tm-total">¥${money2(c.net)}</span></span>
         </div>
         <div class="trip-foot">
-          <span class="tiny muted trip-meta">${c.itemCount ? c.itemCount + ' 笔明细' : '无明细'}${c.missingCount ? ` · ${c.missingCount} 笔无票` : ''}${Number(r.km) > 0 ? ` · ${r.km} km` : ''}</span>
+          <span class="tiny muted trip-meta">${c.itemCount ? c.itemCount + ' 笔明细' : '无明细'}${c.missingCount ? ` · ${c.missingCount} 笔无票` : ''}</span>
           <div class="trip-acts">
             <button class="btn ghost sm" data-trip-open="${r.id}">明细 / 发票</button>
             <button class="btn ghost sm" data-trip-copy="${r.id}">${icon('copy', 14)} 复制报销单</button>
@@ -1717,9 +1728,7 @@ async function renderTrips(box) {
         e.stopPropagation();
         const r = rows.find((x) => String(x.id) === b.dataset.tripDel);
         if (!r) return;
-        /* 出差卡里往往已经录了明细和发票，删掉是连带一起没的，
-           所以确认文案要把差额金额也说出来，让人看清楚损失的是什么。 */
-        const amt = r.calc?.net != null ? `（含 ${r.calc.itemCount || 0} 笔明细，合计 ¥${money2(r.calc.net)}）` : '';
+        const amt = r.calc?.net != null ? `（含 ${r.calc.itemCount || 0} 笔明细，报销应结算 ¥${money2(r.calc.net)}；另有车辆里程费 ¥${money2(r.calc.vehicleFee)}）` : '';
         if (!(await confirmDialog(`删除去「${r.to_place || '未填目的地'}」的出差记录？${amt}`, { danger: true, okText: '删除' }))) return;
         try { await api.del('/trips/' + r.id); toast('已删除'); load(); }
         catch (err) { toast(err.message || '删除失败', 'err'); }
@@ -1782,35 +1791,54 @@ async function tripStatsSheet() {
   try { d = await api.get('/trip/stats', { year: new Date().getFullYear() }); } catch (e) { return toast(e.message, 'err'); }
   const s0 = d.summary;
   const maxM = Math.max(1, ...d.months.map((m) => m.total));
+  const maxVehicle = Math.max(1, ...d.months.map((m) => m.vehicleFee || 0));
   const kinds = Object.entries(d.byKind).filter(([, v]) => v > 0);
   const kindTotal = kinds.reduce((a, [, v]) => a + v, 0) || 1;
+  const rankHtml = (items) => items?.length
+    ? '<div class="trip-stat-list">' + items.map((item) => '<div class="trip-stat-row">'
+      + '<span class="trip-stat-name">' + esc(item.name) + '</span>'
+      + '<span>' + item.count + ' 次</span>'
+      + '<span>' + money2(item.km) + ' km</span>'
+      + '<b>¥' + money2(item.vehicleFee) + '</b></div>').join('') + '</div>'
+    : '<div class="empty" style="padding:12px 0">暂无记录</div>';
+  const reimbursementBars = d.months.map((m) => '<div class="bc-col" title="' + m.month + ' 报销 ¥' + money2(m.total) + '">'
+    + '<div class="bc-bar" style="height:' + (m.total > 0 ? Math.max(4, Math.round(m.total / maxM * 100)) : 0) + '%"></div>'
+    + '<div class="bc-x">' + Number(m.month.slice(5)) + '</div>'
+    + (m.total > 0 ? '<div class="bc-v">' + money2(m.total) + '</div>' : '') + '</div>').join('');
+  const vehicleBars = d.months.map((m) => '<div class="bc-col" title="' + m.month + ' 车辆里程费 ¥' + money2(m.vehicleFee) + '">'
+    + '<div class="bc-bar" style="height:' + (m.vehicleFee > 0 ? Math.max(4, Math.round(m.vehicleFee / maxVehicle * 100)) : 0) + '%;background:var(--green)"></div>'
+    + '<div class="bc-x">' + Number(m.month.slice(5)) + '</div>'
+    + (m.vehicleFee > 0 ? '<div class="bc-v">' + money2(m.vehicleFee) + '</div>' : '') + '</div>').join('');
+  const kindHtml = kinds.length
+    ? '<div class="kind-list">' + kinds.sort((a, b) => b[1] - a[1]).map(([k, v]) => '<div class="kind-row">'
+      + '<span class="kind-name">' + (KIND_LABEL[k] || k) + '</span>'
+      + '<span class="kind-bar"><i style="width:' + Math.round(v / kindTotal * 100) + '%"></i></span>'
+      + '<span class="kind-v">¥' + money2(v) + '</span>'
+      + '<span class="tiny muted" style="width:42px;text-align:right">' + Math.round(v / kindTotal * 100) + '%</span>'
+      + '</div>').join('') + '</div>'
+    : '<div class="empty" style="padding:20px 0">今年还没有出差费用记录</div>';
   const body = el(`<div class="sheet-body">
     <div class="rd-cards" style="grid-template-columns:repeat(4,1fr)">
       <div class="rd-c"><div class="rd-n">${s0.count}</div><div class="rd-l">出差次数</div></div>
-      <div class="rd-c"><div class="rd-n">${s0.km}</div><div class="rd-l">总里程 km</div></div>
-      <div class="rd-c"><div class="rd-n" style="color:var(--primary)">${money2(s0.total)}</div><div class="rd-l">应报合计</div></div>
-      <div class="rd-c"><div class="rd-n" style="color:var(--amber)">${money2(s0.pending)}</div><div class="rd-l">未到手</div></div>
+      <div class="rd-c"><div class="rd-n">${money2(s0.km)}</div><div class="rd-l">总里程 km</div></div>
+      <div class="rd-c"><div class="rd-n" style="color:var(--green)">${money2(s0.vehicleFee)}</div><div class="rd-l">车辆里程费（单独）</div></div>
+      <div class="rd-c"><div class="rd-n" style="color:var(--primary)">${money2(s0.total)}</div><div class="rd-l">报销金额（不含里程）</div></div>
     </div>
-    <div class="sec-title" style="margin:16px 0 8px">${d.year} 年每月应报</div>
-    <div class="bar-chart">
-      ${d.months.map((m) => `<div class="bc-col" title="${m.month} ¥${money2(m.total)}">
-        <div class="bc-bar" style="height:${m.total > 0 ? Math.max(4, Math.round(m.total / maxM * 100)) : 0}%"></div>
-        <div class="bc-x">${Number(m.month.slice(5))}</div>
-        ${m.total > 0 ? `<div class="bc-v">${money2(m.total)}</div>` : ''}
-      </div>`).join('')}
-    </div>
-    ${kinds.length ? `<div class="sec-title" style="margin:18px 0 8px">钱花在哪</div>
-      <div class="kind-list">
-        ${kinds.sort((a, b) => b[1] - a[1]).map(([k, v]) => `<div class="kind-row">
-          <span class="kind-name">${KIND_LABEL[k] || k}</span>
-          <span class="kind-bar"><i style="width:${Math.round(v / kindTotal * 100)}%"></i></span>
-          <span class="kind-v">¥${money2(v)}</span>
-          <span class="tiny muted" style="width:42px;text-align:right">${Math.round(v / kindTotal * 100)}%</span>
-        </div>`).join('')}
-      </div>` : '<div class="empty" style="padding:20px 0">今年还没有出差记录</div>'}
+    <div class="tiny muted" style="margin-top:8px">待报销：¥${money2(s0.pending)} · 车辆里程费不计入报销金额</div>
+    <div class="sec-title" style="margin:16px 0 8px">${d.year} 年每月报销金额（不含里程费）</div>
+    <div class="bar-chart">${reimbursementBars}</div>
+    <div class="sec-title" style="margin:18px 0 8px">${d.year} 年每月车辆里程费用（单独统计）</div>
+    <div class="bar-chart">${vehicleBars}</div>
+    <div class="sec-title" style="margin:18px 0 8px">目的地统计</div>
+    ${rankHtml(d.byDestination)}
+    <div class="sec-title" style="margin:18px 0 8px">驾驶人员统计</div>
+    ${rankHtml(d.byDriver)}
+    <div class="sec-title" style="margin:18px 0 8px">随行人员统计</div>
+    ${rankHtml(d.byCompanion)}
+    ${kindHtml}
     <div class="confirm-actions"><button class="btn ghost" id="c">关闭</button></div>
   </div>`);
-  const s = sheet({ title: `出差统计 · ${d.year}`, body, wide: true });
+  const s = sheet({ title: '出差统计 · ' + d.year, body, wide: true });
   body.querySelector('#c').onclick = s.close;
 }
 
@@ -1826,7 +1854,19 @@ async function tripDetail(id, reload) {
       <div class="bold" style="font-size:16px">${esc(r.to_place || '')}</div>
       <span class="tiny muted">${esc(r.start_date)}${r.end_date && r.end_date !== r.start_date ? ' ~ ' + esc(r.end_date) : ''}</span>
     </div>
-    <div class="small muted" style="margin-bottom:14px">${esc(r.reason || '')}${r.companions ? ' · 随行：' + esc(r.companions) : ''}</div>
+    <div class="small muted" style="margin-bottom:8px">${esc(r.reason || '未填写出差事由')}</div>
+    <div class="trip-people">
+      <span>驾驶人员：<b>${esc(r.driver || '未填写')}</b></span>
+      <span>随行人员：${esc(r.companions || '无')}</span>
+    </div>
+    <div class="trip-mileage">
+      <div class="trip-mileage-main">
+        <span>车辆里程</span><b>${money2(r.calc.km)} km</b>
+        <span>× ¥${money2(r.calc.kmRate)} / km</span>
+        <span class="trip-mileage-note">单独统计，不计入报销</span>
+      </div>
+      <div class="trip-mileage-fee">¥${money2(r.calc.vehicleFee)}</div>
+    </div>
 
     <div class="sec-title">费用明细 <span class="tiny muted">（一笔一行，发票可后补）</span></div>
     <div id="items"></div>
@@ -1883,6 +1923,10 @@ async function tripDetail(id, reload) {
   function paintSum(nd) {
     const c = nd.calc;
     body.querySelector('#sum').innerHTML = `
+      <div class="ts-mileage-separate">
+        <div class="ts-line"><span>车辆里程费用（单独统计，不计入报销）</span><b>¥${money2(c.vehicleFee)}</b></div>
+        <div class="tiny muted">${money2(c.km)} km × ¥${money2(c.kmRate)} / km · 驾驶人员：${esc(nd.driver || '未填写')}</div>
+      </div>
       <div class="ts-line"><span>实报实销</span><b>¥${money2(c.realTotal)}</b></div>
       <div class="ts-line"><span>补贴（伙食 ${money2(c.food)} + 市内交通 ${money2(c.local)}）</span><b>¥${money2(c.subsidyTotal)}</b></div>
       ${c.advance > 0 ? `<div class="ts-line"><span>预借 / 垫付</span><b style="color:var(--amber)">−¥${money2(c.advance)}</b></div>` : ''}
@@ -1953,43 +1997,58 @@ export async function uploadTo(ownerType, ownerId, done) {
 
 function tripEditor(row, reload) {
   const isNew = !row;
+  const kmRate = row?.km_rate != null && row.km_rate !== '' && Number.isFinite(Number(row.km_rate))
+    ? Math.max(0, Number(row.km_rate))
+    : 1;
   const body = el(`<div class="sheet-body">
-    <div class="sec-title">行程</div>
+    <div class="sec-title">01 · 基本行程</div>
     <div class="form-grid">
-      <div class="field"><label class="field-label">出发日期</label><input class="input" type="date" id="sd" value="${esc(row?.start_date || ymd(new Date()))}"></div>
-      <div class="field"><label class="field-label">返回日期</label><input class="input" type="date" id="ed" value="${esc(row?.end_date || '')}"></div>
-      <div class="field"><label class="field-label">出发地</label><input class="input" id="from" value="${esc(row?.from_place || '学校')}"></div>
-      <div class="field"><label class="field-label">目的地</label><input class="input" id="to" value="${esc(row?.to_place || '')}"></div>
+      <div class="field"><label class="field-label">出差开始日期</label><input class="input" type="date" id="sd" value="${esc(row?.start_date || ymd(new Date()))}"></div>
+      <div class="field"><label class="field-label">出差结束日期</label><input class="input" type="date" id="ed" value="${esc(row?.end_date || '')}"></div>
+      <div class="field"><label class="field-label">出发地点</label><input class="input" id="from" value="${esc(row?.from_place || '学校')}"></div>
+      <div class="field"><label class="field-label">目的地</label><input class="input" id="to" value="${esc(row?.to_place || '')}" placeholder="例如：郑州"></div>
     </div>
-    <div class="field"><label class="field-label">事由</label><input class="input" id="reason" value="${esc(row?.reason || '')}"></div>
-    <div class="field"><label class="field-label">随行人员</label><input class="input" id="comp" value="${esc(row?.companions || '')}"></div>
+    <div class="field"><label class="field-label">出差事由</label><input class="input" id="reason" value="${esc(row?.reason || '')}" placeholder="填写本次出差的具体原因"></div>
 
-    <div class="sec-title" style="margin-top:18px">实报实销 <span class="tiny muted">（大额建议留票）</span></div>
+    <div class="sec-title" style="margin-top:18px">02 · 出差人员</div>
     <div class="form-grid">
-      <div class="field"><label class="field-label">交通（车票/机票）</label><input class="input" type="number" id="transport" value="${row?.transport ?? 0}"></div>
-      <div class="field"><label class="field-label">住宿</label><input class="input" type="number" id="hotel" value="${row?.hotel ?? 0}"></div>
-      <div class="field"><label class="field-label">市内打车</label><input class="input" type="number" id="taxi" value="${row?.taxi ?? 0}"></div>
-      <div class="field"><label class="field-label">过路费</label><input class="input" type="number" id="toll" value="${row?.toll ?? 0}"></div>
-      <div class="field"><label class="field-label">停车费</label><input class="input" type="number" id="park" value="${row?.parking ?? 0}"></div>
-      <div class="field"><label class="field-label">其他费用</label><input class="input" type="number" id="other" value="${row?.other ?? 0}"></div>
-    </div>
-    <div class="tiny muted" style="margin:-4px 0 4px">大额（住宿/交通）没票会在列表里标「缺票」。要逐笔记录、传发票，保存后点卡片上的「明细 / 发票」。</div>
-
-    <div class="sec-title" style="margin-top:18px">预借 / 自驾</div>
-    <div class="form-grid">
-      <div class="field"><label class="field-label">预借（从应报里扣）</label><input class="input" type="number" id="advance" value="${row?.advance ?? 0}"></div>
-      <div class="field"><label class="field-label">自驾公里数</label><input class="input" type="number" id="km" value="${row?.km ?? 0}"></div>
+      <div class="field"><label class="field-label">驾驶人员</label><input class="input" id="driver" value="${esc(row?.driver || '')}" placeholder="填写实际开车老师姓名"></div>
+      <div class="field"><label class="field-label">随行人员</label><input class="input" id="comp" value="${esc(row?.companions || '')}" placeholder="多人可用顿号分隔"></div>
     </div>
 
-    <div class="sec-title" style="margin-top:18px">状态</div>
+    <div class="sec-title" style="margin-top:18px">03 · 车辆里程费用 <span class="tiny muted">（单独统计）</span></div>
+    <div class="trip-mileage-editor">
+      <div class="form-grid">
+        <div class="field"><label class="field-label">实际行驶公里数</label><input class="input" type="number" min="0" step="0.1" id="km" value="${row?.km ?? 0}" placeholder="输入公里数"></div>
+        <div class="field"><label class="field-label">里程费率</label><div class="trip-rate-static">¥${money2(kmRate)} / 公里 <span>默认标准 1 元/公里</span></div></div>
+      </div>
+      <div class="trip-mileage-preview" id="vehicle-preview">
+        <span>车辆里程费用（不计入报销总额）</span>
+        <strong>¥${money2((Number(row?.km) || 0) * kmRate)}</strong>
+      </div>
+    </div>
+
+    <div class="sec-title" style="margin-top:18px">04 · 其他费用报销 <span class="tiny muted">（原有报销项目保留）</span></div>
     <div class="form-grid">
+      <div class="field"><label class="field-label">交通（车票 / 机票）</label><input class="input" type="number" min="0" step="0.01" id="transport" value="${row?.transport ?? 0}"></div>
+      <div class="field"><label class="field-label">住宿</label><input class="input" type="number" min="0" step="0.01" id="hotel" value="${row?.hotel ?? 0}"></div>
+      <div class="field"><label class="field-label">市内打车</label><input class="input" type="number" min="0" step="0.01" id="taxi" value="${row?.taxi ?? 0}"></div>
+      <div class="field"><label class="field-label">过路费</label><input class="input" type="number" min="0" step="0.01" id="toll" value="${row?.toll ?? 0}"></div>
+      <div class="field"><label class="field-label">停车费</label><input class="input" type="number" min="0" step="0.01" id="park" value="${row?.parking ?? 0}"></div>
+      <div class="field"><label class="field-label">其他费用</label><input class="input" type="number" min="0" step="0.01" id="other" value="${row?.other ?? 0}"></div>
+    </div>
+    <div class="tiny muted" style="margin:-4px 0 4px">费用明细、发票上传和复制报销单功能保持不变；车辆里程费用不并入上述报销费用。</div>
+
+    <div class="sec-title" style="margin-top:18px">05 · 结算与状态</div>
+    <div class="form-grid">
+      <div class="field"><label class="field-label">预借金额（从报销金额中扣除）</label><input class="input" type="number" min="0" step="0.01" id="advance" value="${row?.advance ?? 0}"></div>
       <div class="field"><label class="field-label">审批状态</label><select class="input" id="status">
         ${[['draft', '草稿'], ['submitted', '已提交（待领导审核）'], ['approved', '已审核'], ['rejected', '被驳回']].map(([v, l]) => `<option value="${v}" ${row?.status === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="field"><label class="field-label">报销状态</label><select class="input" id="rstat">
         ${[['draft', '未提交'], ['submitted', '已交财务'], ['paid', '已到账']].map(([v, l]) => `<option value="${v}" ${row?.reimb_status === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     </div>
     <div class="field"><label class="field-label">审核意见</label><input class="input" id="anote" value="${esc(row?.approve_note || '')}"></div>
-    ${remarkField({ value: row?.remark || '', rows: 2, placeholder: '如：领导要求当天往返、带纸质材料三份' })}
+    ${remarkField({ value: row?.remark || '', rows: 2, placeholder: '补充其他说明' })}
     <div class="confirm-actions">${isNew ? '' : '<button class="btn ghost" id="del" style="margin-right:auto;color:var(--red)">删除</button>'}
       <button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">保存</button></div>
   </div>`);
@@ -1999,32 +2058,38 @@ function tripEditor(row, reload) {
     if (await confirmDialog('删除这条出差记录？')) { await api.del('/trips/' + row.id); s.close(); toast('已删除'); reload(); }
   });
   const num = (id) => Number(body.querySelector('#' + id).value) || 0;
+  const updateVehiclePreview = () => {
+    const fee = Math.round(num('km') * kmRate * 100) / 100;
+    body.querySelector('#vehicle-preview').innerHTML = `<span>车辆里程费用（不计入报销总额）</span><strong>¥${money2(fee)}</strong>`;
+  };
+  body.querySelector('#km').addEventListener('input', updateVehiclePreview);
   body.querySelector('#k').onclick = async () => {
-    /* 目的地和事由至少填一个。
-       原来只校验出发日期（还是默认今天的），别的全靠用户自觉 ——
-       点开「记录出差」什么都不填直接保存，就会生成一张空的出差单：
-       列表里显示「去『未填目的地』」，统计里也算一次出差，月底补贴还要按它算。
-       目的地是这张单子的主语，先要它。 */
     const toPlace = body.querySelector('#to').value.trim();
     const reason = body.querySelector('#reason').value.trim();
+    const driver = body.querySelector('#driver').value.trim();
     if (!toPlace) {
       toast('去哪出差？先填一下目的地', 'warn');
       body.querySelector('#to').focus();
       return;
     }
+    if (!body.querySelector('#sd').value) return toast('出差开始日期要填', 'err');
+    if (num('km') > 0 && !driver) {
+      toast('填写了行驶公里数，请补充实际驾驶人员', 'warn');
+      body.querySelector('#driver').focus();
+      return;
+    }
     const payload = {
       start_date: body.querySelector('#sd').value, end_date: body.querySelector('#ed').value || null,
       from_place: body.querySelector('#from').value.trim(), to_place: toPlace,
-      reason, companions: body.querySelector('#comp').value,
+      reason, driver, companions: body.querySelector('#comp').value,
       transport: num('transport'), hotel: num('hotel'), taxi: num('taxi'),
       toll: num('toll'), parking: num('park'), other: num('other'),
-      advance: num('advance'), km: num('km'),
+      advance: num('advance'), km: num('km'), km_rate: kmRate,
       status: body.querySelector('#status').value,
       reimb_status: body.querySelector('#rstat').value,
       approve_note: body.querySelector('#anote').value,
       remark: body.querySelector('#remark').value,
     };
-    if (!payload.start_date) return toast('出发日期要填', 'err');
     try {
       if (isNew) await api.post('/trips', payload); else await api.patch('/trips/' + row.id, payload);
       s.close(); toast('已保存'); reload();

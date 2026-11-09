@@ -34,7 +34,7 @@ export const TABLES = {
   courses: ['weekday', 'period_no', 'start_time', 'end_time', 'start_date', 'end_date', 'grade', 'class_name', 'subject', 'room', 'weeks', 'color', 'remark'],
   class_records: ['class_type', 'subject', 'class_name', 'class_time', 'related_person', 'amount', 'pay_time', 'pay_status', 'remark', 'class_month'],
   invigilations: ['date', 'type', 'person', 'subject', 'grade', 'start_at', 'end_at', 'minutes', 'amount', 'paid', 'place', 'need_paper', 'paper_place', 'remark', 'exam_name', 'duty_type', 'peer_name', 'peer_id', 'start_time', 'end_time', 'duration_min', 'room', 'seat_count', 'pay_amount', 'pay_rule', 'pay_note', 'settled_at', 'settle_key', 'status', 'school_paid'],
-  trips: ['start_date', 'end_date', 'from_place', 'to_place', 'reason', 'companions', 'km', 'toll', 'parking', 'other', 'status', 'approve_note', 'remark', 'days', 'hotel', 'transport', 'taxi', 'subsidy_food', 'subsidy_local', 'advance', 'reimb_status', 'paid_at'],
+  trips: ['start_date', 'end_date', 'from_place', 'to_place', 'reason', 'driver', 'companions', 'km', 'km_rate', 'toll', 'parking', 'other', 'status', 'approve_note', 'remark', 'days', 'hotel', 'transport', 'taxi', 'subsidy_food', 'subsidy_local', 'advance', 'reimb_status', 'paid_at'],
   materials: ['category_id', 'title', 'grade', 'class_name', 'descr', 'public'],
   notes: ['category_id', 'title', 'content', 'tags', 'pinned'],
   preps: ['date', 'class_name', 'subject', 'prep_type', 'topic', 'content', 'progress', 'next_step', 'minutes', 'status', 'lesson_id', 'remark'],

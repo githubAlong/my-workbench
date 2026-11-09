@@ -1783,6 +1783,38 @@ html[data-theme="dark"] .lessons-page { --lesson-blue: #60a5fa; --lesson-blue-we
 .sec-title::before { content: ''; width: 3px; height: 13px; border-radius: 2px;
   background: var(--primary); flex: none; transform: translateY(1px); }
 
+/* 出差模块：车辆里程费用独立于报销金额展示 */
+.trip-people { display: flex; flex-wrap: wrap; gap: 5px 18px; margin-top: 6px;
+  color: var(--text-2); font-size: 12px; }
+.trip-people b { color: var(--text); font-weight: 650; }
+.trip-mileage { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 8px 12px; margin-top: 9px; padding: 9px 12px; border-radius: var(--r-s);
+  border: 1px solid color-mix(in srgb, var(--green) 24%, var(--line));
+  background: color-mix(in srgb, var(--green) 5%, var(--card)); }
+.trip-mileage-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px;
+  color: var(--text-2); font-size: 12.5px; }
+.trip-mileage-main b { color: var(--text); font-weight: 700; }
+.trip-mileage-fee { margin-left: auto; color: var(--green); font-size: 17px; font-weight: 750;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trip-mileage-note { color: var(--text-3); font-size: 11px; }
+.trip-mileage-editor { padding: 12px; border-radius: var(--r-m); background: var(--bg-sunken);
+  border: 1px solid var(--line); }
+.trip-rate-static { min-height: 38px; display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px; border: 1px solid var(--line); border-radius: var(--r-s);
+  background: var(--card); color: var(--text); font-weight: 700; }
+.trip-rate-static span { color: var(--text-3); font-size: 11px; font-weight: 500; }
+.trip-mileage-preview { display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 10px; color: var(--text-2); font-size: 12.5px; }
+.trip-mileage-preview strong { color: var(--green); font-size: 20px; font-variant-numeric: tabular-nums; }
+.ts-mileage-separate { margin-bottom: 10px; padding: 9px 11px; border: 1px dashed color-mix(in srgb, var(--green) 35%, var(--line));
+  border-radius: var(--r-s); background: color-mix(in srgb, var(--green) 5%, var(--card)); }
+.trip-stat-list { display: flex; flex-direction: column; gap: 2px; }
+.trip-stat-row { display: grid; grid-template-columns: minmax(90px, 1.4fr) 54px 70px 84px;
+  align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.trip-stat-row:first-child { border-top: 0; }
+.trip-stat-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.trip-stat-row b { color: var(--green); text-align: right; font-variant-numeric: tabular-nums; }
+
 /* 卡片里的算式：实报 + 补贴 − 预借 = 应到手 */
 .trip-card { margin-bottom: 12px; }
 .trip-math { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
@@ -1857,6 +1889,9 @@ html[data-theme="dark"] .lessons-page { --lesson-blue: #60a5fa; --lesson-blue-we
 
 @media (max-width: 760px) {
   .trip-math { font-size: 12.5px; padding: 9px 10px; gap: 5px 6px; }
+  .trip-stat-row { grid-template-columns: minmax(72px, 1fr) 42px 56px 66px; gap: 5px; font-size: 11.5px; }
+  .trip-mileage { padding: 8px 10px; }
+  .trip-mileage-fee { font-size: 16px; }
   .tm-res { width: 100%; justify-content: flex-end; padding-top: 6px;
     border-top: 1px dashed var(--line-2); }
   .ti-kind { width: 46px; }

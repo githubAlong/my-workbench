@@ -683,7 +683,7 @@ function buildInvSummary(rows, rules = {}) {
 
 /* 旧版汇总算法保留在 Git 历史中；当前统一使用支持分次收付的纯规则模块。 */
 /* ============================ 出差报销 ============================ */
-const TRIP_DEFAULT = { foodPerDay: 100, localPerDay: 40 };
+const TRIP_DEFAULT = { foodPerDay: 100, localPerDay: 40, kmRate: 1 };
 const KIND_TXT = { transport: '交通', hotel: '住宿', taxi: '打车', meal: '餐饮', toll: '过路费', parking: '停车费', other: '其他' };
 const moneyFmt = (v) => n2(v).toFixed(2).replace(/\.00$/, '');
 
@@ -711,15 +711,12 @@ function calcTrip(t, rules, items = []) {
     transport: n2(t.transport), hotel: n2(t.hotel), taxi: n2(t.taxi),
     toll: n2(t.toll), parking: n2(t.parking), other: n2(t.other),
   };
-  /* 明细里填的金额汇总到对应类别，与主表手填金额取「较大者」：
-     有人习惯写总数，有人习惯逐张录明细，两种都要能用，但不能相加（否则记两遍翻倍）。 */
   const byKind = {};
   for (const it of items) {
     const k = ['transport', 'hotel', 'taxi', 'toll', 'parking'].includes(it.kind) ? it.kind : 'other';
     byKind[k] = n2((byKind[k] || 0) + n2(it.amount));
   }
   for (const k of Object.keys(byKind)) if (byKind[k] > real[k]) real[k] = byKind[k];
-
   const realTotal = n2(Object.values(real).reduce((a, b) => a + b, 0));
   const food = (t.subsidy_food != null && Number(t.subsidy_food) > 0) ? n2(t.subsidy_food) : n2(rules.foodPerDay * days);
   const local = (t.subsidy_local != null && Number(t.subsidy_local) > 0) ? n2(t.subsidy_local) : n2(rules.localPerDay * days);
@@ -727,14 +724,18 @@ function calcTrip(t, rules, items = []) {
   const total = n2(realTotal + subsidyTotal);
   const advance = n2(t.advance);
   const net = n2(total - advance);
+  /* 车辆里程费用单独核算，绝不加入报销合计；旧记录没有 km_rate 时按 1 元/公里兼容。 */
+  const km = Math.max(0, n2(t.km));
+  const kmRate = t.km_rate != null && t.km_rate !== '' && Number.isFinite(Number(t.km_rate))
+    ? Math.max(0, Number(t.km_rate)) : TRIP_DEFAULT.kmRate;
+  const vehicleFee = n2(km * kmRate);
   const missing = items.filter((it) => !it.has_invoice);
   const bigMissing = missing.filter((it) => Number(it.amount) >= 100 && ['transport', 'hotel', 'taxi'].includes(it.kind));
   return {
     days, real, byKind, realTotal, food, local, subsidyTotal, total, advance, net,
-    itemCount: items.length,
-    missingCount: missing.length,
-    bigMissingCount: bigMissing.length,
-    noInvoice: missing.length,
+    km, kmRate, vehicleFee,
+    itemCount: items.length, missingCount: missing.length,
+    bigMissingCount: bigMissing.length, noInvoice: missing.length,
   };
 }
 
@@ -749,10 +750,12 @@ function tripText(t, user) {
   const c = t.calc;
   const L = [];
   const who = user?.nickname || '';
-  const span = t.end_date && t.end_date !== t.start_date ? `${t.start_date} 至 ${t.end_date}` : t.start_date;
-  L.push(`【差旅报销单】${who}${who ? '　' : ''}${span}　共 ${c.days} 天`);
-  L.push(`事由：${t.reason || '未填写'}`);
-  L.push(`行程：${t.from_place || '学校'} → ${t.to_place || '未填写'}${t.companions ? `（随行：${t.companions}）` : ''}`);
+  const span = t.end_date && t.end_date !== t.start_date ? t.start_date + ' 至 ' + t.end_date : t.start_date;
+  L.push('【差旅报销单】' + who + (who ? '　' : '') + span + '　共 ' + c.days + ' 天');
+  L.push('事由：' + (t.reason || '未填写'));
+  L.push('行程：' + (t.from_place || '学校') + ' → ' + (t.to_place || '未填写'));
+  L.push('驾驶人员：' + (t.driver || '未填写'));
+  L.push('随行人员：' + (t.companions || '无'));
   L.push('');
   L.push('一、实报实销');
   const realLines = [
@@ -760,32 +763,39 @@ function tripText(t, user) {
     ['过路费', c.real.toll], ['停车费', c.real.parking], ['其他', c.real.other],
   ].filter(([, v]) => Number(v) > 0);
   if (realLines.length) {
-    for (const [k, v] of realLines) L.push(`　${k}：¥${moneyFmt(v)}`);
+    for (const [k, v] of realLines) L.push('　' + k + '：¥' + moneyFmt(v));
     const detail = (t.items || []).filter((it) => Number(it.amount) > 0);
     if (detail.length) {
       L.push('　明细：');
       for (const it of detail.slice(0, 12)) {
-        L.push(`　　· ${it.date || ''} ${KIND_TXT[it.kind] || '其他'} ¥${moneyFmt(it.amount)}${it.note ? ' ' + it.note : ''}${it.has_invoice ? '' : '（无票）'}`);
+        L.push('　　· ' + (it.date || '') + ' ' + (KIND_TXT[it.kind] || '其他') + ' ¥' + moneyFmt(it.amount)
+          + (it.note ? ' ' + it.note : '') + (it.has_invoice ? '' : '（无票）'));
       }
-      if (detail.length > 12) L.push(`　　· 其余 ${detail.length - 12} 笔略`);
+      if (detail.length > 12) L.push('　　· 其余 ' + (detail.length - 12) + ' 笔略');
     }
-    L.push(`　小计：¥${moneyFmt(c.realTotal)}`);
+    L.push('　小计：¥' + moneyFmt(c.realTotal));
   } else {
     L.push('　（无）');
   }
   L.push('');
   L.push('二、定额补贴（无需发票）');
-  L.push(`　伙食补助：¥${moneyFmt(c.food)}（${moneyFmt(c.food / (c.days || 1))}/天 × ${c.days} 天）`);
-  L.push(`　市内交通补助：¥${moneyFmt(c.local)}（${moneyFmt(c.local / (c.days || 1))}/天 × ${c.days} 天）`);
-  L.push(`　小计：¥${moneyFmt(c.subsidyTotal)}`);
+  L.push('　伙食补助：¥' + moneyFmt(c.food) + '（' + moneyFmt(c.food / (c.days || 1)) + '/天 × ' + c.days + ' 天）');
+  L.push('　市内交通补助：¥' + moneyFmt(c.local) + '（' + moneyFmt(c.local / (c.days || 1)) + '/天 × ' + c.days + ' 天）');
+  L.push('　小计：¥' + moneyFmt(c.subsidyTotal));
   L.push('');
-  if (c.advance > 0) { L.push(`三、预借/垫付：¥${moneyFmt(c.advance)}`); L.push(''); }
-  L.push(`合计应报：¥${moneyFmt(c.total)}${c.advance > 0 ? `　扣除预借后应补：¥${moneyFmt(c.net)}` : ''}`);
-  if (Number(t.km) > 0) L.push(`自驾里程：${t.km} km`);
+  if (c.advance > 0) { L.push('三、预借/垫付：¥' + moneyFmt(c.advance)); L.push(''); }
+  L.push('合计应报：¥' + moneyFmt(c.total) + (c.advance > 0 ? '　扣除预借后应补：¥' + moneyFmt(c.net) : ''));
+  L.push('');
+  L.push('车辆里程费用（单独统计，不计入报销金额）');
+  L.push('　驾驶人员：' + (t.driver || '未填写'));
+  L.push('　里程：' + moneyFmt(c.km) + ' km × ¥' + moneyFmt(c.kmRate) + '/km = ¥' + moneyFmt(c.vehicleFee));
   if (c.missingCount) {
-    L.push(`备注：有 ${c.missingCount} 笔无发票${c.bigMissingCount ? `（其中 ${c.bigMissingCount} 笔为大额，建议补票）` : ''}——${(t.items || []).filter((i) => !i.has_invoice).map((i) => `${KIND_TXT[i.kind] || '其他'}¥${moneyFmt(i.amount)}`).slice(0, 5).join('、')}`);
+    L.push('备注：有 ' + c.missingCount + ' 笔无发票'
+      + (c.bigMissingCount ? '（其中 ' + c.bigMissingCount + ' 笔为大额，建议补票）' : '')
+      + '——' + (t.items || []).filter((i) => !i.has_invoice)
+        .map((i) => (KIND_TXT[i.kind] || '其他') + '¥' + moneyFmt(i.amount)).slice(0, 5).join('、'));
   }
-  if (t.remark) L.push(`补充说明：${t.remark}`);
+  if (t.remark) L.push('补充说明：' + t.remark);
   return L.join('\n');
 }
 
@@ -1020,12 +1030,20 @@ async function buildExport(kind, month) {
     const mins = rows.reduce((s, r) => s + (Number(r[8]) || 0), 0);
     extraHtml = `<div class="sum">本月合计：${rows.length} 场，共 ${mins} 分钟</div>`;
   } else if (kind === 'trips') {
-    title = `出差统计${month ? ' ' + month : ''}`;
-    headers = ['序号', '开始', '结束', '出发地', '目的地', '事由', '随行人员', '公里数', '过路费', '停车费', '其他', '合计(元)', '状态', '备注'];
+    title = '出差统计' + (month ? ' ' + month : '');
+    headers = ['序号', '开始日期', '结束日期', '出发地', '目的地', '出差事由', '驾驶人员', '随行人员', '公里数', '里程费率(元/km)', '车辆里程费用（单独统计）', '交通费', '住宿费', '市内打车', '过路费', '停车费', '其他费用', '实报小计', '伙食补助', '市内交通补助', '预借', '应报合计（不含里程费）', '审批状态', '报销状态', '备注'];
+    const rules = tripRules();
     rows = rowsOf('trips').filter(M('start_date')).sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)))
-      .map((r) => [r.seq, r.start_date, r.end_date, r.from_place, r.to_place, r.reason, r.companions, r.km, r.toll, r.parking, r.other, (num(r.toll) + num(r.parking) + num(r.other)), r.status, r.remark]);
-    const total = rows.reduce((s, r) => s + (Number(r[11]) || 0), 0);
-    extraHtml = `<div class="sum">本月合计：${rows.length} 次，费用 ${total} 元</div>`;
+      .map((r) => {
+        const c = tripWithCalc(r, rules).calc;
+        return [r.seq, r.start_date, r.end_date, r.from_place, r.to_place, r.reason, r.driver, r.companions,
+          c.km, c.kmRate, c.vehicleFee, c.real.transport, c.real.hotel, c.real.taxi, c.real.toll, c.real.parking,
+          c.real.other, c.realTotal, c.food, c.local, c.advance, c.total, r.status, r.reimb_status, r.remark];
+      });
+    const reimbursementTotal = rows.reduce((s, r) => s + (Number(r[21]) || 0), 0);
+    const vehicleTotal = rows.reduce((s, r) => s + (Number(r[10]) || 0), 0);
+    extraHtml = '<div class="sum">本月合计：' + rows.length + ' 次；报销金额 ' + moneyFmt(reimbursementTotal)
+      + ' 元（不含里程费）；车辆里程费用单独统计 ' + moneyFmt(vehicleTotal) + ' 元</div>';
   } else if (kind === 'studies') {
     title = '学习记录';
     headers = ['序号', '日期', '标题', '内容', '时长(分钟)', '来源', '标签'];
@@ -1319,7 +1337,7 @@ export function seedIfEmpty() {
   T('trips').push({
     id: 1, seq: nextSeq('trip'), start_date: d10, end_date: d9,
     from_place: '学校', to_place: '市教研室（江城区）', reason: '高二语文命题培训',
-    companions: '李老师、陈老师', km: 86, toll: 40, parking: 15, other: 0,
+    driver: '李老师', companions: '陈老师、王老师', km: 86, km_rate: 1, toll: 40, parking: 15, other: 0,
     status: 'approved', reimb_status: 'paid', remark: '已完成报销',
     created_at: now, updated_at: now, deleted_at: null,
   });
@@ -3423,33 +3441,56 @@ on('GET', '/trip/stats', ({ query }) => {
     .sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))
     .map((r) => tripWithCalc(r, rules));
   const months = {};
-  for (let i = 1; i <= 12; i += 1) months[`${year}-${pad2(i)}`] = { month: `${year}-${pad2(i)}`, count: 0, km: 0, real: 0, subsidy: 0, total: 0 };
+  for (let i = 1; i <= 12; i += 1) {
+    const month = year + '-' + pad2(i);
+    months[month] = { month, count: 0, km: 0, vehicleFee: 0, real: 0, subsidy: 0, total: 0 };
+  }
   const byKind = { transport: 0, hotel: 0, taxi: 0, toll: 0, parking: 0, other: 0 };
-  let km = 0; let total = 0; let real = 0; let subsidy = 0; let net = 0; let advance = 0;
+  const byDestination = Object.create(null);
+  const byDriver = Object.create(null);
+  const byCompanion = Object.create(null);
+  const addAggregate = (target, rawName, trip) => {
+    const name = String(rawName || '').trim();
+    if (!name) return;
+    const item = target[name] || (target[name] = { name, count: 0, km: 0, vehicleFee: 0 });
+    item.count += 1;
+    item.km = n2(item.km + trip.calc.km);
+    item.vehicleFee = n2(item.vehicleFee + trip.calc.vehicleFee);
+  };
+  let km = 0; let vehicleFee = 0; let total = 0; let real = 0; let subsidy = 0; let net = 0; let advance = 0;
   for (const t of list) {
     const m = String(t.start_date || '').slice(0, 7);
     if (months[m]) {
       months[m].count += 1;
-      months[m].km += num(t.km);
+      months[m].km = n2(months[m].km + t.calc.km);
+      months[m].vehicleFee = n2(months[m].vehicleFee + t.calc.vehicleFee);
       months[m].real = n2(months[m].real + t.calc.realTotal);
       months[m].subsidy = n2(months[m].subsidy + t.calc.subsidyTotal);
       months[m].total = n2(months[m].total + t.calc.total);
     }
-    km += num(t.km);
+    km = n2(km + t.calc.km);
+    vehicleFee = n2(vehicleFee + t.calc.vehicleFee);
     real = n2(real + t.calc.realTotal);
     subsidy = n2(subsidy + t.calc.subsidyTotal);
     total = n2(total + t.calc.total);
     net = n2(net + t.calc.net);
     advance = n2(advance + t.calc.advance);
     for (const k of Object.keys(byKind)) byKind[k] = n2(byKind[k] + num(t.calc.real[k]));
+    addAggregate(byDestination, t.to_place, t);
+    addAggregate(byDriver, t.driver, t);
+    const companions = [...new Set(String(t.companions || '').split(/[,，、;；|]+/).map((x) => x.trim()).filter(Boolean))];
+    for (const person of companions) addAggregate(byCompanion, person, t);
   }
+  const rank = (map) => Object.values(map).sort((a, b) => b.count - a.count || b.km - a.km || a.name.localeCompare(b.name, 'zh-CN'));
   return {
     year, rules,
     summary: {
-      count: list.length, km, real, subsidy, total, net, advance,
+      count: list.length, km, vehicleFee, real, subsidy, total, net, advance,
       pending: n2(list.filter((t) => t.reimb_status !== 'paid').reduce((s, t) => s + t.calc.net, 0)),
     },
-    months: Object.values(months), byKind, rows: list,
+    months: Object.values(months), byKind,
+    byDestination: rank(byDestination), byDriver: rank(byDriver), byCompanion: rank(byCompanion),
+    rows: list,
   };
 });
 on('GET', '/trip/:id', ({ params }) => {
@@ -3543,7 +3584,7 @@ on('POST', '/import/:kind', ({ params, body }) => {
     代课人: 'substitute', 课时: 'hours', 上课内容: 'content', 教学进度: 'progress',
     下节课内容: 'next_content', 违纪情况: 'discipline', 备注: 'remark', 标题: 'title',
     内容: 'content', 时长分钟: 'minutes', 出发点: 'from_place', 目的地: 'to_place',
-    事由: 'reason', 随行人员: 'companions', 公里数: 'km', 过路费: 'toll', 停车费: 'parking',
+    事由: 'reason', 驾驶人员: 'driver', 驾驶人: 'driver', 司机: 'driver', 随行人员: 'companions', 公里数: 'km', 里程费率: 'km_rate', '里程费率(元/km)': 'km_rate', 过路费: 'toll', 停车费: 'parking',
   };
   const table = { lessons: 'lessons', invigilations: 'invigilations', trips: 'trips', studies: 'studies', students: 'students', items: 'items', todos: 'todos' }[kind];
   if (!table) fail(400, '该类型暂不支持导入');
@@ -4019,7 +4060,7 @@ function searchAll(q, mode) {
   push('便签', 'todos', rowsOf('todos'), (r) => [r.title, r.content]);
   push('事项', 'items', rowsOf('items'), (r) => [r.title, r.detail]);
   push('学习记录', 'studies', rowsOf('studies'), (r) => [r.title, r.content]);
-  push('出差', 'trips', rowsOf('trips'), (r) => [r.to_place, r.reason]);
+  push('出差', 'trips', rowsOf('trips'), (r) => [r.to_place, r.reason, r.driver, r.companions]);
   push('监考', 'invigilations', rowsOf('invigilations'), (r) => [r.subject, r.exam_name, r.place, r.peer_name]);
   push('考勤表', 'attendance_tables', rowsOf('attendance_tables'), (r) => [r.name, r.grade]);
   groups.sort((a, b) => b.hits - a.hits);
