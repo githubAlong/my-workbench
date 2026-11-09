@@ -49,6 +49,13 @@ function periodRecord(row, period) {
   return periods[String(period)] || periods['第' + period + '节'] || {};
 }
 
+export function matchesAttendancePeriod(value, period) {
+  const match = String(value || '').match(/(?:第\s*)?(\d+)(?:\s*[-~至]\s*(\d+))?\s*节/);
+  if (!match) return true;
+  const current = Number(period);
+  return current >= Number(match[1]) && current <= Number(match[2] || match[1]);
+}
+
 export function deriveRosterState(teacher, {
   seatRows = [],
   classRows = [],
@@ -60,27 +67,33 @@ export function deriveRosterState(teacher, {
   const name = String(teacher?.name || '').trim();
   const seatRow = seatRows.find((row) => String(row.teacher || '').trim() === name);
   const selectedSeat = periodRecord(seatRow, period);
-  const seatRecords = Array.from({ length: 9 }, (_, index) => periodRecord(seatRow, index + 1));
   const classRecords = classRows.filter((row) => {
-    const d = rowData(row);
-    return !d.__deleted && String(row.teacher || '').trim() === name;
+    const data = rowData(row);
+    const record = data.__classRecord || {};
+    return !data.__deleted
+      && String(row.teacher || '').trim() === name
+      && Number(record.period || period) === Number(period);
   });
   const researchRecords = researchRows.filter((row) => {
     const d = rowData(row).__research || {};
-    return Array.isArray(d.attendees) && d.attendees.includes(name);
+    return Array.isArray(d.attendees)
+      && d.attendees.includes(name)
+      && matchesAttendancePeriod(d.period_time, period);
   });
   const leaves = (Array.isArray(leaveRecords) ? leaveRecords : []).filter((item) =>
     String(item.name || item.teacher || '').trim() === name && leaveCoversDate(item, date)
   );
   const classStatus = classRecords.some((row) => (rowData(row).__classRecord || {}).status === 'y') ? 'y'
-    : classRecords.some((row) => (rowData(row).__classRecord || {}).status === 'n') ? 'n' : 'n';
-  const seatStatus = seatRecords.some((record) => record.status === 'y') ? 'y'
-    : seatRecords.some((record) => record.status === 'n') ? 'n'
-      : selectedSeat.status || 'n';
-  const listensFromSeat = seatRecords.some((record) => !!String(record.listen_class || '').trim());
+    : classRecords.some((row) => (rowData(row).__classRecord || {}).status === 'n') ? 'n' : 'u';
+  const seatStatus = selectedSeat.status === 'y' || selectedSeat.status === 'n' ? selectedSeat.status : 'u';
+  const listensFromSeat = !!String(selectedSeat.listen_class || '').trim();
   const listensFromClass = classRows.some((row) => {
-    const d = rowData(row);
-    return !d.__deleted && Array.isArray(d.__classRecord?.listeners) && d.__classRecord.listeners.includes(name);
+    const data = rowData(row);
+    const record = data.__classRecord || {};
+    return !data.__deleted
+      && Number(record.period || period) === Number(period)
+      && Array.isArray(record.listeners)
+      && record.listeners.includes(name);
   });
   return {
     class: classStatus,
