@@ -670,11 +670,22 @@ export async function renderTimetable(box) {
   async function ensurePeriod(name, startTime, endTime) {
     const label = String(name || '').trim();
     if (!label) throw new Error('请填写节次名称');
+
+    // 导入预览中的“第 N 节”就是目标节次编号。优先按规范编号匹配，
+    // 不要先按显示名称命中旧记录，也不要在找不到记录时改用 max+1；
+    // 否则导入后会把第 1 节写成旧数据的第 10/14 节，造成预览正确、保存错位。
     const requestedNo = getCanonicalPeriodNumber({ name: label });
-    let hit = allPeriods.find((period) => samePeriodName(periodName(period), label));
-    if (!hit && requestedNo != null) hit = allPeriods.find((period) => getCanonicalPeriodNumber(period) === requestedNo);
-    if (hit) return hit;
-    const nextNo = Math.max(0, ...allPeriods.map((period) => Number(period.period_no) || 0)) + 1;
+    const periodOptions = { periodTimes, scheduleType: appliedType };
+    let hit = requestedNo == null ? null : allPeriods.find(
+      (period) => getCanonicalPeriodNumber(period, periodOptions) === requestedNo
+    );
+    if (!hit) hit = allPeriods.find((period) => samePeriodName(periodName(period), label));
+    if (hit) {
+      const canonicalNo = requestedNo ?? getCanonicalPeriodNumber(hit, periodOptions);
+      return canonicalNo == null ? hit : { ...hit, period_no: canonicalNo };
+    }
+
+    const nextNo = requestedNo ?? (Math.max(0, ...allPeriods.map((period) => Number(period.period_no) || 0)) + 1);
     const lunch = label.includes('午休');
     const created = await api.post('/periods', {
       period_no: nextNo,
@@ -683,7 +694,7 @@ export async function renderTimetable(box) {
       end_time: normalizeTime(endTime) || (lunch ? '14:10' : '00:00'),
     });
     allPeriods.push(created);
-    return created;
+    return { ...created, period_no: requestedNo ?? Number(created.period_no) };
   }
 
   function timePickerField(id, label, value) {
