@@ -101,6 +101,21 @@ test("the one-click high-two import button is removed while standard import rema
   assert.match(source, /querySelector\('#tt-import'\)/);
 });
 
+
+test("timetable accent colors follow the global appearance theme", () => {
+  const marker = "/* ===== 课表主题外观联动：强调色统一读取全局主题变量 ===== */";
+  const themeStyles = css.slice(css.lastIndexOf(marker));
+  assert.ok(themeStyles.length > marker.length, "missing global theme binding overrides");
+  for (const token of ["--primary", "--primary-weak", "--primary-deep", "--card", "--line", "--bg-sunken"]) {
+    assert.ok(themeStyles.includes("var(" + token + ")"), "theme override must use " + token);
+  }
+  assert.match(themeStyles, /\\.tt-reminder[\\s\\S]*background:linear-gradient\\(112deg,var\\(--primary\\),var\\(--primary-deep\\)\\)/);
+  assert.match(themeStyles, /\\.tt-grid-table thead th\\.is-today[\\s\\S]*background:linear-gradient\\(135deg,var\\(--primary\\),var\\(--primary-deep\\)\\)/);
+  assert.match(themeStyles, /\\.tt-course-block\\.tt-grade-1[\\s\\S]*background:var\\(--primary-weak\\)/);
+  assert.match(themeStyles, /\\.tt-grade-tag\\.tt-grade-1[\\s\\S]*background:var\\(--primary\\)/);
+  assert.match(themeStyles, /\\.tt-current-tag b[\\s\\S]*background:var\\(--primary-weak\\)/);
+});
+
 test("desktop timetable row density adapts to browser viewport height", () => {
   assert.match(source, /setProperty\('--tt-period-count'/);
   assert.match(css, /--tt-row-height/);
