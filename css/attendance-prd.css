@@ -56,3 +56,59 @@
 .attendance-prd .aprd-upload-zone{position:relative}
 .attendance-prd .aprd-upload-zone button{height:34px;padding:0 16px;border:1px solid #c6d8f5;border-radius:8px;background:#fff;color:#1764f5;font-size:12px;font-weight:650;cursor:pointer}
 .attendance-prd .aprd-upload-zone button:hover{background:#edf4ff;border-color:#8fb5f6}
+
+
+/* 花名册新增教师卡片：放在工具栏与名单表格之间，表单字段响应式排列。 */
+.attendance-prd .aprd-roster-add-card{
+  margin:0 0 14px;
+  padding:16px 18px;
+  border:1px solid #dce7f6;
+  border-radius:12px;
+  background:linear-gradient(180deg,#f8fbff 0%,#fff 100%);
+  box-shadow:0 4px 14px rgba(35,75,130,.05);
+}
+.attendance-prd .aprd-roster-add-head{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;
+}
+.attendance-prd .aprd-roster-add-head h3{margin:0;color:#172744;font-size:16px;font-weight:750}
+.attendance-prd .aprd-roster-add-head p{margin:4px 0 0;color:#8290a5;font-size:12px}
+.attendance-prd .aprd-roster-add-head>span{
+  flex:none;padding:5px 9px;border-radius:7px;background:#edf4ff;color:#3565a5;font-size:11px;
+}
+.attendance-prd .aprd-roster-add-form{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 14px;align-items:end;
+}
+.attendance-prd .aprd-roster-add-form>label{
+  display:grid;gap:6px;min-width:0;color:#53627a;font-size:12px;font-weight:650;
+}
+.attendance-prd .aprd-roster-add-form>label em{color:#e5484d;font-style:normal}
+.attendance-prd .aprd-roster-add-form input{
+  width:100%;height:38px;min-width:0;padding:0 11px;border:1px solid #d7e1ef;border-radius:8px;
+  outline:none;background:#fff;color:#263650;font:13px inherit;transition:border-color .15s,box-shadow .15s;
+}
+.attendance-prd .aprd-roster-add-form input:focus{
+  border-color:#6b9cff;box-shadow:0 0 0 3px rgba(22,93,255,.09);
+}
+.attendance-prd .aprd-roster-add-actions{
+  grid-column:1/-1;display:flex;justify-content:flex-end;gap:9px;margin-top:2px;
+}
+.attendance-prd .aprd-roster-add-actions button{
+  min-width:82px;height:36px;padding:0 15px;border:1px solid #dce5f1;border-radius:8px;
+  background:#fff;color:#53627a;font-size:12px;cursor:pointer;
+}
+.attendance-prd .aprd-roster-add-actions button.primary{
+  border-color:#165dff;background:#165dff;color:#fff;font-weight:650;
+}
+.attendance-prd .aprd-roster-add-actions button:disabled{opacity:.6;cursor:wait}
+@media(max-width:900px){
+  .attendance-prd .aprd-roster-add-form{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){
+  .attendance-prd .aprd-roster-add-card{padding:13px}
+  .attendance-prd .aprd-roster-add-head{align-items:flex-start;flex-direction:column}
+  .attendance-prd .aprd-roster-add-form{grid-template-columns:1fr}
+  .attendance-prd .aprd-roster-add-actions{grid-column:1}
+  .attendance-prd .aprd-roster-add-actions button{flex:1}
+}
+
+/* 教师编辑等普通弹窗挂载在 attendance-prd 容器内，确保遮罩和表单样式生效。 */

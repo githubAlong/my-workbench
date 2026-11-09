@@ -36,6 +36,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   let grade = grades.includes(initialGrade) ? initialGrade : (grades[0] || initialGrade || '');
   let date = TODAY(), period = 1, tab = 'roster', search = '', subject = '';
   let teachers = [], allTeachers = [], tables = [], details = {}, leaveRecords = [], prefs = {};
+  let showAddTeacher = true;
   let busy = false;
   const load = async () => {
     if (busy) return; busy = true;
@@ -304,7 +305,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     dialog.innerHTML = '<form class="aprd-editor"><h3>'+esc(title)+'</h3>'+
       fields.map(f=>'<label>'+esc(f.label)+(f.type==='select'?'<select name="'+escAttr(f.key)+'">'+f.options.map(o=>'<option '+(String(initial[f.key]??'')===String(o.value)?'selected':'')+' value="'+escAttr(o.value)+'">'+esc(o.label)+'</option>').join('')+'</select>':f.type==='textarea'?'<textarea name="'+escAttr(f.key)+'">'+esc(initial[f.key]||'')+'</textarea>':'<input name="'+escAttr(f.key)+'" type="'+(f.type||'text')+'" value="'+escAttr(initial[f.key]||'')+'" '+(f.required?'required':'')+'>')+'</label>').join('')+
       '<div class="aprd-foot"><button type="button" data-cancel>取消</button><button class="primary" type="submit">保存</button></div></form>';
-    root.append(dialog); const form=dialog.querySelector('form');
+    (root.querySelector('.attendance-prd') || root).append(dialog); const form=dialog.querySelector('form');
     dialog.querySelector('[data-cancel]').onclick=()=>dialog.remove();
     form.onsubmit=async e=>{e.preventDefault();const data=Object.fromEntries(new FormData(form));try{await onSave(data);dialog.remove();}catch(err){toast(err.message||'保存失败','err');}};
   };
@@ -469,7 +470,25 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const mark=(key,val)=>'<button type="button" class="aprd-mark '+(val==='y'?'y':val==='n'?'n':'u')+'" data-person="'+t.id+'" data-key="'+key+'">'+CHECK_LABEL(val)+'</button>';
       return '<tr><td>'+(i+1)+'</td><td><button type="button" class="aprd-link" data-dept="'+t.id+'">'+esc(deptOf(t))+'</button></td><td><button type="button" class="aprd-link" data-teacher-grade="'+t.id+'">'+esc(t.grade||grade)+'</button></td><td><b>'+esc(t.name)+'</b></td><td>'+esc(t.subject||'')+'</td><td>'+mark('class',st.class)+'</td><td>'+mark('sit',st.sit)+'</td><td>'+mark('listen',st.listen?'y':'u')+'</td><td>'+mark('research',st.research?'y':'u')+'</td><td><button type="button" class="aprd-mark '+(st.leave?'y':'u')+'" data-leave="'+t.id+'">'+esc(st.leave||'无')+'</button></td><td>'+esc(noteOf(t))+'</td><td><div class="aprd-actions"><button type="button" data-edit="'+t.id+'">编辑</button><button type="button" data-disable="'+t.id+'">停用</button></div></td></tr>';
     }).join('');
-    return '<div class="aprd-toolbar"><input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'"><select id="aprd-subject"><option value="">全部学科</option>'+subjects.map(s=>'<option '+(subject===s?'selected':'')+'>'+esc(s)+'</option>').join('')+'</select><button class="primary" data-add>新增人员</button><button type="button" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button data-roster-export-toggle>批量导出 ▾</button><div class="aprd-export-menu" data-roster-export-menu hidden><label>导出范围 <select id="aprd-export-scope"><option value="all">全部在岗人员</option><option value="filtered">当前筛选结果</option></select></label><button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button></div></div><button data-copy>复制名单</button><button data-subject-manager>学科管理</button><span>当前筛：'+esc(subject||'全部')+' · '+list.length+' 人</span></div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.roster.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div><p class="aprd-note">花名册仅显示当前年级在岗教师；状态按当前日期和节次读取。</p>';
+    const addCard = showAddTeacher ? \`
+      <section class="aprd-roster-add-card" aria-label="新增教师">
+        <div class="aprd-roster-add-head">
+          <div><h3>新增教师</h3><p>填写教师基本信息，保存后加入当前年级花名册</p></div>
+          <span>当前年级：\${esc(grade)}</span>
+        </div>
+        <form class="aprd-roster-add-form" id="aprd-roster-add-form">
+          <label>姓名 <em>*</em><input name="name" type="text" placeholder="请输入教师姓名" autocomplete="off" required></label>
+          <label>学科 <em>*</em><input name="subject" type="text" list="aprd-add-subjects" placeholder="请输入或选择学科" autocomplete="off" required>
+            <datalist id="aprd-add-subjects">\${subjects.map(item=>'<option value="'+esc(item)+'"></option>').join('')}</datalist>
+          </label>
+          <label>归属部门<input name="department" type="text" value="高中部" placeholder="请输入归属部门"></label>
+          <div class="aprd-roster-add-actions">
+            <button type="button" data-roster-add-cancel>取消</button>
+            <button type="submit" class="primary">保存教师</button>
+          </div>
+        </form>
+      </section>\` : '';
+    return '<div class="aprd-toolbar"><input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'"><select id="aprd-subject"><option value="">全部学科</option>'+subjects.map(s=>'<option '+(subject===s?'selected':'')+'>'+esc(s)+'</option>').join('')+'</select><button class="primary" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button><button type="button" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button data-roster-export-toggle>批量导出 ▾</button><div class="aprd-export-menu" data-roster-export-menu hidden><label>导出范围 <select id="aprd-export-scope"><option value="all">全部在岗人员</option><option value="filtered">当前筛选结果</option></select></label><button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button></div></div><button data-copy>复制名单</button><button data-subject-manager>学科管理</button><span>当前筛：'+esc(subject||'全部')+' · '+list.length+' 人</span></div>'+addCard+'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.roster.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div><p class="aprd-note">花名册仅显示当前年级在岗教师；状态按当前日期和节次读取。</p>';
   };
   const seatHtml = () => {
     const t=details.seat, rows=(t?.rows||[]).filter(r=>teachers.some(x=>x.name===r.teacher));
@@ -539,7 +558,34 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const existing=activeLeavesFor(leaveRecords,date,grade).find(x=>String(x.name||x.teacher||'').trim()===teacher.name);
       editLeaveRecord(existing,teacher);
     });
-    root.querySelector('[data-add]')?.addEventListener('click',()=>openEditor('新增教师',[{key:'name',label:'姓名',required:true},{key:'subject',label:'学科',required:true},{key:'department',label:'归属部门'}],{department:'高中部'},async d=>{await api.post('/teachers',{grade,name:d.name,subject:d.subject});const list=await api.get('/teachers',{grade,active:'all'});const t=list.list.find(x=>x.name===d.name);if(t)await setTeacherMeta(t,{department:d.department});await load();}));
+    root.querySelector('[data-add]')?.addEventListener('click',()=>{showAddTeacher=!showAddTeacher;paint();});
+    root.querySelector('[data-roster-add-cancel]')?.addEventListener('click',()=>{showAddTeacher=false;paint();});
+    root.querySelector('#aprd-roster-add-form')?.addEventListener('submit',async event=>{
+      event.preventDefault();
+      const form=event.currentTarget;
+      const submit=form.querySelector('[type="submit"]');
+      const values=Object.fromEntries(new FormData(form));
+      const name=String(values.name||'').trim();
+      const subjectName=String(values.subject||'').trim();
+      const department=String(values.department||'').trim()||'高中部';
+      if(!name){toast('请填写教师姓名','warn');form.querySelector('[name="name"]')?.focus();return;}
+      if(!subjectName){toast('请填写教师学科','warn');form.querySelector('[name="subject"]')?.focus();return;}
+      submit.disabled=true;
+      submit.textContent='保存中…';
+      try{
+        await api.post('/teachers',{grade,name,subject:subjectName});
+        const updated=await api.get('/teachers',{grade,active:'all'});
+        const created=(updated.list||[]).find(item=>item.name===name&&item.subject===subjectName);
+        if(created)await setTeacherMeta(created,{department});
+        showAddTeacher=false;
+        toast('教师已新增','ok');
+        await load();
+      }catch(error){
+        submit.disabled=false;
+        submit.textContent='保存教师';
+        toast(error.message||'新增教师失败','err');
+      }
+    });
     const rosterImportButton=root.querySelector('[data-roster-import]');
     if(rosterImportButton){
       rosterImportButton.type='button';
