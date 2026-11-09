@@ -562,3 +562,215 @@ html[data-theme="dark"] .tt-current-tag b{background:#302644;color:#d4c5ff}
   .tt-course-block{min-height:52px;padding:5px 6px;grid-template-columns:25px minmax(0,1fr);gap:0 6px}
   .tt-course-icon{width:24px;height:24px}
 }
+
+
+/* ==========================================================================
+   我的课表 · 当前浏览器视口自适应
+   只作用于课表页面：根据可用视口高度动态压缩节次行高，桌面端尽量一屏看完整周课表。
+   ========================================================================== */
+@media (min-width:1081px) {
+  .app:has(.tt-workspace) .main {
+    max-width:none;
+    padding:14px 18px 10px;
+  }
+  .tt-workspace {
+    --tt-row-height:clamp(26px,calc((100vh - 330px) / var(--tt-period-count, 12)),52px);
+  }
+  @supports (height:100dvh) {
+    .tt-workspace {
+      --tt-row-height:clamp(26px,calc((100dvh - 330px) / var(--tt-period-count, 12)),52px);
+    }
+  }
+  .tt-workspace-head {
+    display:grid;
+    grid-template-columns:minmax(120px,1fr) auto;
+    align-items:center;
+    gap:10px;
+    min-height:34px;
+    margin:0 0 10px;
+  }
+  .tt-workspace-title {font-size:20px;line-height:1.2}
+  .tt-toolbar-actions {flex-wrap:nowrap;gap:6px;min-width:0}
+  .tt-toolbar-actions>.btn {min-height:34px;padding:0 10px;font-size:11.5px;white-space:nowrap}
+  .tt-reminder,.tt-reminder.free,.tt-reminder.class {
+    display:grid;
+    grid-template-columns:112px minmax(150px,1fr) 148px minmax(170px,1.1fr) 46px;
+    align-items:center;
+    gap:10px;
+    height:88px;
+    min-height:88px;
+    margin:0 0 10px;
+    padding:9px 14px;
+    border-radius:14px;
+  }
+  .tt-reminder-date {display:flex;align-items:center;gap:8px;min-height:48px;padding-right:9px}
+  .tt-reminder-date-icon {display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;border-radius:11px}
+  .tt-reminder-date-icon svg {width:21px;height:21px}
+  .tt-reminder-weekday {font-size:22px;line-height:1.1}
+  .tt-reminder-date-text {font-size:10px}
+  .tt-reminder-status {display:flex;flex-direction:column;gap:3px;min-width:0}
+  .tt-reminder-kicker {min-height:18px;padding:1px 7px;font-size:9px}
+  .tt-reminder-title {margin:0;font-size:13px;line-height:1.2}
+  .tt-reminder-desc {font-size:9.5px;line-height:1.25}
+  .tt-reminder-countdown {padding:6px 8px;border-radius:10px}
+  .tt-reminder-label {margin:0 0 2px;font-size:9px}
+  .tt-reminder-number {font-size:23px;line-height:1.1}
+  .tt-reminder-facts {justify-content:space-around;gap:7px}
+  .tt-reminder-fact {gap:6px}
+  .tt-reminder-fact-icon {flex-basis:28px;width:28px;height:28px;border-radius:8px}
+  .tt-reminder-fact-icon svg {width:16px;height:16px}
+  .tt-reminder-fact-copy {gap:2px}
+  .tt-reminder-fact-copy small {font-size:9px}
+  .tt-reminder-fact-copy b {font-size:10.5px}
+  .tt-reminder-art {width:40px;height:40px;border-radius:11px}
+  .tt-reminder-art svg {width:30px;height:30px}
+  .tt-reminder-art:after {display:none}
+  .tt-query-bar {
+    min-height:58px;
+    flex-wrap:nowrap;
+    align-items:center;
+    gap:10px;
+    padding:7px 12px;
+    border-radius:12px;
+  }
+  .tt-query-item {gap:3px;font-size:10px;white-space:nowrap}
+  .tt-query-item select {min-width:145px;min-height:34px;padding:5px 9px;font-size:11px}
+  .tt-query-bar>.btn.primary {min-height:34px;padding:0 12px;font-size:11px;white-space:nowrap}
+  .tt-current-tag {display:flex;align-items:center;gap:7px;flex:0 0 auto;min-height:30px;margin:0 0 0 auto;padding-left:11px;border-left:1px solid #e6e0ef;font-size:10px}
+  .tt-current-tag b {min-height:24px;padding:2px 8px;font-size:10px}
+  .tt-grid-title {min-height:40px;margin-top:9px;padding:5px 10px;font-size:17px;letter-spacing:0}
+  .tt-grid-title-icon svg {width:17px;height:17px}
+  .tt-grid-title-note {font-size:9px}
+  .tt-grid-scroll {border-radius:0 0 11px 11px}
+  .tt-grid-table {min-width:1040px;font-size:10px}
+  .tt-grid-table .tt-col-period {width:58px}
+  .tt-grid-table .tt-col-time {width:104px}
+  .tt-grid-table thead th {height:34px;padding:4px 5px;font-size:10.5px}
+  .tt-grid-table tbody td {height:var(--tt-row-height);padding:2px 4px}
+  .tt-grid-table .tt-period-cell strong {font-size:10px}
+  .tt-grid-table .tt-time-cell {font-size:9.5px}
+  .tt-grid-table .tt-lunch-row td {height:calc(var(--tt-row-height) - 4px);padding:0 4px}
+  .tt-grid-table .tt-lunch-cell {font-size:10px;letter-spacing:.2px}
+  .tt-empty-add {width:18px;height:18px;font-size:14px}
+  .tt-course-block {
+    grid-template-columns:20px minmax(0,1fr);
+    align-items:center;
+    gap:0 5px;
+    width:100%;
+    height:calc(var(--tt-row-height) - 6px);
+    min-height:0;
+    margin:0;
+    padding:2px 4px;
+    border-radius:8px;
+  }
+  .tt-course-icon {width:20px;height:20px;border-radius:7px}
+  .tt-course-icon svg {width:13px;height:13px}
+  .tt-course-content {gap:0}
+  .tt-course-heading {gap:3px}
+  .tt-course-subject {font-size:clamp(9px,1.05vh,10.5px);line-height:1.08}
+  .tt-grade-tag {padding:0 4px;font-size:8px}
+  .tt-course-class,.tt-course-time {font-size:clamp(8px,.9vh,9px);line-height:1.08}
+  .tt-course-actions {top:2px;right:2px}
+  .tt-course-action {width:17px;height:17px;border-radius:5px}
+  .tt-course-action svg {width:10px;height:10px}
+  .tt-summary-bar {display:none}
+}
+
+@media (min-width:1081px) and (max-height:760px) {
+  .app:has(.tt-workspace) .main {padding:8px 14px 6px}
+  .tt-workspace {--tt-row-height:clamp(28px,calc((100vh - 260px) / var(--tt-period-count, 12)),42px)}
+  @supports (height:100dvh) {
+    .tt-workspace {--tt-row-height:clamp(28px,calc((100dvh - 260px) / var(--tt-period-count, 12)),42px)}
+  }
+  .tt-workspace-head {min-height:30px;margin-bottom:6px}
+  .tt-workspace-title {font-size:18px}
+  .tt-toolbar-actions>.btn {min-height:30px;padding:0 8px;font-size:10.5px}
+  .tt-reminder,.tt-reminder.free,.tt-reminder.class {
+    grid-template-columns:96px minmax(130px,1fr) 126px minmax(145px,1fr) 36px;
+    gap:7px;
+    height:72px;
+    min-height:72px;
+    margin-bottom:6px;
+    padding:6px 10px;
+  }
+  .tt-reminder-date {min-height:40px;gap:6px;padding-right:7px}
+  .tt-reminder-date-icon {flex-basis:30px;width:30px;height:30px}
+  .tt-reminder-weekday {font-size:19px}
+  .tt-reminder-date-text {font-size:9px}
+  .tt-reminder-kicker {min-height:16px;font-size:8px}
+  .tt-reminder-title {font-size:11.5px}
+  .tt-reminder-desc {font-size:8.5px}
+  .tt-reminder-countdown {padding:4px 6px}
+  .tt-reminder-number {font-size:20px}
+  .tt-reminder-fact-icon {flex-basis:25px;width:25px;height:25px}
+  .tt-reminder-fact-copy small {font-size:8px}
+  .tt-reminder-fact-copy b {font-size:9.5px}
+  .tt-reminder-art {width:32px;height:32px}
+  .tt-reminder-art svg {width:25px;height:25px}
+  .tt-query-bar {min-height:52px;gap:8px;padding:5px 9px}
+  .tt-query-item {font-size:9px}
+  .tt-query-item select {min-width:132px;min-height:31px;font-size:10px}
+  .tt-query-bar>.btn.primary {min-height:31px;font-size:10px}
+  .tt-current-tag {min-height:26px;font-size:9px}
+  .tt-current-tag b {min-height:21px;font-size:9px}
+  .tt-grid-title {min-height:34px;margin-top:6px;font-size:15px}
+  .tt-grid-table thead th {height:30px;font-size:9.5px}
+  .tt-grid-table .tt-period-cell strong {font-size:9px}
+  .tt-grid-table .tt-time-cell {font-size:8.5px}
+  .tt-grid-table .tt-lunch-row td {height:calc(var(--tt-row-height) - 4px)}
+  .tt-course-block {grid-template-columns:18px minmax(0,1fr);gap:0 4px;height:calc(var(--tt-row-height) - 5px);padding:1px 3px}
+  .tt-course-icon {width:18px;height:18px}
+  .tt-course-icon svg {width:12px;height:12px}
+  .tt-course-subject {font-size:9px;line-height:1.02}
+  .tt-course-class,.tt-course-time {font-size:8px;line-height:1.02}
+  .tt-summary-bar {display:none}
+}
+
+@media (min-width:1081px) and (max-height:650px) {
+  .app:has(.tt-workspace) .main {padding:6px 12px 4px}
+  .tt-workspace {--tt-row-height:clamp(24px,calc((100vh - 240px) / var(--tt-period-count, 12)),36px)}
+  @supports (height:100dvh) {
+    .tt-workspace {--tt-row-height:clamp(24px,calc((100dvh - 240px) / var(--tt-period-count, 12)),36px)}
+  }
+  .tt-workspace-head {min-height:27px;margin-bottom:4px}
+  .tt-workspace-title {font-size:16px}
+  .tt-toolbar-actions>.btn {min-height:27px;padding:0 7px;font-size:9.5px}
+  .tt-reminder,.tt-reminder.free,.tt-reminder.class {
+    grid-template-columns:88px minmax(120px,1fr) 112px minmax(130px,1fr) 30px;
+    gap:5px;
+    height:60px;
+    min-height:60px;
+    margin-bottom:4px;
+    padding:4px 8px;
+  }
+  .tt-reminder-date {min-height:34px;gap:5px;padding-right:5px}
+  .tt-reminder-date-icon {flex-basis:26px;width:26px;height:26px}
+  .tt-reminder-date-icon svg {width:17px;height:17px}
+  .tt-reminder-weekday {font-size:17px}
+  .tt-reminder-date-text {font-size:8px}
+  .tt-reminder-kicker {min-height:14px;padding:0 5px;font-size:7.5px}
+  .tt-reminder-title {font-size:10px}
+  .tt-reminder-desc {font-size:7.5px}
+  .tt-reminder-countdown {padding:3px 5px}
+  .tt-reminder-number {font-size:17px}
+  .tt-reminder-label {font-size:8px}
+  .tt-reminder-fact-icon {flex-basis:22px;width:22px;height:22px}
+  .tt-reminder-fact-copy small {font-size:7px}
+  .tt-reminder-fact-copy b {font-size:8.5px}
+  .tt-reminder-art {width:27px;height:27px}
+  .tt-reminder-art svg {width:21px;height:21px}
+  .tt-query-bar {min-height:44px;gap:6px;padding:3px 7px}
+  .tt-query-item {font-size:8px}
+  .tt-query-item select {min-width:120px;min-height:27px;padding:3px 7px;font-size:9px}
+  .tt-query-bar>.btn.primary {min-height:27px;padding:0 8px;font-size:9px}
+  .tt-current-tag {min-height:23px;font-size:8px}
+  .tt-current-tag b {min-height:18px;font-size:8px}
+  .tt-grid-title {min-height:30px;margin-top:4px;font-size:14px}
+  .tt-grid-table thead th {height:26px;padding:2px 4px;font-size:8.5px}
+  .tt-grid-table .tt-period-cell strong,.tt-grid-table .tt-time-cell {font-size:8px}
+  .tt-course-block {grid-template-columns:16px minmax(0,1fr);gap:0 3px;height:calc(var(--tt-row-height) - 4px);padding:1px 2px}
+  .tt-course-icon {width:16px;height:16px;border-radius:5px}
+  .tt-course-icon svg {width:10px;height:10px}
+  .tt-course-subject {font-size:8.5px;line-height:1}
+  .tt-course-class,.tt-course-time {font-size:7.5px;line-height:1}
+}

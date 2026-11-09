@@ -91,3 +91,18 @@ test("high-two 2026 autumn timetable keeps source row numbers, lunch span and ti
   ]) assert.ok(source.includes(marker), "missing exact source schedule marker: " + marker);
   assert.match(source, /await api\.patch\("\/courses\/" \+ target\.id, data\)/);
 });
+
+
+test("the one-click high-two import button is removed while standard import remains", () => {
+  assert.doesNotMatch(source, /id="tt-import-high2"/);
+  assert.doesNotMatch(source, /querySelector\('#tt-import-high2'\)/);
+  assert.match(source, /id="tt-import"/);
+  assert.match(source, /querySelector\('#tt-import'\)/);
+});
+
+test("desktop timetable row density adapts to browser viewport height", () => {
+  assert.match(source, /setProperty\('--tt-period-count'/);
+  assert.match(css, /--tt-row-height/);
+  assert.match(css, /100dvh/);
+  assert.match(css, /max-height:760px/);
+});

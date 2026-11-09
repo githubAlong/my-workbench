@@ -402,7 +402,6 @@ export async function renderTimetable(box) {
       '<div class="tt-toolbar-actions">' +
         '<button class="btn ghost sm" type="button" id="tt-export">' + icon('download', 14) + ' 导出课表</button>' +
         '<button class="btn ghost sm" type="button" id="tt-import">' + icon('upload', 14) + ' 导入课表</button>' +
-        (appliedType === TYPE_WINTER && appliedGrade === '高二' ? '<button class="btn ghost sm" type="button" id="tt-import-high2">导入2026秋季高二课表</button>' : '') +
         '<button class="btn ghost sm" type="button" id="tt-period-settings">作息设置</button>' +
         '<button class="btn primary sm" type="button" id="tt-add">' + icon('plus', 14) + ' 新增课程</button>' +
       '</div></div>' +
@@ -417,6 +416,7 @@ export async function renderTimetable(box) {
       gridHtml(visible, periods) +
       '<div class="tt-summary-bar"><span>当前课表共 ' + visible.length + ' 节课程</span><span>课程数据在本机保存，并通过工作台现有云同步机制同步到其他设备</span></div>' +
       '</section>';
+    box.querySelector('.tt-workspace')?.style.setProperty('--tt-period-count', String(Math.max(periods.length, 1)));
     bind(visible, periods);
     updateClock(visible);
   }
@@ -628,9 +628,6 @@ export async function renderTimetable(box) {
     box.querySelector('#tt-period-settings')?.addEventListener('click', () => openPeriodSettings());
     box.querySelector('#tt-empty-add')?.addEventListener('click', () => openCourseEditor(null, periods));
     box.querySelector('#tt-import')?.addEventListener('click', () => openImportDialog());
-    box.querySelector('#tt-import-high2')?.addEventListener('click', async () => {
-      try { await importHigh2Winter(); } catch (error) { toast(error?.message || '高二课表导入失败', 'err'); }
-    });
     box.querySelector('#tt-export')?.addEventListener('click', () => openExportDialog(visible, periods));
     box.querySelectorAll('[data-slot]').forEach((slot) => {
       slot.addEventListener('click', (event) => {
