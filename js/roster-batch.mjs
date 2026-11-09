@@ -27,7 +27,9 @@ function validSubject(value) {
   return subject.length > 0 && subject.length <= 20 && !/^(姓名|学科|科目|备注|序号|合计|小计)$/.test(subject);
 }
 function identity(row) {
-  return clean(row.name).toLowerCase() + '\u0000' + clean(row.subject).toLowerCase();
+  const name = clean(row.name).toLowerCase();
+  const subject = clean(row.subject).toLowerCase();
+  return name && subject ? name + '\u0000' + subject : '';
 }
 
 function parseGenericGrid(grid, gradeHint = '') {
@@ -209,7 +211,8 @@ async function recognizePdf(file, gradeHint, onProgress) {
     canvas.width = 0; canvas.height = 0;
     try {
       const result = await recognizeRosterPhoto(blob, (message) => onProgress?.('第 ' + pageNo + ' 页：' + message), null, gradeHint);
-      const pageRows = (result.pairs || result.rows || []).filter((row) => row.name && row.subject);
+      const pageRows = (Array.isArray(result.rows) && result.rows.length ? result.rows : (result.pairs || []))
+        .filter((row) => row && (row.name || row.subject || row.serial));
       allRows.push(...pageRows.map((row) => ({ ...row, grade: gradeHint, department: '', sourcePage: pageNo })));
     } catch (error) {
       warnings.push('第 ' + pageNo + ' 页未能可靠识别：' + (error.message || '请检查原图'));
@@ -247,11 +250,20 @@ export async function parseRosterFile(file, gradeHint = '', onProgress = () => {
     const { recognizeRosterPhoto } = await import('./ocr.js');
     onProgress('正在启动中文图片识别…');
     const recognized = await recognizeRosterPhoto(file, onProgress, null, gradeHint);
-    const rows = (recognized.pairs || recognized.rows || []).filter((row) => row.name && row.subject);
+    // Keep the complete review grid; do not silently discard rows the OCR missed.
+    const sourceRows = Array.isArray(recognized.rows) && recognized.rows.length ? recognized.rows : (recognized.pairs || []);
+    const rows = sourceRows.filter((row) => row && (row.name || row.subject || row.serial));
+    const recognizedCount = Number.isFinite(Number(recognized.recognizedCount))
+      ? Number(recognized.recognizedCount)
+      : rows.filter((row) => row.name && row.subject).length;
+    const expectedCount = Number(recognized.expectedCount) || rows.length;
+    const warnings = [...(recognized.warnings || [])];
+    if (expectedCount && recognizedCount < expectedCount) {
+      warnings.push('图片识别到 ' + recognizedCount + ' / ' + expectedCount + ' 条完整记录；未识别的行已保留，请逐项补全或选择跳过。');
+    }
     result = {
-      ok: true, grade: gradeHint, rows: markFileDuplicates(rows),
-      warnings: recognized.validation?.valid === false ? ['图片识别结果仍有缺项，请在预览表格中核对。'] : [],
-      confidence: recognized.confidence,
+      ok: true, grade: gradeHint, rows: markFileDuplicates(rows), warnings,
+      confidence: recognized.confidence, recognizedCount, expectedCount,
     };
   } else {
     throw new Error('暂不支持该文件格式。请选择 Excel、CSV、PDF、JPG 或 PNG。');

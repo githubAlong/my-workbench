@@ -176,6 +176,29 @@ export function validateRosterRows(rows, expectedCount) {
   return {expectedCount:count,totalRows:list.length,completeCount,duplicateSerials,missingSerials,incompleteSerials,valid:list.length===count&&completeCount===count&&duplicateSerials.length===0&&missingSerials.length===0&&incompleteSerials.length===0};
 }
 
+
+/** Parse name/subject-only contact sheets; retain blank rows for manual review. */
+export function parseRosterContactSheetRows(rowItems, expectedCount = 46, leftGroupCount = Math.ceil(expectedCount / 2), side = 'left') {
+  const count = Math.max(1, Number(expectedCount) || 46);
+  const leftCount = Math.max(1, Math.min(count, Number(leftGroupCount) || Math.ceil(count / 2)));
+  const rowCount = side === 'right' ? count - leftCount : leftCount;
+  const serialBase = side === 'right' ? leftCount + 1 : 1;
+  const source = Array.isArray(rowItems) ? rowItems : [];
+  return Array.from({ length: rowCount }, (_, index) => {
+    const item = source[index] || {};
+    const text = typeof item === 'string' ? item : String(item.text || '');
+    const subject = findSubject(text);
+    const name = cleanName(text, subject);
+    const rawConfidence = Number(typeof item === 'string' ? 0 : item.confidence) || 0;
+    const confidence = Math.max(0, Math.min(1, rawConfidence > 1 ? rawConfidence / 100 : rawConfidence));
+    return {
+      serial: serialBase + index, name, subject, side, rowIndex: index,
+      confidence, serialSource: 'position',
+      needsReview: !name || !subject || confidence < 0.55
+    };
+  });
+}
+
 export function inferExpectedCount(rows, knownCount = 0) {
   if (Number(knownCount)>0) return Number(knownCount);
   const list=Array.isArray(rows)?rows: [];

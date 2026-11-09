@@ -160,10 +160,11 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         if(key)seen.add(key);
         const existing=allTeachers.find(t=>!t.deleted_at&&rosterKey(t)===key);
         let duplicateKind=inFile?'file':existing?'existing':'';
-        let action=row.action||'add';
+        let action=row.action||(key?'add':'skip');
         if(inFile)action='skip';
         else if(existing){if(action==='add')action='skip';}
-        else action='add';
+        else if(!key)action='skip';
+        else if(action!=='skip')action='add';
         return {...row,duplicateKind,duplicateId:existing?.id||null,action};
       });
     };
@@ -171,23 +172,25 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       refreshDuplicates();
       const preview=$('#aprd-import-preview');
       preview.hidden=false;
-      const invalid=importRows.filter(row=>!String(row.name||'').trim()||!String(row.subject||'').trim()).length;
-      const additions=importRows.filter(row=>row.action==='add').length;
-      const updates=importRows.filter(row=>row.action==='update').length;
+      const completeRow=row=>String(row.name||'').trim()&&String(row.subject||'').trim();
+      const incomplete=importRows.filter(row=>!completeRow(row)).length;
+      const invalid=importRows.filter(row=>row.action!=='skip'&&!completeRow(row)).length;
+      const additions=importRows.filter(row=>row.action==='add'&&completeRow(row)).length;
+      const updates=importRows.filter(row=>row.action==='update'&&completeRow(row)).length;
       const skipped=importRows.filter(row=>row.action==='skip').length;
-      $('#aprd-import-summary').innerHTML='<b>识别 '+importRows.length+' 条</b><span>新增 '+additions+' 条</span><span>更新 '+updates+' 条</span><span>跳过 '+skipped+' 条</span>'+(invalid?'<strong>有 '+invalid+' 条缺少姓名或学科，请修正或跳过</strong>':'');
+      $('#aprd-import-summary').innerHTML='<b>识别 '+importRows.length+' 条</b><span>新增 '+additions+' 条</span><span>更新 '+updates+' 条</span><span>跳过 '+skipped+' 条</span>'+(incomplete?'<strong>有 '+incomplete+' 条未完整识别；空白行默认跳过，可补全后改为新增</strong>':'');
       $('#aprd-import-warnings').hidden=!importWarnings.length;
       $('#aprd-import-warnings').textContent=importWarnings.join('；');
       $('#aprd-import-rows').innerHTML=importRows.map((row,index)=>{
         const status=row.duplicateKind==='file'?'文件内重复':row.duplicateKind==='existing'?'名册已存在':(!row.name||!row.subject?'信息不完整':'可导入');
-        const options=row.duplicateKind==='file'?'<option value="skip" selected>跳过重复行</option>':row.duplicateKind==='existing'?'<option value="skip" '+(row.action==='skip'?'selected':'')+'>跳过已存在</option><option value="update" '+(row.action==='update'?'selected':'')+'>更新已有人员</option>':'<option value="add" selected>新增人员</option>';
+        const options=row.duplicateKind==='file'?'<option value="skip" selected>跳过重复行</option>':row.duplicateKind==='existing'?'<option value="skip" '+(row.action==='skip'?'selected':'')+'>跳过已存在</option><option value="update" '+(row.action==='update'?'selected':'')+'>更新已有人员</option>':'<option value="add" '+(row.action==='add'?'selected':'')+'>新增人员</option><option value="skip" '+(row.action==='skip'?'selected':'')+'>跳过此行</option>';
         return '<tr><td>'+esc(row.serial||index+1)+'</td><td><input data-import-field="name" data-index="'+index+'" value="'+esc(row.name||'')+'" aria-label="姓名"></td><td><input data-import-field="subject" data-index="'+index+'" value="'+esc(row.subject||'')+'" aria-label="学科"></td><td><input data-import-field="department" data-index="'+index+'" value="'+esc(row.department||'')+'" aria-label="归属部门" placeholder="高中部"></td><td>'+esc(row.grade||grade)+'</td><td><select data-import-action="'+index+'">'+options+'</select><small class="aprd-import-row-status">'+status+'</small></td></tr>';
       }).join('');
       $('[data-import-confirm]').disabled=!importRows.some(row=>row.action!=='skip'&&String(row.name||'').trim()&&String(row.subject||'').trim());
     };
     let importWarnings=[];
     const acceptParsed=(result)=>{
-      importRows=(result.rows||[]).map((row,index)=>({...row,serial:row.serial||index+1,action:'add'}));
+      importRows=(result.rows||[]).map((row,index)=>({...row,serial:row.serial||index+1,action:row.name&&row.subject?'add':'skip'}));
       importWarnings=[...(result.warnings||[])];
       if(result.grade&&result.grade!==grade)importWarnings.unshift('文件标题识别到'+result.grade+'，当前导入目标为'+grade+'；请确认名单属于当前年级。');
       renderPreview();
@@ -199,7 +202,11 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       try{
         const result=await parseRosterFile(file,grade,updateStatus);
         acceptParsed(result);
-        updateStatus('识别完成：'+result.rows.length+' 条，请逐项核对后确认导入。');
+        const recognizedCount=Number.isFinite(Number(result.recognizedCount))?Number(result.recognizedCount):result.rows.length;
+        const expectedCount=Number(result.expectedCount)||result.rows.length;
+        updateStatus(recognizedCount<expectedCount
+          ? '识别完成：有效识别 '+recognizedCount+' / '+expectedCount+' 条，缺失项已保留，请逐项补全或跳过。'
+          : '识别完成：'+recognizedCount+' 条，请逐项核对后确认导入。');
       }catch(error){updateStatus(error.message||'文件解析失败');toast(error.message||'文件解析失败','err');}
     };
     const fileInput=$('#aprd-import-file');

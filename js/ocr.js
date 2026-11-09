@@ -7,7 +7,7 @@
  * 表头、星期、考勤项目、备注等文字一律不作为教师姓名。
  */
 
-import { extractRosterRowsFromTesseract, buildRosterReviewRows, validateRosterRows, inferKnownRosterCount } from './roster-photo-parser.mjs';
+import { extractRosterRowsFromTesseract, buildRosterReviewRows, validateRosterRows, inferKnownRosterCount, parseRosterContactSheetRows } from './roster-photo-parser.mjs';
 
 const CDN_OPTIONS = [
   {
@@ -26,7 +26,7 @@ const LANG_PATH = 'https://tessdata.projectnaptha.com/4.0.0';
 const SUBJECTS = [
   '信息技术', '通用技术', '劳动技术', '心理健康', '综合实践',
   '语文', '数学', '英语', '物理', '化学', '生物',
-  '政治', '历史', '地理', '体育', '音乐', '美术', '科学',
+  '政治', '历史', '地理', '体育', '音乐', '美术', '科学', '信息', '日语', '俄语',
 ];
 const STOP_WORDS = new Set([
   '姓名', '名字', '学科', '序号', '编号', '教师', '老师',
@@ -41,6 +41,8 @@ const COMMON_SURNAMES = new Set(Array.from(
 let libraryPromise = null;
 let workerPromise = null;
 let worker = null;
+let rosterWorkerPromise = null;
+let rosterWorker = null;
 let activeCdn = null;
 let progressHandler = () => {};
 
@@ -124,6 +126,148 @@ async function getWorker() {
   }
   try { return await workerPromise; }
   catch (error) { workerPromise = null; worker = null; throw error; }
+}
+
+
+async function getRosterWorker() {
+  if (rosterWorker) return rosterWorker;
+  if (!rosterWorkerPromise) {
+    rosterWorkerPromise = (async () => {
+      const loaded = await loadLibrary();
+      report('正在准备中文表格识别模型…');
+      rosterWorker = await loaded.api.createWorker('chi_sim', 1, {
+        workerPath: loaded.cdn.worker, corePath: loaded.cdn.core, langPath: LANG_PATH,
+        gzip: true, cacheMethod: 'write', logger: engineLogger,
+      });
+      return rosterWorker;
+    })();
+  }
+  try { return await rosterWorkerPromise; }
+  catch (error) { rosterWorkerPromise = null; rosterWorker = null; throw error; }
+}
+
+function otsuThreshold(pixels) {
+  const histogram = new Uint32Array(256);
+  const total = pixels.length / 4;
+  let sum = 0;
+  for (let i = 0; i < pixels.length; i += 4) {
+    const gray = Math.max(0, Math.min(255, Math.round(pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114)));
+    histogram[gray] += 1;
+    sum += gray;
+  }
+  let backgroundWeight = 0, backgroundSum = 0, bestVariance = -1, threshold = 150;
+  for (let value = 0; value < 256; value += 1) {
+    backgroundWeight += histogram[value];
+    if (!backgroundWeight) continue;
+    const foregroundWeight = total - backgroundWeight;
+    if (!foregroundWeight) break;
+    backgroundSum += value * histogram[value];
+    const delta = backgroundSum / backgroundWeight - (sum - backgroundSum) / foregroundWeight;
+    const variance = backgroundWeight * foregroundWeight * delta * delta;
+    if (variance > bestVariance) { bestVariance = variance; threshold = value; }
+  }
+  return threshold;
+}
+
+function drawOtsuCell(sheetContext, source, sx, sy, sw, sh, dx, dy, dw, dh) {
+  const cell = document.createElement('canvas');
+  cell.width = Math.max(1, Math.round(sw));
+  cell.height = Math.max(1, Math.round(sh));
+  const context = cell.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('浏览器无法处理名单单元格');
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, cell.width, cell.height);
+  context.drawImage(source, sx, sy, sw, sh, 0, 0, cell.width, cell.height);
+  const image = context.getImageData(0, 0, cell.width, cell.height);
+  const threshold = otsuThreshold(image.data);
+  for (let i = 0; i < image.data.length; i += 4) {
+    const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+    const value = gray > threshold ? 255 : 0;
+    image.data[i] = image.data[i + 1] = image.data[i + 2] = value;
+    image.data[i + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+  sheetContext.drawImage(cell, dx, dy, dw, dh);
+  cell.width = 0;
+  cell.height = 0;
+}
+
+function makeRosterContactSheet(source, side, expectedCount) {
+  const width = Number(source?.width) || 0;
+  const height = Number(source?.height) || 0;
+  if (!width || !height || width < height * 1.12 || expectedCount < 2) return null;
+  const rowCount = side === 'right' ? Math.floor(expectedCount / 2) : Math.ceil(expectedCount / 2);
+  if (!rowCount) return null;
+
+  // The school's two-panel attendance sheet uses 18 columns; isolate only
+  // serial-adjacent name/subject columns and leave attendance cells out of OCR.
+  const dataTop = height * (side === 'left' ? 0.269 : 0.263);
+  const dataBottom = height * (side === 'left' ? 0.848 : 0.833);
+  const rowHeight = (dataBottom - dataTop) / rowCount;
+  if (rowHeight < 12) return null;
+
+  const cellScale = 3;
+  const cellWidth = ((width * 0.94 - width * 0.076) + (width * 0.965 - width * 0.074)) / 2 / 18;
+  const outputCellWidth = Math.max(1, Math.round(cellWidth * 0.88 * cellScale));
+  const outputCellHeight = Math.max(1, Math.round(rowHeight * 0.76 * cellScale));
+  const paddingX = 18, paddingY = 14, gapX = 24, rowGap = 18;
+  const rowPitch = outputCellHeight + rowGap;
+  const canvas = document.createElement('canvas');
+  canvas.width = paddingX * 2 + outputCellWidth * 2 + gapX;
+  canvas.height = paddingY * 2 + rowPitch * rowCount;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('浏览器无法创建名单识别画布');
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+
+  const nameColumn = side === 'left' ? 1 : 10;
+  const subjectColumn = nameColumn + 1;
+  for (let index = 0; index < rowCount; index += 1) {
+    const progress = (index + 0.5) / rowCount;
+    const tableLeft = width * (0.076 + (0.074 - 0.076) * progress);
+    const tableRight = width * (0.94 + (0.965 - 0.94) * progress);
+    const columnWidth = (tableRight - tableLeft) / 18;
+    const y0 = dataTop + index * rowHeight;
+    const cropY = y0 + rowHeight * 0.12;
+    const cropHeight = rowHeight * 0.76;
+    const xMargin = columnWidth * 0.06;
+    const rowY = paddingY + index * rowPitch;
+    const cropWidth = columnWidth - xMargin * 2;
+    drawOtsuCell(context, source, tableLeft + nameColumn * columnWidth + xMargin, cropY, cropWidth, cropHeight,
+      paddingX, rowY, outputCellWidth, outputCellHeight);
+    drawOtsuCell(context, source, tableLeft + subjectColumn * columnWidth + xMargin, cropY, cropWidth, cropHeight,
+      paddingX + outputCellWidth + gapX, rowY, outputCellWidth, outputCellHeight);
+  }
+  return { canvas, rowCount, rowPitch, rowHeight: outputCellHeight, firstCenterY: paddingY + outputCellHeight / 2 };
+}
+
+function rowsFromContactSheet(data, sheet, expectedCount, leftGroupCount, side) {
+  const grouped = Array.from({ length: sheet.rowCount }, () => []);
+  for (const word of Array.isArray(data?.words) ? data.words : []) {
+    const box = word?.bbox || {};
+    const y0 = Number(box.y0), y1 = Number(box.y1), x0 = Number(box.x0);
+    if (![y0, y1].every(Number.isFinite) || y1 <= y0) continue;
+    const centerY = (y0 + y1) / 2;
+    const index = Math.round((centerY - sheet.firstCenterY) / sheet.rowPitch);
+    if (index < 0 || index >= sheet.rowCount) continue;
+    const expectedCenter = sheet.firstCenterY + index * sheet.rowPitch;
+    if (Math.abs(centerY - expectedCenter) > sheet.rowHeight * 0.65) continue;
+    grouped[index].push({ text: String(word?.text || '').trim(), confidence: Number(word?.confidence) || 0, x: Number.isFinite(x0) ? x0 : 0 });
+  }
+  if (!grouped.some(items => items.length)) {
+    const lines = Array.isArray(data?.lines) && data.lines.length
+      ? data.lines.map(line => ({ text: line.text || (line.words || []).map(word => word.text).join(''), confidence: line.confidence }))
+      : String(data?.text || '').split(/\r?\n/).filter(Boolean).map(text => ({ text, confidence: data?.confidence }));
+    lines.slice(0, sheet.rowCount).forEach((line, index) => grouped[index].push({ text: String(line.text || ''), confidence: Number(line.confidence) || 0, x: 0 }));
+  }
+  const rowItems = grouped.map(items => {
+    const sorted = items.slice().sort((a, b) => a.x - b.x);
+    const confidence = sorted.length ? sorted.reduce((sum, item) => sum + item.confidence, 0) / sorted.length : 0;
+    return { text: sorted.map(item => item.text).join(''), confidence };
+  });
+  return parseRosterContactSheetRows(rowItems, expectedCount, leftGroupCount, side);
 }
 
 function dimensions(image) {
@@ -335,14 +479,15 @@ function extractPairs(data) {
   return output;
 }
 
-function scoreData(data, width = 0, height = 0) {
+function scoreData(data, width = 0, height = 0, config = {}) {
   const pairs = extractPairs(data);
-  const rows = width > 0 && height > 0
-    ? extractRosterRowsFromTesseract(data?.words || [], width, height)
-    : [];
+  const rows = width > 0 && height > 0 ? extractRosterRowsFromTesseract(data?.words || [], width, height, config) : [];
   const confidence = Number(data?.confidence) || 0;
-  const subjectHits = SUBJECTS.reduce((count, subject) => count + (String(data?.text || '').includes(subject) ? 1 : 0), 0);
-  return { pairs, rows, confidence, score: Math.max(pairs.length, rows.length) * 100 + subjectHits * 8 + confidence * 0.12 };
+  const text = String(data?.text || '');
+  const subjectHits = SUBJECTS.reduce((count, subject) => count + (text.includes(subject) ? 1 : 0), 0);
+  const headerHints = ['教师', '坐班', '坐班表', '姓名', '学科', '序号', '花名册', '高一', '高二', '高三'];
+  const headerHits = headerHints.reduce((count, hint) => count + (text.includes(hint) ? 1 : 0), 0);
+  return { pairs, rows, confidence, headerHits, score: Math.max(pairs.length, rows.length) * 100 + subjectHits * 8 + headerHits * 18 + confidence * 0.12 };
 }
 
 export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRotation = null, gradeHint = '') {
@@ -359,12 +504,14 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
       throw new Error('照片分辨率太低。请上传手机相册中的原始照片，不要上传聊天软件压缩图或页面截图。');
     }
     const ocrWorker = await getWorker();
-    const rotations = forcedRotation === null ? [0, 90, 180, 270] : [((Number(forcedRotation) % 360) + 360) % 360];
+    const rotations = forcedRotation === null
+      ? (size.width < size.height ? [90, 270] : [0, 180])
+      : [((Number(forcedRotation) % 360) + 360) % 360];
     const orientationResults = [];
 
     for (let i = 0; i < rotations.length; i += 1) {
       const rotation = rotations[i];
-      report(rotations.length > 1 ? '正在检查照片方向（' + (i + 1) + '/4）…' : '正在按当前方向重新识别…');
+      report(rotations.length > 1 ? '正在检查照片方向（' + (i + 1) + '/' + rotations.length + '）…' : '正在按当前方向重新识别…');
       const canvas = makeCanvas(image, rotation, 1700);
       canvases.push(canvas);
       for (const mode of ['11', '12']) {
@@ -373,7 +520,8 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
           preserve_interword_spaces: '1',
         });
         const result = await ocrWorker.recognize(canvas);
-        const scored = scoreData(result.data, canvas.width, canvas.height);
+        const expectedForGrade = inferKnownRosterCount(gradeHint, String(result.data?.text || '')) || 46;
+        const scored = scoreData(result.data, canvas.width, canvas.height, { expectedCount: expectedForGrade, leftGroupCount: Math.ceil(expectedForGrade / 2) });
         orientationResults.push({ rotation, mode, data: result.data, width: canvas.width, height: canvas.height, ...scored });
       }
     }
@@ -387,6 +535,52 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
     report('已找到姓名和学科线索，正在进行二次校验…');
     const rawCanvas = makeCanvas(image, best.rotation, 2800);
     canvases.push(rawCanvas);
+
+    // Use the school's two-panel 18-column sheet first: OCR only name/subject
+    // cells row-by-row, excluding the large empty attendance columns.
+    const knownRosterCount = inferKnownRosterCount(gradeHint, String(best.data?.text || ''))
+      || inferKnownRosterCount(gradeHint, '');
+    if (knownRosterCount && rawCanvas.width > rawCanvas.height * 1.12) {
+      try {
+        report('已定位双栏教师名单，正在逐行识别姓名和学科…');
+        const leftSheet = makeRosterContactSheet(rawCanvas, 'left', knownRosterCount);
+        const rightSheet = makeRosterContactSheet(rawCanvas, 'right', knownRosterCount);
+        if (leftSheet && rightSheet) {
+          canvases.push(leftSheet.canvas, rightSheet.canvas);
+          let contactWorker = ocrWorker;
+          try { contactWorker = await getRosterWorker(); } catch (_) {}
+          const leftGroupCount = Math.ceil(knownRosterCount / 2);
+          const contactRows = [];
+          for (const [side, sheet] of [['left', leftSheet], ['right', rightSheet]]) {
+            await contactWorker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1', user_defined_dpi: '300' });
+            const contactResult = await contactWorker.recognize(sheet.canvas);
+            contactRows.push(...rowsFromContactSheet(contactResult.data, sheet, knownRosterCount, leftGroupCount, side));
+          }
+          contactRows.sort((a, b) => a.serial - b.serial);
+          const contactValidation = validateRosterRows(contactRows, knownRosterCount);
+          const contactCompleteCount = contactValidation.completeCount;
+          if (contactCompleteCount >= Math.max(8, Math.ceil(knownRosterCount * 0.35))) {
+            const reviewRows = buildRosterReviewRows(contactRows, knownRosterCount, leftGroupCount);
+            const pairs = contactRows.filter(row => row.name && row.subject)
+              .map(row => ({ name: row.name, subject: row.subject, serial: row.serial }));
+            const confidenceRows = contactRows.filter(row => row.name && row.subject);
+            const confidence = confidenceRows.length
+              ? Math.round(confidenceRows.reduce((sum, row) => sum + (Number(row.confidence) || 0), 0) / confidenceRows.length * 100)
+              : 0;
+            report('双栏识别完成：有效识别 ' + contactCompleteCount + ' / ' + knownRosterCount + ' 条，缺失项已保留供核对。');
+            return {
+              text: reviewRows.map(row => [row.serial, row.name, row.subject].filter(Boolean).join(' ')).join('\\n'),
+              rotation: best.rotation, confidence, count: pairs.length, recognizedCount: pairs.length,
+              pairs, rows: reviewRows, validation: contactValidation,
+              expectedCount: knownRosterCount, leftGroupCount, source: 'grid-contact-sheet',
+            };
+          }
+        }
+      } catch (error) {
+        report('表格分栏识别未完成，正在切换通用识别方式…');
+      }
+    }
+
     const cleanCanvas = removeTableLines(rawCanvas);
     canvases.push(cleanCanvas);
     const finalResults = [];
@@ -408,15 +602,18 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
     finalResults.push({ data: cleanResult.data, width: cleanCanvas.width, height: cleanCanvas.height, ...scoreData(cleanResult.data) });
     finalResults.push(best);
     for (const candidate of finalResults) {
+      const ocrText = String(candidate.data?.text || '');
+      const knownCount = inferKnownRosterCount(gradeHint, ocrText) || inferKnownRosterCount(gradeHint, '');
+      const expectedForParser = knownCount || 46;
+      const leftGroupForParser = Math.ceil(expectedForParser / 2);
       candidate.rows = extractRosterRowsFromTesseract(
         candidate.data?.words || [],
         candidate.width || rawCanvas.width,
-        candidate.height || rawCanvas.height
+        candidate.height || rawCanvas.height,
+        { expectedCount: expectedForParser, leftGroupCount: leftGroupForParser }
       );
-      const ocrText = String(candidate.data?.text || '');
-      const knownCount = inferKnownRosterCount(gradeHint, ocrText);
       candidate.expectedCount = knownCount || candidate.rows.length;
-      candidate.leftGroupCount = Math.ceil(candidate.expectedCount / 2);
+      candidate.leftGroupCount = Math.ceil((candidate.expectedCount || expectedForParser) / 2);
       candidate.validation = validateRosterRows(candidate.rows, candidate.expectedCount);
       candidate.reviewRows = buildRosterReviewRows(candidate.rows, candidate.expectedCount, candidate.leftGroupCount);
       candidate.structureScore = candidate.rows.length * 100
@@ -445,11 +642,13 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
       rotation: best.rotation,
       confidence: Math.round(selected.confidence),
       count: pairs.length,
+      recognizedCount: pairs.length,
       pairs,
       rows: selected.reviewRows,
       validation,
       expectedCount: selected.expectedCount,
-      leftGroupCount: selected.leftGroupCount
+      leftGroupCount: selected.leftGroupCount,
+      source: 'full-page-fallback'
     };
   } finally {
     canvases.forEach((canvas) => { canvas.width = 0; canvas.height = 0; });
