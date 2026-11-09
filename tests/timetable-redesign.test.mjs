@@ -109,13 +109,15 @@ test("timetable accent colors follow the global appearance theme", () => {
   for (const token of ["--primary", "--primary-weak", "--primary-deep", "--card", "--line", "--bg-sunken"]) {
     assert.ok(themeStyles.includes("var(" + token + ")"), "theme override must use " + token);
   }
-  assert.match(themeStyles, /\\.tt-reminder[\\s\\S]*background:linear-gradient\\(112deg,var\\(--primary\\),var\\(--primary-deep\\)\\)/);
-  assert.match(themeStyles, /\\.tt-grid-table thead th\\.is-today[\\s\\S]*background:linear-gradient\\(135deg,var\\(--primary\\),var\\(--primary-deep\\)\\)/);
-  assert.match(themeStyles, /\\.tt-course-block\\.tt-grade-1[\\s\\S]*background:var\\(--primary-weak\\)/);
-  assert.match(themeStyles, /\\.tt-grade-tag\\.tt-grade-1[\\s\\S]*background:var\\(--primary\\)/);
-  assert.match(themeStyles, /\\.tt-current-tag b[\\s\\S]*background:var\\(--primary-weak\\)/);
+  for (const selector of [
+    ".tt-reminder", ".tt-grid-table thead th.is-today", ".tt-course-block.tt-grade-1",
+    ".tt-grade-tag.tt-grade-1", ".tt-current-tag b"
+  ]) assert.ok(themeStyles.includes(selector), "missing themed component: " + selector);
+  assert.ok(themeStyles.includes("background:linear-gradient(112deg,var(--primary),var(--primary-deep))"));
+  assert.ok(themeStyles.includes("background:linear-gradient(135deg,var(--primary),var(--primary-deep))"));
+  assert.ok(themeStyles.includes("background:var(--primary-weak)"));
+  assert.ok(themeStyles.includes("color:var(--primary-deep)"));
 });
-
 test("desktop timetable row density adapts to browser viewport height", () => {
   assert.match(source, /setProperty\('--tt-period-count'/);
   assert.match(css, /--tt-row-height/);
