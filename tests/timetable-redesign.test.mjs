@@ -70,10 +70,11 @@ test("summer/winter course mapping and period overrides are stored in user setti
   assert.match(source, /api\.patch\('\/me', \{ settings: nextSettings \}\)/);
 });
 
-test("empty, loading and error states are present", () => {
+test("loading and error states remain while the empty schedule panel is removed", () => {
   assert.match(source, /正在加载课表/);
   assert.match(source, /课表加载失败/);
-  assert.match(source, /当前课表还没有课程/);
+  assert.doesNotMatch(source, /tt-empty-state|当前课表还没有课程|id="tt-empty-add"/);
+  assert.match(source, /gridHtml\(visible, periods\)/);
 });
 
 test("high-two 2026 autumn timetable keeps source row numbers, lunch span and title", () => {
