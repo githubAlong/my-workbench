@@ -3136,7 +3136,7 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
 
 
 /* 首页天气城市选择：简洁白色居中弹窗，蓝色强调，兼容深色与移动端 */
-.weather-city-sheet .sheet {
+.sheet.weather-city-sheet {
   width: min(448px, calc(100vw - 32px));
   max-width: 448px;
   border: 1px solid rgba(220, 230, 244, .9);
@@ -3144,13 +3144,13 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
   background: #fff;
   box-shadow: 0 24px 70px rgba(20, 42, 78, .2);
 }
-.weather-city-sheet .sheet-head {
+.sheet.weather-city-sheet .sheet-head {
   min-height: 58px;
   padding: 17px 18px 13px;
   border-bottom: 1px solid #e8eef7;
 }
-.weather-city-sheet .sheet-title { color:#172d4d; font-size:15px; font-weight:750; }
-.weather-city-sheet .sheet-body { padding: 8px 18px 18px; }
+.sheet.weather-city-sheet .sheet-title { color:#172d4d; font-size:15px; font-weight:750; }
+.sheet.weather-city-sheet .sheet-body { padding: 8px 18px 18px; }
 .weather-city-content { display:flex; flex-direction:column; gap:0; }
 .weather-city-current {
   display:flex; align-items:center; gap:11px; padding:13px 0 15px;
@@ -3216,9 +3216,9 @@ html[data-theme="dark"] .home-redesign .home-clock-top .clock-date .home-week-ba
 }
 .home-redesign .home-weather-card .wxb-location-source { color:#94a5bb; font-size:10px; }
 .home-redesign .home-weather-card .wxb-city .icon-btn { flex:0 0 auto; }
-html[data-theme="dark"] .weather-city-sheet .sheet { border-color:#334861; background:#1b2a3e; }
-html[data-theme="dark"] .weather-city-sheet .sheet-head { border-color:#334861; }
-html[data-theme="dark"] .weather-city-sheet .sheet-title,
+html[data-theme="dark"] .sheet.weather-city-sheet { border-color:#334861; background:#1b2a3e; }
+html[data-theme="dark"] .sheet.weather-city-sheet .sheet-head { border-color:#334861; }
+html[data-theme="dark"] .sheet.weather-city-sheet .sheet-title,
 html[data-theme="dark"] .weather-city-current-copy strong,
 html[data-theme="dark"] .weather-city-result-copy strong,
 html[data-theme="dark"] .weather-city-chip strong { color:#e5eefb; }
@@ -3228,9 +3228,9 @@ html[data-theme="dark"] .weather-city-chip { border-color:#344a64; background:#2
 html[data-theme="dark"] .weather-city-locate-row { border-color:#344a64; }
 html[data-theme="dark"] .home-redesign .home-weather-card .wxb-location-name { color:#dbe8fa; }
 @media(max-width:640px) {
-  .weather-city-sheet .sheet { width:calc(100vw - 24px); max-width:448px; border-radius:17px; }
-  .weather-city-sheet .sheet-mask { align-items:center; padding:12px; }
-  .weather-city-sheet .sheet-head { padding:15px 16px 11px; }
-  .weather-city-sheet .sheet-body { padding:7px 16px 16px; }
+  .sheet.weather-city-sheet { width:calc(100vw - 24px); max-width:448px; border-radius:17px; }
+  .sheet.weather-city-sheet { align-items:center; padding:12px; }
+  .sheet.weather-city-sheet .sheet-head { padding:15px 16px 11px; }
+  .sheet.weather-city-sheet .sheet-body { padding:7px 16px 16px; }
   .weather-city-locate-row { align-items:flex-start; flex-direction:column; gap:7px; }
 }
