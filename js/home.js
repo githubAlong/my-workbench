@@ -188,9 +188,11 @@ async function reverseGeocode(lat, lon) {
     if (!r) return fallback;
 
     const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
-    const province = clean(r.principalSubdivision);
-    const prefecture = clean(r.city);
-    const district = clean(r.locality || r.localityName);
+    const admin = Array.isArray(r.localityInfo?.administrative) ? r.localityInfo.administrative : [];
+    const adminNames = admin.map((item) => clean(item?.name)).filter(Boolean);
+    const province = clean(r.principalSubdivision || adminNames[0]);
+    const prefecture = clean(r.city || adminNames[1]);
+    const district = clean(r.locality || r.localityName || adminNames.at(-1));
     const parts = [province, prefecture, district]
       .filter((value, index, all) => value && all.indexOf(value) === index);
     const name = district || prefecture || province || '当前位置';
