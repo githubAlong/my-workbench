@@ -84,7 +84,7 @@ export async function renderRepairsBody(box) {
         <td>${esc(r.reporter || '—')}</td>
         <td><span class="rp-ledger-state ${fixed ? 'is-fixed' : 'is-open'}">${fixed ? '已修好' : '未修好'}</span></td>
         <td><span class="rp-ledger-track ${tracked ? 'is-tracked' : ''}">${tracked ? '是' : '否'}</span></td>
-        <td class="rp-ledger-remark">${esc(r.remark || '—')}</td>
+        <td class="rp-ledger-remark">${esc(r.remark || '')}</td>
         <td><div class="rp-ledger-actions">
           <button type="button" class="rp-ledger-edit" data-rp-edit="${esc(r.id)}">编辑</button>
           <button type="button" class="rp-ledger-delete" data-rp-del="${esc(r.id)}">删除</button>
@@ -184,10 +184,10 @@ export async function renderRepairsBody(box) {
       <div class="form-grid">
         <div class="field"><label class="field-label">位置</label>
           <input class="input" id="pl" value="${esc(row?.place || '')}" placeholder="如 高二(3)班教室"></div>
-        <div class="field"><label class="field-label">坏的是什么</label>
+        <div class="field"><label class="field-label">设备名称</label>
           <input class="input" id="it" value="${esc(row?.item || '')}" placeholder="如 投影仪 / 门锁 / 灯管 / 网线"></div>
       </div>
-      <div class="field"><label class="field-label">什么现象</label>
+      <div class="field"><label class="field-label">故障描述</label>
         <textarea class="input" id="fl" rows="2" placeholder="如：开机后一直闪红灯，投不出画面">${esc(row?.fault || '')}</textarea></div>
       <div class="form-grid">
         <div class="field"><label class="field-label">报修人 <span class="tiny muted">（选填）</span></label>
@@ -212,7 +212,7 @@ export async function renderRepairsBody(box) {
         <button class="btn ghost" id="cancel">取消</button>
         <button class="btn primary" id="ok">保存</button>
       </div>`;
-    const s = sheet({ title: isNew ? '报修' : '修改报修', body, wide: true });
+    const s = sheet({ title: isNew ? '维修记录登记' : '维修记录修改', body, wide: true });
     const $ = (id) => body.querySelector('#' + id);
 
     $('cancel').onclick = s.close;
@@ -236,7 +236,7 @@ export async function renderRepairsBody(box) {
         follow_up: $('fu').checked,
         remark: $('rm').value.trim(),
       };
-      if (!payload.fault) return toast('写一下坏在哪、什么现象', 'warn');
+      if (!payload.fault) return toast('请填写故障描述', 'warn');
       /* 修好日期只加不清：
          以前 status 一旦不是 done 就把 fixed_at 抹成空串，等于把「这台投影仪
          10 月 3 号修过」这件事直接删掉。改成「改成已修好时补今天，其余情况保留原值」，

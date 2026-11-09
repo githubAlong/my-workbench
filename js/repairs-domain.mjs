@@ -19,7 +19,7 @@ export function summarizeRepairs(rows, month) {
     reminders: trackedRows.map((row) => ({
       id: row.id,
       item: String(row.item || '未填写设备名称'),
-      remark: String(row.remark || '暂无备注'),
+      remark: String(row.remark || ''),
     })),
   };
 }
