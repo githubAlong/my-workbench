@@ -37,6 +37,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   let date = TODAY(), period = 1, tab = 'roster', search = '', subject = '';
   let teachers = [], allTeachers = [], tables = [], details = {}, leaveRecords = [], prefs = {};
   let showAddTeacher = true;
+  const draftCache = new Map();
   let busy = false;
   const load = async () => {
     if (busy) return; busy = true;
@@ -123,6 +124,133 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const teacherMeta = {...(prefs.teacherMeta || {}),[String(t.id)]:{...(prefs.teacherMeta?.[String(t.id)] || {}),...patch}};
     await savePrefs({teacherMeta});
   };
+
+  const draftKey = type => [grade,date,period,type].join('|');
+  const cloneAttendanceRow = row => ({...row,data:{...rowData(row)}});
+  const getDraftRows = type => {
+    const key=draftKey(type);
+    if(!draftCache.has(key)){
+      const source=(details[type]?.rows||[]).map(cloneAttendanceRow);
+      let rows=[];
+      if(type==='seat')rows=source;
+      else if(type==='class')rows=source.filter(row=>!!rowData(row).__classRecord
+        && Number(rowData(row).__classRecord.period||period)===Number(period));
+      else if(type==='research')rows=source.filter(row=>!!rowData(row).__research
+        && matchesAttendancePeriod(rowData(row).__research.period_time,period));
+      draftCache.set(key,rows);
+    }
+    const rows=draftCache.get(key);
+    if(type==='seat'){
+      for(const teacher of teachers)if(!rows.some(row=>row.teacher===teacher.name))
+        rows.push({teacher:teacher.name,subject:teacher.subject||'',data:{__periods:{}}});
+    }else if(type==='class'){
+      for(const teacher of teachers){
+        const exists=rows.some(row=>!rowData(row).__deleted&&row.teacher===teacher.name
+          && Number(rowData(row).__classRecord?.period||period)===Number(period));
+        if(!exists)rows.push({teacher:teacher.name,subject:teacher.subject||'',data:{__classRecord:{
+          class_name:'',period:Number(period),status:'u',listeners:[],remark:'',
+        }}});
+      }
+    }else if(type==='research'){
+      const subjects=[...new Set(teachers.map(item=>String(item.subject||'').trim()).filter(Boolean))];
+      for(const subjectName of subjects){
+        const exists=rows.some(row=>!rowData(row).__deleted
+          && String(rowData(row).__research?.subject||row.subject||row.teacher||'').trim()===subjectName
+          && matchesAttendancePeriod(rowData(row).__research?.period_time,period));
+        if(!exists){
+          const members=teachers.filter(item=>String(item.subject||'').trim()===subjectName).map(item=>item.name);
+          rows.push({teacher:subjectName,subject:subjectName,data:{__research:{
+            subject:subjectName,period_time:'第'+period+'节',location:'',host:'',
+            expected:members.length,attendees:[],absent:members,status:'待登记',remark:'',
+          }}});
+        }
+      }
+    }
+    return rows;
+  };
+  const mergeDraftRows = (type,table,draftRows) => {
+    const rows=(table.rows||[]).map(cloneAttendanceRow);
+    if(type==='seat'){
+      for(const draft of draftRows){
+        let target=rows.find(row=>row.teacher===draft.teacher);
+        if(!target){target=cloneAttendanceRow(draft);rows.push(target);}
+        const data=rowData(target),draftData=rowData(draft),periods={...(data.__periods||{})};
+        const periodValue=draftData.__periods?.[String(period)]||{};
+        periods[String(period)]={...(periods[String(period)]||{}),...periodValue};
+        target.data={...data,__periods:periods};
+      }
+    }else if(type==='class'){
+      for(const draft of draftRows){
+        const draftData=rowData(draft),record=draftData.__classRecord;
+        if(!record)continue;
+        let target=draft.id?rows.find(row=>String(row.id)===String(draft.id)):null;
+        if(!target&&!draft.__draftNew)target=rows.find(row=>row.teacher===draft.teacher
+          && Number(rowData(row).__classRecord?.period||period)===Number(period)
+          && String(rowData(row).__classRecord?.class_name||'')===String(record.class_name||''));
+        if(draftData.__deleted){
+          if(target)target.data={...rowData(target),__deleted:true};
+          else if(draft.id)rows.push(cloneAttendanceRow(draft));
+          continue;
+        }
+        if(!target&&!draft.__draftNew)target=rows.find(row=>row.teacher===draft.teacher
+          && !rowData(row).__classRecord&&!rowData(row).__deleted);
+        if(target)target.data={...rowData(target),__classRecord:{...record}};
+        else{
+          const added=cloneAttendanceRow(draft);delete added.__draftNew;rows.push(added);
+        }
+      }
+    }else if(type==='research'){
+      for(const draft of draftRows){
+        const draftData=rowData(draft),record=draftData.__research;
+        if(!record)continue;
+        let target=draft.id?rows.find(row=>String(row.id)===String(draft.id)):null;
+        if(!target)target=rows.find(row=>!!rowData(row).__research
+          && String(rowData(row).__research.subject||row.subject||row.teacher||'').trim()===String(record.subject||'').trim()
+          && matchesAttendancePeriod(rowData(row).__research.period_time,period));
+        if(draftData.__deleted){if(target)target.data={...rowData(target),__deleted:true};continue;}
+        if(target)target.data={...rowData(target),__research:{...record}};
+        else rows.push(cloneAttendanceRow(draft));
+      }
+    }
+    return rows;
+  };
+  const persistDraft = async (type,{reload=true}={}) => {
+    const key=draftKey(type),draftRows=getDraftRows(type),table=await getTable(type);
+    const rows=mergeDraftRows(type,table,draftRows);
+    await saveRows(table,rows);
+    draftCache.delete(key);
+    if(reload)await load();
+  };
+  const generateTable = async type => {
+    const existed=!!details[type];
+    await persistDraft(type,{reload:false});
+    await load();
+    tab=type;paint();
+    toast((existed?'已更新':'已生成')+({seat:'坐班表',class:'上课表',research:'教研表'}[type]),'ok');
+  };
+  const teacherSubjects = () => [...new Set(teachers.map(item=>String(item.subject||'').trim()).filter(Boolean))].sort();
+  const teacherFiltersHtml = () => {
+    const subjects=teacherSubjects();
+    return '<input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'">'
+      +'<select id="aprd-subject"><option value="">全部学科</option>'
+      +subjects.map(item=>'<option value="'+esc(item)+'" '+(subject===item?'selected':'')+'>'+esc(item)+'</option>').join('')
+      +'</select>';
+  };
+  const teacherAddCardHtml = () => {
+    if(!showAddTeacher)return '';
+    const subjects=teacherSubjects();
+    return '<section class="aprd-roster-add-card" aria-label="新增教师">'
+      +'<div class="aprd-roster-add-head"><div><h3>新增教师</h3><p>在当前年级新增人员，花名册及已生成的工作表将同步显示</p></div>'
+      +'<span>当前年级：'+esc(grade)+'</span></div>'
+      +'<form class="aprd-roster-add-form" id="aprd-roster-add-form">'
+      +'<label>姓名 <em>*</em><input name="name" type="text" placeholder="请输入教师姓名" autocomplete="off" required></label>'
+      +'<label>学科 <em>*</em><input name="subject" type="text" list="aprd-add-subjects" placeholder="请输入或选择学科" autocomplete="off" required>'
+      +'<datalist id="aprd-add-subjects">'+subjects.map(item=>'<option value="'+esc(item)+'"></option>').join('')+'</datalist></label>'
+      +'<label>归属部门<input name="department" type="text" value="高中部" placeholder="请输入归属部门"></label>'
+      +'<div class="aprd-roster-add-actions"><button type="button" data-roster-add-cancel>取消</button><button type="submit" class="primary">保存教师</button></div>'
+      +'</form></section>';
+  };
+  const saveDraftButton = (type,label) => '<button '+(details[type]?'':'disabled')+' data-save-'+type+'>'+(details[type]?label:'生成后可保存修改')+'</button>';
   const rosterKey = (row) => String(row.name || '').trim().replace(/\s+/g,'').toLowerCase() + '\u0000' + String(row.subject || '').trim().replace(/\s+/g,'').toLowerCase();
   const rosterGrid = (list) => [
     ['教师花名册 · '+grade],
@@ -470,59 +598,77 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const mark=(key,val)=>'<button type="button" class="aprd-mark '+(val==='y'?'y':val==='n'?'n':'u')+'" data-person="'+t.id+'" data-key="'+key+'">'+CHECK_LABEL(val)+'</button>';
       return '<tr><td>'+(i+1)+'</td><td><button type="button" class="aprd-link" data-dept="'+t.id+'">'+esc(deptOf(t))+'</button></td><td><button type="button" class="aprd-link" data-teacher-grade="'+t.id+'">'+esc(t.grade||grade)+'</button></td><td><b>'+esc(t.name)+'</b></td><td>'+esc(t.subject||'')+'</td><td>'+mark('class',st.class)+'</td><td>'+mark('sit',st.sit)+'</td><td>'+mark('listen',st.listen?'y':'u')+'</td><td>'+mark('research',st.research?'y':'u')+'</td><td><button type="button" class="aprd-mark '+(st.leave?'y':'u')+'" data-leave="'+t.id+'">'+esc(st.leave||'无')+'</button></td><td>'+esc(noteOf(t))+'</td><td><div class="aprd-actions"><button type="button" data-edit="'+t.id+'">编辑</button><button type="button" data-disable="'+t.id+'">停用</button></div></td></tr>';
     }).join('');
-    const addCard = showAddTeacher ? \`
-      <section class="aprd-roster-add-card" aria-label="新增教师">
-        <div class="aprd-roster-add-head">
-          <div><h3>新增教师</h3><p>填写教师基本信息，保存后加入当前年级花名册</p></div>
-          <span>当前年级：\${esc(grade)}</span>
-        </div>
-        <form class="aprd-roster-add-form" id="aprd-roster-add-form">
-          <label>姓名 <em>*</em><input name="name" type="text" placeholder="请输入教师姓名" autocomplete="off" required></label>
-          <label>学科 <em>*</em><input name="subject" type="text" list="aprd-add-subjects" placeholder="请输入或选择学科" autocomplete="off" required>
-            <datalist id="aprd-add-subjects">\${subjects.map(item=>'<option value="'+esc(item)+'"></option>').join('')}</datalist>
-          </label>
-          <label>归属部门<input name="department" type="text" value="高中部" placeholder="请输入归属部门"></label>
-          <div class="aprd-roster-add-actions">
-            <button type="button" data-roster-add-cancel>取消</button>
-            <button type="submit" class="primary">保存教师</button>
-          </div>
-        </form>
-      </section>\` : '';
+    const addCard = teacherAddCardHtml();
     return '<div class="aprd-toolbar"><input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'"><select id="aprd-subject"><option value="">全部学科</option>'+subjects.map(s=>'<option '+(subject===s?'selected':'')+'>'+esc(s)+'</option>').join('')+'</select><button class="primary" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button><button type="button" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button data-roster-export-toggle>批量导出 ▾</button><div class="aprd-export-menu" data-roster-export-menu hidden><label>导出范围 <select id="aprd-export-scope"><option value="all">全部在岗人员</option><option value="filtered">当前筛选结果</option></select></label><button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button></div></div><button data-copy>复制名单</button><button data-subject-manager>学科管理</button><span>当前筛：'+esc(subject||'全部')+' · '+list.length+' 人</span></div>'+addCard+'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.roster.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div><p class="aprd-note">花名册仅显示当前年级在岗教师；状态按当前日期和节次读取。</p>';
   };
+
   const seatHtml = () => {
-    const t=details.seat, rows=(t?.rows||[]).filter(r=>teachers.some(x=>x.name===r.teacher));
-    const header=ATTENDANCE_COLUMNS.seat;
-    return '<div class="aprd-toolbar"><span>在岗 '+rows.filter(r=>(rowData(r).__periods?.[String(period)]||{}).status==='y').length+' / 应到 '+teachers.length+'</span><button class="primary" data-save-seat>保存草稿</button></div><div class="aprd-table-wrap"><table><thead><tr>'+header.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+teachers.map((t,i)=>{const r=rows.find(x=>x.teacher===t.name), rec=rowData(r).__periods?.[String(period)]||{};return '<tr><td>'+(i+1)+'</td><td>'+esc(t.name)+'</td><td>'+esc(t.subject||'')+'</td><td>'+esc(t.grade+' / '+deptOf(t))+'</td><td><select data-seat="'+t.id+'" data-k="status"><option value="u">— 未登记</option><option value="y" '+(rec.status==='y'?'selected':'')+'>✓ 在坐班</option><option value="n" '+(rec.status==='n'?'selected':'')+'>✗ 未坐班</option></select></td><td>'+esc(activeLeavesFor(leaveRecords,date,grade).find(x=>x.name===t.name)?.type||'—')+'</td><td><input data-seat="'+t.id+'" data-k="listen_class" value="'+esc(rec.listen_class||'')+'" placeholder="听课班级"></td><td><input data-seat="'+t.id+'" data-k="remark" value="'+esc(rec.remark||'')+'"></td></tr>';}).join('')+'</tbody></table></div>';
+    const list=visibleTeachers(),draftRows=getDraftRows('seat'),generated=!!details.seat;
+    const headers=['序号','姓名','学科','年级/部门','坐班','请假','听课','备注','操作'];
+    const rows=list.map((teacher,index)=>{
+      const row=draftRows.find(item=>item.teacher===teacher.name)||{teacher:teacher.name,data:{}};
+      const rec=rowData(row).__periods?.[String(period)]||{};
+      const leave=activeLeavesFor(leaveRecords,date,grade).find(item=>String(item.name||item.teacher||'').trim()===teacher.name);
+      return '<tr><td>'+(index+1)+'</td><td><b>'+esc(teacher.name)+'</b></td><td>'+esc(teacher.subject||'')+'</td>'
+        +'<td>'+esc((teacher.grade||grade)+' / '+deptOf(teacher))+'</td>'
+        +'<td><select data-seat="'+teacher.id+'" data-k="status"><option value="u" '+(!rec.status||rec.status==='u'?'selected':'')+'>未登记</option><option value="y" '+(rec.status==='y'?'selected':'')+'>在坐班</option><option value="n" '+(rec.status==='n'?'selected':'')+'>未坐班</option></select></td>'
+        +'<td>'+esc(leave?.type||'—')+'</td>'
+        +'<td><input data-seat="'+teacher.id+'" data-k="listen_class" value="'+esc(rec.listen_class||'')+'" placeholder="听课班级"></td>'
+        +'<td><input data-seat="'+teacher.id+'" data-k="remark" value="'+esc(rec.remark||'')+'" placeholder="备注"></td>'
+        +'<td><span class="aprd-status '+(generated?'approved':'pending')+'">'+(generated?'可编辑':'待生成')+'</span></td></tr>';
+    }).join('');
+    return '<div class="aprd-toolbar">'+teacherFiltersHtml()+'<span>在岗 '+draftRows.filter(row=>(rowData(row).__periods?.[String(period)]||{}).status==='y').length+' / 应到 '+teachers.length+'</span>'
+      +saveDraftButton('seat','保存修改')+'</div>'+teacherAddCardHtml()
+      +'<div class="aprd-table-wrap"><table><thead><tr>'+headers.map(item=>'<th>'+item+'</th>').join('')+'</tr></thead><tbody>'
+      +(rows||'<tr><td colspan="9" class="aprd-empty">当前年级暂无在岗教师</td></tr>')
+      +'</tbody></table></div>';
   };
   const classHtml = () => {
-    const t=details.class;
-    const rows=(t?.rows||[]).filter(r=>{
-      const data=rowData(r), record=data.__classRecord;
-      return !data.__deleted && !!record && Number(record.period||period)===Number(period);
+    const draftRows=getDraftRows('class');
+    const headers=['序号','班级','节次','任课教师','学科','上课状态','听课教师','备注','操作'];
+    const visible=draftRows.map((row,index)=>({row,index})).filter(({row})=>{
+      const data=rowData(row),record=data.__classRecord||{};
+      return !data.__deleted
+        && (!search||(String(row.teacher||'')+' '+String(row.subject||'')+' '+String(record.class_name||'')).toLowerCase().includes(search.toLowerCase()))
+        && (!subject||String(row.subject||'')===subject);
     });
-    return '<div class="aprd-toolbar"><button class="primary" data-add-class>新增班级记录</button><button data-save-class>保存草稿</button></div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.class.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+(rows.length?rows.map((r,i)=>{
-      const d=rowData(r).__classRecord||{}, rowId=esc(r.id??''), listeners=Array.isArray(d.listeners)?d.listeners.join('、'):'';
-      return '<tr><td>'+(i+1)+'</td><td><input data-class="'+rowId+'" data-class-index="'+i+'" data-k="class_name" value="'+esc(d.class_name||'')+'" placeholder="填写班级"></td><td><select data-class="'+rowId+'" data-class-index="'+i+'" data-k="period">'+DEFAULT_PERIODS.map(p=>'<option value="'+p.no+'" '+(Number(d.period||period)===p.no?'selected':'')+'>第'+p.no+'节</option>').join('')+'</select></td><td>'+esc(r.teacher||'')+'</td><td>'+esc(r.subject||'')+'</td><td><select data-class="'+rowId+'" data-class-index="'+i+'" data-k="status"><option value="u" '+(!d.status||d.status==='u'?'selected':'')+'>— 未登记</option><option value="y" '+(d.status==='y'?'selected':'')+'>✓ 在班</option><option value="n" '+(d.status==='n'?'selected':'')+'>✗ 空堂</option></select></td><td><input data-class="'+rowId+'" data-class-index="'+i+'" data-k="listeners" value="'+esc(listeners)+'" placeholder="听课教师，多人用顿号分隔"></td><td><input data-class="'+rowId+'" data-class-index="'+i+'" data-k="remark" value="'+esc(d.remark||'')+'"></td></tr>';
-    }).join(''):'<tr><td colspan="8" class="aprd-empty">请先点击上方“确认生成”生成上课表</td></tr>')+'</tbody></table></div>';
+    const rows=visible.map(({row,index},serial)=>{
+      const d=rowData(row).__classRecord||{},listeners=Array.isArray(d.listeners)?d.listeners.join('、'):'';
+      return '<tr><td>'+(serial+1)+'</td>'
+        +'<td><input data-class-index="'+index+'" data-k="class_name" value="'+esc(d.class_name||'')+'" placeholder="填写班级"></td>'
+        +'<td><select data-class-index="'+index+'" data-k="period">'+DEFAULT_PERIODS.map(item=>'<option value="'+item.no+'" '+(Number(d.period||period)===item.no?'selected':'')+'>第'+item.no+'节</option>').join('')+'</select></td>'
+        +'<td><b>'+esc(row.teacher||'')+'</b></td><td>'+esc(row.subject||'')+'</td>'
+        +'<td><select data-class-index="'+index+'" data-k="status"><option value="u" '+(!d.status||d.status==='u'?'selected':'')+'>未登记</option><option value="y" '+(d.status==='y'?'selected':'')+'>已上课</option><option value="n" '+(d.status==='n'?'selected':'')+'>未上课</option></select></td>'
+        +'<td><input data-class-index="'+index+'" data-k="listeners" value="'+esc(listeners)+'" placeholder="听课教师，多人用顿号分隔"></td>'
+        +'<td><input data-class-index="'+index+'" data-k="remark" value="'+esc(d.remark||'')+'" placeholder="备注"></td>'
+        +'<td><div class="aprd-actions"><button type="button" data-delete-class="'+index+'">删除</button></div></td></tr>';
+    }).join('');
+    return '<div class="aprd-toolbar">'+teacherFiltersHtml()+'<span>当前教师 '+visibleTeachers().length+' 人 · 本节记录 '+visible.length+' 条</span>'
+      +'<button class="primary" data-add-class>新增班级记录</button>'+saveDraftButton('class','保存修改')+'</div>'
+      +teacherAddCardHtml()+'<div class="aprd-table-wrap"><table><thead><tr>'+headers.map(item=>'<th>'+item+'</th>').join('')+'</tr></thead><tbody>'
+      +(rows||'<tr><td colspan="9" class="aprd-empty">请先编辑当前年级教师的班级与节次，点击顶部“确认生成”后形成正式上课表</td></tr>')
+      +'</tbody></table></div>';
   };
   const researchHtml = () => {
-    const stored=(details.research?.rows||[]).filter(r=>rowData(r).__research&&!rowData(r).__deleted)
-      .filter(r=>matchesAttendancePeriod(rowData(r).__research.period_time,period));
-    const subjects=[...new Set(teachers.map(t=>String(t.subject||'').trim()).filter(Boolean))];
-    const placeholders=subjects.filter(sub=>!stored.some(r=>String(rowData(r).__research.subject||r.subject||r.teacher||'')===sub))
-      .map(sub=>{
-        const members=teachers.filter(t=>String(t.subject||'').trim()===sub).map(t=>t.name);
-        return {teacher:sub,subject:sub,data:{__research:{
-          subject:sub,period_time:'第'+period+'节',location:'',host:'',expected:members.length,
-          attendees:[],absent:members,status:'待登记',
-        }}};
-      });
-    const rows=[...stored,...placeholders];
-    return '<div class="aprd-toolbar"><button class="primary" data-add-research>新增教研记录</button><button data-save-research>保存草稿</button></div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.research.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+(rows.length?rows.map(r=>{
-      const d=rowData(r).__research||{}, attendees=Array.isArray(d.attendees)?d.attendees:[], absent=Array.isArray(d.absent)?d.absent:[];
-      return '<tr><td>'+esc(d.subject||r.subject||r.teacher||'')+'</td><td>'+esc(d.period_time||'—')+'</td><td>'+esc(d.location||'—')+'</td><td>'+esc(d.host||'—')+'</td><td>'+Number(d.expected||0)+'</td><td>'+attendees.length+'</td><td><span style="color:#d34b4b">'+esc(absent.join('、')||'无')+'</span></td><td>'+esc(d.status||'待登记')+'</td></tr>';
-    }).join(''):'<tr><td colspan="8" class="aprd-empty">暂无教研记录，请点击“新增教研记录”登记</td></tr>')+'</tbody></table></div>';
+    const draftRows=getDraftRows('research'),list=visibleTeachers();
+    const headers=['序号','姓名','学科','节次/时间','地点','主持人','参加状态','备注','操作'];
+    const rows=list.map((teacher,index)=>{
+      const row=draftRows.find(item=>String(rowData(item).__research?.subject||item.subject||item.teacher||'').trim()===String(teacher.subject||'').trim()
+        && matchesAttendancePeriod(rowData(item).__research?.period_time,period));
+      const record=row?rowData(row).__research||{}:{};
+      const attendees=Array.isArray(record.attendees)?record.attendees:[];
+      const present=attendees.includes(teacher.name);
+      return '<tr><td>'+(index+1)+'</td><td><b>'+esc(teacher.name)+'</b></td><td>'+esc(teacher.subject||'')+'</td>'
+        +'<td>'+esc(record.period_time||'第'+period+'节')+'</td><td>'+esc(record.location||'—')+'</td><td>'+esc(record.host||'—')+'</td>'
+        +'<td><button type="button" class="aprd-mark '+(present?'y':'u')+'" data-research-toggle="'+teacher.id+'">'+(present?'已参加':'未参加')+'</button></td>'
+        +'<td>'+esc(record.remark||'')+'</td>'
+        +'<td><div class="aprd-actions"><button type="button" data-research-edit="'+teacher.id+'">编辑</button></div></td></tr>';
+    }).join('');
+    return '<div class="aprd-toolbar">'+teacherFiltersHtml()+'<span>当前教师 '+list.length+' 人 · 教研安排 '+draftRows.filter(row=>!rowData(row).__deleted).length+' 条</span>'
+      +'<button class="primary" data-add-research>新增教研安排</button>'+saveDraftButton('research','保存修改')+'</div>'
+      +teacherAddCardHtml()+'<div class="aprd-table-wrap"><table><thead><tr>'+headers.map(item=>'<th>'+item+'</th>').join('')+'</tr></thead><tbody>'
+      +(rows||'<tr><td colspan="9" class="aprd-empty">当前年级暂无教师</td></tr>')
+      +'</tbody></table></div>';
   };
   const leaveHtml = () => {
     const shown=leaveRecords.filter(x=>(!search||(x.name+' '+x.subject).includes(search))&&(!subject||x.subject===subject));
@@ -536,13 +682,14 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   const paint = () => {
     const content = tab==='roster'?rosterHtml():tab==='seat'?seatHtml():tab==='class'?classHtml():tab==='research'?researchHtml():tab==='leave'?leaveHtml():summaryHtml();
     root.innerHTML='<div class="attendance-prd"><div class="aprd-head"><h2>考勤工作台</h2><div class="aprd-grade">'+grades.map(g=>'<button data-grade-tab="'+esc(g)+'" class="'+(g===grade?'on':'')+'">'+esc(g)+'</button>').join('')+'</div><span style="margin-left:auto;color:#168448;font-size:12px">数据已加载</span></div><div class="aprd-meta"><label>日期 <input type="date" id="aprd-date" value="'+date+'"></label><button data-day="-1">‹</button><button data-day="1">›</button><label>节次 <select id="aprd-period">'+DEFAULT_PERIODS.map(p=>'<option value="'+p.no+'" '+(p.no===period?'selected':'')+'>'+p.label+'</option>').join('')+'</select></label><label>时段 <input type="time" id="aprd-start" value="'+DEFAULT_PERIODS[period-1].start+'">—<input type="time" id="aprd-end" value="'+DEFAULT_PERIODS[period-1].end+'"></label><select id="aprd-generate"><option value="seat">生成坐班表</option><option value="class">生成上课表</option><option value="research">生成教研表</option></select><button class="primary" data-generate>确认生成</button></div><nav class="aprd-tabs">'+TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(tab===id?'on':'')+'">'+label+'</button>').join('')+'</nav><section class="aprd-panel">'+content+'</section></div>';
-    root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{tab=b.dataset.tab;search='';subject='';if(tab==='class'&&details.class)await getTable('class');paint();});
+    root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;search='';subject='';paint();});
     root.querySelectorAll('[data-grade-tab]').forEach(b=>b.onclick=async()=>{grade=b.dataset.gradeTab;await load();});
     root.querySelector('#aprd-date').onchange=e=>{date=e.target.value;load();};
     root.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{const d=new Date(date+'T00:00:00');d.setDate(d.getDate()+Number(b.dataset.day));date=d.toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'});load();});
-    root.querySelector('#aprd-period').onchange=async e=>{period=Number(e.target.value);if(tab==='class'&&details.class)await getTable('class');paint();};
-    root.querySelector('[data-generate]').onclick=async()=>{const type=root.querySelector('#aprd-generate').value;try{await getTable(type);toast('已生成'+({seat:'坐班表',class:'上课表',research:'教研表'}[type])+'草稿','ok');await load();tab=type;paint();}catch(e){toast(e.message||'生成失败','err');}};
+    root.querySelector('#aprd-period').onchange=e=>{period=Number(e.target.value);paint();};
+    root.querySelector('[data-generate]').onclick=async()=>{const type=root.querySelector('#aprd-generate').value;try{await generateTable(type);}catch(e){toast(e.message||'生成失败','err');}};
     root.querySelector('#aprd-search')?.addEventListener('input',e=>{search=e.target.value;const p=e.target.selectionStart;paint();const q=root.querySelector('#aprd-search');q?.focus();q?.setSelectionRange(p,p);});
+    root.querySelector('#aprd-subject')?.addEventListener('change',e=>{subject=e.target.value;paint();});
     root.querySelectorAll('[data-person]').forEach(b=>b.onclick=async()=>{
       const teacher=teachers.find(x=>String(x.id)===b.dataset.person);
       if(!teacher)return;
@@ -577,7 +724,6 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         const updated=await api.get('/teachers',{grade,active:'all'});
         const created=(updated.list||[]).find(item=>item.name===name&&item.subject===subjectName);
         if(created)await setTeacherMeta(created,{department});
-        showAddTeacher=false;
         toast('教师已新增','ok');
         await load();
       }catch(error){
@@ -606,26 +752,142 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const record=leaveRecords.find(x=>String(x.id)===b.dataset.editLeave);
       if(record)editLeaveRecord(record);
     });
-    root.querySelector('[data-add-class]')?.addEventListener('click',()=>openEditor('新增班级上课记录',[{key:'class_name',label:'班级',required:true},{key:'teacher',label:'任课教师',type:'select',options:teachers.map(x=>({value:x.name,label:x.name}))},{key:'period',label:'节次',type:'select',options:DEFAULT_PERIODS.map(x=>({value:x.no,label:x.label}))}],{period},async d=>{const t=await getTable('class');const teacher=teachers.find(x=>x.name===d.teacher);t.rows.push({teacher:teacher?.name||'',subject:teacher?.subject||'',data:{__classRecord:{class_name:d.class_name,period:Number(d.period),status:'u',listeners:[],remark:''}}});await saveRows(t,t.rows);await load();}));
-    root.querySelectorAll('[data-class]').forEach(el=>el.onchange=async()=>{
-      const table=await getTable('class');
-      const row=el.dataset.class
-        ? (table.rows||[]).find(item=>String(item.id)===String(el.dataset.class))
-        : (table.rows||[]).filter(item=>rowData(item).__classRecord)[Number(el.dataset.classIndex)];
+
+    root.querySelector('[data-add-class]')?.addEventListener('click',()=>openEditor('新增班级上课记录',[
+      {key:'class_name',label:'班级',required:true},
+      {key:'teacher',label:'任课教师',type:'select',options:teachers.map(item=>({value:item.name,label:item.name}))},
+      {key:'period',label:'节次',type:'select',options:DEFAULT_PERIODS.map(item=>({value:item.no,label:item.label}))},
+      {key:'status',label:'上课状态',type:'select',options:[{value:'u',label:'未登记'},{value:'y',label:'已上课'},{value:'n',label:'未上课'}]},
+      {key:'listeners',label:'听课教师'},{key:'remark',label:'备注',type:'textarea'},
+    ],{period:String(period),status:'u'},async data=>{
+      const teacher=teachers.find(item=>item.name===data.teacher);
+      if(!teacher)throw new Error('请先选择任课教师');
+      getDraftRows('class').push({teacher:teacher.name,subject:teacher.subject||'',__draftNew:true,data:{__classRecord:{
+        class_name:String(data.class_name||'').trim(),period:Number(data.period||period),status:data.status||'u',
+        listeners:String(data.listeners||'').split(/[、,，]/).map(item=>item.trim()).filter(Boolean),remark:data.remark||'',
+      }}});
+      paint();
+    }));
+    root.querySelectorAll('[data-class-index]').forEach(el=>el.addEventListener('change',()=>{
+      const row=getDraftRows('class')[Number(el.dataset.classIndex)];
       if(!row)return;
-      const currentRecord=rowData(row).__classRecord||{period:Number(period),status:'u',listeners:[],remark:''};
-      const record={...currentRecord};
-      if(el.dataset.k==='listeners')record.listeners=el.value.split(/[、,，]/).map(x=>x.trim()).filter(Boolean);
+      const data={...rowData(row)},record={...(data.__classRecord||{period:Number(period),status:'u',listeners:[],remark:''})};
+      if(el.dataset.k==='listeners')record.listeners=el.value.split(/[、,，]/).map(item=>item.trim()).filter(Boolean);
       else if(el.dataset.k==='period')record.period=Number(el.value);
       else record[el.dataset.k]=el.value;
-      row.data={...rowData(row),__classRecord:record};
-      await saveRows(table,table.rows||[]);
-      await load();
+      row.data={...data,__classRecord:record};
+    }));
+    root.querySelectorAll('[data-delete-class]').forEach(button=>button.addEventListener('click',()=>{
+      const row=getDraftRows('class')[Number(button.dataset.deleteClass)];
+      if(!row)return;
+      row.data={...rowData(row),__deleted:true};paint();
+    }));
+    root.querySelector('[data-save-class]')?.addEventListener('click',async()=>{try{await persistDraft('class');toast('上课表修改已保存','ok');}catch(error){toast(error.message||'保存失败','err');}});
+
+
+    root.querySelector('[data-add-class]')?.addEventListener('click',()=>openEditor('新增班级上课记录',[
+      {key:'class_name',label:'班级',required:true},
+      {key:'teacher',label:'任课教师',type:'select',options:teachers.map(item=>({value:item.name,label:item.name}))},
+      {key:'period',label:'节次',type:'select',options:DEFAULT_PERIODS.map(item=>({value:item.no,label:item.label}))},
+      {key:'status',label:'上课状态',type:'select',options:[{value:'u',label:'未登记'},{value:'y',label:'已上课'},{value:'n',label:'未上课'}]},
+      {key:'listeners',label:'听课教师'},{key:'remark',label:'备注',type:'textarea'},
+    ],{period:String(period),status:'u'},async data=>{
+      const teacher=teachers.find(item=>item.name===data.teacher);
+      if(!teacher)throw new Error('请先选择任课教师');
+      getDraftRows('class').push({teacher:teacher.name,subject:teacher.subject||'',__draftNew:true,data:{__classRecord:{
+        class_name:String(data.class_name||'').trim(),period:Number(data.period||period),status:data.status||'u',
+        listeners:String(data.listeners||'').split(/[、,，]/).map(item=>item.trim()).filter(Boolean),remark:data.remark||'',
+      }}});
+      paint();
+    }));
+    root.querySelectorAll('[data-class-index]').forEach(el=>el.addEventListener('change',()=>{
+      const row=getDraftRows('class')[Number(el.dataset.classIndex)];
+      if(!row)return;
+      const data={...rowData(row)},record={...(data.__classRecord||{period:Number(period),status:'u',listeners:[],remark:''})};
+      if(el.dataset.k==='listeners')record.listeners=el.value.split(/[、,，]/).map(item=>item.trim()).filter(Boolean);
+      else if(el.dataset.k==='period')record.period=Number(el.value);
+      else record[el.dataset.k]=el.value;
+      row.data={...data,__classRecord:record};
+    }));
+    root.querySelectorAll('[data-delete-class]').forEach(button=>button.addEventListener('click',()=>{
+      const row=getDraftRows('class')[Number(button.dataset.deleteClass)];
+      if(!row)return;
+      row.data={...rowData(row),__deleted:true};paint();
+    }));
+    root.querySelector('[data-save-class]')?.addEventListener('click',async()=>{try{await persistDraft('class');toast('上课表修改已保存','ok');}catch(error){toast(error.message||'保存失败','err');}});
+
+
+    root.querySelectorAll('[data-seat]').forEach(el=>el.addEventListener('change',()=>{
+      const teacher=teachers.find(item=>String(item.id)===String(el.dataset.seat));
+      if(!teacher)return;
+      const row=getDraftRows('seat').find(item=>item.teacher===teacher.name);
+      if(!row)return;
+      const data={...rowData(row)},periods={...(data.__periods||{})},record={...(periods[String(period)]||{})};
+      record[el.dataset.k]=el.value;periods[String(period)]=record;row.data={...data,__periods:periods};
+    }));
+    root.querySelector('[data-save-seat]')?.addEventListener('click',async()=>{try{await persistDraft('seat');toast('坐班表修改已保存','ok');}catch(error){toast(error.message||'保存失败','err');}});
+
+
+    root.querySelector('[data-add-research]')?.addEventListener('click',()=>{
+      const subjects=teacherSubjects();
+      openEditor('新增教研安排',[
+        {key:'subject',label:'学科',type:'select',options:subjects.map(item=>({value:item,label:item}))},
+        {key:'period_time',label:'节次/时间',required:true},
+        {key:'location',label:'地点'},
+        {key:'host',label:'主持人',type:'select',options:teachers.map(item=>({value:item.name,label:item.name}))},
+        {key:'remark',label:'备注',type:'textarea'},
+      ],{subject:subjects[0]||'',period_time:'第'+period+'节',location:'',host:teachers[0]?.name||'',remark:''},async data=>{
+        const subjectName=String(data.subject||'').trim();
+        const members=teachers.filter(item=>String(item.subject||'').trim()===subjectName).map(item=>item.name);
+        const draftRows=getDraftRows('research');
+        let row=draftRows.find(item=>String(rowData(item).__research?.subject||item.subject||item.teacher||'').trim()===subjectName
+          && matchesAttendancePeriod(rowData(item).__research?.period_time,period));
+        if(!row){row={teacher:subjectName,subject:subjectName,data:{}};draftRows.push(row);}
+        const old=rowData(row).__research||{};
+        const picked=await chooseResearchAttendees(members,Array.isArray(old.attendees)?old.attendees:members);
+        if(picked===null)return;
+        row.data={...rowData(row),__research:{...old,...data,subject:subjectName,expected:members.length,
+          attendees:picked,absent:members.filter(name=>!picked.includes(name)),status:picked.length?'已登记':'待登记'}};
+        paint();
+      });
     });
-    root.querySelector('[data-save-class]')?.addEventListener('click',()=>toast('上课表已自动保存','ok'));
-    root.querySelector('[data-save-seat]')?.addEventListener('click',async()=>{const t=await getTable('seat');for(const el of root.querySelectorAll('[data-seat]')){const teacher=teachers.find(x=>String(x.id)===el.dataset.seat);let row=t.rows.find(x=>x.teacher===teacher.name);if(!row){row={teacher:teacher.name,subject:teacher.subject,data:{}};t.rows.push(row);}const d={...rowData(row)},p={...(d.__periods||{})},rec={...(p[String(period)]||{})};rec[el.dataset.k]=el.value;p[String(period)]=rec;d.__periods=p;row.data=d;}await persistAndReload('seat',t.rows);});
-    root.querySelector('[data-add-research]')?.addEventListener('click',()=>openEditor('新增教研记录',[{key:'subject',label:'学科',type:'select',options:[...new Set(teachers.map(t=>t.subject))].filter(Boolean).map(x=>({value:x,label:x}))},{key:'period_time',label:'节次/时间'},{key:'location',label:'地点'},{key:'host',label:'主持人',type:'select',options:teachers.map(x=>({value:x.name,label:x.name}))}],{period_time:'第'+period+'节'},async d=>{const t=await getTable('research'),members=teachers.filter(x=>x.subject===d.subject).map(x=>x.name);const picked=await chooseResearchAttendees(members);if(picked===null)return;t.rows.push({teacher:d.subject,subject:d.subject,data:{__research:{...d,expected:members.length,attendees:picked,absent:members.filter(x=>!picked.includes(x)),status:picked.length?'已登记':'待登记'}}});await saveRows(t,t.rows);await load();}));
-    root.querySelector('[data-save-research]')?.addEventListener('click',()=>toast('教研记录已自动保存','ok'));
+    root.querySelectorAll('[data-research-toggle]').forEach(button=>button.addEventListener('click',()=>{
+      const teacher=teachers.find(item=>String(item.id)===String(button.dataset.researchToggle));
+      if(!teacher)return;
+      const row=getDraftRows('research').find(item=>String(rowData(item).__research?.subject||item.subject||item.teacher||'').trim()===String(teacher.subject||'').trim()
+        && matchesAttendancePeriod(rowData(item).__research?.period_time,period));
+      if(!row)return;
+      const record={...(rowData(row).__research||{})},members=teachers.filter(item=>String(item.subject||'').trim()===String(teacher.subject||'').trim()).map(item=>item.name);
+      const attendees=new Set(Array.isArray(record.attendees)?record.attendees:[]);
+      if(attendees.has(teacher.name))attendees.delete(teacher.name);else attendees.add(teacher.name);
+      const present=members.filter(name=>attendees.has(name));
+      row.data={...rowData(row),__research:{...record,subject:teacher.subject,expected:members.length,attendees:present,
+        absent:members.filter(name=>!present.includes(name)),status:present.length?'已登记':'待登记'}};
+      paint();
+    }));
+    root.querySelectorAll('[data-research-edit]').forEach(button=>button.addEventListener('click',()=>{
+      const teacher=teachers.find(item=>String(item.id)===String(button.dataset.researchEdit));
+      if(!teacher)return;
+      const subjectName=String(teacher.subject||'').trim(),members=teachers.filter(item=>String(item.subject||'').trim()===subjectName).map(item=>item.name);
+      const row=getDraftRows('research').find(item=>String(rowData(item).__research?.subject||item.subject||item.teacher||'').trim()===subjectName
+        && matchesAttendancePeriod(rowData(item).__research?.period_time,period));
+      if(!row)return;
+      const old={...(rowData(row).__research||{})};
+      openEditor('修改教研安排',[
+        {key:'period_time',label:'节次/时间',required:true},
+        {key:'location',label:'地点'},
+        {key:'host',label:'主持人',type:'select',options:teachers.map(item=>({value:item.name,label:item.name}))},
+        {key:'remark',label:'备注',type:'textarea'},
+      ],{period_time:old.period_time||'第'+period+'节',location:old.location||'',host:old.host||teacher.name,remark:old.remark||''},async data=>{
+        const picked=await chooseResearchAttendees(members,Array.isArray(old.attendees)?old.attendees:[]);
+        if(picked===null)return;
+        row.data={...rowData(row),__research:{...old,...data,subject:subjectName,expected:members.length,
+          attendees:picked,absent:members.filter(name=>!picked.includes(name)),status:picked.length?'已登记':'待登记'}};
+        paint();
+      });
+    }));
+    root.querySelector('[data-save-research]')?.addEventListener('click',async()=>{try{await persistDraft('research');toast('教研表修改已保存','ok');}catch(error){toast(error.message||'保存失败','err');}});
+
     root.querySelector('[data-subject-manager]')?.addEventListener('click',()=>toast('学科管理请在名册管理入口维护','warn'));
   };
   await load();

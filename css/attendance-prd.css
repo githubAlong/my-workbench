@@ -60,6 +60,7 @@
 
 /* 花名册新增教师卡片：放在工具栏与名单表格之间，表单字段响应式排列。 */
 .attendance-prd .aprd-roster-add-card{
+  position:sticky;top:8px;z-index:35;
   margin:0 0 14px;
   padding:16px 18px;
   border:1px solid #dce7f6;
@@ -112,3 +113,14 @@
 }
 
 /* 教师编辑等普通弹窗挂载在 attendance-prd 容器内，确保遮罩和表单样式生效。 */
+
+/* 三张考勤工作表统一工具栏、可编辑控件与新增教师固定区。 */
+.attendance-prd .aprd-roster-add-card{backdrop-filter:blur(8px);box-shadow:0 6px 18px rgba(35,75,130,.10)}
+.attendance-prd .aprd-table-wrap input,.attendance-prd .aprd-table-wrap select{
+  max-width:220px;min-width:76px;padding:6px 8px;border:1px solid #dce5f1;border-radius:7px;
+  background:#fff;color:#263650;font:inherit;
+}
+.attendance-prd .aprd-table-wrap input:focus,.attendance-prd .aprd-table-wrap select:focus{
+  outline:none;border-color:#6b9cff;box-shadow:0 0 0 3px rgba(22,93,255,.08);
+}
+.attendance-prd .aprd-toolbar button:disabled{opacity:.48;cursor:not-allowed}
