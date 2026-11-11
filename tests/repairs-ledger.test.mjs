@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { isRepairTracked, summarizeRepairs, isRepairFixed, normalizeRepairStatus, repairStatusInputValue } from '../js/repairs-domain.mjs';
+import { isRepairTracked, summarizeRepairs, isRepairFixed, normalizeRepairStatus, repairStatusInputValue, repairStatusForSave } from '../js/repairs-domain.mjs';
 
 const repairSource = await readFile(new URL('../js/repairs.js', import.meta.url), 'utf8');
 const localdbSource = await readFile(new URL('../js/localdb.js', import.meta.url), 'utf8');
@@ -49,7 +49,7 @@ test('旧记录缺少 follow_up 时按否处理，并兼容常见勾选值', () 
 
 test('维修台账表头严格遵循 PRD 的十列顺序', () => {
   const headers = '<th>序号</th><th>维修日期</th><th>设备名称</th><th>位置</th><th>维修记录</th><th>报修人</th><th>是否修好</th><th>是否跟踪</th><th>备注</th><th>操作</th>';
-  assert.ok(repairSource.includes(headers));
+  assert.ok(repairSource.replace(/>\s+</g, '><').includes(headers));
 });
 
 test('跟踪字段纳入本地维修记录字段白名单，四种统计颜色存在', () => {
@@ -74,4 +74,32 @@ test('维修登记状态为自由文本输入框',()=>{
  assert.match(repairSource,/<input class="input" id="s"/);
  assert.doesNotMatch(repairSource,/<select class="input" id="s"/);
  assert.ok(repairSource.includes('placeholder="手动输入状态'));
+});
+
+test('截图中的已修复记录在编辑、列表和月份统计中均为已修好', () => {
+  for (const status of ['已修复', '修好了', '已修好', 'done']) {
+    const row = { date: '2026-11-09', status };
+    assert.equal(isRepairFixed(row), true);
+    assert.equal(repairStatusInputValue(status), '已修好');
+    const summary = summarizeRepairs([row], '2026-11');
+    assert.deepEqual([summary.fixed, summary.unfinished], [1, 0]);
+  }
+  for (const status of ['未修复', '尚未修好', '未完成', '等待配件']) {
+    assert.equal(isRepairFixed({ status }), false);
+  }
+});
+
+test('明确选择是否修好后保存并重新读取，列表与统计保持一致', () => {
+  const row = { date: '2026-11-09', status: '等待配件', fixed_at: '2026-11-01' };
+  row.status = repairStatusForSave(row.status, true);
+  let restored = JSON.parse(JSON.stringify(row));
+  assert.equal(isRepairFixed(restored), true);
+  assert.equal(summarizeRepairs([restored], '2026-11').fixed, 1);
+  row.status = repairStatusForSave(row.status, false);
+  restored = JSON.parse(JSON.stringify(row));
+  assert.equal(isRepairFixed(restored), false);
+  assert.equal(summarizeRepairs([restored], '2026-11').unfinished, 1);
+  assert.equal(restored.fixed_at, '2026-11-01');
+  assert.equal(repairStatusForSave('等待配件', false), '等待配件');
+  assert.equal(repairStatusForSave('已修复', false), 'pending');
 });

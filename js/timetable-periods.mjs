@@ -183,3 +183,20 @@ export function normalizeTimetablePeriods(periods, options = {}) {
   }
   return [...byNumber.values()].sort((a, b) => Number(a.period_no) - Number(b.period_no));
 }
+
+// Include every course-referenced period, including evening periods 11–15.
+export function completeTimetablePeriods(periods, courses = [], options = {}) {
+  const rows = (Array.isArray(periods) ? periods : []).map(period => ({ ...period }));
+  const existing = new Set(rows.map(period => Number(period.period_no)));
+  for (const course of Array.isArray(courses) ? courses : []) {
+    const number = getCanonicalPeriodNumber(course, options);
+    if (number == null || existing.has(number)) continue;
+    existing.add(number);
+    rows.push({
+      id: 'course-period-' + number, period_no: number,
+      name: normalizedPeriodName(course, number),
+      start_time: cleanPeriodTime(course.start_time), end_time: cleanPeriodTime(course.end_time),
+    });
+  }
+  return rows;
+}

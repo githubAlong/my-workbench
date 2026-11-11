@@ -2,7 +2,7 @@ import { api, el, esc, toast, sheet, saving, confirmDialog, WD_SHORT, ymd } from
 import { state, icon, onViewLeave } from './ui.js';
 import { detectTimetable } from './ttimage.js';
 import { readXlsx, readDelimited } from './xlsx-lite.js';
-import { cleanPeriodTime, getCanonicalPeriodNumber, normalizeTimetablePeriods } from './timetable-periods.mjs';
+import { cleanPeriodTime, getCanonicalPeriodNumber, normalizeTimetablePeriods, completeTimetablePeriods } from './timetable-periods.mjs';
 
 const DAYS = [1, 2, 3, 4, 5, 6, 0];
 const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
@@ -253,16 +253,17 @@ export async function renderTimetable(box) {
     const key = appliedType + "|" + appliedGrade;
     const configured = periodDefinitions[key];
     if (Array.isArray(configured) && configured.length) {
-      return [...configured].sort((a, b) => Number(a.order) - Number(b.order)).map((item) => ({
+      const configuredRows = [...configured].sort((a, b) => Number(a.order) - Number(b.order)).map((item) => ({
         id: item.id || "custom-" + item.period_no,
         period_no: Number(item.period_no),
         name: String(item.name || ("第" + item.period_no + "节")),
         start_time: cleanPeriodTime(item.start_time),
         end_time: cleanPeriodTime(item.end_time),
       }));
+      return completeTimetablePeriods(configuredRows, visibleCourses, { periodTimes, scheduleType: appliedType });
     }
     const byNo = new Map(allPeriods.map((period) => [Number(period.period_no), period]));
-    for (const number of [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9]) {
+    for (const number of [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10]) {
       if (byNo.has(number)) continue;
       const fallback = periodDefaults(number, appliedType);
       byNo.set(number, {
@@ -270,7 +271,7 @@ export async function renderTimetable(box) {
         name: periodName({ period_no: number }), start_time: fallback[0] || "", end_time: fallback[1] || "",
       });
     }
-    return sortPeriods([...byNo.values()].filter((period) => [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10].includes(Number(period.period_no))));
+    return sortPeriods(completeTimetablePeriods([...byNo.values()], visibleCourses, { periodTimes, scheduleType: appliedType }));
   }
 
   function currentLesson(courses) {
@@ -281,7 +282,7 @@ export async function renderTimetable(box) {
     const todayCourses = courses.filter((course) =>
       Number(course.weekday) === day && isCourseActiveToday(course, date)
     ).map((course) => {
-      const period = allPeriods.find((item) => Number(item.period_no) === Number(course.period_no));
+      const period = getPeriods(courses).find((item) => Number(item.period_no) === Number(course.period_no));
       const range = courseTime(course, period, periodTimes, appliedType);
       const [start, end] = range.split('–').map(timeMinutes);
       return { course, period, start, end };
@@ -316,10 +317,8 @@ export async function renderTimetable(box) {
         desc += ' ｜ 下一节：' + (nextCourse.subject || '课程') + ' ' +
           gradeClass(nextCourse.grade, nextCourse.class_name) + ' ' + formatClockMinutes(info.next.start);
       }
-      target = info.next
-        ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(info.next.start / 60), info.next.start % 60)
-        : new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(info.current.end / 60), info.current.end % 60);
-      label = info.next ? '距离下一节课' : '距离下课';
+      target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(info.current.end / 60), info.current.end % 60);
+      label = '距离下课';
     } else if (info.next) {
       mode = 'class';
       statusText = '下一节课';
@@ -332,27 +331,22 @@ export async function renderTimetable(box) {
     }
 
     const countdown = target ? countdownText(target.getTime() - now.getTime()) : '—';
-    const gradeLabel = appliedGrade === '全部' ? '全部年级' : appliedGrade;
-    return '<div class="tt-reminder ' + mode + '" id="tt-reminder-card">' +
-      '<div class="tt-reminder-date">' +
-        '<span class="tt-reminder-date-icon">' + icon('cal', 26) + '</span>' +
-        '<span class="tt-reminder-date-copy"><strong class="tt-reminder-weekday">' + weekday + '</strong><span class="tt-reminder-date-text">' + formatDate(now) + '</span></span>' +
-      '</div>' +
-      '<div class="tt-reminder-status">' +
-        '<span class="tt-reminder-kicker">' + statusText + '</span>' +
-        '<div class="tt-reminder-title">' + esc(title) + '</div>' +
-        '<div class="tt-reminder-desc">' + esc(desc) + '</div>' +
-      '</div>' +
-      '<div class="tt-reminder-countdown">' +
-        '<div class="tt-reminder-label">' + label + '</div>' +
-        '<div class="tt-reminder-number" id="tt-reminder-number">' + countdown + '</div>' +
-      '</div>' +
-      '<div class="tt-reminder-facts">' +
-        '<div class="tt-reminder-fact"><span class="tt-reminder-fact-icon">' + icon('book', 20) + '</span><span class="tt-reminder-fact-copy"><small>课表类型</small><b>' + esc(appliedType) + '</b></span></div>' +
-        '<div class="tt-reminder-fact"><span class="tt-reminder-fact-icon">' + icon('users', 20) + '</span><span class="tt-reminder-fact-copy"><small>所属年级</small><b>' + esc(gradeLabel) + '</b></span></div>' +
-      '</div>' +
-      '<div class="tt-reminder-art" aria-hidden="true">' + icon('cal', 58) + '</div>' +
-    '</div>';
+    const lesson = info.current || info.next;
+    const remaining = info.todayCourses.filter((item) => item.end > info.now).length;
+    if (!lesson && info.todayCourses.length) {
+      statusText = '今日课程已结束';
+      title = '今日课程已结束';
+      desc = '今天的 ' + info.todayCourses.length + ' 节课程已结束';
+    }
+    const lessonClass = lesson ? gradeClass(lesson.course.grade, lesson.course.class_name) : '';
+    const lessonTime = lesson ? courseTime(lesson.course, lesson.period, periodTimes, appliedType) : '';
+    return '<div class="tt-reminder tt-focus-card ' + mode + '" id="tt-reminder-card">' +
+      '<div class="tt-focus-main"><span class="tt-focus-kicker">' + statusText + '</span>' +
+        (lesson ? '<div class="tt-focus-pair"><strong class="tt-focus-class">' + esc(lessonClass || '班级待填写') + '</strong><strong class="tt-focus-time">' + esc(lessonTime) + '</strong></div>' : '<div class="tt-focus-empty">' + esc(title) + '</div>') +
+        '<div class="tt-focus-meta">' + (lesson ? esc([lesson.course.subject || '课程', lesson.period ? periodName(lesson.period) : '节次待设置', '今日还剩 ' + remaining + ' 节'].join(' · ')) : esc(desc)) + '</div>' +
+      '</div><div class="tt-focus-aside"><div class="tt-focus-date">' + esc(formatDate(now) + ' ' + weekday) + '</div>' +
+        '<div class="tt-focus-countdown-label">' + label + '</div><div class="tt-focus-countdown" id="tt-reminder-number">' + countdown + '</div>' +
+      '</div></div>';
   }
 
   function renderCourse(course, period) {
@@ -367,8 +361,8 @@ export async function renderTimetable(box) {
       '</div>' +
       '<span class="tt-course-icon" aria-hidden="true">' + icon('grid', 17) + '</span>' +
       '<div class="tt-course-content">' +
-        '<div class="tt-course-heading"><strong class="tt-course-subject">' + esc(course.subject || '未命名课程') + '</strong><span class="tt-grade-tag ' + gradeClassName(grade) + '">' + esc(grade === '全部' ? '全体' : grade) + '</span></div>' +
-        '<span class="tt-course-class">' + esc(className || '班级待填写') + '</span>' +
+        '<div class="tt-course-heading"><strong class="tt-course-subject">' + esc(className || '班级待填写') + '</strong></div>' +
+        '<span class="tt-course-class">' + esc(course.subject || '未命名课程') + '</span>' +
         '<span class="tt-course-time">' + esc(time) + '</span>' +
       '</div>' +
       '</div>';
@@ -381,10 +375,10 @@ export async function renderTimetable(box) {
       const rowCourses = courses.filter((course) => getCanonicalPeriodNumber(course) === pNo);
       const firstCourse = rowCourses.find((course) => course.start_time || course.end_time) || {};
       const time = courseTime({ ...firstCourse, period_no:pNo }, period, periodTimes, appliedType);
-      if (pNo === 5.5 || String(period.name || '').includes('午休')) return '<tr class="tt-lunch-row"><td class="tt-period-cell"><strong>午休</strong></td><td class="tt-time-cell"></td><td class="tt-lunch-cell" colspan="7"><span>' + esc(time || '12:20–14:10') + '</span></td></tr>';
+      if (pNo === 5.5 || String(period.name || '').includes('午休')) return '<tr class="tt-lunch-row"><td class="tt-period-cell"><strong>午休</strong></td><td class="tt-lunch-cell" colspan="8"><div class="tt-lunch-content">' + icon('clock', 23) + '<span>午休</span><strong>' + esc(time === '时间待设置' ? '12:20–14:10' : time) + '</strong></div></td></tr>';
       const cells = DAYS.map((day) => {
         const list = rowCourses.filter((course) => Number(course.weekday) === day);
-        return '<td class="tt-slot ' + (list.length ? 'has-course' : 'is-empty') + '" data-slot="1" data-day="' + day + '" data-period="' + pNo + '">' + (list.length ? list.map((course) => renderCourse(course, period)).join('') : '<button class="tt-empty-add" type="button" aria-label="新增课程">＋</button>') + '</td>';
+        return '<td class="tt-slot ' + (list.length ? 'has-course' : 'is-empty') + (day === new Date().getDay() ? ' is-today' : '') + '" data-slot="1" data-day="' + day + '" data-period="' + pNo + '">' + (list.length ? list.map((course) => renderCourse(course, period)).join('') : '<button class="tt-empty-add" type="button" aria-label="新增课程">＋</button>') + '</td>';
       }).join('');
       return '<tr><td class="tt-period-cell"><strong>' + esc(periodName(period)) + '</strong></td><td class="tt-time-cell"><span>' + esc(time || '时间待设置') + '</span></td>' + cells + '</tr>';
     }).join('');
@@ -405,10 +399,11 @@ export async function renderTimetable(box) {
         '<button class="btn primary sm" type="button" id="tt-add">' + icon('plus', 14) + ' 新增课程</button>' +
       '</div></div>' +
       reminderHtml(visible) +
-      '<div class="tt-query-bar">' +
+      '<div class="tt-query-bar tt-focus-query">' +
+        '<div class="tt-season-switch" role="group" aria-label="课表类型">' + [TYPE_WINTER, TYPE_SUMMER].map((type) => '<button type="button" data-schedule-type="' + type + '" aria-pressed="' + (appliedType === type) + '">' + type.replace('课表', '') + '</button>').join('') + '</div>' +
         '<label class="tt-query-item"><span>课表类型</span><select id="tt-type"><option value="' + TYPE_SUMMER + '"' + (appliedType === TYPE_SUMMER ? ' selected' : '') + '>' + TYPE_SUMMER + '</option><option value="' + TYPE_WINTER + '"' + (appliedType === TYPE_WINTER ? ' selected' : '') + '>' + TYPE_WINTER + '</option></select></label>' +
         '<label class="tt-query-item"><span>所属年级</span><select id="tt-grade"><option value="全部"' + (appliedGrade === '全部' ? ' selected' : '') + '>全部（跨年级总课表）</option><option value="高一"' + (appliedGrade === '高一' ? ' selected' : '') + '>高一</option><option value="高二"' + (appliedGrade === '高二' ? ' selected' : '') + '>高二</option><option value="高三"' + (appliedGrade === '高三' ? ' selected' : '') + '>高三</option></select></label>' +
-        '<button class="btn primary" type="button" id="tt-confirm">' + icon('search', 14) + ' 确认查看课表</button>' +
+        '<button class="btn primary" type="button" id="tt-confirm">查看课表</button>' +
         '<div class="tt-current-tag"><span>当前查看</span><b>' + esc(appliedType + ' · ' + currentLabel) + '</b></div>' +
       '</div>' +
       gridHtml(visible, periods) +
@@ -426,9 +421,16 @@ export async function renderTimetable(box) {
     const holder = el(html);
     card.className = holder.className;
     card.innerHTML = holder.innerHTML;
-    const nowId = currentLesson(visible).current?.course?.id;
+    const lessonInfo = currentLesson(visible);
+    const nowId = lessonInfo.current?.course?.id;
+    const nextId = lessonInfo.next?.course?.id;
     box.querySelectorAll('.tt-course-block').forEach((block) => {
       block.classList.toggle('now', String(block.dataset.courseId) === String(nowId || ''));
+      const isNext = !nowId && String(block.dataset.courseId) === String(nextId || '');
+      block.classList.toggle('is-next', isNext);
+      const badge = block.querySelector('.tt-next-badge');
+      if (isNext && !badge) block.insertAdjacentHTML('beforeend', '<span class="tt-next-badge">下一节</span>');
+      if (!isNext) badge?.remove();
     });
   }
 
@@ -616,6 +618,12 @@ export async function renderTimetable(box) {
   function bind(visible, periods) {
     const typeSelect = box.querySelector('#tt-type');
     const gradeSelect = box.querySelector('#tt-grade');
+    box.querySelectorAll('[data-schedule-type]').forEach((button) => {
+      button.addEventListener('click', () => {
+        typeSelect.value = button.dataset.scheduleType;
+        box.querySelectorAll('[data-schedule-type]').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+      });
+    });
     box.querySelector('#tt-confirm')?.addEventListener('click', async () => {
       appliedType = typeSelect.value === TYPE_WINTER ? TYPE_WINTER : TYPE_SUMMER;
       appliedGrade = gradeSelect.value || '全部';
@@ -1332,3 +1340,4 @@ export async function renderTimetable(box) {
     clockTimer = null;
   });
 }
+

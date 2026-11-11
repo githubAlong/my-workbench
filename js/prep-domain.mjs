@@ -8,20 +8,22 @@ export const PREP_TYPE_OPTIONS = Object.freeze([
 const PREP_TYPE_VALUES = new Set(PREP_TYPE_OPTIONS.map((item) => item.value));
 
 export function isPrepType(value) {
-  return PREP_TYPE_VALUES.has(String(value ?? '').trim());
+  const type = String(value ?? '').trim();
+  return !!type && type !== PREP_UNCLASSIFIED && type.length <= 80;
 }
 
 /* 老记录没有 prep_type，或类型值不在当前选项内时，统一视为待分类。 */
 export function normalizePrepType(value) {
   const raw = typeof value === 'string' ? value : value?.prep_type;
   const type = String(raw ?? '').trim();
-  return PREP_TYPE_VALUES.has(type) ? type : PREP_UNCLASSIFIED;
+  const known = PREP_TYPE_OPTIONS.find(item => item.label === type);
+  return known?.value || (isPrepType(type) ? type : PREP_UNCLASSIFIED);
 }
 
 export function prepTypeLabel(value) {
   const type = normalizePrepType(value);
   if (type === PREP_UNCLASSIFIED) return '待分类';
-  return PREP_TYPE_OPTIONS.find((item) => item.value === type)?.label || '待分类';
+  return PREP_TYPE_OPTIONS.find((item) => item.value === type)?.label || type;
 }
 
 export function filterPrepRecords(records, {

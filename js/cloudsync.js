@@ -26,8 +26,9 @@
    ========================================================================== */
 
 import { toast, confirmDialog } from './core.js';
-import { DB_KEY, activeAccountId } from './localdb.js';
+import { DB_KEY, activeAccountId, exportJSON as localMemorySnapshot } from './localdb.js';
 import { session } from './cloud.js';
+import { stableJson, mergeSnapshots, applyConflictChoices, readJournal, writeJournal, localDrafts } from './sync-journal.mjs';
 
 const CFG_KEY = 'wb_cloud_cfg';      // { url, anon, syncKey }
 const META_KEY = 'wb_cloud_meta';    // { lastPull, lastPush, localChanged }
@@ -128,8 +129,37 @@ function applyRemote(payload) {
 
 /* ---------------- 账户级自动同步 ---------------- */
 const REV_KEY = 'wb_account_revision';
-let _revision = 0, _uid = '', _pending = false, _changeSeq = 0, _writing = Promise.resolve(), _retryDelay = 1500, _remoteBound = false;
+let _revision = 0, _uid = '', _pending = false, _writing = Promise.resolve(), _retryDelay = 1500, _remoteBound = false;
 let _syncReady = false, _conflictPaused = false;
+let _savedContent = '', _observedContent = '';
+let _inFlight = 0;
+let _baseSnapshot = null, _sentPayload = null, _conflicts = [], _conflictRemote = null;
+let _attempts = 0, _statusDetail = null, _lifecycleBound = false;
+let _localConflict=null;
+let _storageFailed=false;
+const MAX_AUTO_ATTEMPTS = 5;
+export function getAccountSyncStatus() { return _statusDetail; }
+export function getSyncConflicts() { return JSON.parse(JSON.stringify(_localConflict?.conflicts || _conflicts)); }
+function emitSyncStatus(status, message = '') {
+  if(_storageFailed){status='error';message='本机存储空间不足，部分修改可能尚未保存。请保留页面并导出本机备份';}
+  _statusDetail = {status,message,pending:_pending,uid:_uid};
+  window.dispatchEvent(new CustomEvent('wb:sync-status',{detail:_statusDetail}));
+}
+function pendingJournal() {
+  if (!_uid || !_baseSnapshot || _uid !== activeAccountId()) return;
+  // Other tabs may have acknowledged a write since this tab last observed it.
+  const shared=readJournal(localStorage,_uid);
+  if(shared && Number(shared.revision)>_revision){
+    _baseSnapshot=shared.base;writeRevision(_uid,shared.revision);_savedContent=stableJson(shared.base);
+  }
+  const local=safeSnapshot(JSON.parse(localStorage.getItem(DB_KEY)||'{}'));
+  _pending=stableJson(local)!==_savedContent || !!_sentPayload || !!shared?.sent || !!_conflicts.length || !!_localConflict;
+  writeJournal(localStorage,_uid,{base:_baseSnapshot,draft:_pending?local:null,revision:_revision,conflicts:_conflicts,sent:_sentPayload || shared?.sent || null});
+}
+async function applySyncSnapshot(payload) {
+  if (localContent()!==stableJson(payload)) localStorage.setItem(DB_KEY,JSON.stringify(payload));
+  const db=await import('./localdb.js');db.replaceMemFromDisk();
+}
 function revisionStorageKey(uid) { return REV_KEY + ':' + uid; }
 function writeRevision(uid, value) {
   _revision = Number(value) || 0;
@@ -151,12 +181,15 @@ async function replaceLocalSnapshot(payload) {
   const localdb = await import('./localdb.js');
   localdb.replaceMemFromDisk?.();
 }
-function stableJson(value) {
-  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
-  if (value && typeof value === 'object') {
-    return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + stableJson(value[key])).join(',') + '}';
-  }
-  return JSON.stringify(value);
+function localContent() {
+  return stableJson(safeSnapshot(JSON.parse(localStorage.getItem(DB_KEY) || '{}')));
+}
+function acknowledgeContent(content) {
+  const observed=localContent(),pending=observed!==content;
+  writeJournal(localStorage,_uid,{base:JSON.parse(content),draft:pending?JSON.parse(observed):null,revision:_revision});
+  _baseSnapshot=JSON.parse(content);_sentPayload=null;
+  _savedContent = content;_observedContent = observed;_pending = pending;
+  _attempts=0;
 }
 function isRevisionConflict(error) {
   return /WB_DATA_REVISION_CONFLICT|40001|revision conflict/i.test(String(error?.message || ''));
@@ -166,98 +199,200 @@ function isWriteBusy(error) {
 }
 function makeRevisionConflict(raw) {
   _conflictPaused = true;
-  _syncReady = false;
   try { localStorage.setItem('wb_sync_conflict_backup:' + _uid, raw); } catch { }
-  const error = new Error('检测到其他设备同时修改了工作台数据。为防止覆盖云端版本，自动同步已暂停；本机缓存未清除。请关闭重复打开的工作台标签页后刷新，重新读取云端最新数据。');
+  pendingJournal();
+  const error = new Error('检测到同一内容存在不同修改，本机待同步数据已保留。请点页面上方“处理冲突”选择保留内容；刷新不会丢弃待同步修改。');
   error.code = 'WB_DATA_REVISION_CONFLICT';
+  emitSyncStatus('conflict',error.message);
   return error;
 }
-async function adoptRemoteIfSame(cloud, raw, payload, savingSeq) {
+async function adoptRemoteIfSame(cloud, payload) {
+  const uid=_uid;
   let remote = null;
   try { remote = await cloud.getWorkbenchSnapshot(); } catch { }
+  if(uid!==_uid||uid!==activeAccountId())return null;
   if (!remote?.payload || stableJson(remote.payload) !== stableJson(payload)) return null;
   writeRevision(_uid, remote.revision);
-  _pending = _changeSeq !== savingSeq;
+  acknowledgeContent(stableJson(payload));
   setMeta({ lastPush: remote.updated_at || new Date().toISOString(), localChanged: _pending });
   _retryDelay = 1500;
-  window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved', at: remote.updated_at } }));
+  emitSyncStatus(_pending?'pending':'saved');
   return remote;
 }
-async function pushSnapshotUnlocked() {
-  if (!_uid || !_pending) return;
+async function rebaseRemote(cloud) {
+  const uid=_uid,remote=await cloud.getWorkbenchSnapshot();
+  if(uid!==_uid||uid!==activeAccountId())return false;
+  if(!remote?.payload)throw Error('暂时无法读取云端最新版本，本机修改已保留');
+  const local=safeSnapshot(JSON.parse(localStorage.getItem(DB_KEY)||'{}'));
+  const merged=mergeSnapshots(_baseSnapshot,local,safeSnapshot(remote.payload));
+  if(_sentPayload && stableJson(remote.payload)!==stableJson(_sentPayload) && stableJson(remote.payload)!==_savedContent){
+    merged.payload=local;merged.conflicts=[{path:[],base:_baseSnapshot,local,remote:remote.payload}];
+  }
+  _conflicts=merged.conflicts;_conflictRemote=remote;
+  if(_conflicts.length){
+    writeJournal(localStorage,_uid,{base:_baseSnapshot,draft:merged.payload,revision:_revision,conflicts:_conflicts,sent:_sentPayload});
+    await applySyncSnapshot(merged.payload);
+    throw makeRevisionConflict(JSON.stringify(merged.payload));
+  }
+  writeJournal(localStorage,_uid,{base:remote.payload,draft:stableJson(merged.payload)!==stableJson(remote.payload)?merged.payload:null,revision:remote.revision});
+  await applySyncSnapshot(merged.payload);
+  writeRevision(_uid,remote.revision);_sentPayload=null;
+  acknowledgeContent(stableJson(remote.payload));
+  return true;
+}
+async function pushSnapshotUnlocked(rebases=0) {
+  if (!_syncReady || !_uid || _uid !== activeAccountId() || !_pending) return;
   if (_conflictPaused) throw makeRevisionConflict(localStorage.getItem(DB_KEY) || '');
+  const owner=_uid;
   const cloud = await import('./cloud.js');
+  if(owner!==_uid||owner!==activeAccountId()||!_syncReady)return;
   const raw = localStorage.getItem(DB_KEY);
   if (!raw) throw new Error('本机工作台数据尚未初始化');
-  const payload = safeSnapshot(JSON.parse(raw));
-  const savingSeq = _changeSeq;
+  const payload = _sentPayload || safeSnapshot(JSON.parse(raw));
+  const content = stableJson(payload);
+  if (content === _savedContent && !_sentPayload) {
+    _pending = false;
+    setMeta({ localChanged: false });
+    return;
+  }
+  const savingUid = _uid;
 
   /* 同一浏览器的其他标签页可能已经推进了版本号。
      先比对云端快照；相同则只认领新版本，不同则停写，绝不拿旧快照覆盖新数据。 */
   const sharedRevision = Number(localStorage.getItem(revisionStorageKey(_uid)) || 0);
   if (sharedRevision > _revision) {
-    const adopted = await adoptRemoteIfSame(cloud, raw, payload, savingSeq);
+    const adopted = await adoptRemoteIfSame(cloud, payload);
     if (adopted) return adopted;
-    throw makeRevisionConflict(raw);
+    if(rebases>=2)throw Object.assign(Error('云端版本正在更新，稍后重试'),{code:'WB_DATA_WRITE_BUSY'});
+    if(!await rebaseRemote(cloud))return;
+    return _pending ? pushSnapshotUnlocked(rebases+1) : undefined;
   }
 
   let saved;
   try {
-    saved = await cloud.saveWorkbenchSnapshot(payload, _revision);
+    _sentPayload=payload;pendingJournal();
+    emitSyncStatus('saving');
+    saved = await cloud.saveWorkbenchSnapshot(payload, _revision,savingUid);
   } catch (error) {
-    if (!isRevisionConflict(error)) throw error;
-    const adopted = await adoptRemoteIfSame(cloud, raw, payload, savingSeq);
+    if(_uid!==savingUid||activeAccountId()!==savingUid)return;
+    const adopted = await adoptRemoteIfSame(cloud, payload);
     if (adopted) return adopted;
-    throw makeRevisionConflict(raw);
+    if (!isRevisionConflict(error)) throw error;
+    // A rejected revision is a definite non-write, so it can safely be rebased.
+    _sentPayload=null;
+    if(rebases>=2)throw Object.assign(Error('云端版本更新较快，修改已保留并稍后重试'),{code:'WB_DATA_WRITE_BUSY'});
+    if(!await rebaseRemote(cloud))return;
+    return _pending ? pushSnapshotUnlocked(rebases+1) : undefined;
   }
 
+  if (_uid !== savingUid || _uid !== activeAccountId()) return saved;
+  if(saved.payload && stableJson(saved.payload)!==content)throw Error('云端返回内容与本次保存不一致，已保留本机修改');
   writeRevision(_uid, saved.revision);
-  _pending = _changeSeq !== savingSeq;
+  acknowledgeContent(content);
   setMeta({ lastPush: saved.updated_at || new Date().toISOString(), localChanged: _pending });
   _retryDelay = 1500;
-  window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved', at: saved.updated_at } }));
+  emitSyncStatus(_pending?'pending':'saved');
   return saved;
 }
 /* Cross-tab serialization: keep the wait in the browser, not in a Postgres
    connection. All tabs on this origin share the same localStorage snapshot/revision. */
 async function pushSnapshot() {
+  const uid=_uid;
+  const run = async () => {
+    if(uid!==_uid||uid!==activeAccountId())return;
+    _inFlight += 1;
+    try { return await pushSnapshotUnlocked(); }
+    finally { _inFlight -= 1; }
+  };
   if (typeof navigator === 'undefined' || !navigator.locks?.request) {
-    return pushSnapshotUnlocked();
+    return run();
   }
-  return navigator.locks.request(`wb-snapshot:${_uid}`, { mode: 'exclusive' }, () => pushSnapshotUnlocked());
+  return navigator.locks.request(`wb-snapshot:${_uid}`, { mode: 'exclusive' }, run);
 }
 
 export async function initializeAccountSync() {
   const cloud = await import('./cloud.js');
   const uid = cloud.session()?.uid || '';
   if (!uid || uid !== activeAccountId()) return false;
-  if (_uid === uid && _revision > 0 && _syncReady) return true;
+  if (_uid === uid && _syncReady) return true;
+  clearTimeout(_debounce);
+  _debounce = null;
   _uid = uid;
   _syncReady = false;
   _conflictPaused = false;
-  const remote = await cloud.getWorkbenchSnapshot();
-  if (remote?.payload) {
-    await replaceLocalSnapshot(remote.payload);
-    writeRevision(uid, remote.revision);
-    _pending = false;
-  } else {
-    _revision = 0;
-    try { localStorage.removeItem(revisionStorageKey(uid)); } catch { }
-    _pending = true;
-    await pushSnapshot();
+  _conflicts=[];_sentPayload=null;_attempts=0;_retryDelay=1500;_storageFailed=false;
+  let journal;
+  try {journal=readJournal(localStorage,uid);}
+  catch(error){_pending=true;emitSyncStatus('error','本机待同步记录无法读取，已停止同步。请导出备份后处理');throw error;}
+  let remote;
+  try {remote=await cloud.getWorkbenchSnapshot();}
+  catch(error){
+    if(uid!==_uid||uid!==activeAccountId())return false;
+    if(!journal){emitSyncStatus('error','云端暂时不可达，未覆盖本机内容。请联网后重试');throw error;}
+    _baseSnapshot=journal.base;_savedContent=stableJson(journal.base);_observedContent=localContent();
+    _sentPayload=journal.sent||null;_revision=Number(journal.revision)||0;
+    _conflicts=journal.conflicts||[];_localConflict=localDrafts(localStorage,uid)[0]||null;
+    _conflictPaused=!!_conflicts.length||!!_localConflict;
+    _pending=_observedContent!==_savedContent||!!_sentPayload||_conflictPaused;
+    pendingJournal();_syncReady=true;bindRemoteSnapshotEvents();bindSyncLifecycle();
+    emitSyncStatus(_conflictPaused?'conflict':globalThis.navigator?.onLine===false?'offline':'pending','已保留本机缓存，联网后继续同步');
+    if(_pending&&!_conflictPaused)queueSave(1500);return true;
   }
+  if(uid!==activeAccountId()||uid!==_uid)return false;
+  let local=safeSnapshot(JSON.parse(localStorage.getItem(DB_KEY)||'{}'));
+  let base=remote?.payload ? safeSnapshot(remote.payload) : local;
+  let restored=local;
+  if(journal){
+    if(journal.draft && stableJson(local)===stableJson(journal.base))local=journal.draft;
+    _sentPayload=journal.sent || null;
+    const remoteContent=stableJson(base);
+    const committed=_sentPayload&&remoteContent===stableJson(_sentPayload);
+    const mergeBase=committed?_sentPayload:journal.base;
+    if(committed)_sentPayload=null;
+    const merged=mergeSnapshots(mergeBase,local,base);restored=merged.payload;_conflicts=merged.conflicts;
+    if(journal.sent && !committed && remoteContent!==stableJson(journal.base)){
+      restored=local;_conflicts=[{path:[],base:journal.base,local,remote:base}];
+    }
+    if(!remote?.payload&&Number(journal.revision)>0){restored=local;_conflicts=[{path:[],base:journal.base,local,remote:null}];}
+    if(_conflicts.length)base=journal.base;
+  }else if(remote?.payload){
+    const hasRecords=Object.values(local).some(value=>Array.isArray(value)&&value.length>0);
+    const hasProfile=!!(local.meta?.user?.school||local.meta?.user?.subject||meta().localChanged);
+    if(stableJson(local)!==stableJson(base)&&(hasRecords||hasProfile)){
+      _conflicts=[{path:[],base,local,remote:base}];
+    }else restored=base;
+  }
+  _baseSnapshot=base;_savedContent=stableJson(base);
+  _revision=Number(remote?.revision ?? journal?.revision)||0;
+  _observedContent=stableJson(restored);
+  _pending=_observedContent!==_savedContent||!!_sentPayload||_conflicts.length>0;
+  _localConflict=localDrafts(localStorage,uid)[0]||null;
+  _conflictPaused=_conflicts.length>0||!!_localConflict;_conflictRemote=remote;
+  _pending=_pending||!!_localConflict;
+  // Persist the recovery copy before replacing any local data.
+  writeJournal(localStorage,uid,{base,draft:_pending?restored:null,revision:_revision,conflicts:_conflicts,sent:_sentPayload});
+  await applySyncSnapshot(restored);writeRevision(uid,_revision);
   _syncReady = true;
   bindRemoteSnapshotEvents();
-  window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved' } }));
+  bindSyncLifecycle();
+  emitSyncStatus(_conflictPaused?'conflict':_pending?'pending':'saved');
+  if(_pending&&!_conflictPaused)queueSave();
   return true;
 }
 export async function refreshAccountSync() {
   if (!_syncReady || !_uid || _uid !== activeAccountId()) return false;
+  if(editingLocally())return false;
+  const uid=_uid;
   const cloud = await import('./cloud.js');
   const remote = await cloud.getWorkbenchSnapshot();
-  if (!remote?.payload || Number(remote.revision) <= _revision || _pending) return false;
+  if(uid!==_uid||uid!==activeAccountId())return false;
+  if (!remote?.payload || Number(remote.revision) <= _revision || _pending || _inFlight || _conflictPaused) return false;
+  const current=localContent();
+  if(current!==_savedContent){hookSave();return false;}
+  writeJournal(localStorage,uid,{base:remote.payload,revision:remote.revision});
   await replaceLocalSnapshot(remote.payload);
   writeRevision(_uid, remote.revision);
+  acknowledgeContent(localContent());
   return true;
 }
 function bindRemoteSnapshotEvents() {
@@ -275,51 +410,139 @@ function bindRemoteSnapshotEvents() {
 }
 export function hookSave() {
   /* 首次云端读取未完成或检测到多端冲突时，禁止上传本机快照。 */
-  if (!_syncReady || _conflictPaused || !_uid || _uid !== activeAccountId()) return;
-  setMeta({ localChanged: true });
-  _pending = true;
-  _changeSeq += 1;
-  window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saving' } }));
+  if (!_syncReady || !_uid || _uid !== activeAccountId()) return;
+  _storageFailed=false;
+  const content = localContent();
+  if (content === _observedContent) return;
+  _observedContent = content;
+  _pending = content !== _savedContent || !!_sentPayload || _conflicts.length>0;
+  try { pendingJournal(); } catch(error) { _pending=true;_storageFailed=true;emitSyncStatus('error');return; }
+  setMeta({ localChanged: _pending });
+  if (!_pending) {
+    clearTimeout(_debounce);
+    _debounce = null;
+    emitSyncStatus('saved');
+    return;
+  }
+  if(_conflictPaused){emitSyncStatus('conflict');return;}
+  emitSyncStatus('pending');
+  queueSave();
+}
+function handleSyncError(error) {
+  _pending=true;
+  try { pendingJournal(); } catch {}
+  if(/QuotaExceededError|SecurityError/.test(error?.name||'')){_storageFailed=true;emitSyncStatus('error');return;}
+  if(isRevisionConflict(error)||_conflictPaused){_conflictPaused=true;emitSyncStatus('conflict',error.message);return;}
+  _attempts+=1;
+  if(globalThis.navigator?.onLine===false){emitSyncStatus('offline','已保存到本机，联网后继续同步');return;}
+  if(error?.status===401||error?.status===403){emitSyncStatus('error','登录状态或权限异常，修改已保留在本机，请重新登录后重试');return;}
+  if(_attempts>=MAX_AUTO_ATTEMPTS){emitSyncStatus('error','已保存到本机，自动重试未成功。可点击“重试同步”继续');return;}
+  const message=isWriteBusy(error)?'云端正在处理其他请求，修改已保留并排队重试':'已保存到本机，云端暂时不可达，稍后重试';
+  emitSyncStatus('pending',message);
+  const delay=_retryDelay+(_attempts>1?Math.floor(Math.random()*_retryDelay*.25):0);
+  _retryDelay=Math.min(30000,_retryDelay*2);
+  queueSave(delay);
+}
+function queueSave(delay = 800) {
   clearTimeout(_debounce);
+  if(!_pending||_conflictPaused)return;
+  if(globalThis.navigator?.onLine===false){emitSyncStatus('offline','已保存到本机，联网后继续同步');return;}
   _debounce = setTimeout(() => {
-    _writing = _writing.then(() => pushSnapshot()).catch((e) => {
-      console.error('[sync] 自动保存失败', e);
-      if (isRevisionConflict(e) || _conflictPaused) {
-        _conflictPaused = true;
-        _syncReady = false;
-        window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'conflict', message: e.message } }));
-        toast(e.message || '检测到多端数据冲突，自动同步已暂停以保护云端数据。', 'err', 12000);
-        return;
-      }
-      if (isWriteBusy(e)) {
-        /* 同一账号的并发写入属于暂时性竞争：保留本地修改，静默排队重试。 */
-        console.warn('[sync] 云端写入繁忙，已安排自动重试', e);
-        window.dispatchEvent(new CustomEvent('wb:sync-status', {
-          detail: { status: 'saving', message: '云端正在处理其他保存请求，系统会自动重试。' },
-        }));
-        clearTimeout(_debounce);
-        const retryDelay = _retryDelay;
-        _debounce = setTimeout(() => {
-          if (_syncReady && !_conflictPaused) hookSave();
-        }, retryDelay);
-        _retryDelay = Math.min(30000, Math.max(1500, _retryDelay * 2));
-        return;
-      }
-      window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'error', message: e.message } }));
-      toast('自动保存暂时失败：' + (e.message || '网络异常') + '。系统会降低频率后重试。', 'err', 8000);
-      clearTimeout(_debounce);
-      _debounce = setTimeout(() => { if (_syncReady && !_conflictPaused) hookSave(); }, _retryDelay);
-      _retryDelay = Math.min(30000, _retryDelay * 2);
-    });
-  }, 800);
+    _debounce = null;
+    _writing = _writing.then(async () => {
+      await pushSnapshot();
+      if (_pending && _syncReady && !_conflictPaused) queueSave();
+    }).catch(handleSyncError);
+  }, delay);
 }
 export async function autoSync() { return initializeAccountSync(); }
 export async function pushNow() {
   if (!_syncReady || _conflictPaused) throw new Error('云端同步尚未就绪或已暂停，请重新连接后再试');
-  _pending = true;
-  return pushSnapshot();
+  if(globalThis.navigator?.onLine===false){pendingJournal();emitSyncStatus('offline','已保存到本机，联网后继续同步');return;}
+  clearTimeout(_debounce);_debounce=null;
+  _pending = localContent() !== _savedContent || !!_sentPayload;
+  pendingJournal();
+  const task=_writing.then(()=>pushSnapshot());_writing=task.catch(()=>{});
+  try {const saved=await task;if(_pending)queueSave();return saved;}
+  catch(error){handleSyncError(error);throw error;}
 }
 export async function pullNow() { return refreshAccountSync(); }
+
+export async function retryAccountSync() {
+  if(!_syncReady)await initializeAccountSync();
+  if(_localConflict)throw Error('请先处理标签页之间的修改冲突');
+  if(_conflictPaused){const cloud=await import('./cloud.js');_conflictPaused=false;try{await rebaseRemote(cloud);}catch(error){handleSyncError(error);throw error;}}
+  _attempts=0;_retryDelay=1500;
+  return pushNow();
+}
+export async function resolveAccountSyncConflicts(choices) {
+  if(_localConflict){
+    const current=JSON.parse(localContent()),record=_localConflict;
+    const merged=mergeSnapshots(record.base,record.draft,current);
+    if(stableJson(merged.conflicts)!==stableJson(record.conflicts)){
+      _localConflict={...record,remote:current,conflicts:merged.conflicts};localStorage.setItem(record.key,JSON.stringify(_localConflict));
+      emitSyncStatus('conflict','其他标签页已有新修改，请重新查看');throw Error('内容已有新变化，请重新打开冲突列表');
+    }
+    const resolved=applyConflictChoices(merged.payload,merged.conflicts,choices);
+    localStorage.setItem('wb_sync_resolution_backup:'+_uid,JSON.stringify({local:record.draft,remote:current,at:new Date().toISOString()}));
+    writeJournal(localStorage,_uid,{base:_baseSnapshot,draft:resolved,revision:_revision,sent:_sentPayload});
+    await applySyncSnapshot(resolved);localStorage.removeItem(record.key);
+    _localConflict=localDrafts(localStorage,_uid)[0]||null;_conflictPaused=!!_localConflict;_conflicts=[];
+    _pending=localContent()!==_savedContent||!!_sentPayload;pendingJournal();
+    if(_localConflict){emitSyncStatus('conflict');return;}
+    window.dispatchEvent(new Event('wb:snapshot-applied'));return retryAccountSync();
+  }
+  const cloud=await import('./cloud.js'),uid=_uid;
+  const remote=await cloud.getWorkbenchSnapshot();
+  if(uid!==_uid||uid!==activeAccountId())throw Error('账号已切换，请重新打开冲突列表');
+  const local=JSON.parse(localContent()),merged=mergeSnapshots(_baseSnapshot,local,remote?.payload);
+  // An unknown legacy base cannot be field-merged; require an explicit whole-copy choice.
+  if(_conflicts.some(item=>item.path.length===0)){
+    merged.payload=local;merged.conflicts=[{path:[],base:_baseSnapshot,local,remote:remote?.payload}];
+  }
+  if(stableJson(remote)!==stableJson(_conflictRemote)||stableJson(merged.conflicts)!==stableJson(_conflicts)){
+    _conflicts=merged.conflicts;_conflictRemote=remote;pendingJournal();emitSyncStatus('conflict','内容已有新变化，请重新查看后选择');
+    throw Error('内容已有新变化，请重新打开冲突列表');
+  }
+  const resolved=applyConflictChoices(merged.payload,_conflicts,choices);
+  if(!resolved||typeof resolved!=='object')throw Error('云端记录不存在，请先导出本机备份后处理');
+  // Keep an explicit recovery copy before any user-selected replacement.
+  localStorage.setItem('wb_sync_resolution_backup:'+uid,JSON.stringify({local,remote,at:new Date().toISOString()}));
+  writeJournal(localStorage,uid,{base:remote.payload,draft:resolved,revision:remote.revision});
+  await applySyncSnapshot(resolved);writeRevision(uid,remote.revision);
+  _conflicts=[];_conflictPaused=false;_sentPayload=null;acknowledgeContent(stableJson(remote.payload));
+  window.dispatchEvent(new Event('wb:snapshot-applied'));
+  return retryAccountSync();
+}
+export function exportPendingSync() {
+  if(!_uid||_uid!==activeAccountId())throw Error('没有当前账号的待同步数据');
+  let journal;try{journal=readJournal(localStorage,_uid);}catch{journal={unreadable:localStorage.getItem('wb_sync_journal_v1:'+_uid)};}
+  return {version:1,account:_uid,exported_at:new Date().toISOString(),local:JSON.parse(localContent()),memory:safeSnapshot(localMemorySnapshot()),journal,localDrafts:localDrafts(localStorage,_uid)};
+}
+function bindSyncLifecycle() {
+  if(_lifecycleBound)return;_lifecycleBound=true;
+  const resume=()=>{
+    if(!_syncReady||_uid!==activeAccountId())return;
+    if(_conflictPaused)return;
+    if(_pending){_attempts=0;_retryDelay=1500;queueSave(250);}
+    else refreshAccountSync().then(changed=>{if(changed)window.dispatchEvent(new Event('wb:snapshot-applied'));}).catch(()=>{});
+  };
+  window.addEventListener('online',resume);
+  window.addEventListener('offline',()=>{if(_pending){clearTimeout(_debounce);emitSyncStatus('offline','已保存到本机，联网后继续同步');}});
+  window.addEventListener('focus',resume);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')resume();});
+  window.addEventListener('beforeunload',event=>{if(_pending||_inFlight){try{pendingJournal();}catch{}event.preventDefault();event.returnValue='';}});
+  window.addEventListener('wb:storagefull',()=>{_storageFailed=true;_pending=true;emitSyncStatus('error');});
+  window.addEventListener('wb:localconflict',()=>{_localConflict=localDrafts(localStorage,_uid)[0]||null;_conflictPaused=true;_pending=true;emitSyncStatus('conflict','多个标签页修改了同一内容，本机副本已保留');});
+  window.addEventListener('storage',event=>{
+    if(event.key!==DB_KEY||!_syncReady||_uid!==activeAccountId()||_localConflict||editingLocally())return;
+    import('./localdb.js').then(db=>{db.replaceMemFromDisk();hookSave();}).catch(()=>{});
+  });
+}
+function editingLocally() {
+  const tag=String(document.activeElement?.tagName||'').toLowerCase();
+  return ['input','textarea','select'].includes(tag)||!!document.activeElement?.isContentEditable||!!document.querySelector?.('.sheet-mask');
+}
 
 /* ---------------- 链接搬运：不起服务器也能换设备 ----------------
 
@@ -668,3 +891,5 @@ function sheet({ title, body }) {
   }
   return { close };
 }
+
+

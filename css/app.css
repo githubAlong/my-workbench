@@ -4668,3 +4668,8 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   .rp-ledger-month input[type="month"] { flex:1; min-width:0; }
   .rp-ledger-add { width:100%; margin-left:0; justify-content:center; }
 }
+
+/* Approved simple lesson plan dialog. */
+.lesson-plan-sheet .lp-simple-editor .lp-meta-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 22px}.lesson-plan-sheet:has(.lp-simple-editor){max-width:860px!important}.lp-simple-editor .lp-process{min-height:225px;line-height:1.85}.lp-simple-editor [hidden]{display:none!important}@media(max-width:700px){.lesson-plan-sheet .lp-simple-editor .lp-meta-grid{grid-template-columns:1fr;gap:16px}}
+
+.sheet-mask:has(.lp-simple-editor){align-items:center;padding:20px}.lesson-plan-sheet:has(.lp-simple-editor){border-radius:14px;max-height:calc(100dvh - 40px)!important}.lesson-plan-sheet:has(.lp-simple-editor) .sheet-head,.lesson-plan-sheet:has(.lp-simple-editor) .sheet-foot{flex-shrink:0}.lesson-plan-sheet:has(.lp-simple-editor) .sheet-body{min-height:0;flex:1;overflow:auto}.lesson-plan-sheet:has(.lp-simple-editor) .lp-footer{width:100%}@media(max-width:700px){.sheet-mask:has(.lp-simple-editor){padding:10px}.lesson-plan-sheet:has(.lp-simple-editor){max-height:calc(100dvh - 20px)!important}}

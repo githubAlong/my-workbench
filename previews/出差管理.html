@@ -1,0 +1,192 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>出差管理</title><style>
+:root{font-family:"Microsoft YaHei",sans-serif;color:#1f2937;background:#f5f7fa;--card:#fff;--card-2:#f9fafb;--line:#e5e7eb;--text:#1f2937;--text-2:#6b7280}*{box-sizing:border-box}body{margin:0;padding:24px}#app{max-width:1440px;margin:auto}.sheet-mask{position:fixed;inset:0;background:#0006;z-index:300;display:flex;align-items:center;justify-content:center;padding:16px}.sheet{display:flex;flex-direction:column;background:white;border-radius:8px;overflow:hidden;box-shadow:0 18px 60px #0003}.sheet-head{display:flex;align-items:center;justify-content:space-between}.sheet-title{font-size:18px}.sheet-close{border:0!important;font-size:22px!important;padding:0 5px!important}.sheet-foot{border-top:1px solid #e5e7eb}.sheet-body{overflow:auto}#preview-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);max-width:90%;background:#1f2937;color:white;border-radius:6px;padding:10px 16px;z-index:600;font-size:13px}#preview-toast:empty{display:none}@media(max-width:700px){body{padding:16px}}
+.trips-page{--trip-blue:#1677ff;--trip-green:#00b42a;color:var(--text,#1f2937);font-size:14px}.trips-page h1{font-size:20px;margin:0 0 5px}.trips-subtitle{color:#9ca3af;margin:0 0 24px}.trips-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:24px}.trips-stat{padding:18px;border:1px solid var(--line,#e5e7eb);background:var(--card,#fff);border-radius:8px;box-shadow:0 1px 2px #0000000d}.trips-stat span{display:block;color:var(--text-2,#6b7280);font-size:14px;margin-bottom:8px}.trips-stat b{font-size:24px;font-weight:600}.trips-stat small{margin-left:6px;font-size:14px}.trips-green{color:#00b42a!important}.trips-toolbar,.trips-tools,.trips-month{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.trips-toolbar{justify-content:space-between;margin-bottom:16px}.trips-page button,.trip-simple button{font:inherit;border:1px solid var(--line,#e5e7eb);border-radius:4px;background:var(--card,#fff);color:inherit;padding:8px 14px;cursor:pointer}.trips-page button:hover,.trip-simple button:hover{background:var(--card-2,#f9fafb)}.trips-page .trips-primary,.trip-simple .trips-primary{background:#1677ff;color:white;border-color:#1677ff}.trips-page .trips-primary:hover,.trip-simple .trips-primary:hover{background:#1565d8}.trips-page button:disabled,.trip-simple button:disabled{opacity:.55;cursor:wait}.trips-table-wrap{border:1px solid var(--line,#e5e7eb);border-radius:8px;padding:16px;background:var(--card,#fff);overflow-x:auto;box-shadow:0 1px 2px #0000000d}.trips-table{width:100%;min-width:1100px;border-collapse:collapse}.trips-table th,.trips-table td{border:1px solid var(--line,#e5e7eb);padding:11px 9px;text-align:center;vertical-align:middle;font-size:14px}.trips-table th{background:var(--card-2,#f9fafb);font-weight:500;white-space:nowrap}.trips-table td{max-width:220px;overflow-wrap:anywhere}.trips-table td:nth-child(1){white-space:nowrap}.trips-table th:last-child{min-width:150px}.trips-row-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}.trips-row-actions button{font-size:12px;padding:3px 8px}.trips-danger{color:#ef4444!important}.trips-empty{padding:36px!important;color:#9ca3af}.trips-month-input{max-width:140px;border:1px solid var(--line,#e5e7eb);padding:7px;border-radius:4px;background:var(--card,#fff);color:inherit}.sheet.trip-simple{max-width:512px!important;width:100%;border-radius:8px;max-height:90dvh!important}.sheet-mask:has(.trip-simple){align-items:center;padding:16px}.trip-simple .sheet-head{padding:16px;border-bottom:1px solid var(--line,#e5e7eb);flex-shrink:0}.trip-simple .sheet-title{font-size:18px}.trip-simple .sheet-body{padding:16px;min-height:0;overflow:auto}.trip-simple .sheet-foot{flex-shrink:0;padding:16px;display:block}.trip-form{display:grid;gap:16px}.trip-field{display:grid;gap:6px}.trip-field label{font-size:14px}.trip-field em{font-style:normal;color:#ef4444;margin-left:3px}.trip-field input,.trip-field select,.trip-field textarea{width:100%;min-height:38px;padding:8px 12px;border:1px solid #d1d5db;border-radius:4px;background:var(--card,#fff);color:inherit;font:inherit;outline:none}.trip-field input:focus,.trip-field select:focus,.trip-field textarea:focus{border-color:#1677ff;box-shadow:0 0 0 1px #1677ff}.trip-field textarea{resize:vertical;min-height:96px}.trip-drive-group{display:grid;gap:16px}.trip-simple [hidden]{display:none!important}.trip-field [aria-invalid=true]{border-color:#ef4444}.trip-error{font-size:12px;color:#ef4444;min-height:0}.trip-field small{color:#9ca3af;font-size:12px}.trip-footer{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}.trip-details{white-space:pre-wrap;line-height:1.9;overflow-wrap:anywhere}.trip-details h3{font-size:15px;margin:18px 0 8px}.trip-details a{color:#1677ff}.trip-import-note{line-height:1.7;color:var(--text-2,#6b7280);font-size:13px}.trip-copy-text{width:100%;min-height:250px}.trips-page [hidden]{display:none!important}@media(max-width:700px){.trips-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.trips-stat{padding:14px}.trips-stat span{min-height:36px;font-size:12px}.trips-stat b{font-size:22px}.trips-table-wrap{padding:10px}.trips-toolbar{gap:12px}.trips-page .trips-month{gap:6px}.trips-page button{padding:8px 10px}.sheet.trip-simple{max-height:90dvh!important}.trip-simple .sheet-body{padding:16px}.trip-footer{gap:8px}.trip-footer button{padding:8px 12px}}
+</style></head><body><main id="app"></main><div id="preview-toast" role="status"></div><script type="module">
+const el=html=>{const template=document.createElement('template');template.innerHTML=html.trim();return template.content.firstElementChild;};
+const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ymd=(date=new Date())=>date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');
+const toast=(message)=>{const node=document.getElementById('preview-toast');node.textContent=message;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>node.textContent='',4500);};
+const confirmDialog=async message=>window.confirm(message);
+const saveBlob=(blob,name)=>{const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);};
+function sheet({title,body,footer,onClose,cls}){const wrap=el('<div class="sheet-mask in"><div class="sheet '+cls+'"><header class="sheet-head"><strong class="sheet-title"></strong><button class="sheet-close" aria-label="关闭">×</button></header><div class="sheet-body"></div>'+(footer?'<div class="sheet-foot"></div>':'')+'</div></div>');wrap.querySelector('.sheet-title').textContent=title;wrap.querySelector('.sheet-body').append(body);if(footer)wrap.querySelector('.sheet-foot').append(footer);const previous=document.activeElement;let closed=false;const close=()=>{if(closed)return;closed=true;wrap.remove();document.removeEventListener('keydown',key);onClose?.();previous?.focus();};const key=event=>{if(event.key==='Escape')close();};wrap.querySelector('.sheet-close').onclick=close;wrap.onclick=event=>{if(event.target===wrap)close();};document.addEventListener('keydown',key);document.body.append(wrap);wrap.querySelector('input,select,textarea,button')?.focus();return{wrap,close};}
+const sampleMonth=ymd().slice(0,7);
+let sampleRows=[{id:1,start_date:sampleMonth+'-05',from_place:'学校',to_place:'咸丰教育局',reason:'送高考资料',companions:'邹龙、袁正涛主任',is_driving:1,driver:'邹龙',km:20,total_amount:140,remark:''}];
+let nextId=2;
+const api={get:async(url)=>url==='/trips'?sampleRows.map(row=>({...row})):url==='/attachments'?[]:{...sampleRows.find(row=>String(row.id)===url.split('/').pop()),items:[]},post:async(url,body)=>{if(url==='/trips/bulk'){for(const values of body.rows)sampleRows.push({...values,id:nextId++});return{ids:body.rows.map(()=>nextId-1)};}const row={...body,id:nextId++};sampleRows.push(row);return row;},patch:async(url,body)=>{const id=url.split('/').pop(),row=sampleRows.find(row=>String(row.id)===id);Object.assign(row,body);return row;},del:async(url)=>{sampleRows=sampleRows.filter(row=>String(row.id)!==url.split('/').pop());return{ok:true};}};
+
+const TRIP_COLUMNS = ['日期','出发地','目的地','出差事由','出差人员','是否开车','开车人','公里数','里程费','合计金额','备注','操作'];
+const tripMoney = value => Number(value || 0).toLocaleString('zh-CN',{maximumFractionDigits:2});
+function tripDriving(row) {
+  if (row.is_driving != null) return row.is_driving === true || row.is_driving === 1 || row.is_driving === '1';
+  return Number(row.km) > 0 || !!String(row.driver || '').trim();
+}
+function tripView(row) {
+  const driving = tripDriving(row);
+  const km = driving ? Math.max(0,Number(row.km) || 0) : 0;
+  // Never turn historical formula-based reimbursement into a user-entered amount.
+  const total = row.total_amount == null || row.total_amount === '' ? null : Number(row.total_amount);
+  return {...row, driving, km, mileageFee:Math.round(km * 100)/100, total};
+}
+function tripMonthRows(rows,month) {
+  return rows.filter(row=>!row.deleted_at && String(row.start_date || '').startsWith(month))
+    .sort((a,b)=>String(b.start_date).localeCompare(String(a.start_date)) || Number(b.id)-Number(a.id));
+}
+function tripSummary(rows) {
+  const views=rows.map(tripView);
+  const sum=key=>Math.round(views.reduce((total,row)=>total+(Number(row[key])||0),0)*100)/100;
+  return {count:rows.length,km:sum('km'),mileageFee:sum('mileageFee'),total:sum('total')};
+}
+function validateTrip(values) {
+  const errors={};
+  const date=String(values.start_date||'');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date+'T00:00:00Z')) || new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date) errors.start_date='请选择有效的出差日期';
+  if (!String(values.to_place||'').trim()) errors.to_place='请填写出差目的地';
+  if (!String(values.reason||'').trim()) errors.reason='请填写出差事由';
+  if (!['0','1'].includes(String(values.is_driving))) errors.is_driving='请选择是否开车';
+  if (String(values.is_driving)==='1') {
+    if (!String(values.driver||'').trim()) errors.driver='请填写驾驶员姓名';
+    if (String(values.km??'').trim()==='' || !/^\d+(?:\.\d+)?$/.test(String(values.km)) || !Number.isFinite(Number(values.km))) errors.km='请输入非负公里数';
+  }
+  if (values.total_amount != null && String(values.total_amount).trim()!=='' && (!/^\d+(?:\.\d{1,2})?$/.test(String(values.total_amount)) || !Number.isFinite(Number(values.total_amount)))) errors.total_amount='请输入非负金额，最多两位小数';
+  return errors;
+}
+function tripPayload(values) {
+  const driving=String(values.is_driving)==='1';
+  return {start_date:values.start_date,from_place:String(values.from_place||'').trim(),to_place:String(values.to_place||'').trim(),reason:String(values.reason||'').trim(),companions:String(values.companions||'').trim(),is_driving:driving?1:0,driver:driving?String(values.driver||'').trim():'',km:driving?Number(values.km):0,km_rate:1,total_amount:values.total_amount==null||String(values.total_amount).trim()===''?null:Number(values.total_amount),remark:String(values.remark||'').trim()};
+}
+function tripText(row) {
+  const v=tripView(row);
+  return ['出差记录','日期：'+v.start_date,'出发地：'+(v.from_place||'—'),'目的地：'+(v.to_place||'—'),'出差事由：'+(v.reason||'—'),'出差人员：'+(v.companions||'—'),'是否开车：'+(v.driving?'是':'否'),'开车人：'+(v.driving?v.driver||'—':'—'),'公里数：'+tripMoney(v.km)+' km','里程费（单独统计）：¥'+tripMoney(v.mileageFee),'合计金额（不含里程费）：'+(v.total==null?'未填写':'¥'+tripMoney(v.total)),'备注：'+(v.remark||'无')].join('\n');
+}
+function tripCsv(rows) {
+  const cell=v=>{const text=String(v??'');return '"'+(/^[=+@\t\r-]/.test(text)?"'":'')+text.replace(/"/g,'""')+'"';};
+  return '\uFEFF'+[TRIP_COLUMNS.slice(0,-1),...rows.map(row=>{const v=tripView(row);return [v.start_date,v.from_place,v.to_place,v.reason,v.companions,v.driving?'是':'否',v.driving?v.driver:'—',v.km,v.mileageFee,v.total??'',v.remark||'无'];})].map(row=>row.map(cell).join(',')).join('\r\n');
+}
+function parseTripCsv(text) {
+  const rows=[];let row=[],value='',quoted=false;
+  for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(quoted&&text[i+1]==='"'){value+='"';i++;}else quoted=!quoted;}else if(c===','&&!quoted){row.push(value);value='';}else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;row.push(value);if(row.some(v=>v.trim()))rows.push(row);row=[];value='';}else value+=c;}
+  if(quoted)throw Error('CSV 引号未闭合');if(value||row.length){row.push(value);rows.push(row);}
+  const header=rows.shift()?.map(v=>v.replace(/^\uFEFF/,'').trim())||[];
+  for(const name of ['日期','目的地','出差事由'])if(!header.includes(name))throw Error('CSV 缺少“'+name+'”列');
+  return rows.map(cells=>{const get=name=>cells[header.indexOf(name)]?.trim()||'';const driving=get('是否开车');if(driving&&!['是','否','0','1'].includes(driving))throw Error('是否开车只能为“是”或“否”');return {start_date:get('日期'),from_place:get('出发地'),to_place:get('目的地'),reason:get('出差事由'),companions:get('出差人员'),is_driving:['是','1'].includes(driving)?'1':'0',driver:get('开车人'),km:get('公里数').replace(/\s*km$/i,''),total_amount:get('合计金额').replace(/^[¥￥]/,''),remark:get('备注')==='无'?'':get('备注')};});
+}
+
+
+const fieldLabels={start_date:'出差日期',from_place:'出发地',to_place:'出差目的地',reason:'出差事由',companions:'出差人员',is_driving:'是否开车',driver:'开车人',km:'出差公里数',total_amount:'合计金额',remark:'备注信息'};
+function tripSheet(options){
+  const previous=document.body.style.overflow;
+  document.body.style.overflow='hidden';
+  return sheet({...options,cls:'trip-simple',onClose:()=>{document.body.style.overflow=previous;options.onClose?.();}});
+}
+function printTrip(row){
+  const popup=window.open('','_blank');
+  if(!popup){toast('请允许弹出窗口后重试','warn');return;}
+  popup.document.open();
+  popup.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>出差记录</title><style>body{font:15px/1.9 "Microsoft YaHei",sans-serif;margin:28px;color:#1f2937}h1{font-size:22px}pre{white-space:pre-wrap;font:inherit;overflow-wrap:anywhere}@page{size:A4;margin:18mm}</style><h1>出差记录</h1><pre>'+esc(tripText(row))+'</pre></html>');
+  popup.document.close();popup.focus();popup.setTimeout(()=>popup.print(),250);
+}
+function openTripEditor(row,reload){
+  const view=tripView(row||{}),isNew=!row;
+  const initial={start_date:row?.start_date||ymd(new Date()),from_place:row?.from_place||'',to_place:row?.to_place||'',reason:row?.reason||'',companions:row?.companions||'',is_driving:view.driving?'1':'0',driver:row?.driver||'',km:view.driving?String(view.km):'',total_amount:view.total==null?'':String(view.total),remark:row?.remark||''};
+  const field=(key,type='text',placeholder='',required=false)=>'<div class="trip-field"><label for="trip-'+key+'">'+fieldLabels[key]+(required?'<em>*</em>':'')+'</label><input id="trip-'+key+'" name="'+key+'" type="'+type+'" value="'+esc(initial[key])+'" placeholder="'+esc(placeholder)+'" '+(required?'required ':'')+(type==='number'?'min="0" step="'+(key==='km'?'any':'0.01')+'" ':'')+'aria-describedby="trip-error-'+key+'"><span class="trip-error" id="trip-error-'+key+'"></span></div>';
+  const body=el('<form class="trip-form" novalidate>'+field('start_date','date','',true)+field('from_place','text','例如：学校')+field('to_place','text','例如：咸丰教育局',true)+field('reason','text','例如：送高考资料、开会',true)+field('companions','text','多人用顿号隔开')+'<div class="trip-field"><label for="trip-is_driving">是否开车<em>*</em></label><select id="trip-is_driving" name="is_driving" required aria-describedby="trip-error-is_driving"><option value="0">否</option><option value="1">是</option></select><span class="trip-error" id="trip-error-is_driving"></span></div><div class="trip-drive-group" id="trip-drive-group">'+field('driver','text','填写驾驶员姓名',true)+field('km','number','输入里程，自动计算里程费',true)+'<div class="trip-field"><small>里程单价：1元/km，里程费单独统计</small><small id="trip-mileage-preview"></small></div></div>'+field('total_amount','number','由用户自行填写')+'<div class="trip-field"><label for="trip-remark">备注信息</label><textarea id="trip-remark" name="remark" rows="4" placeholder="其他补充说明">'+esc(initial.remark)+'</textarea></div></form>');
+  const footer=el('<div class="trip-footer"><button type="button" data-trip-cancel>取消</button><button type="button" data-trip-pdf>导出PDF</button><button type="button" class="trips-primary" data-trip-submit>确认提交</button></div>');
+  const dialog=tripSheet({title:'出差详情',body,footer});
+  const $=key=>body.querySelector('#trip-'+key);
+  $('is_driving').value=initial.is_driving;
+  const read=()=>Object.fromEntries(new FormData(body));
+  const showErrors=()=>{
+    const errors=validateTrip(read());let first;
+    for(const key of Object.keys(fieldLabels)){
+      const input=$(key),error=body.querySelector('#trip-error-'+key);
+      if(error)error.textContent=errors[key]||'';
+      input?.setAttribute('aria-invalid',String(!!errors[key]));
+      if(errors[key]&&!first)first=input;
+    }
+    first?.focus();return !first;
+  };
+  const updateDriving=(clear=false)=>{
+    const driving=$('is_driving').value==='1';
+    body.querySelector('#trip-drive-group').hidden=!driving;
+    for(const key of ['driver','km']){$(key).required=driving;if(!driving&&clear)$(key).value='';if(!driving){body.querySelector('#trip-error-'+key).textContent='';$(key).removeAttribute('aria-invalid');}}
+    body.querySelector('#trip-mileage-preview').textContent='里程费：¥'+tripMoney(Number($('km').value)||0);
+  };
+  $('is_driving').onchange=()=>updateDriving(true);$('km').oninput=()=>updateDriving();updateDriving();
+  footer.querySelector('[data-trip-cancel]').onclick=dialog.close;
+  footer.querySelector('[data-trip-pdf]').onclick=()=>{if(showErrors())printTrip(tripPayload(read()));};
+  let saving=false;
+  const submit=async()=>{
+    if(saving||!showErrors())return;
+    saving=true;const button=footer.querySelector('[data-trip-submit]');button.disabled=true;button.textContent='提交中…';
+    try{
+      const payload=tripPayload(read());
+      const saved=isNew?await api.post('/trips',payload):await api.patch('/trips/'+encodeURIComponent(row.id),payload);
+      dialog.close();toast('已保存','ok');await reload(String(saved?.start_date||payload.start_date).slice(0,7));
+    }catch(error){toast(error.message||'提交失败，请重试','err');}
+    finally{saving=false;button.disabled=false;button.textContent='确认提交';}
+  };
+  footer.querySelector('[data-trip-submit]').onclick=submit;
+  body.onsubmit=event=>{event.preventDefault();void submit();};
+}
+async function showTripDetails(row){
+  try{
+    const [detail,files]=await Promise.all([api.get('/trip/'+encodeURIComponent(row.id)),api.get('/attachments',{owner_type:'trip',owner_id:row.id})]);
+    const body=el('<div class="trip-details"><div>'+esc(tripText(row)).replace(/\n/g,'<br>')+'</div><h3>费用明细</h3><div>'+(detail.items?.map(item=>esc([item.date,item.note||item.kind,'¥'+tripMoney(item.amount),item.has_invoice?'有发票':'无发票'].filter(Boolean).join(' · '))).join('<br>')||'暂无费用明细')+'</div><h3>发票信息</h3><div id="trip-invoices"></div></div>');
+    const list=body.querySelector('#trip-invoices');
+    if(!files.length)list.textContent='暂无发票信息';
+    for(const file of files){const button=document.createElement('button');button.type='button';button.textContent=file.name||'查看发票';button.onclick=async()=>{try{const data=await api.get('/attachments/'+encodeURIComponent(file.id)+'/file');const url=String(data?.url||'');if(!/^(data:(?:image\/|application\/pdf|application\/octet-stream)|blob:|https:\/\/)/i.test(url))throw Error('附件地址不可用');const a=document.createElement('a');a.href=url;a.download=file.name||'发票';a.click();}catch(error){toast(error.message,'err');}};list.append(button);}
+    tripSheet({title:'出差明细',body});
+  }catch(error){toast(error.message||'明细读取失败','err');}
+}
+async function copyTrip(row){
+  const text=tripText(row);
+  try{await navigator.clipboard.writeText(text);toast('已复制','ok');}
+  catch{const body=el('<textarea class="input trip-copy-text" readonly aria-label="出差记录文本"></textarea>');body.value=text;tripSheet({title:'复制出差记录',body});body.select();}
+}
+function openTripImport(reload){
+  const body=el('<div><p class="trip-import-note">支持导出的 CSV 文件或 JSON 数组。文件会先校验，确认导入后才新增记录。</p><input type="file" id="trip-import-file" accept=".csv,.json"><p id="trip-import-status" role="status"></p></div>');
+  const footer=el('<div class="trip-footer"><button type="button" data-cancel>取消</button><button type="button" class="trips-primary" data-confirm disabled>确认导入</button></div>');
+  const dialog=tripSheet({title:'导入出差记录',body,footer});let prepared=[];
+  const status=body.querySelector('#trip-import-status'),confirm=footer.querySelector('[data-confirm]');
+  body.querySelector('input').onchange=async event=>{
+    const file=event.target.files[0];prepared=[];confirm.disabled=true;if(!file)return;
+    try{
+      if(file.size>5*1024*1024)throw Error('文件不能超过 5MB');const text=await file.text();
+      const rows=file.name.toLowerCase().endsWith('.json')?JSON.parse(text):parseTripCsv(text);
+      if(!Array.isArray(rows)||!rows.length)throw Error('文件中没有记录');
+      if(rows.length>1000)throw Error('每次最多导入 1000 条记录');
+      const normalized=rows.map(row=>({...row,is_driving:row.is_driving==null?(tripView(row).driving?'1':'0'):String(row.is_driving)}));
+      for(const [index,row]of normalized.entries()){const errors=validateTrip(row);if(Object.keys(errors).length)throw Error('第 '+(index+1)+' 条：'+Object.values(errors).join('；'));}
+      prepared=normalized.map(tripPayload);status.textContent='已校验 '+prepared.length+' 条记录，确认后新增到相应日期月份。';confirm.disabled=false;
+    }catch(error){status.textContent=error.message;}
+  };
+  footer.querySelector('[data-cancel]').onclick=dialog.close;
+  confirm.onclick=async()=>{if(!prepared.length||confirm.disabled)return;confirm.disabled=true;try{await api.post('/trips/bulk',{rows:prepared});dialog.close();toast('已导入 '+prepared.length+' 条','ok');await reload();}catch(error){status.textContent=error.message;confirm.disabled=false;}};
+}
+async function renderTripManagement(root){
+  let month=ymd(new Date()).slice(0,7),allRows=[],loading=0;
+  const load=async target=>{
+    if(/^\d{4}-\d{2}$/.test(String(target||'')))month=target;
+    const seq=++loading;
+    try{const rows=await api.get('/trips');if(seq!==loading)return;if(!Array.isArray(rows))throw Error('出差记录格式异常');allRows=rows;paint();}
+    catch(error){if(seq!==loading)return;root.innerHTML='<div class="trips-page"><p>'+esc(error.message||'加载失败')+'</p><button id="trips-retry">重试</button></div>';root.querySelector('button').onclick=()=>load();}
+  };
+  const paint=()=>{
+    const rows=tripMonthRows(allRows,month),stats=tripSummary(rows),labels=[['本月出差',stats.count,'次'],['累计行驶里程',stats.km,'km'],['车辆里程费用 (单独统计)',stats.mileageFee,'元'],['报销金额 (不含里程费)',stats.total,'元']];
+    root.innerHTML='<section class="trips-page"><h1>出差</h1><p class="trips-subtitle">行程、报销记录</p><div class="trips-stats">'+labels.map(([label,value,unit],i)=>'<div class="trips-stat"><span>'+label+'</span><b class="'+(i===2?'trips-green':'')+'">'+tripMoney(value)+'</b><small>'+unit+'</small></div>').join('')+'</div><div class="trips-toolbar"><div class="trips-month"><button data-month="-1" aria-label="上一月">‹</button><span id="trips-month-label">'+month.slice(0,4)+'年'+Number(month.slice(5))+'月</span><button data-month="1" aria-label="下一月">›</button><button class="trips-primary" id="trips-add">＋ 记录出差</button></div><div class="trips-tools"><button id="trips-export">↓ 导出</button><button id="trips-import">↑ 导入</button></div></div><div class="trips-table-wrap"><table class="trips-table"><thead><tr>'+TRIP_COLUMNS.map(label=>'<th>'+label+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>{const v=tripView(row);return '<tr data-trip-id="'+esc(row.id)+'">'+[v.start_date,v.from_place||'—',v.to_place,v.reason||'—',v.companions||'—',v.driving?'是':'否',v.driving?v.driver||'—':'—',tripMoney(v.km)+' km'].map(value=>'<td>'+esc(value)+'</td>').join('')+'<td class="trips-green">¥'+tripMoney(v.mileageFee)+'</td><td>'+(v.total==null?'—':'¥'+tripMoney(v.total))+'</td><td>'+esc(v.remark||'无')+'</td><td><div class="trips-row-actions"><button data-action="detail">明细</button><button data-action="copy">复制</button><button data-action="edit">编辑</button><button class="trips-danger" data-action="delete">删除</button></div></td></tr>';}).join('')+(rows.length?'':'<tr><td colspan="12" class="trips-empty">本月暂无出差记录</td></tr>')+'</tbody></table></div></section>';
+    root.querySelectorAll('[data-month]').forEach(button=>button.onclick=()=>{const d=new Date(month+'-01T12:00:00');d.setMonth(d.getMonth()+Number(button.dataset.month));month=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');paint();});
+    root.querySelector('#trips-add').onclick=()=>openTripEditor(null,load);
+    root.querySelector('#trips-export').onclick=()=>saveBlob(new Blob([tripCsv(rows)],{type:'text/csv;charset=utf-8'}),'出差记录-'+month+'.csv');
+    root.querySelector('#trips-import').onclick=()=>openTripImport(load);
+    root.querySelectorAll('[data-action]').forEach(button=>button.onclick=async()=>{
+      const row=rows.find(row=>String(row.id)===button.closest('tr').dataset.tripId);if(!row)return;
+      if(button.dataset.action==='edit')return openTripEditor(row,load);
+      if(button.dataset.action==='detail')return showTripDetails(row);
+      if(button.dataset.action==='copy')return copyTrip(row);
+      if(button.dataset.action==='delete'&&await confirmDialog('确定删除这条去“'+row.to_place+'”的出差记录？',{danger:true,okText:'删除'})){try{await api.del('/trips/'+encodeURIComponent(row.id));toast('已删除');await load();}catch(error){toast(error.message,'err');}}
+    });
+  };
+  await load();
+}
+
+renderTripManagement(document.getElementById("app"));</script></body></html>

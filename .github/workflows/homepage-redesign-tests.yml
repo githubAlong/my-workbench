@@ -5,6 +5,8 @@ on:
     branches:
       - feature/homepage-redesign
       - feature/clean-homepage-weather
+      - test
+      - dev
     paths:
       - "js/home.js"
       - "js/homegrid.js"
@@ -17,6 +19,19 @@ on:
       - "scripts/check-project.mjs"
       - "package.json"
       - ".github/workflows/homepage-redesign-tests.yml"
+  pull_request:
+    branches:
+      - test
+      - dev
+    paths:
+      - "js/home.js"
+      - "js/homegrid.js"
+      - "css/teacher-ui.css"
+      - "tests/**"
+      - "scripts/check-project.mjs"
+      - "package.json"
+      - ".github/workflows/homepage-redesign-tests.yml"
+
 permissions:
   contents: read
 

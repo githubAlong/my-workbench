@@ -1,7 +1,7 @@
 const REPAIR_STATUS_ALIASES = new Map([
   ['pending','pending'],['待处理','pending'],['待维修','pending'],
   ['doing','doing'],['处理中','doing'],['维修中','doing'],['正在维修','doing'],
-  ['done','done'],['已修好','done'],['已完成','done'],['修复完成','done'],['完成','done'],
+  ['done','done'],['已修好','done'],['已修复','done'],['修好了','done'],['已完成','done'],['修复完成','done'],['完成','done'],
   ['canceled','canceled'],['cancelled','canceled'],['已取消','canceled'],['取消','canceled'],
 ]);
 const REPAIR_STATUS_LABELS = {pending:'待处理',doing:'处理中',done:'已修好',canceled:'已取消'};
@@ -18,6 +18,11 @@ export function repairStatusInputValue(value) {
 }
 export function isRepairFixed(row) {
   return normalizeRepairStatus(row?.status)==='done';
+}
+export function repairStatusForSave(value, fixed) {
+  if (fixed) return 'done';
+  const status = normalizeRepairStatus(value);
+  return status === 'done' ? 'pending' : status;
 }
 export function isRepairTracked(row) {
   const value=row?.follow_up;

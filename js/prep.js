@@ -3,10 +3,7 @@ import { encodeLessonPlanContent, decodeLessonPlanContent, PREP_TYPE_OPTIONS, PR
 import { recognizeLessonPlanImage } from './ocr.js';
 
 const MAX_FILE_BYTES = 1.5 * 1024 * 1024;
-const FIELD_IDS = [
-  'subject','grade','title','planDate','target','keyPoint','hardPoint',
-  'prepare','process','blackboard','homeMust','homeExtra','reflect',
-];
+const FIELD_IDS = ['subject','grade','title','planDate','process'];
 const scriptLoads = new Map();
 
 function recordFields(record) {
@@ -16,7 +13,7 @@ function recordFields(record) {
     prepType: normalizePrepType(record?.prep_type),
     grade: String(detail.grade || record?.class_name || ''),
     title: String(record?.topic || ''),
-    planDate: String(record?.date || ''),
+    planDate: String(record?.date || ymd(new Date())),
     target: String(detail.target || ''),
     keyPoint: String(detail.keyPoint || ''),
     hardPoint: String(detail.hardPoint || ''),
@@ -34,6 +31,7 @@ function readFields(root) {
   FIELD_IDS.forEach((id) => {
     result[id] = String(root.querySelector('#lp-' + id)?.value || '').trim();
   });
+  result.prepType = String(root.querySelector('#lp-prep-type')?.value || '').trim();
   return result;
 }
 
@@ -162,7 +160,7 @@ function parseImportedText(raw) {
 
 function applyImported(root, data) {
   if (typeof data === 'string') {
-    writeFields(root, parseImportedText(data));
+    writeFields(root, { ...parseImportedText(data), process: data });
     return;
   }
   const source = data?.fields && typeof data.fields === 'object' ? data.fields : data;
@@ -223,7 +221,7 @@ export async function renderPreps(box) {
     box.innerHTML = '<section class="lesson-plan-list">' +
       '<div class="lp-list-toolbar"><div><div class="lp-list-caption">电子备课</div>' +
       '<div class="lp-filter-row"><label for="lp-type-filter">备课类型</label><select class="input lp-type-filter" id="lp-type-filter"><option value="">全部类型</option>' +
-      PREP_TYPE_OPTIONS.map((item) => '<option value="' + esc(item.value) + '" ' + (typeFilter === item.value ? 'selected' : '') + '>' + esc(item.label) + '</option>').join('') +
+      [...PREP_TYPE_OPTIONS, ...[...new Set(records.map(normalizePrepType))].filter(type => type !== PREP_UNCLASSIFIED && !PREP_TYPE_OPTIONS.some(item => item.value === type)).map(type => ({value:type,label:type}))].map((item) => '<option value="' + esc(item.value) + '" ' + (typeFilter === item.value ? 'selected' : '') + '>' + esc(item.label) + '</option>').join('') +
       '<option value="' + PREP_UNCLASSIFIED + '" ' + (typeFilter === PREP_UNCLASSIFIED ? 'selected' : '') + '>待分类</option></select></div></div>' +
       '<button class="btn primary" id="prep-add" type="button">＋ 新建备课记录</button></div>' +
       '<div class="lp-table-wrap"><table class="lp-table" id="lp-record-table">' +
@@ -260,6 +258,16 @@ export async function renderPreps(box) {
   await reload();
 }
 
+function validateSimpleFields(root) {
+  for (const [id, label] of [['prep-type','备课类型'],['subject','学科'],['grade','年级班级'],['title','课题'],['planDate','上课日期']]) {
+    const input = root.querySelector('#lp-' + id);
+    if (!input.value.trim() || !input.checkValidity()) {
+      alert('请填写有效的' + label); input.focus(); return false;
+    }
+  }
+  return true;
+}
+
 function openEditor(record, reload) {
   let currentRecord = record ? { ...record } : null;
   let existingAttachments = [];
@@ -269,34 +277,15 @@ function openEditor(record, reload) {
   if (!record) initial.planDate = ymd(new Date());
 
   const body = el(
-    '<div class="lesson-plan-editor">' +
-      '<div class="lp-meta-grid">' +
-        '<div class="field"><label class="field-label" for="lp-prep-type">备课类型 <span class="req">*</span></label><select class="input" id="lp-prep-type"><option value="">请选择备课类型</option>' + PREP_TYPE_OPTIONS.map((item) => '<option value="' + esc(item.value) + '">' + esc(item.label) + '</option>').join('') + (currentRecord && normalizePrepType(currentRecord) === PREP_UNCLASSIFIED ? '<option value="' + PREP_UNCLASSIFIED + '">待分类（保留历史记录）</option>' : '') + '</select></div>' +
-        '<div class="field"><label class="field-label" for="lp-subject">学科 <span class="req">*</span></label><input class="input" id="lp-subject" type="text" placeholder="例如：信息技术、语文、特色课"></div>' +
-        '<div class="field"><label class="field-label" for="lp-grade">年级</label><input class="input" id="lp-grade" type="text" placeholder="例如：高一"></div>' +
-        '<div class="field"><label class="field-label" for="lp-title">课题 <span class="req">*</span></label><input class="input" id="lp-title" type="text" placeholder="本课课题"></div>' +
-        '<div class="field"><label class="field-label" for="lp-planDate">备课日期</label><input class="input" id="lp-planDate" type="date"></div>' +
-      '</div>' +
-      '<div class="lp-section-title">一、教学目标（三条式）</div><div class="lp-field-hint">写法提示：1. 知识　2. 能力　3. 素养</div>' +
-      '<textarea class="input lp-textarea" id="lp-target" rows="4" placeholder="1.知识：学生能够掌握……&#10;2.能力：学生能够独立完成……&#10;3.素养：体会、养成……"></textarea>' +
-      '<div class="lp-section-title">二、教学重点、难点</div><div class="lp-two-col">' +
-        '<div class="field"><label class="field-label" for="lp-keyPoint">教学重点</label><textarea class="input lp-textarea" id="lp-keyPoint" rows="4" placeholder="本课核心必须掌握内容"></textarea></div>' +
-        '<div class="field"><label class="field-label" for="lp-hardPoint">教学难点</label><textarea class="input lp-textarea" id="lp-hardPoint" rows="4" placeholder="学生容易混淆、难以理解的地方"></textarea></div>' +
-      '</div>' +
-      '<div class="lp-section-title">三、教学准备</div><textarea class="input lp-textarea" id="lp-prepare" rows="3" placeholder="课件、学案、教具、机房环境、软件、素材等"></textarea>' +
-      '<div class="lp-section-title">四、教学过程（自由填写）</div><textarea class="input lp-textarea lp-process" id="lp-process" rows="8" placeholder="直接填写完整教学过程。导入、讲授、练习、小结等自由组织，不拆分时长和环节。"></textarea>' +
-      '<div class="lp-section-title">五、板书设计</div><textarea class="input lp-textarea" id="lp-blackboard" rows="3" placeholder="文字版板书框架"></textarea>' +
-      '<div class="lp-section-title">六、分层作业</div><div class="lp-two-col">' +
-        '<div class="field"><label class="field-label" for="lp-homeMust">必做题</label><textarea class="input lp-textarea" id="lp-homeMust" rows="4" placeholder="全体学生完成"></textarea></div>' +
-        '<div class="field"><label class="field-label" for="lp-homeExtra">选做题（拓展）</label><textarea class="input lp-textarea" id="lp-homeExtra" rows="4" placeholder="学有余力学生选做"></textarea></div>' +
-      '</div>' +
-      '<div class="lp-section-title">七、课后反思</div><textarea class="input lp-textarea" id="lp-reflect" rows="4" placeholder="本节课效果、问题、改进思路"></textarea>' +
-      '<div class="lp-section-title">八、附件素材</div><div class="lp-attach-box">' +
-        '<div class="lp-attach-top"><button class="btn ghost sm" id="lp-pick-files" type="button">＋ 选择附件</button>' +
-        '<input class="lp-hidden-file" id="lp-file-input" type="file" multiple>' +
-        '<span>支持多选课件、图片、学案等文件；单个附件上限 1.5MB。</span></div>' +
-        '<div class="lp-attach-list" id="lp-attach-list"><div class="lp-attach-empty">暂未添加附件</div></div>' +
-      '</div></div>'
+    '<div class="lesson-plan-editor lp-simple-editor"><div class="lp-meta-grid">' +
+    '<div class="field"><label class="field-label" for="lp-prep-type">备课类型 <span class="req">*</span></label><input class="input" id="lp-prep-type" list="lp-type-options" placeholder="请选择或输入备课类型" required maxlength="80"><datalist id="lp-type-options">' + PREP_TYPE_OPTIONS.map(item=>'<option value="'+esc(item.label)+'"></option>').join('') + '</datalist></div>' +
+    '<div class="field"><label class="field-label" for="lp-subject">学科 <span class="req">*</span></label><input class="input" id="lp-subject" list="lp-subject-options" placeholder="请选择或输入学科" required><datalist id="lp-subject-options">' + ['语文','数学','英语','物理','化学','生物','政治','历史','地理','信息技术','体育','音乐','美术'].map(value=>'<option value="'+value+'"></option>').join('') + '</datalist></div>' +
+    '<div class="field"><label class="field-label" for="lp-grade">年级班级 <span class="req">*</span></label><input class="input" id="lp-grade" placeholder="例如：高一15班" required></div>' +
+    '<div class="field"><label class="field-label" for="lp-title">课题 <span class="req">*</span></label><input class="input" id="lp-title" placeholder="本课课题" required></div>' +
+    '<div class="field"><label class="field-label" for="lp-planDate">上课日期 <span class="req">*</span></label><input class="input" id="lp-planDate" type="date" required></div></div>' +
+    '<label class="lp-section-title" for="lp-process" style="display:block">本节课授课内容</label><textarea class="input lp-textarea lp-process" id="lp-process" rows="8" placeholder="记录本节课知识点、课堂任务、课堂练习、课后作业等上课相关内容"></textarea>' +
+    // Keep legacy attachment handlers available without adding fields to the simple form.
+    '<div hidden><button id="lp-pick-files" type="button">选择附件</button><input id="lp-file-input" type="file" multiple><div id="lp-attach-list"></div></div></div>'
   );
 
   const footer = el(
@@ -309,7 +298,7 @@ function openEditor(record, reload) {
       '<input class="lp-hidden-file" id="lp-ocr-input" type="file" accept="image/*">' +
       '<span class="lp-tool-status" id="lp-tool-status" aria-live="polite"></span>' +
     '</div><button class="btn primary lp-save-btn" id="lp-save" type="button">' +
-      (currentRecord ? '保存修改' : '生成备课记录') + '</button></div>'
+      '生成备课记录' + '</button></div>'
   );
 
   const dialog = sheet({
@@ -320,7 +309,7 @@ function openEditor(record, reload) {
   const attachmentList = body.querySelector('#lp-attach-list');
   const toolStatus = footer.querySelector('#lp-tool-status');
   FIELD_IDS.forEach((id) => { body.querySelector('#lp-' + id).value = initial[id] || ''; });
-  body.querySelector('#lp-prep-type').value = initial.prepType === PREP_UNCLASSIFIED ? PREP_UNCLASSIFIED : initial.prepType;
+  body.querySelector('#lp-prep-type').value = initial.prepType === PREP_UNCLASSIFIED ? '' : prepTypeLabel(initial.prepType);
 
   const visibleAttachmentNames = () => [
     ...existingAttachments.filter((item) => !removedIds.has(String(item.id))).map((item) => item.name),
@@ -452,21 +441,18 @@ function openEditor(record, reload) {
     } finally { event.target.value = ''; }
   });
 
-  footer.querySelector('#lp-pdf').addEventListener('click', () => printLessonPlan(readFields(body), visibleAttachmentNames()));
-  footer.querySelector('#lp-image').addEventListener('click', () => exportLessonPlanImage(readFields(body), visibleAttachmentNames()));
+  footer.querySelector('#lp-pdf').addEventListener('click', () => { if (validateSimpleFields(body)) printLessonPlan(readFields(body), []); });
+  footer.querySelector('#lp-image').addEventListener('click', () => { if (validateSimpleFields(body)) exportLessonPlanImage(readFields(body), []); });
 
   let saving = false;
   saveButton.addEventListener('click', async () => {
     if (saving) return;
     const data = readFields(body);
-    const prepType = body.querySelector('#lp-prep-type').value;
-    const typeError = validatePrepRecord({ prep_type: prepType, topic: data.title }, { isNew: !currentRecord });
+    const rawType = body.querySelector('#lp-prep-type').value.trim();
+    const prepType = normalizePrepType(rawType);
+    const typeError = validatePrepRecord({ prep_type: prepType, topic: data.title }, { isNew: true });
     if (typeError) { alert(typeError); body.querySelector(typeError.includes('类型') ? '#lp-prep-type' : '#lp-title').focus(); return; }
-    if (!data.subject || !data.title) {
-      alert('学科和课题不能为空！');
-      body.querySelector(!data.subject ? '#lp-subject' : '#lp-title').focus();
-      return;
-    }
+    if (!validateSimpleFields(body)) return;
     saving = true;
     saveButton.disabled = true;
     const originalText = saveButton.textContent;
@@ -479,7 +465,7 @@ function openEditor(record, reload) {
         subject: data.subject,
         topic: data.title,
         ...(prepType && prepType !== PREP_UNCLASSIFIED ? { prep_type: prepType } : {}),
-        content: encodeLessonPlanContent(data),
+        content: encodeLessonPlanContent({ ...decodeLessonPlanContent(currentRecord || {}), ...data }),
       };
       const saved = currentRecord
         ? await api.patch('/preps/' + encodeURIComponent(currentRecord.id), payload)
@@ -487,7 +473,7 @@ function openEditor(record, reload) {
       if (!saved || saved.id == null) throw new Error('记录保存后没有返回记录编号');
       currentRecord = saved;
       if (creating) {
-        saveButton.textContent = '保存修改';
+        saveButton.textContent = '生成备课记录';
         const title = dialog.wrap.querySelector('.sheet-title');
         if (title) title.textContent = '查看 / 编辑电子备课详情';
       }
@@ -543,19 +529,10 @@ async function exportLessonPlanImage(data, attachments) {
   const width = 1200, margin = 76, maxWidth = width - margin * 2;
   const blocks = [
     { type:'title', text:'电子备课记录' },
-    { type:'meta', text:'学科：' + (data.subject || '—') + '    年级：' + (data.grade || '—') },
-    { type:'meta', text:'课题：' + (data.title || '—') + '    备课日期：' + (data.planDate || '—') },
-    { type:'section', text:'一、教学目标（三条式）' }, { type:'body', text:data.target },
-    { type:'section', text:'二、教学重点' }, { type:'body', text:data.keyPoint },
-    { type:'section', text:'教学难点' }, { type:'body', text:data.hardPoint },
-    { type:'section', text:'三、教学准备' }, { type:'body', text:data.prepare },
-    { type:'section', text:'四、教学过程' }, { type:'body', text:data.process },
-    { type:'section', text:'五、板书设计' }, { type:'body', text:data.blackboard },
-    { type:'section', text:'六、分层作业｜必做题' }, { type:'body', text:data.homeMust },
-    { type:'section', text:'选做题（拓展）' }, { type:'body', text:data.homeExtra },
-    { type:'section', text:'七、课后反思' }, { type:'body', text:data.reflect },
-    { type:'section', text:'八、附件素材' },
-    { type:'body', text:attachments.length ? attachments.join('、') : '无附件' },
+    { type:'meta', text:'备课类型：' + data.prepType + '    学科：' + data.subject },
+    { type:'meta', text:'年级班级：' + data.grade + '    上课日期：' + data.planDate },
+    { type:'meta', text:'课题：' + data.title },
+    { type:'section', text:'本节课授课内容' }, { type:'body', text:data.process },
   ];
   const measure = document.createElement('canvas').getContext('2d');
   let totalHeight = 130;
@@ -608,13 +585,7 @@ function printLessonPlan(data, attachments) {
     toast('打印窗口被浏览器拦截，请允许本站打开弹出窗口后重试', 'warn');
     return;
   }
-  const blocks = [
-    ['一、教学目标（三条式）',data.target], ['二、教学重点',data.keyPoint],
-    ['教学难点',data.hardPoint], ['三、教学准备',data.prepare],
-    ['四、教学过程',data.process], ['五、板书设计',data.blackboard],
-    ['六、分层作业｜必做题',data.homeMust], ['选做题（拓展）',data.homeExtra],
-    ['七、课后反思',data.reflect], ['八、附件素材',attachments.length ? attachments.join('、') : '无附件'],
-  ];
+  const blocks = [['本节课授课内容', data.process]];
   const sections = blocks.map(([heading, value]) =>
     '<section><h2>' + esc(heading) + '</h2><div>' + esc(value || '—').replace(/\r?\n/g,'<br>') + '</div></section>'
   ).join('');
@@ -626,8 +597,8 @@ function printLessonPlan(data, attachments) {
     'section{margin-top:18px;break-inside:auto}h2{font-size:15px;border-left:4px solid #2b7bcd;padding-left:9px;margin:0 0 8px;break-after:avoid}' +
     'section div{white-space:normal;overflow-wrap:anywhere;min-height:20px}@page{size:A4;margin:16mm}' +
     '@media print{body{margin:0;max-width:none}}</style></head><body><h1>电子备课记录</h1>' +
-    '<div class="meta"><span>学科：' + esc(data.subject || '—') + '</span><span>年级：' + esc(data.grade || '—') +
-    '</span><span>课题：' + esc(data.title || '—') + '</span><span>备课日期：' + esc(data.planDate || '—') +
+    '<div class="meta"><span>备课类型：' + esc(data.prepType || '—') + '</span><span>学科：' + esc(data.subject || '—') + '</span><span>年级班级：' + esc(data.grade || '—') +
+    '</span><span>课题：' + esc(data.title || '—') + '</span><span>上课日期：' + esc(data.planDate || '—') +
     '</span></div>' + sections + '</body></html>');
   popup.document.close();
   popup.focus();

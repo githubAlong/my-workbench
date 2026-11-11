@@ -340,40 +340,23 @@ export async function renderAttendance(box, opts = {}) {
     return c && r.data?.[c.key] === '1' ? '请假' : '';
   };
   const stats = () => {
-    const rows = getRows();
-    const count = (key) => rows.filter((r) => r.data?.[key] === '1').length;
-    const listenKey = keyByLabel('听课', 'k_听课');
-    const leave = rows.filter((r) => rowLeaveText(r)).length;
-    const total = rows.length;
-    if (activeTab === 'class') return { total, items: [
-      { label: '应到教师', value: total, tone: '' },
-      { label: '已上课', value: count(keyByLabel('上课', 'k_上课')), tone: 'blue' },
-      { label: '听课', value: count(listenKey), tone: 'violet' },
-    ] };
-    if (activeTab === 'seat') {
-      return { total, items: [
-        { label: '应到教师', value: total, tone: '' },
-        { label: '已坐班', value: count(keyByLabel('坐班', 'k_坐班')), tone: 'blue' },
-        { label: '已上课', value: count(keyByLabel('上课', 'k_上课')), tone: 'blue' },
-        { label: '听课', value: count(listenKey), tone: 'violet' },
-        { label: '请假', value: leave, tone: 'amber' },
-      ] };
-    }
-    if (activeTab === 'research') {
-      const researched = count(keyByLabel('签到', 'k_签到'));
-      return { total, items: [
-        { label: '应到教师', value: total, tone: '' },
-        { label: '已教研', value: researched, tone: 'blue' },
-        { label: '未教研', value: Math.max(0, total - researched - leave), tone: 'gray' },
-        { label: '请假', value: leave, tone: 'amber' },
-      ] };
-    }
-    const taught = rows.filter((r) => r.data?.[`k_p${selectedPeriod}`] === '1').length;
-    return { total, items: [
-      { label: '应到教师', value: total, tone: '' },
-      { label: '已上课', value: taught, tone: 'blue' },
-      { label: '听课', value: count(listenKey), tone: 'violet' },
-      { label: '请假', value: leave, tone: 'amber' },
+    const rows=getRows();
+    const count=(key)=>rows.filter(r=>r.data?.[key]==='1').length;
+    const leave=rows.filter(r=>rowLeaveText(r)).length;
+    const total=rows.length;
+    const classCount=count(keyByLabel('上课','k_上课'));
+    const seatCount=count(keyByLabel('坐班','k_坐班'));
+    const listenCount=count(keyByLabel('听课','k_听课'));
+    const researchCount=count(keyByLabel('教研',keyByLabel('签到','k_签到')));
+    const registered=rows.filter(r=>Object.values(r.data||{}).some(v=>v==='1')||rowLeaveText(r)).length;
+    return { total, items:[
+      {label:'教师总人数',value:total,tone:''},
+      {label:'上课人数',value:classCount,tone:'blue'},
+      {label:'坐班人数',value:seatCount,tone:'blue'},
+      {label:'听课人数',value:listenCount,tone:'violet'},
+      {label:'教研人数',value:researchCount,tone:'blue'},
+      {label:'请假人数',value:leave,tone:'amber'},
+      {label:'未登记人数',value:Math.max(0,total-registered),tone:'gray'},
     ] };
   };
 
@@ -443,7 +426,7 @@ export async function renderAttendance(box, opts = {}) {
           <div class="att-work-meta-controls">
             <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
             <label>时间段 <select class="input" id="att-work-time-range"><option value="全天">全天</option><option value="上午">上午</option><option value="下午">下午</option></select></label>
-            ${activeTab === 'research' ? '' : `<label class="att-work-period-control">节次 <select class="input" id="att-work-period" aria-label="选择节次">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" ${String(p) === selectedPeriod ? 'selected' : ''}>第 ${p} 节</option>`).join('')}</select><span id="att-work-period-time" class="att-work-period-time">${esc(currentPeriodTime)}</span></label>`}
+            ${activeTab === 'research' ? '' : `<label class="att-work-period-control">节次 <select class="input" id="att-work-period" aria-label="选择节次"><option value="0" ${String(selectedPeriod)==='0'?'selected':''}>全天</option>${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" ${String(p) === selectedPeriod ? 'selected' : ''}>第 ${p} 节</option>`).join('')}</select><span id="att-work-period-time" class="att-work-period-time">${esc(currentPeriodTime)}</span></label>`}
             <span class="att-work-meta-hint">日期、时间段和节次可手动调整</span>
           </div>
           <div class="att-work-subjectbar">${subjectButtons}</div>
@@ -465,7 +448,7 @@ export async function renderAttendance(box, opts = {}) {
             <span class="att-work-spacer"></span>
             ${isRoster ? `<span class="att-roster-count">${roster.filter((r) => r.active).length} 位在册教师</span>` : `<div class="att-work-export-wrap"><button class="btn ghost sm" id="att-work-export">${icon('download', 14)} 导出 ▾</button><div class="att-work-export-menu" id="att-work-export-menu" hidden><button data-export="pdf">导出 PDF</button><button data-export="png">导出 PNG</button><button data-export="xlsx">导出 Excel</button><label><input type="checkbox" id="att-work-watermark" checked> 添加水印</label></div></div>`}
           </div>
-          <div class="att-work-table-title"><div><h3>${isRoster ? '教师花名册' : (tabTitle[activeTab] || '上课考勤表')}</h3><span>${isRoster ? `${esc(activeGrade)} · ${roster.filter((r) => r.active).length} 位教师 · ${subjects.length} 个学科` : `${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${rows.length} 位教师`}</span></div>${isRoster ? `<span class="att-work-confirm ok">名单已加载</span>` : `<span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span>`}</div>
+          <div class="att-work-table-title"><div><h3>${isRoster ? '教师花名册' : (tabTitle[activeTab] || '上课考勤表')}</h3><span>${isRoster ? `${esc(activeGrade)} · ${roster.filter((r) => r.active).length} 位教师 · ${subjects.length} 个学科` : `${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${rows.length} 位教师（完整名单）`}</span></div>${isRoster ? `<span class="att-work-confirm ok">名单已加载</span>` : `<span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span>`}</div>
           ${tableHTML}
           ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；姓名和学科必填，重复记录会在确认前拦截。</span></div>` : `<div class="att-work-foot"><span>${isClass ? 'ⓘ 上课表独立记录当天数据；临时教师不进入永久花名册，次日不会自动出现。' : activeTab === 'seat' ? 'ⓘ 坐班表独立记录并确认，不参与上课表内容。' : 'ⓘ 教研表独立记录签到、请假与备注，可按学科批量签到。'}</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? `重新确认${TYPE_SHORT[activeTab]}` : `确认生成${TYPE_SHORT[activeTab]}`}</button></div></div>`}
 

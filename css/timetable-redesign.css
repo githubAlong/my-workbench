@@ -868,3 +868,75 @@ html[data-theme] .tt-workspace .tt-course-action.danger:hover { border-color:var
 html[data-theme] .tt-workspace .tt-summary-bar { border-color:var(--line);background:var(--bg-sunken);color:var(--text-2); }
 html[data-theme] .tt-workspace .tt-reminder-facts { border-color:var(--line-2); }
 
+html[data-theme] .tt-workspace .tt-reminder.tt-focus-card {
+  display:flex;align-items:center;justify-content:space-between;gap:28px;
+  min-height:150px;height:auto;padding:22px 26px;margin-bottom:14px;
+  border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);
+  overflow:visible;box-shadow:0 2px 8px rgba(30,45,70,.025);
+}
+.tt-focus-card:before,.tt-focus-card:after{display:none}
+.tt-focus-main{flex:1;min-width:0}
+.tt-focus-kicker{display:block;margin-bottom:9px;color:var(--primary);font-size:13px;font-weight:700}
+.tt-focus-pair{display:flex;align-items:center;flex-wrap:wrap;gap:8px 25px}
+.tt-focus-class,.tt-focus-time{font-size:clamp(28px,3.2vw,46px);font-weight:800;line-height:1.25;letter-spacing:-.035em}
+.tt-focus-class{color:var(--text);overflow-wrap:anywhere}
+.tt-focus-time{padding-left:25px;border-left:1px solid var(--line-2);color:var(--primary);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tt-focus-meta{margin-top:12px;color:var(--text-2);font-size:13px;line-height:1.6}
+.tt-focus-aside{position:relative;flex:0 0 220px;align-self:stretch;display:flex;flex-direction:column;justify-content:center;padding-left:28px;border-left:1px solid var(--line)}
+.tt-focus-date{margin-bottom:14px;color:var(--text-3);font-size:12px}
+.tt-focus-countdown-label{color:var(--text-2);font-size:12px;line-height:1.5}
+.tt-focus-countdown{margin-top:4px;color:var(--text);font-size:26px;line-height:1.2;font-weight:750;font-variant-numeric:tabular-nums}
+.tt-focus-empty{font-size:26px;font-weight:750;line-height:1.4}
+html[data-theme] .tt-workspace .tt-query-bar.tt-focus-query{display:flex;align-items:center;flex-wrap:wrap;gap:12px;min-height:62px;padding:12px 16px;margin-bottom:14px;border-radius:12px}
+.tt-focus-query .tt-query-item:has(#tt-type){display:none}
+.tt-focus-query .tt-query-item{flex-direction:row;align-items:center;gap:10px;font-size:13px}
+.tt-focus-query .tt-query-item select{min-width:150px;min-height:38px;font-size:13px}
+.tt-season-switch{display:inline-flex;flex-shrink:0;border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.tt-season-switch button{min-height:38px;padding:0 18px;border:0;background:var(--card);color:var(--text-2);font:inherit;font-size:13px;font-weight:650;cursor:pointer}
+.tt-season-switch button+button{border-left:1px solid var(--line)}
+.tt-season-switch button[aria-pressed="true"]{background:var(--primary-weak);color:var(--primary)}
+.tt-season-switch button:focus-visible{outline:2px solid var(--primary);outline-offset:-3px}
+.tt-focus-query .tt-current-tag{margin:0 0 0 auto;padding-left:14px;font-size:12px}
+html[data-theme] .tt-workspace .tt-focus-query .tt-current-tag b{padding:0;background:none;color:var(--text-2);font-weight:500}
+.tt-focus-query .tt-current-tag span{margin-right:6px}
+html[data-theme] .tt-workspace .tt-grid-table thead th.is-today{background:var(--primary-weak);color:var(--primary);box-shadow:inset 0 3px var(--primary)}
+html[data-theme] .tt-workspace .tt-grid-table td.tt-slot.is-today{background:color-mix(in srgb,var(--primary-weak) 45%,var(--card))}
+html[data-theme] .tt-workspace .tt-grid-table .tt-lunch-row td{height:50px;padding:8px;background:light-dark(#fff5df,#3a301c)!important;color:light-dark(#8c4b0c,#ffd58a)!important;border-bottom:1px solid light-dark(#f2dfba,#63502b)}
+html[data-theme] .tt-workspace .tt-grid-table .tt-lunch-cell{background:light-dark(#fff5df,#3a301c)!important;color:light-dark(#8c4b0c,#ffd58a)!important;text-align:center}
+.tt-lunch-content{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;font-size:17px;font-weight:650}
+.tt-lunch-content strong{font-size:24px;font-weight:800;line-height:1.4;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.tt-lunch-content svg{flex-shrink:0}
+html[data-theme] .tt-workspace .tt-course-block.is-next{box-shadow:inset 0 0 0 1px var(--primary);border-left:4px solid var(--primary)}
+.tt-next-badge{position:absolute;top:3px;right:4px;padding:1px 5px;border-radius:4px;background:var(--primary);color:#fff;font-size:9px;line-height:1.4}
+.tt-course-block.is-next .tt-course-heading{padding-right:38px}
+.tt-course-block.is-next:hover .tt-next-badge{display:none}
+html[data-theme] .tt-workspace .tt-grid-table thead th{font-size:13px}
+html[data-theme] .tt-workspace .tt-grid-table .tt-period-cell strong{font-size:12px}
+html[data-theme] .tt-workspace .tt-grid-table .tt-time-cell{font-size:12px}
+html[data-theme] .tt-workspace .tt-course-block{display:block;padding:6px 8px;height:auto;min-height:42px;color:var(--text);border-radius:6px}
+.tt-course-block .tt-course-icon,.tt-course-block .tt-course-time{display:none}
+.tt-course-block .tt-course-subject{font-size:12px;line-height:1.4}
+.tt-course-block .tt-course-class{font-size:11px;line-height:1.4;color:var(--text-2)}
+@media(max-width:1100px){
+  .tt-focus-aside{flex-basis:165px;padding-left:20px}
+  .tt-focus-pair{gap:10px 16px}.tt-focus-time{padding-left:16px}
+  .tt-focus-query .tt-current-tag{flex-basis:100%;padding-left:0;text-align:right}
+}
+@media(max-width:720px){
+  html[data-theme] .tt-workspace .tt-reminder.tt-focus-card{flex-direction:column;align-items:stretch;gap:16px;padding:18px;min-height:0}
+  .tt-focus-pair{flex-direction:column;align-items:flex-start;gap:6px}
+  .tt-focus-class,.tt-focus-time{font-size:30px}
+  .tt-focus-time{padding:0;border:0}
+  .tt-focus-meta{font-size:12px;margin-top:8px}
+  .tt-focus-aside{flex-basis:auto;display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 12px;border-left:0;border-top:1px solid var(--line);padding:12px 0 0}
+  .tt-focus-date{grid-column:1/-1;margin:0 0 4px}.tt-focus-countdown{font-size:22px;margin:0}
+  html[data-theme] .tt-workspace .tt-query-bar.tt-focus-query{gap:10px;padding:12px}
+  .tt-focus-query .tt-query-item{flex:1;min-width:0}.tt-focus-query .tt-query-item select{width:100%;min-width:0}
+  .tt-focus-query .tt-query-item>span{white-space:nowrap}
+  .tt-lunch-content{position:sticky;left:70px;width:calc(100vw - 110px);gap:8px}
+  .tt-lunch-content strong{font-size:24px}
+  .tt-season-switch{flex-basis:100%}.tt-season-switch button{flex:1}
+  .tt-focus-query .tt-current-tag{font-size:11px;text-align:left}
+}
+
+

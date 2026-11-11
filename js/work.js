@@ -7,6 +7,8 @@ import { renderTimetable as renderMyTimetable } from './timetable.js';
 import { detectTimetable } from './ttimage.js';
 import { loginBanner, hookBanner } from './auth.js';
 import { renderPreps } from './prep.js';
+import { renderTripManagement } from './trips.js';
+import { MAX_MATERIAL_SIZE, syncMaterialSharing } from './material-sharing.mjs';
 
 const M = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 /* 备注字段统一生成器。
@@ -106,7 +108,7 @@ registerView(async function work(main, { tab, third }) {
     repairs: ['维修记录表', '按月份查看维修记录、处理状态与待跟踪事项'],
     attendance: ['考勤', '按年级分开管：花名册、每日三张表、统计'],
     invigilation: ['监考', '监考场次、时间、补贴，一场不漏'],
-    trips: ['出差', '行程、报销、补贴，按天自动算'],
+    trips: ['出差', '行程、报销记录'],
     notes: ['笔记', '随手记的教学笔记，可搜索、可归档'],
   }[t] || ['工作', ''];
 
@@ -145,7 +147,7 @@ registerView(async function work(main, { tab, third }) {
     return renderAttendancePRD(body, { grade });
   }
   if (t === 'invigilation') return renderInvigilation(body);
-  if (t === 'trips') return renderTrips(body);
+  if (t === 'trips') { headEl.remove(); return renderTripManagement(body); }
   if (t === 'repairs') {
     const m = await import('./repairs.js');
     return m.renderRepairsBody(body);
@@ -2619,11 +2621,20 @@ async function renderStudentModule(box, key) {
 
   box.querySelector('#sm-copy')?.addEventListener('click', async () => {
     const url = studentUrl(link.code);
+    try { await syncMaterialSharing(); } catch (error) { toast(error.message || '链接尚未同步，请稍后重试', 'err'); return; }
     try { await navigator.clipboard.writeText(url); toast('已复制，发到班级群就行'); } catch { prompt('复制下面的链接', url); }
   });
-  box.querySelector('#sm-mklink')?.addEventListener('click', async () => {
-    await api.post('/links', { title: '班级资料站' }).catch(() => { });
-    renderStudentModule(box, key);
+  box.querySelector('a[href*="student.html"]')?.addEventListener('click', async event => {
+    event.preventDefault();
+    const opened = window.open('about:blank', '_blank');
+    if (opened) opened.opener = null;
+    try { await syncMaterialSharing(); if (opened) opened.location.replace(studentUrl(link.code)); else location.href = studentUrl(link.code); }
+    catch (error) { opened?.close(); toast(error.message || '链接尚未同步，请稍后重试', 'err'); }
+  });
+  saving(box.querySelector('#sm-mklink'), async () => {
+    await api.post('/links', { title: '班级资料站' });
+    await syncMaterialSharing();
+    await renderStudentModule(box, key);
   });
 
   const inner = box.querySelector('#sm-body');
@@ -2662,6 +2673,7 @@ async function renderStudentModule(box, key) {
         const m = mats.find((x) => String(x.id) === b.dataset.unpub);
         if (!(await confirmDialog(`把《${m.title}》从学生页面收回？学生就看不到了，文件本身还在。`))) return;
         await api.patch('/materials/' + m.id, { public: 0 });
+        await syncMaterialSharing();
         toast('已收回'); renderStudentModule(box, key);
       };
     });
@@ -2993,42 +3005,59 @@ async function paintMats(list, reload) {
 }
 async function materialEditor(m, catId, reload) {
   const isNew = !m;
+  let savedMaterial = m;
+  const uploadedFiles = new Set();
   const cats = await api.get('/categories', { scope: 'material' });
+  const initialCategory = cats.find(category => String(category.id) === String(m?.category_id ?? catId));
   const body = el(`<div class="sheet-body">
     <div class="field"><label class="field-label">标题</label><input class="input" id="t" value="${esc(m?.title || '')}"></div>
     <div class="form-grid">
-      <div class="field"><label class="field-label">分类</label><select class="input" id="cat"><option value="">未分类</option>${cats.map((c) => `<option value="${c.id}" ${Number(m?.category_id || catId) === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label class="field-label" for="cat">分类</label><input class="input" id="cat" type="text" value="${esc(initialCategory?.name || '')}" placeholder="手动输入分类名称，留空则为未分类"></div>
       <div class="field"><label class="field-label">班级</label><input class="input" id="cls" value="${esc(m?.class_name || '')}"></div>
       <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(m?.grade || '')}"></div>
       <div class="field"><label class="field-label">学生可见</label><select class="input" id="pub"><option value="1" ${m?.public !== 0 ? 'selected' : ''}>是（短链可看）</option><option value="0" ${m?.public === 0 ? 'selected' : ''}>否</option></select></div>
     </div>
     <div class="field"><label class="field-label">说明</label><textarea class="input" id="d" rows="2">${esc(m?.descr || '')}</textarea></div>
     <div class="field"><label class="field-label">文件（可多选）</label>
-      <input type="file" id="f" multiple class="small"
-        accept=".pptx,.ppt,.ppsx,.pdf,.doc,.docx,.xls,.xlsx,.txt,.md,.zip,.rar,.7z,.png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.mp3,.wav">
+      <input type="file" id="f" multiple class="small">
       <div class="field-hint" style="margin-top:6px">
-        <b>默认就是 PPT（.pptx）</b>，其余格式也都能传：
-        PDF、Word、Excel、图片、视频、压缩包都行。
-        <br>选文件时如果找不到某个格式，把筛选切到「所有文件」即可——这里只是默认帮你把常用格式排在前面。
+        支持 WPS 全部文件格式，包括 .wps / .wpt、.et / .ett、.dps / .dpt，以及 Word、Excel、PPT、PDF、图片和压缩包。
+        <br>保留原文件名与格式，每次最多 20 个文件，单个文件最大 50 MB，每批合计不超过 50 MB。
       </div></div>
-    <div class="field-hint">上传后学生打开短链即可在线预览或下载，解决忘带 U 盘、班级电脑接口损坏的问题。</div>
+    <div class="field-hint">设为学生可见后，学生打开链接即可查看教材和下载原文件，无需账号密码。PDF、图片支持浏览器查看；WPS 文档下载后用 WPS 打开。</div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">保存</button></div></div>`);
   const s = sheet({ title: isNew ? '上传课件' : '编辑课件', body, wide: true });
   body.querySelector('#c').onclick = s.close;
-  body.querySelector('#k').onclick = async () => {
-    const payload = { title: body.querySelector('#t').value.trim() || '未命名课件', category_id: Number(body.querySelector('#cat').value) || null,
+  saving(body.querySelector('#k'), async () => {
+    const selected = [...body.querySelector('#f').files];
+    if (selected.length > 20) throw new Error('每次最多选择 20 个文件');
+    for (const file of selected) if (file.size > MAX_MATERIAL_SIZE) throw new Error('「' + file.name + '」超过 50 MB，请压缩后上传');
+    if (selected.reduce((total, file) => total + file.size, 0) > MAX_MATERIAL_SIZE) throw new Error('每批文件合计不能超过 50 MB，请分批上传');
+    const categoryName = body.querySelector('#cat').value.trim();
+    let categoryId = null;
+    if (categoryName) {
+      const currentCategories = await api.get('/categories', { scope: 'material' });
+      const category = currentCategories.find(item => String(item.name || '').trim() === categoryName)
+        || await api.post('/categories', { scope: 'material', name: categoryName });
+      categoryId = category.id;
+    }
+    const payload = { title: body.querySelector('#t').value.trim() || '未命名课件', category_id: categoryId,
       class_name: body.querySelector('#cls').value, grade: body.querySelector('#grade').value,
       descr: body.querySelector('#d').value, public: Number(body.querySelector('#pub').value) };
-    const r = isNew ? await api.post('/materials', payload) : await api.patch('/materials/' + m.id, payload);
-    const files = body.querySelector('#f').files;
+    const r = savedMaterial ? await api.patch('/materials/' + savedMaterial.id, { ...payload, public: savedMaterial.public }) : await api.post('/materials', { ...payload, public: 0 });
+    savedMaterial = r;
+    const files = selected.filter(file => !uploadedFiles.has(file));
     if (files.length) {
       const fd = new FormData();
       for (const f of files) fd.append('files', f, f.name);
       fd.append('owner_type', 'material'); fd.append('owner_id', String(r.id));
       await api.req('POST', '/upload', fd);
+      files.forEach(file => uploadedFiles.add(file));
     }
+    if (Number(r.public) !== payload.public) savedMaterial = await api.patch('/materials/' + r.id, { public: payload.public });
+    await syncMaterialSharing();
     s.close(); toast('已保存'); reload();
-  };
+  });
 }
 
 /* 电子备课模块由 js/prep.js 独立维护。 */

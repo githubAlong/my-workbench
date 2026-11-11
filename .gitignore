@@ -6,3 +6,6 @@ supabase/.temp/
 .env.*
 !.env.example
 *.log
+artifacts/
+test-results/
+playwright-report/

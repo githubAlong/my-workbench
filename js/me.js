@@ -70,7 +70,7 @@ async function renderMe(main) {
       <p>管理个人资料、工作台配置与消息通知</p></div>
     </header>
 
-    <section class="me-identity-card" id="me-identity-card">
+    <section class="me-identity-card is-collapsed" id="me-identity-card">
       <div class="me-identity-main">
         <button type="button" class="me-identity-avatar" id="avatar-btn" title="更换头像">
           ${avatarHTML(u, 58, 'me-avatar-lg', true)}
@@ -86,7 +86,7 @@ async function renderMe(main) {
       </div>
       <span class="me-identity-compact" id="me-identity-compact">${esc(u.nickname || '未设置昵称')} · ${esc(meta)}</span>
       <button type="button" class="me-identity-toggle" id="me-identity-toggle"
-        aria-expanded="true" aria-controls="me-identity-card">收起</button>
+        aria-expanded="false" aria-controls="me-identity-card">展开</button>
     </section>
 
     <div class="me-home-accordions" id="me-home-accordions">
@@ -1367,14 +1367,30 @@ async function renderMessages(main, { inline = false } = {}) {
     }
     const counts = r.counts || {};
     const rows = r.rows || [];
+    state.unread = Number(r.unread) || 0;
+    paintUnread();
     main.innerHTML = (inline ? '' : meMessagesHeader(r.unread ? `${r.unread} 条未读` : '都看完了',
       `<button class="btn ghost sm" id="read-all" ${r.unread ? '' : 'disabled'}>全部已读</button>`)) + `
+      ${inline ? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn ghost sm" id="read-all" ${r.unread ? '' : 'disabled'}>全部已读</button></div>` : ''}
       <div class="seg msg-seg" style="margin-bottom:14px">
         ${TYPES.map(([v, l]) => `<button class="${type === v ? 'on' : ''}" data-t="${v}">${l}${counts[v] ? `<b class="seg-dot">${counts[v]}</b>` : ''}</button>`).join('')}
       </div>
       <div class="card">${rows.length ? rows.map((m) => msgItem(m)).join('') : '<div class="empty">这里还没有消息<br><span class="tiny">事项到期、系统变更时会出现</span></div>'}</div>
       ${rows.length ? '<button class="btn ghost block" id="clear-read" style="margin-top:12px">清空已读消息</button>' : ''}`;
     if (!inline) bindMeBackButton(main);
+
+    main.querySelectorAll('[data-message-status]').forEach(select => {
+      select.onclick = event => event.stopPropagation();
+      select.onchange = async () => {
+        const message = rows.find(row => String(row.id) === select.dataset.messageStatus);
+        if (!message) return;
+        select.disabled = true;
+        try {
+          await api.patch('/' + message.ref_type + '/' + message.ref_id, { status: select.value });
+          await load();
+        } catch (error) { toast(error.message || '状态保存失败', 'err'); await load(); }
+      };
+    });
 
     main.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { type = b.dataset.t; load(); }; });
     const ra = main.querySelector('#read-all');
@@ -1431,7 +1447,8 @@ function msgItem(m) {
       <div class="msg-time">${fmtDateTime(m.created_at)}${m.link ? ' · 点开查看' : ''}</div>
     </div>
     <div class="msg-acts">
-      ${m.read ? '' : `<button class="icon-btn sm" data-read="${m.id}" title="标为已读">${icon('check', 14)}</button>`}
+      ${m.task_status ? `<select class="msg-task-status" data-message-status="${m.id}" aria-label="${esc(m.title)}的状态">${[['todo', '待完成'], ['doing', '进行中'], ['done', '已完成']].map(([value, label]) => `<option value="${value}" ${m.task_status === value ? 'selected' : ''}>${label}</option>`).join('')}</select>` : ''}
+      ${m.read ? '' : `<button class="btn ghost sm" data-read="${m.id}" title="标为已读">已读</button>`}
       <button class="icon-btn sm" data-del="${m.id}" title="删除">${icon('close', 13)}</button>
     </div>
   </div>`;

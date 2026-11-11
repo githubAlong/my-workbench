@@ -1,3 +1,5 @@
+import { isPrepType } from './prep-domain.mjs';
+import { prepareStudyImport, studyPayload, studyView } from './study-records-domain.mjs';
 /* ============================================================================
    localapi.js —— 把服务端 126 个 /api/* 接口，在浏览器里逐个实现一遍。
 
@@ -21,6 +23,8 @@ import {
   randomCode, nowISO, pad2, ymd, hydrate,
 } from './localdb.js';
 import { accountIdentifierFromPhone } from './auth-identifier.mjs';
+import { reconcileTaskLinks } from './todo-item-sync.mjs';
+import { reconcileTaskMessages } from './task-messages.mjs';
 import { attRowState } from './att-parse.js';
 import { buildInvigSummary as buildInvigSummaryV2 } from './invigilation-domain.mjs';
 import {
@@ -59,7 +63,8 @@ const todayStr = () => ymd(new Date());
 /* 北京时区日期：与原服务端 cnDate() 口径一致。
    不能用 toISOString().slice(0,10)——那是 UTC，凌晨 0~8 点会差一天。 */
 export function cnDate(d = new Date()) {
-  return ymd(new Date(d.getTime() + 8 * 3600 * 1000));
+  const shifted = new Date(d.getTime() + 8 * 3600 * 1000);
+  return `${shifted.getUTCFullYear()}-${pad2(shifted.getUTCMonth() + 1)}-${pad2(shifted.getUTCDate())}`;
 }
 function isoToCnDate(iso) {
   if (!iso) return '';
@@ -366,27 +371,10 @@ function pushMessage({ type = 'system', title, body = '', link = '', refType = n
 /* 把「今天到期的事项 / 待办」变成任务提醒消息。
    打开消息中心时触发，够用且不用起定时器。 */
 function syncTaskMessages() {
-  try {
-    const today = cnDate();
-    for (const it of rowsOf('items').filter((x) => x.status !== 'done')) {
-      const d = it.start_at ? String(it.start_at).slice(0, 10) : isoToCnDate(it.created_at);
-      if (d !== today) continue;
-      pushMessage({
-        type: 'task', title: it.title,
-        body: it.start_at ? `今天 ${String(it.start_at).slice(11, 16)} 的事项还没完成` : '今天记下的事项还没完成',
-        link: '#/home', refType: 'items', refId: it.id,
-        dedupe: `item-${it.id}-${today}`, skipIfSameTitleToday: true,
-      });
-    }
-    for (const td of rowsOf('todos').filter((x) => x.status !== 'done')) {
-      if (isoToCnDate(td.created_at) !== today) continue;
-      pushMessage({
-        type: 'task', title: td.title, body: '今天的便签还没划掉',
-        link: '#/daily', refType: 'todos', refId: td.id,
-        dedupe: `todo-${td.id}-${today}`, skipIfSameTitleToday: true,
-      });
-    }
-  } catch { /* 静默失败，不影响主流程 */ }
+  const db = load();
+  const linked = reconcileTaskLinks(db);
+  const messages = reconcileTaskMessages(db, { today: cnDate() });
+  if (linked || messages) save();
 }
 
 /* 到点提醒：替代服务端的 setInterval(tick)。
@@ -394,6 +382,7 @@ function syncTaskMessages() {
 function tickReminders() {
   const db = load();
   const now = Date.now();
+  let changed = false;
   for (const r of T('reminders') || []) {
     if (r.status !== 'scheduled' || !r.fire_at) continue;
     if (Number(r.fire_at) > now + 1000) continue;
@@ -407,13 +396,14 @@ function tickReminders() {
        这样关掉页面再回来，没确认的提醒还会补弹一次，不会悄悄消失。 */
     if (r.notified_at) continue;   // 同一条只推一次消息，避免每次 GET 都堆一条
     r.notified_at = now;
+    changed = true;
     pushMessage({
       type: 'remind', title: r.title,
       body: r.body || ('提醒时间：' + String(r.due_at || '').replace('T', ' ')),
       refType: 'reminder', refId: r.id,
     });
   }
-  save();
+  if (changed) save();
 }
 
 function addReminder({ title, body = '', due_at, advance_min = 0, repeat = 'none', ring = 'chime', kind = 'item', item_id = null }) {
@@ -430,19 +420,7 @@ function addReminder({ title, body = '', due_at, advance_min = 0, repeat = 'none
 
 /* ============================ 便签 ↔ 事项 同源 ============================ */
 function syncItemToTodo(itemId, changed) {
-  const db = load();
-  const todo = (T('todos') || []).find((t) => !t.deleted_at && String(t.ref_item_id) === String(itemId))
-    || (T('todos') || []).find((t) => {
-      if (t.deleted_at) return false;
-      const it = (T('items') || []).find((i) => String(i.id) === String(itemId));
-      return it && String(it.ref_id) === String(t.id);
-    });
-  if (!todo) return;
-  if (changed.status) todo.status = changed.status;
-  if (changed.title !== undefined) todo.title = changed.title;
-  if (changed.start_at !== undefined) todo.due_at = changed.start_at || null;
-  todo.updated_at = nowISO();
-  if (!todo.ref_item_id) todo.ref_item_id = Number(itemId);
+  reconcileTaskLinks(load(), { sourceTable: 'items', sourceId: itemId, fields: Object.keys(changed || {}) });
   save();
 }
 
@@ -1839,6 +1817,7 @@ on('DELETE', '/me/avatar', () => {
 
 /* ---- 首页 ---- */
 on('GET', '/home', ({ query }) => {
+  syncTaskMessages();
   const today = query.date || cnDate();
   const digest = todayDigest(today);
   const monthFrom = today.slice(0, 8) + '01';
@@ -1850,7 +1829,7 @@ on('GET', '/home', ({ query }) => {
     .filter((r) => r.status === 'scheduled' && Number(r.fire_at) >= now - 60000)
     .sort((a, b) => Number(a.fire_at) - Number(b.fire_at))
     .slice(0, 5);
-  const unread = (load().messages || []).filter((x) => !x.read).length;
+  const unread = (load().messages || []).filter((x) => !x.deleted_at && !x.read).length;
   const monthStr = today.slice(0, 7);
   const ls = rowsOf('lessons').filter((r) => String(r.date || '').startsWith(monthStr));
   const quote = pickQuote(today);
@@ -1933,8 +1912,10 @@ function buildICS(alarms) {
 }
 
 /* ---- 事项 ---- */
-on('GET', '/items', () => rowsOf('items')
-  .sort((a, b) => String(a.start_at || a.created_at || '').localeCompare(String(b.start_at || b.created_at || ''))));
+on('GET', '/items', () => {
+  syncTaskMessages();
+  return rowsOf('items').sort((a, b) => String(a.start_at || a.created_at || '').localeCompare(String(b.start_at || b.created_at || '')));
+});
 on('POST', '/items', ({ body }) => {
   if (!body?.title) fail(400, '标题不能为空');
   const db = load();
@@ -1948,6 +1929,7 @@ on('POST', '/items', ({ body }) => {
     created_at: nowISO(), updated_at: nowISO(), deleted_at: null,
   };
   T('items').push(row);
+  reconcileTaskLinks(db, { sourceTable: 'items', sourceId: row.id });
   save();
   if (body.remind_min !== undefined && body.remind_min !== null && body.remind_min !== '' && body.start_at) {
     addReminder({
@@ -1961,8 +1943,13 @@ on('POST', '/items', ({ body }) => {
 on('PATCH', '/items/:id', ({ params, body }) => {
   const row = byId('items', params.id);
   if (!row) fail(404, '事项不存在');
+  reconcileTaskLinks(load());
+  let changed = false;
   for (const k of ['title', 'detail', 'kind', 'start_at', 'end_at', 'status', 'priority']) {
-    if (k in (body || {})) row[k] = body[k] === '' ? null : body[k];
+    if (k in (body || {})) {
+      const value = body[k] === '' ? null : body[k];
+      if (row[k] !== value) { row[k] = value; changed = true; }
+    }
   }
   if (body?.remind_min !== undefined) {
     const db = load();
@@ -1972,8 +1959,7 @@ on('PATCH', '/items/:id', ({ params, body }) => {
     }
     save();
   }
-  row.updated_at = nowISO();
-  save();
+  if (changed) row.updated_at = nowISO();
   syncItemToTodo(row.id, body || {});
   return row;
 });
@@ -2045,7 +2031,7 @@ on('POST', '/reminders/:id/snooze', ({ params, body }) => {
 on('GET', '/messages', ({ query }) => {
   syncTaskMessages();
   tickReminders();
-  const all = (load().messages || []).slice().sort((a, b) => b.id - a.id);
+  const all = (load().messages || []).filter(m => !m.deleted_at).sort((a, b) => b.id - a.id);
   const type = query.type;
   const rows = type && type !== 'all' ? all.filter((m) => m.type === type).slice(0, 200) : all.slice(0, 200);
   const counts = { all: 0 };
@@ -2055,29 +2041,33 @@ on('GET', '/messages', ({ query }) => {
 on('POST', '/messages/read', ({ body }) => {
   const db = load();
   for (const m of T('messages') || []) {
-    if (body?.all) m.read = 1;
-    else if (body?.type && m.type === body.type) m.read = 1;
-    else if (Array.isArray(body?.ids) && body.ids.map(String).includes(String(m.id))) m.read = 1;
+    if (m.deleted_at) continue;
+    if (body?.all || (body?.type && m.type === body.type) || (Array.isArray(body?.ids) && body.ids.map(String).includes(String(m.id)))) {
+      m.read = 1;
+      if (m.task_auto_read) m.task_auto_read = false;
+    }
   }
   save();
   return { ok: true };
 });
 on('DELETE', '/messages/:id', ({ params }) => {
   const db = load();
-  db.messages = (db.messages || []).filter((m) => String(m.id) !== String(params.id));
+  const message = (db.messages || []).find(m => String(m.id) === String(params.id));
+  if (message && !message.deleted_at) message.deleted_at = nowISO();
   save();
   return { ok: true };
 });
 on('POST', '/messages/clear', ({ body }) => {
   const db = load();
   const readOnly = body?.readOnly !== false;
-  db.messages = (db.messages || []).filter((m) => (readOnly ? !m.read : false));
+  for (const message of db.messages || []) if (!message.deleted_at && (!readOnly || message.read)) message.deleted_at = nowISO();
   save();
   return { ok: true };
 });
 
 /* ---- 便签 ---- */
 on('GET', '/todos', () => {
+  syncTaskMessages();
   const items = load().items || [];
   return rowsOf('todos')
     .sort((a, b) => (num(b.pin) - num(a.pin)) || (b.id - a.id))
@@ -2097,42 +2087,21 @@ on('POST', '/todos', ({ body }) => {
     pin: 0, ref_item_id: null, created_at: nowISO(), updated_at: nowISO(), deleted_at: null,
   };
   T('todos').push(row);
+  reconcileTaskLinks(db, { sourceTable: 'todos', sourceId: row.id });
   save();
-  if (body.sync_home) {
-    const items = T('items');
-    const iid = items.reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
-    items.push({
-      id: iid, seq: nextSeq('item'), kind: '事项', title: body.title, detail: body.content || '',
-      start_at: body.due_at || null, end_at: null, status: 'todo', priority: 'normal',
-      source: '便签', ref_id: id, created_at: nowISO(), updated_at: nowISO(), deleted_at: null,
-    });
-    row.ref_item_id = iid;
-    save();
-  }
   return row;
 });
 on('PATCH', '/todos/:id', ({ params, body }) => {
   const row = byId('todos', params.id);
   if (!row) fail(404, '便签不存在');
+  reconcileTaskLinks(load());
+  let changed = false;
   for (const k of ['title', 'content', 'status', 'color', 'pin', 'due_at']) {
-    if (k in (body || {})) row[k] = body[k];
+    if (k in (body || {}) && row[k] !== body[k]) { row[k] = body[k]; changed = true; }
   }
-  row.updated_at = nowISO();
+  if (changed) row.updated_at = nowISO();
+  reconcileTaskLinks(load(), { sourceTable: 'todos', sourceId: row.id, fields: Object.keys(body || {}) });
   save();
-  // 状态、标题、时间改任一边，另一边都跟着变（同源）
-  const db = load();
-  const linked = row.ref_item_id || (T('items') || []).find((i) => !i.deleted_at && String(i.ref_id) === String(row.id) && i.source === '便签')?.id;
-  if (linked) {
-    const it = (T('items') || []).find((i) => String(i.id) === String(linked));
-    if (it) {
-      if (body?.status) it.status = body.status;
-      if (body?.title !== undefined) it.title = body.title;
-      if (body?.due_at !== undefined) it.start_at = body.due_at || null;
-      it.updated_at = nowISO();
-      if (!row.ref_item_id) row.ref_item_id = it.id;
-      save();
-    }
-  }
   return row;
 });
 
@@ -3682,6 +3651,13 @@ on('POST', '/upload', async ({ body }) => {
   const ownerType = body?.fields?.owner_type || 'misc';
   const ownerId = Number(body?.fields?.owner_id || 0);
 
+  if (ownerType === 'material' && await cloudReady()) {
+    for (const file of files) if (byteLen(file.data) > 50 * 1024 * 1024) fail(413, '教材单个文件不能超过 50 MB');
+    const cloud = await import('./cloud.js');
+    const uploaded = await cloud.uploadMaterialFiles(files, ownerId);
+    return uploaded.map(file => ({ ...file, id: saveAttachment(ownerType, ownerId, file.name, file.mime, file.size, file.url) }));
+  }
+
   /* 先把所有文件都量一遍再动手写。
      原来是一个个循环里校验、边校验边写：第 3 个超限时，前 2 个已经落库了，
      用户看到的是"报错了"，但库里其实多了两个 —— 重试就变成四个。
@@ -3769,7 +3745,7 @@ on('GET', '/links', () => (load().links || [])
 on('POST', '/links', ({ body }) => {
   const db = load();
   db.links = db.links || [];
-  const code = body?.code && /^[a-z0-9]{4,20}$/.test(body.code) ? body.code : randomCode(6);
+  const code = body?.code && /^[a-z0-9]{12,64}$/.test(body.code) ? body.code : crypto.randomUUID().replace(/-/g, '');
   const id = T('links').reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
   const row = {
     id, code, title: body?.title || '班级资料站',
@@ -4098,6 +4074,18 @@ on('POST', '/backup/restore', ({ body }) => {
   return { imported: n };
 });
 
+on('POST', '/study/records/import', ({ body }) => {
+  // Validate the whole file before changing data; invalid rows cannot partially import.
+  let records;
+  try { records = prepareStudyImport(body?.rows); } catch (error) { fail(422, error.message); }
+  const db = load();
+  const max = Math.max(Number(db.seqs['id:studies']) || 0, 0, ...db.studies.map(row=>Number(row.id)||0));
+  const created_at = nowISO();
+  const rows = records.map((record,index)=>({...record,id:max+index+1,seq:nextSeq('study'),source:'manual',created_at,updated_at:created_at,deleted_at:null}));
+  db.studies.push(...rows);db.seqs['id:studies']=max+rows.length;save();
+  return {imported:rows.length};
+});
+
 /* ---- 通用 CRUD（必须放在最后，避免抢走具体路由） ---- */
 /* 服务端的自动路由表：/api/{table} 的 GET / POST / PATCH / bulk。
    表名来自 localdb.TABLES 里与服务端 CRUD 对齐的那 18 张。 */
@@ -4111,6 +4099,10 @@ for (const table of CRUD_TABLES) {
   on('GET', '/' + table, ({ query }) => listTable(table, query));
   on('POST', '/' + table, ({ body }) => {
     const b = { ...(body || {}) };
+    if (table === 'studies') {
+      try { Object.assign(b, studyPayload({...studyView(b),status:b.status ?? (b.minutes != null ? 'done' : 'todo')})); }
+      catch (error) { fail(422, error.message); }
+    }
     /* 【表级必填，服务端兜底】
        前端各表单已经拦了，这里再拦一道 —— 接口是可以被"导入""批量"等
        别的入口调到的，只在界面拦等于没拦。
@@ -4131,7 +4123,7 @@ for (const table of CRUD_TABLES) {
         }
       }
     }
-    if (table === 'preps' && !['information', 'specialty'].includes(String(b.prep_type || '').trim())) {
+    if (table === 'preps' && !isPrepType(b.prep_type)) {
       fail(422, '请选择备课类型');
     }
     // 监考表旧列 type 是 NOT NULL，新逻辑用 duty_type，这里补一份映射
@@ -4151,8 +4143,17 @@ for (const table of CRUD_TABLES) {
   });
   on('PATCH', `/${table}/:id`, ({ params, body }) => {
     const b = normalizeBody(body || {});
+    if (table === 'studies') {
+      const existing = byId('studies', params.id);
+      if (!existing) fail(404, '学习记录不存在');
+      const merged = studyView({...existing,...b});
+      if (b.status !== undefined) merged.status = b.status;
+      if (b.minutes !== undefined && b.actual_duration === undefined) merged.actual_duration = b.minutes+'分钟';
+      try { Object.assign(b, studyPayload(merged)); }
+      catch (error) { fail(422, error.message); }
+    }
     if (table === 'preps' && b.prep_type !== undefined
-      && !['information', 'specialty', 'unclassified'].includes(String(b.prep_type).trim())) {
+      && !(isPrepType(b.prep_type) || b.prep_type === 'unclassified')) {
       fail(422, '备课类型不正确');
     }
     return updateRow(table, params.id, b);
@@ -4163,7 +4164,7 @@ for (const table of CRUD_TABLES) {
     for (const item of rows) {
       if (table === 'preps' && !item?.id) {
         if (!String(item?.topic || '').trim()) fail(422, '请填写备课主题');
-        if (!['information', 'specialty'].includes(String(item?.prep_type || '').trim())) fail(422, '请选择备课类型');
+        if (!isPrepType(item?.prep_type)) fail(422, '请选择备课类型');
       }
       if (item && item.id) { updateRow(table, item.id, normalizeBody(item)); ids.push(item.id); }
       else { ids.push(createRow(table, normalizeBody(item || {})).id); }
@@ -4224,6 +4225,16 @@ export async function handle(method, path, query = {}, body = undefined) {
       /* 测试库尚未执行迁移时，PostgREST 会报 schema cache / relation not found。
          这类错误不应阻断整张考勤工作台：先回退到本地实现，让用户继续验证界面和交互；
          真实云端数据仍由迁移完成后自动接管。权限、网络和其他云端错误继续明确提示。 */
+      // A cloud-only table must never be looked up in the local database after
+      // an RPC failure: that masks the real error as "table does not exist".
+      if (method === 'POST' && /^\/attendance\/[^/]+\/rows$/.test(clean)) {
+        const message = String(e.message || e);
+        const missingRpc = /wb_save_attendance_rows/i.test(message)
+          && /could not find|schema cache|does not exist/i.test(message);
+        return { ok: false, error: missingRpc
+          ? '云端考勤保存服务尚未就绪，请联系管理员补齐保存函数；当前勾选仍保留，请勿刷新页面'
+          : '云端：' + message, code: 502, cloud: true };
+      }
       if (!isCloudSchemaUnavailable(e)) {
         return { ok: false, error: '云端：' + (e.message || e), code: 502, cloud: true };
       }

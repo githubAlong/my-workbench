@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getCanonicalPeriodNumber, cleanPeriodTime, normalizeTimetablePeriods } from "../js/timetable-periods.mjs";
+import { getCanonicalPeriodNumber, cleanPeriodTime, normalizeTimetablePeriods, completeTimetablePeriods } from "../js/timetable-periods.mjs";
 
 test("Arabic and Chinese lesson labels resolve to one canonical period number", () => {
   assert.equal(getCanonicalPeriodNumber({ period_no: "第1节", name: "第1节" }), 1);
   assert.equal(getCanonicalPeriodNumber({ period_no: "第一节", name: "第一节" }), 1);
   assert.equal(getCanonicalPeriodNumber({ period_no: 3, name: "第三节" }), 3);
   assert.equal(getCanonicalPeriodNumber({ name: "晚自习一" }), 10);
-  assert.equal(getCanonicalPeriodNumber({ name: "晚自习第二节", period_no: 12 }), 10);
+  assert.equal(getCanonicalPeriodNumber({ name: "晚自习第二节", period_no: 12 }), 11);
   assert.equal(getCanonicalPeriodNumber({ name: "午休" }), 5.5);
 });
 
@@ -37,16 +37,16 @@ test("course time corrects a conflicting legacy period number", () => {
   }), 1);
   assert.equal(getCanonicalPeriodNumber({
     period_no: 11, name: "第11节", start_time: "19:30", end_time: "20:10",
-  }), 10);
+  }), 11);
   assert.equal(getCanonicalPeriodNumber({
     period_no: 14, name: "第14节", start_time: "", end_time: "",
-  }), 10);
+  }), 14);
   assert.equal(getCanonicalPeriodNumber({
     period_no: 15, name: "第15节", start_time: "", end_time: "",
-  }), 10);
+  }), 15);
 });
 
-test("duplicate morning aliases and evening lesson numbers collapse into the standard axis", () => {
+test("duplicate morning aliases merge while distinct evening periods keep their numbers and times", () => {
   const rows = normalizeTimetablePeriods([
     { id: "first-wrong", period_no: 10, name: "第10节", start_time: "08:00", end_time: "08:40" },
     { id: "first-correct", period_no: 1, name: "第一节", start_time: "08:00", end_time: "08:40" },
@@ -56,11 +56,25 @@ test("duplicate morning aliases and evening lesson numbers collapse into the sta
     { id: "night-14", period_no: 14, name: "第14节", start_time: "", end_time: "" },
     { id: "night-15", period_no: 15, name: "第15节", start_time: "", end_time: "" },
   ]);
-  assert.deepEqual(rows.map((row) => row.period_no), [1, 10]);
+  assert.deepEqual(rows.map((row) => row.period_no), [1, 11, 12, 13, 14, 15]);
   assert.equal(rows[0].name, "第1节");
-  assert.equal(rows[1].name, "晚自习第一节");
+  assert.equal(rows[1].name, "晚二");
   assert.equal(rows[1].start_time, "19:30");
-  assert.equal(rows[1].end_time, "21:55");
+  assert.equal(rows[1].end_time, "20:10");
+  assert.equal(rows[2].start_time, "20:20");
+  assert.equal(rows[3].end_time, "21:55");
+});
+
+test('configured lunch and evening courses remain visible without changing stored records', () => {
+  const periods=[{period_no:1,name:'第一节'},{period_no:5.5,name:'午休'},{period_no:10,name:'晚一'}];
+  const courses=[{period_no:11,name:'晚二',start_time:'19:30',end_time:'20:10'},
+    {period_no:13,name:'晚四',start_time:'21:10',end_time:'21:55'},{period_no:14,start_time:'',end_time:''}];
+  const original=JSON.stringify({periods,courses});
+  const result=completeTimetablePeriods(periods,courses);
+  assert.deepEqual(result.map(row=>row.period_no),[1,5.5,10,11,13,14]);
+  assert.equal(result.find(row=>row.period_no===13).end_time,'21:55');
+  assert.equal(JSON.stringify({periods,courses}),original);
+  assert.equal(completeTimetablePeriods(result,courses).length,result.length);
 });
 
 test("00:00 placeholders are treated as missing times, not real lesson times", () => {

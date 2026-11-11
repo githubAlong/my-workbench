@@ -7,7 +7,7 @@ import {
   api, esc, toast, sheet, confirmDialog, ymd,
 } from './core.js';
 import { registerView, icon, pageHead } from './ui.js';
-import { summarizeRepairs, isRepairTracked, isRepairFixed, normalizeRepairStatus, repairStatusInputValue } from './repairs-domain.mjs';
+import { summarizeRepairs, isRepairTracked, isRepairFixed, repairStatusForSave, repairStatusInputValue } from './repairs-domain.mjs';
 
 /* 维修状态使用自由文本输入，保留旧状态兼容。 */
 const URG = {
@@ -172,11 +172,16 @@ export async function renderRepairsBody(box) {
           <input class="input" id="hd" value="${esc(row?.handler || '')}" placeholder="如 后勤王师傅"></div>
       </div>
       <div class="form-grid">
-        <div class="field"><label class="field-label">状态</label>
-          <input class="input" id="s" value="${esc(repairStatusInputValue(row?.status))}" placeholder="手动输入状态，如：待处理、等待配件、已修好" autocomplete="off"></div>
+        <div class="field"><label class="field-label" for="fx">是否修好</label>
+          <select class="input" id="fx">
+            <option value="open" ${!isRepairFixed(row) ? 'selected' : ''}>未修好</option>
+            <option value="done" ${isRepairFixed(row) ? 'selected' : ''}>已修好</option>
+          </select></div>
         <div class="field"><label class="field-label">费用（元）</label>
           <input class="input" id="co" type="number" min="0" step="0.01" value="${esc(row?.cost || '')}" placeholder="0"></div>
       </div>
+      <div class="field"><label class="field-label">状态说明</label>
+          <input class="input" id="s" value="${esc(repairStatusInputValue(row?.status))}" placeholder="手动输入状态，如：待处理、等待配件、已修好" autocomplete="off"></div>
       <div class="field"><label class="field-label">是否跟踪</label>
         <label class="rp-follow-control"><input type="checkbox" id="fu" ${row?.follow_up === true || row?.follow_up === 1 || row?.follow_up === '1' ? 'checked' : ''}><span>需要持续跟踪处理</span></label></div>
       <div class="field"><label class="field-label">备注</label>
@@ -189,6 +194,12 @@ export async function renderRepairsBody(box) {
     const s = sheet({ title: isNew ? '维修记录登记' : '维修记录修改', body, wide: true });
     const $ = (id) => body.querySelector('#' + id);
 
+    $('fx').onchange = () => {
+      $('s').value = repairStatusInputValue(repairStatusForSave($('s').value, $('fx').value === 'done'));
+    };
+    $('s').oninput = () => {
+      $('fx').value = isRepairFixed({ status: $('s').value }) ? 'done' : 'open';
+    };
     $('cancel').onclick = s.close;
     $('del')?.addEventListener('click', async () => {
       if (await confirmDialog('删除这条报修记录？')) {
@@ -203,7 +214,7 @@ export async function renderRepairsBody(box) {
         item: $('it').value.trim(),
         fault: $('fl').value.trim(),
         urgency: $('u').value,
-        status: normalizeRepairStatus($('s').value),
+        status: repairStatusForSave($('s').value, $('fx').value === 'done'),
         reporter: $('rp').value.trim(),
         handler: $('hd').value.trim(),
         cost: Number($('co').value) || 0,

@@ -1,4 +1,5 @@
 import { api, esc, el, sheet, saving, confirmDialog, toast, download } from './core.js';
+import { cleanPeriodTime, normalizeTimetablePeriods } from './timetable-periods.mjs';
 
 const TYPES = [
   ['normal', '正常上课'],
@@ -33,7 +34,7 @@ const splitClassTime = (value) => {
   const time = timeMatch ? timeMatch[0].replace(/：/g, ':').replace(/\s+/g, '') : '';
   if (periodMatch) rest = rest.replace(periodMatch[0], '').trim();
   if (timeMatch) rest = rest.replace(timeMatch[0], '').trim();
-  return { date, period, time: time || (!period && !date ? rest : '') };
+  return { date, period: period || (time ? rest : ''), time: time || (!period && !date ? rest : '') };
 };
 const joinClassTime = (date, period, time) => [date, period, time].map((v) => String(v || '').trim()).filter(Boolean).join(' ');
 const parseRelatedPeople = (value, classType) => {
@@ -44,6 +45,7 @@ const parseRelatedPeople = (value, classType) => {
     if (parsed && typeof parsed === 'object') return {
       substitute_person: String(parsed.substitute_person || parsed.substitutePerson || ''),
       original_teacher: String(parsed.original_teacher || parsed.originalTeacher || ''),
+      original_class: String(parsed.original_class || ''),
     };
   } catch {}
   // Older records used one free-text related_person field.
@@ -51,12 +53,13 @@ const parseRelatedPeople = (value, classType) => {
   if (classType === 'substituted_for_me') return { substitute_person: raw, original_teacher: '' };
   return { substitute_person: raw, original_teacher: '' };
 };
-const packRelatedPeople = (substitutePerson, originalTeacher) => {
+const packRelatedPeople = (substitutePerson, originalTeacher, originalClass = '') => {
   const value = {
     substitute_person: String(substitutePerson || '').trim(),
     original_teacher: String(originalTeacher || '').trim(),
+    original_class: String(originalClass || '').trim(),
   };
-  return value.substitute_person || value.original_teacher ? JSON.stringify(value) : null;
+  return value.substitute_person || value.original_teacher || value.original_class ? JSON.stringify(value) : null;
 };
 const rowMonth = (row) => row.class_month || parseMonth(row.class_time);
 const monthLabel = (key) => {
@@ -154,8 +157,8 @@ export async function renderClassRecords(root) {
         .cr-editor{padding:18px 22px 22px}
         .cr-form-foot{position:sticky;bottom:-22px;display:flex;justify-content:flex-end;gap:10px;margin:22px -22px -22px;padding:13px 22px calc(13px + var(--safe-b,0px));border-top:1px solid var(--line,#e5e6eb);background:var(--card,#fff)}
         .cr-form-foot .cr-btn{min-width:112px}
-        .sheet-mask.cr-record-drawer-mask{align-items:stretch;justify-content:flex-end;padding:0}
-        .sheet-mask.cr-record-drawer-mask .sheet{width:min(450px,100vw);max-width:450px;height:100dvh;max-height:100dvh;border-radius:16px 0 0 16px;transform:translateX(28px);transition:transform .22s cubic-bezier(.2,.8,.3,1)}
+        .sheet-mask.cr-record-drawer-mask{align-items:center;justify-content:center;padding:24px}
+        .sheet-mask.cr-record-drawer-mask .sheet{width:min(720px,100%);max-width:720px;height:auto;max-height:calc(100dvh - 48px);border-radius:18px;transform:translateY(16px);transition:transform .22s cubic-bezier(.2,.8,.3,1)}
         .sheet-mask.cr-record-drawer-mask.in .sheet{transform:translateX(0)}
         .sheet-mask.cr-record-drawer-mask .sheet-head{min-height:66px;padding:18px 22px 14px;border-bottom:1px solid var(--line,#e5e6eb)}
         .sheet-mask.cr-record-drawer-mask .sheet-title{font-size:19px;font-weight:750}
@@ -167,13 +170,14 @@ export async function renderClassRecords(root) {
           .cr-records-head{align-items:flex-start}.cr-filter-bar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
           .cr-filter-bar select{width:100%;min-width:0}.cr-search{grid-column:1/-1;width:100%;min-width:0}
           .cr-filter-reset{grid-column:1/-1}.cr-pagination{align-items:flex-start;flex-direction:column}
-          .sheet-mask.cr-record-drawer-mask{align-items:flex-end;justify-content:center}
-          .sheet-mask.cr-record-drawer-mask .sheet{width:100vw;max-width:100vw;height:92dvh;max-height:92dvh;border-radius:18px 18px 0 0;transform:translateY(24px)}
+          .sheet-mask.cr-record-drawer-mask{align-items:center;justify-content:center;padding:12px}
+          .sheet-mask.cr-record-drawer-mask .sheet{width:100%;max-width:100%;height:auto;max-height:calc(100dvh - 24px);border-radius:16px;transform:translateY(16px)}
           .sheet-mask.cr-record-drawer-mask.in .sheet{transform:translateY(0)}
           .cr-editor{padding:15px 15px 18px}.cr-form-grid{grid-template-columns:1fr;gap:12px}
           .cr-form-foot{bottom:-18px;margin:18px -15px -18px;padding:12px 15px calc(12px + var(--safe-b,0px))}
         }
         .cr-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+        @media(max-width:720px){.cr-editor .cr-form-grid{grid-template-columns:1fr}}
         .cr-field{min-width:0}.cr-field label{display:block;font-size:13px;color:var(--text-2,#4e5969);margin-bottom:6px}
         .cr-field input,.cr-field select,.cr-field textarea{width:100%;min-height:40px;border:1px solid var(--line,#e5e6eb);border-radius:9px;padding:9px 11px;background:var(--card,#fff);color:var(--text,#1d2129);font:inherit}
         .cr-field textarea{min-height:96px;resize:vertical}.cr-required{color:var(--red,#f53f3f)}
@@ -314,7 +318,7 @@ export async function renderClassRecords(root) {
       const classTime = splitClassTime(r.class_time);
       const status = swap ? '无需结算' : (r.pay_status || '未填写');
       const statusClass = swap ? 'settled' : (status === '已支付' ? 'paid' : status === '未支付' ? 'unpaid' : 'custom');
-      const amount = swap ? '—' : (r.amount == null || r.amount === '' ? '—' : money(r.amount)+' 元');
+      const amount = r.amount == null || r.amount === '' ? '—' : money(r.amount)+' 元';
       const timeLines = [
         classTime.date ? '<strong>'+esc(classTime.date)+'</strong>' : '<strong>—</strong>',
         classTime.period ? '<small>'+esc(classTime.period)+'</small>' : '',
@@ -322,7 +326,7 @@ export async function renderClassRecords(root) {
       ].join('');
       return '<tr>'+
         '<td><div class="cr-subject-cell"><strong>'+esc(r.subject||'未填写学科')+'</strong><span class="cr-type-badge '+typeClass+'">'+esc(typeLabel)+'</span></div></td>'+
-        '<td>'+esc(r.class_name||'—')+'</td>'+
+        '<td>'+(r.class_type!=='normal'?'<div class="cr-time-cell"><small>原班级：'+esc(people.original_class||'—')+'</small><strong>现班级：'+esc(r.class_name||'—')+'</strong></div>':esc(r.class_name||'—'))+'</td>'+
         '<td><div class="cr-time-cell">'+timeLines+'</div></td>'+
         '<td>'+esc(people.original_teacher||'—')+'</td>'+
         '<td>'+esc(people.substitute_person||'—')+'</td>'+
@@ -345,15 +349,16 @@ export async function renderClassRecords(root) {
       <div class="cr-form-grid">
         <div class="cr-field"><label>上课类型 <span class="cr-required">*</span></label><select id="cr-type">${TYPES.map(([v,t])=>`<option value="${v}" ${initialType===v?'selected':''}>${t}</option>`).join('')}</select></div>
         <div class="cr-field"><label>学科 <span class="cr-required">*</span></label><input id="cr-subject" value="${esc(row?.subject||'')}" placeholder="例如：信息技术、语文"></div>
-        <div class="cr-field"><label>班级</label><input id="cr-class" value="${esc(row?.class_name||'')}"></div>
+        <div class="cr-field" id="cr-original-class-wrap"><label for="cr-original-class">原班级</label><input id="cr-original-class" value="${esc(initialPeople.original_class||'')}" placeholder="请输入原班级"></div>
+        <div class="cr-field"><label id="cr-class-label" for="cr-class">班级</label><input id="cr-class" value="${esc(row?.class_name||'')}"></div>
         <div class="cr-field"><label>上课日期</label><input id="cr-date" type="date" value="${esc(initialTime.date)}"></div>
-        <div class="cr-field"><label>节次</label><input id="cr-period" value="${esc(initialTime.period)}" placeholder="例如：第2节、早自习"></div>
-        <div class="cr-field"><label>时间</label><input id="cr-time" value="${esc(initialTime.time)}" placeholder="例如：08:00-08:45，可手动输入"></div>
+        <div class="cr-field"><label for="cr-period">节次</label><input id="cr-period" list="cr-period-options" value="${esc(initialTime.period)}" placeholder="选择课表节次或手动输入"><datalist id="cr-period-options"></datalist></div>
+        <div class="cr-field"><label for="cr-time">时间</label><input id="cr-time" list="cr-time-options" value="${esc(initialTime.time)}" placeholder="选择课表时间或手动输入"><datalist id="cr-time-options"></datalist></div>
         <div class="cr-field"><label>代课人</label><input id="cr-substitute-person" value="${esc(initialPeople.substitute_person)}" placeholder="手动填写代课人"></div>
         <div class="cr-field"><label>原上课人</label><input id="cr-original-teacher" value="${esc(initialPeople.original_teacher)}" placeholder="手动填写原上课人"></div>
-        <div class="cr-field" id="cr-money-wrap"><label>课时费（元）</label><input id="cr-money" type="number" min="0" step="0.01" value="${row?.amount??(initialType==='normal'?'30':'')}" placeholder="请输入金额"></div>
+        <div class="cr-field" id="cr-money-wrap"><label>课时费（元）</label><input id="cr-money" type="number" min="0" step="0.01" value="${row?.amount??''}" placeholder="请输入金额"></div>
         <div class="cr-field" id="cr-paytime-wrap"><label>支付时间</label><input id="cr-paytime" value="${esc(row?.pay_time||'')}" placeholder="手动输入"></div>
-        <div class="cr-field" id="cr-status-wrap"><label>支付状态</label><input id="cr-status" type="text" value="${esc(row?.pay_status||'未支付')}" placeholder="手动输入支付状态"></div>
+        <div class="cr-field" id="cr-status-wrap"><label>支付状态</label><input id="cr-status" type="text" value="${esc(row?.pay_status||'')}" placeholder="手动输入支付状态"></div>
       </div>
       <div class="cr-field" style="margin-top:14px"><label>备注说明</label><textarea id="cr-remark" placeholder="换课说明、特殊情况备注等">${esc(row?.remark||'')}</textarea></div>
       <div class="cr-form-foot"><button class="cr-btn" id="cr-print-current" type="button">打印本条记录</button><button class="cr-btn primary" id="cr-save" type="button">${editing?'保存修改':'保存记录'}</button></div>
@@ -361,7 +366,6 @@ export async function renderClassRecords(root) {
     const sh=sheet({title:editing?'编辑上课记录':'新增上课记录',body:form,cls:'cr-record-drawer'});
     sh.wrap.classList.add('cr-record-drawer-mask');
     const type=form.querySelector('#cr-type'), moneyInput=form.querySelector('#cr-money');
-    let changedType=false;
     const currentClassTime=()=>joinClassTime(
       form.querySelector('#cr-date').value,
       form.querySelector('#cr-period').value,
@@ -369,17 +373,61 @@ export async function renderClassRecords(root) {
     );
     const currentPeople=()=>packRelatedPeople(
       form.querySelector('#cr-substitute-person').value,
-      form.querySelector('#cr-original-teacher').value
+      form.querySelector('#cr-original-teacher').value,
+      type.value==='normal'?'':form.querySelector('#cr-original-class').value
     );
-    type.onchange=()=>{changedType=true;toggle();};
+    type.onchange=toggle;
     function toggle(){
       const swap=type.value==='swap';
-      ['#cr-money-wrap','#cr-paytime-wrap','#cr-status-wrap'].forEach(s=>form.querySelector(s).classList.toggle('cr-hidden',swap));
-      if(!editing && type.value==='normal' && !changedType && !moneyInput.value) moneyInput.value='30';
-      if(!editing && changedType && type.value==='normal') moneyInput.value='30';
-      if(!editing && changedType && type.value!=='normal') moneyInput.value='';
+      ['#cr-paytime-wrap','#cr-status-wrap'].forEach(s=>form.querySelector(s).classList.toggle('cr-hidden',swap));
+      form.querySelector('#cr-original-class-wrap').classList.toggle('cr-hidden',type.value==='normal');
+      form.querySelector('#cr-class-label').textContent=type.value==='normal'?'班级':'现班级';
+      form.querySelector('#cr-date').parentElement.style.gridColumn=type.value==='normal'?'':'1 / -1';
     }
     toggle();
+    const periodInput=form.querySelector('#cr-period'), timeInput=form.querySelector('#cr-time');
+    let timetableOptions=[];
+    let manualTime=!!initialTime.time;
+    timeInput.addEventListener('input',()=>{manualTime=!!timeInput.value;});
+    const fillTime=()=>{
+      const matches=timetableOptions.filter(option=>option.name===periodInput.value);
+      const times=[...new Set(matches.map(option=>option.time).filter(Boolean))];
+      form.querySelector('#cr-time-options').innerHTML=times.map(time=>`<option value="${esc(time)}"></option>`).join('');
+      if(!manualTime && times.length===1)timeInput.value=times[0];
+    };
+    periodInput.addEventListener('input',fillTime);
+    const parseSettings=value=>{
+      if(value && typeof value==='object')return value;
+      try{return JSON.parse(value||'{}');}catch{return {};}
+    };
+    Promise.all([api.get('/periods'),api.get('/courses'),api.get('/me')]).then(([periods,courses,me])=>{
+      if(!form.isConnected)return;
+      const preference=parseSettings(localStorage.getItem('wb_timetable_view_v1'));
+      const scheduleType=preference.type==='冬令时课表'?'冬令时课表':'夏令时课表';
+      const grade=preference.grade||'全部';
+      const timetable=parseSettings(parseSettings(me?.settings).timetable);
+      const periodTimes=parseSettings(timetable.periodTimes);
+      const courseTypes=parseSettings(timetable.courseTypes);
+      const definitions=parseSettings(timetable.periodDefinitions)[scheduleType+'|'+grade];
+      const options={periodTimes,scheduleType};
+      const visibleCourses=(Array.isArray(courses)?courses:[]).filter(course=>
+        (courseTypes[String(course.id)]||'夏令时课表')===scheduleType &&
+        (grade==='全部'||[grade,'全部','全体'].includes(course.grade))
+      );
+      const configured=Array.isArray(definitions)&&definitions.length?definitions:periods;
+      const normalized=normalizeTimetablePeriods(Array.isArray(configured)?configured:[],options);
+      timetableOptions=normalized.flatMap(period=>{
+        const matching=visibleCourses.filter(course=>Number(course.period_no)===Number(period.period_no));
+        return (matching.length?matching:[{}]).map(course=>{
+          const override=periodTimes[scheduleType]?.[String(period.period_no)]||{};
+          const start=cleanPeriodTime(override.start_time)||cleanPeriodTime(course.start_time)||cleanPeriodTime(period.start_time);
+          const end=cleanPeriodTime(override.end_time)||cleanPeriodTime(course.end_time)||cleanPeriodTime(period.end_time);
+          return {name:period.name||'第'+period.period_no+'节',time:start&&end?start+'-'+end:''};
+        });
+      });
+      form.querySelector('#cr-period-options').innerHTML=[...new Set(timetableOptions.map(option=>option.name))].map(name=>`<option value="${esc(name)}"></option>`).join('');
+      fillTime();
+    }).catch(()=>{if(form.isConnected)toast('课表加载失败，仍可手动填写节次和时间','warn');});
     form.querySelector('#cr-print-current').onclick=()=>printRow({
       ...row,
       class_type:type.value,
@@ -399,7 +447,7 @@ export async function renderClassRecords(root) {
         class_name:form.querySelector('#cr-class').value.trim()||null,
         class_time:classTime||null,
         related_person:currentPeople(),
-        amount:type.value==='swap'?null:(moneyInput.value===''?null:Number(moneyInput.value)),
+        amount:moneyInput.value===''?null:Number(moneyInput.value),
         pay_time:type.value==='swap'?null:(form.querySelector('#cr-paytime').value.trim()||null),
         pay_status:type.value==='swap'?null:(form.querySelector('#cr-status').value.trim()||null),
         remark:form.querySelector('#cr-remark').value.trim()||null,
@@ -422,7 +470,9 @@ export async function renderClassRecords(root) {
     if(!win)return toast('浏览器拦截了打印窗口，请允许弹出窗口','warn');
     const classTime=splitClassTime(r.class_time);
     const people=parseRelatedPeople(r.related_person,r.class_type);
-    const fields=[['上课类型',TYPE_LABEL[r.class_type]||r.class_type],['学科',r.subject],['班级',r.class_name],['上课日期',classTime.date],['节次',classTime.period],['时间',classTime.time],['代课人',people.substitute_person],['原上课人',people.original_teacher],['金额',r.class_type==='swap'?'无费用':(r.amount==null?'—':money(r.amount)+' 元')],['支付时间',r.class_type==='swap'?'—':r.pay_time],['支付状态',r.class_type==='swap'?'无需结算':r.pay_status],['备注说明',r.remark]];
+    const originalClass=people.original_class||'';
+    const fields=[['上课类型',TYPE_LABEL[r.class_type]||r.class_type],['学科',r.subject],['班级',r.class_name],['上课日期',classTime.date],['节次',classTime.period],['时间',classTime.time],['代课人',people.substitute_person],['原上课人',people.original_teacher],['金额',r.amount==null||r.amount===''?'—':money(r.amount)+' 元'],['支付时间',r.class_type==='swap'?'—':r.pay_time],['支付状态',r.class_type==='swap'?'无需结算':r.pay_status],['备注说明',r.remark]];
+    if(r.class_type!=='normal')fields.splice(2,1,['原班级',originalClass],['现班级',r.class_name]);
     win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>上课记录</title><style>body{font-family:Microsoft YaHei,sans-serif;padding:32px;color:#111}h2{font-size:20px;margin:0 0 24px}table{width:100%;border-collapse:collapse}td{border:1px solid #ddd;padding:12px}td:first-child{width:130px;background:#f7f7f7;font-weight:bold}</style><h2>上课记录</h2><table>'+fields.map(([k,v])=>'<tr><td>'+esc(k)+'</td><td>'+esc(v||'—')+'</td></tr>').join('')+'</table><script>window.onload=()=>window.print()<\/script></html>');
     win.document.close();
   };
@@ -430,20 +480,21 @@ export async function renderClassRecords(root) {
   const exportMonth = () => {
     const month = currentMonthKey();
     const list = rows.filter((r) => rowMonth(r) === month);
-    const headers = ['上课类型', '学科', '班级', '上课日期', '节次', '时间', '代课人', '原上课人', '金额', '支付时间', '支付状态', '备注说明'];
+    const headers = ['上课类型', '学科', '原班级', '现班级', '上课日期', '节次', '时间', '代课人', '原上课人', '金额', '支付时间', '支付状态', '备注说明'];
     const data = list.map((r) => {
       const classTime = splitClassTime(r.class_time);
       const people = parseRelatedPeople(r.related_person, r.class_type);
       return [
         TYPE_LABEL[r.class_type] || r.class_type,
         r.subject,
+        r.class_type==='normal'?'':people.original_class,
         r.class_name,
         classTime.date,
         classTime.period,
         classTime.time,
         people.substitute_person,
         people.original_teacher,
-        r.class_type === 'swap' ? '无费用' : r.amount,
+        r.amount,
         r.pay_time,
         r.class_type === 'swap' ? '无需结算' : r.pay_status,
         r.remark,
@@ -465,3 +516,4 @@ export async function renderClassRecords(root) {
   q('#cr-export').onclick=exportMonth;
   await load();
 }
+

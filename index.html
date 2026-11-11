@@ -8,21 +8,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="教师个人工作台">
 <meta name="theme-color" content="#f2f2f7">
-<!-- Cloudflare Pages 的随机预览域名没有原固定测试域名的本地登录态。
-     在应用读取 localStorage / Supabase session 之前，统一回到固定测试域名，
-     避免显示成未登录的默认用户，也避免用户误以为个人资料丢失。 -->
-<script>
-  (function () {
-    var host = String(location.hostname || '').toLowerCase();
-    if (/^[0-9a-f]{8}\.my-workbench-test\.pages\.dev$/.test(host)) {
-      var target = new URL(location.href);
-      target.protocol = 'https:';
-      target.hostname = 'my-workbench-test.pages.dev';
-      target.port = '';
-      location.replace(target.href);
-    }
-  })();
-</script>
 <!-- 相对路径必须带 ./ ：线上挂在 /my-workbench/ 子路径下，
      href="manifest.webmanifest" 会被解析成 /manifest.webmanifest → 404，
      结果是「添加到主屏幕」拿不到图标和名称。 -->
@@ -38,6 +23,7 @@
 <link rel="stylesheet" href="css/attendance-prd.css">
 <link rel="stylesheet" href="css/workbench-unified.css">
 <link rel="stylesheet" href="css/timetable-redesign.css">
+<link rel="stylesheet" href="css/sticky-notes.css">
 <script>
   (function () {
     try {
@@ -52,6 +38,9 @@
     } catch (e) {}
   })();
 </script>
+<link rel="stylesheet" href="./css/trips-redesign.css">
+<link rel="stylesheet" href="./css/study-records.css">
+<link rel="stylesheet" href="./css/sync-status.css">
 </head>
 <body>
 <script>
@@ -161,3 +150,4 @@
 </script>
 </body>
 </html>
+

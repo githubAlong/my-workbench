@@ -13,6 +13,7 @@
    否则导出的数据再导回服务端会错位。
    ========================================================================== */
 
+import {mergeSnapshots,LOCAL_DRAFT_PREFIX} from './sync-journal.mjs';
 const LEGACY_DB_KEY = 'wb_static_db_v1';
 export let DB_KEY = LEGACY_DB_KEY;
 let ACTIVE_UID = '';
@@ -25,6 +26,7 @@ export function setActiveAccount(uid = '') {
   if (next === DB_KEY) return;
   DB_KEY = next;
   _db = null;
+  _diskSnapshot=null;_diskRaw=null;
 }
 export function activeAccountId() { return ACTIVE_UID; }
 
@@ -34,13 +36,13 @@ export const TABLES = {
   courses: ['weekday', 'period_no', 'start_time', 'end_time', 'start_date', 'end_date', 'grade', 'class_name', 'subject', 'room', 'weeks', 'color', 'remark'],
   class_records: ['class_type', 'subject', 'class_name', 'class_time', 'related_person', 'amount', 'pay_time', 'pay_status', 'remark', 'class_month'],
   invigilations: ['date', 'type', 'person', 'subject', 'grade', 'start_at', 'end_at', 'minutes', 'amount', 'paid', 'place', 'need_paper', 'paper_place', 'remark', 'exam_name', 'duty_type', 'peer_name', 'peer_id', 'start_time', 'end_time', 'duration_min', 'room', 'seat_count', 'pay_amount', 'pay_rule', 'pay_note', 'settled_at', 'settle_key', 'status', 'school_paid'],
-  trips: ['start_date', 'end_date', 'from_place', 'to_place', 'reason', 'driver', 'companions', 'km', 'km_rate', 'toll', 'parking', 'other', 'status', 'approve_note', 'remark', 'days', 'hotel', 'transport', 'taxi', 'subsidy_food', 'subsidy_local', 'advance', 'reimb_status', 'paid_at'],
+  trips: ['is_driving', 'total_amount', 'start_date', 'end_date', 'from_place', 'to_place', 'reason', 'driver', 'companions', 'km', 'km_rate', 'toll', 'parking', 'other', 'status', 'approve_note', 'remark', 'days', 'hotel', 'transport', 'taxi', 'subsidy_food', 'subsidy_local', 'advance', 'reimb_status', 'paid_at'],
   materials: ['category_id', 'title', 'grade', 'class_name', 'descr', 'public'],
   notes: ['category_id', 'title', 'content', 'tags', 'pinned'],
   preps: ['date', 'class_name', 'subject', 'prep_type', 'topic', 'content', 'progress', 'next_step', 'minutes', 'status', 'lesson_id', 'remark'],
   categories: ['scope', 'name', 'sort'],
   homework: ['title', 'grade', 'class_name', 'subject', 'assign_date', 'due_date', 'content'],
-  studies: ['date', 'category_id', 'title', 'content', 'minutes', 'source', 'tags'],
+  studies: ['date', 'category_id', 'title', 'content', 'minutes', 'source', 'tags', 'goal', 'planned_duration', 'actual_duration', 'status', 'remark'],
   students: ['grade', 'class_name', 'name', 'no'],
   rosters: ['grade', 'class_name', 'count', 'names'],
   punishments: ['text', 'level', 'active'],
@@ -67,19 +69,40 @@ const SEQ_SCOPE = { invigilations: 'invig', trips: 'trip', materials: 'material'
 
 /* ---------------- 存取 ---------------- */
 let _db = null;
+let _diskSnapshot=null,_diskRaw=null;
 export function load() {
   if (_db) return _db;
   try {
     const raw = localStorage.getItem(DB_KEY);
     _db = raw ? JSON.parse(raw) : null;
+    _diskRaw=raw;
   } catch { _db = null; }
   if (!_db || typeof _db !== 'object') _db = blank();
   // 补齐缺失的表（版本升级时新增表不至于报错）
-  return ensureTables(_db);
+  ensureTables(_db);_diskSnapshot=JSON.parse(JSON.stringify(_db));
+  return _db;
 }
 export function save() {
+  const disk=localStorage.getItem(DB_KEY);
+  if(_diskSnapshot && disk && disk!==_diskRaw){
+    const merged=mergeSnapshots(_diskSnapshot,_db,JSON.parse(disk));
+    if(merged.conflicts.length){
+      let writer=sessionStorage.getItem('wb_sync_writer_id');
+      if(!writer){writer=globalThis.crypto?.randomUUID?.()||String(Math.random());sessionStorage.setItem('wb_sync_writer_id',writer);}
+      const key=LOCAL_DRAFT_PREFIX+ACTIVE_UID+':'+writer;
+      const record={uid:ACTIVE_UID,base:_diskSnapshot,draft:_db,remote:JSON.parse(disk),conflicts:merged.conflicts,at:new Date().toISOString()};
+      try{localStorage.setItem(key,JSON.stringify(record));}
+      catch(error){window.dispatchEvent(new CustomEvent('wb:storagefull',{detail:{error:String(error)}}));throw Error('本机空间不足，当前修改尚未持久保存，请保留页面并导出内容');}
+      window.dispatchEvent(new CustomEvent('wb:localconflict',{detail:{key}}));
+      throw Object.assign(Error('另一个标签页修改了同一内容。本页修改已保留，请先处理页面上方的冲突提示。'),{code:'WB_LOCAL_DATA_CONFLICT'});
+    }
+    _db=merged.payload;
+  }
   try {
-    localStorage.setItem(DB_KEY, JSON.stringify(_db));
+    const serialized = JSON.stringify(_db);
+    if (localStorage.getItem(DB_KEY) === serialized) {_diskRaw=serialized;_diskSnapshot=JSON.parse(serialized);return true;}
+    localStorage.setItem(DB_KEY, serialized);
+    _diskRaw=serialized;_diskSnapshot=JSON.parse(serialized);
   } catch (e) {
     /* 【不能再静默吞掉】
        早先这里只 console.warn 就过去了：内存已经改了、界面提示「已保存」，
@@ -235,7 +258,9 @@ export function updateRow(t, id, body = {}) {
      一旦 id 被复用（彻底删除后新建），就会改到一条完全不相干的新数据上。 */
   const row = (db[t] || []).find((r) => String(r.id) === String(id) && !r.deleted_at);
   if (!row) throw new Error('记录不存在');
-  for (const f of (TABLES[t] || [])) if (f in body) row[f] = body[f];
+  const fields = (TABLES[t] || []).filter((field) => field in body && JSON.stringify(row[field]) !== JSON.stringify(body[field]));
+  if (!fields.length) return hydrate(t, row);
+  for (const field of fields) row[field] = body[field];
   row.updated_at = nowISO();
   save();
   return hydrate(t, row);
@@ -257,3 +282,4 @@ function randomCode(n = 6) {
 }
 
 export { randomCode, nowISO, hydrate };
+

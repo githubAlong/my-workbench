@@ -1,0 +1,16 @@
+.sheet.study-simple{max-width:500px!important}
+.study-table{min-width:1100px}
+.study-table .study-multiline{white-space:pre-wrap;min-width:150px;max-width:260px;text-align:left}
+.study-time{min-width:135px;white-space:nowrap}
+.study-time span{display:block;line-height:1.8}
+.study-status{display:inline-block;border-radius:4px;padding:4px 9px;white-space:nowrap}
+.study-status.todo{color:#666;background:#f3f4f6}
+.study-status.doing{color:#1677ff;background:#eaf3ff}
+.study-status.done{color:#00b42a;background:#e9f9ed}
+.study-form textarea{min-height:76px}
+.study-form #study-content{min-height:150px}
+.study-form #study-remark{min-height:70px}
+.study-records-page .trips-row-actions{justify-content:center}
+.study-records-page .trips-stat:nth-child(2) b{color:#1677ff}
+.study-records-page .trips-stat small{white-space:nowrap}
+@media(max-width:700px){.study-records-page .trips-month{width:100%}.study-records-page #study-add{margin-left:auto}.study-simple .trip-footer{flex-wrap:nowrap;gap:8px}.study-simple .trip-footer button{white-space:nowrap;padding:8px 10px}}

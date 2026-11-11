@@ -144,7 +144,7 @@ export function voiceSheet({ rows = [], cols = [], isClass = false, onApply }) {
       <button class="btn primary" id="vv-apply" disabled>应用到表格</button>
     </div>
   </div>`);
-  const s = sheet({ title: '语音录入', body, wide: true, cls: 'vv-sheet' });
+  const s = sheet({ title: '语音录入', body, wide: true, cls: 'vv-sheet', onClose: () => stopRec() });
   const $ = (x) => body.querySelector(x);
 
   const statusOptions = (cur) => checkCols.map((c) =>

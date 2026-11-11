@@ -129,16 +129,19 @@ const ICON = { mat: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"
   check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg>',
   clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
   more: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9.5 6 6 6-6 6"/></svg>' };
-const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 /* 静态版：不再请求 /api，直接调 localapi（同一个浏览器里存储的就是老师端那份数据，
    所以老师在自己手机上开点名，学生在这台设备上也能看到——演示够用）。
    真正的多人实时签到需要服务端，静态版做不到，这一点在页面上会写清楚。 */
 import { handle as localHandle } from './js/localapi.js';
+import { getStudentMaterials, materialEndpoint } from './js/material-sharing.mjs';
 /* 打包版没有 js/localapi.js 这个路径了，测试/调试统一从 window 取 */
 window.__wbLocalApi = { handle: localHandle };
 const api = async (p, body) => {
   const [path, qs] = String(p).split('?');
   const method = body === undefined ? 'GET' : 'POST';
+  const materialRoute = path.match(/^\/public\/link\/([^/]+)(?:\/materials\/(\d+))?$/);
+  if (method === 'GET' && materialRoute) return getStudentMaterials(materialRoute[1], materialRoute[2] || '');
   const ctx = { query: Object.fromEntries(new URLSearchParams(qs || '')), body };
   const j = await localHandle(method, path, ctx.query, ctx.body);
   if (!j.ok) throw new Error(j.error || '加载失败');
@@ -176,7 +179,7 @@ function paint() {
     </div>
     <div class="s-tabs">
       ${data.roll && data.roll.length ? `<button data-t="checkin" class="${tab === 'checkin' ? 'on' : ''}">${ICON.check} 签到 <span class="s-dot"></span></button>` : ''}
-      <button data-t="material" class="${tab === 'material' ? 'on' : ''}">${ICON.mat} 课件</button>
+      <button data-t="material" class="${tab === 'material' ? 'on' : ''}">${ICON.mat} 教材</button>
       <button data-t="roll" class="${tab === 'roll' ? 'on' : ''}">${ICON.dice} 抽人</button>
       <button data-t="punish" class="${tab === 'punish' ? 'on' : ''}">${ICON.target} 抽任务</button>
     </div>
@@ -260,7 +263,7 @@ function paintMaterials() {
   const mats = data.materials;
   $('#s-body').innerHTML = `<div class="card">
     <div class="card-pad" style="padding-bottom:6px"><div class="card-title">全部资料 <span class="chip blue">${mats.length}</span></div>
-      <div class="tiny muted" style="margin-top:4px">点开即可在线查看或下载，无教材时也能跟上进度</div></div>
+      <div class="tiny muted" style="margin-top:4px">无需账号密码，点开查看教材并下载原文件</div></div>
     ${mats.length ? mats.map((m) => `<div class="mat-card" data-m="${m.id}" style="cursor:pointer">
       <div class="doc-ico">${ICON.mat}</div>
       <div style="flex:1;min-width:0"><div class="bold small">${esc(m.title)}</div>
@@ -278,15 +281,15 @@ async function paintMaterialDetail() {
       <h2 style="margin:12px 0 4px;font-size:19px">${esc(d.material.title)}</h2>
       <div class="tiny muted">${esc(d.material.descr || '')}</div>
       <div class="col" style="margin-top:14px">
-        ${d.files.length ? d.files.map((f) => `<a class="btn ghost block" href="${f.url}" target="_blank" style="justify-content:flex-start;gap:10px">
+        ${d.files.length ? d.files.map((f) => `<a class="btn ghost block" href="${esc(materialEndpoint(code, cur, f.id, 'view'))}" target="_blank" rel="noopener" style="justify-content:flex-start;gap:10px">
           <span style="flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis">${esc(f.name)}</span>
           <span class="tiny muted">${(f.size / 1024 / 1024).toFixed(1)} MB</span></a>`).join('')
           : '<div class="muted small">这份资料还没有文件</div>'}
       </div>
       <div class="row wrap" style="gap:8px;margin-top:14px">
-        ${d.files.map((f) => `<a class="btn soft sm" href="${f.url || '#'}" download="${esc(f.name)}">${ICON.dl} 下载 ${esc(f.name).slice(0, 12)}</a>`).join('')}
+        ${d.files.map((f) => `<a class="btn soft sm" href="${esc(materialEndpoint(code, cur, f.id, 'download'))}" download="${esc(f.name)}">${ICON.dl} 下载 ${esc(f.name).slice(0, 12)}</a>`).join('')}
       </div>
-      <div class="tiny muted" style="margin-top:14px">看不到内容？请点“下载”后用 WPS / Office 打开；也可以在教室电脑上直接打开。</div>
+      <div class="tiny muted" style="margin-top:14px">PDF、图片可在浏览器查看。WPS / Office 文档请下载原文件后打开；查看和下载均无需账号密码。</div>
     </div>`;
     document.getElementById('back').onclick = () => { cur = null; paint(); };
   } catch (e) { $('#s-body').innerHTML = `<div class="card card-pad">${esc(e.message)}</div>`; }
@@ -550,3 +553,4 @@ init();
 </script>
 </body>
 </html>
+

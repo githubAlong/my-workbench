@@ -763,6 +763,8 @@ body {
 }
 .main .me-identity-compact { display:none; color:#fff; font-size:13px; font-weight:750; }
 .main .me-identity-card.is-collapsed { min-height:54px; padding:9px 14px; }
+.msg-task-status { width:96px; min-height:34px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); padding:4px 6px; font:inherit; font-size:12px; }
+.msg-acts .msg-task-status { margin-bottom:4px; }
 .main .me-identity-card.is-collapsed .me-identity-main { display:none; }
 .main .me-identity-card.is-collapsed .me-identity-compact { display:block; flex:1; min-width:0; }
 

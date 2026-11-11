@@ -4,20 +4,13 @@ on:
   pull_request:
     branches:
       - test
+      - dev
     paths:
       - "js/work.js"
-      - "js/class-records.js"
-      - "js/prep.js"
-      - "js/ocr.js"
       - "js/localdb.js"
       - "js/localapi.js"
       - "js/prep-domain.mjs"
       - "js/ui.js"
-      - "js/attendance.js"
-      - "js/timetable.js"
-      - "js/xlsx-lite.js"
-      - "css/timetable-redesign.css"
-      - "js/attendance.js"
       - "css/app.css"
       - "sw.js"
       - "tests/**"
@@ -27,18 +20,13 @@ on:
   push:
     branches:
       - test
+      - dev
     paths:
       - "js/work.js"
-      - "js/prep.js"
-      - "js/ocr.js"
       - "js/localdb.js"
       - "js/localapi.js"
       - "js/prep-domain.mjs"
       - "js/ui.js"
-      - "js/attendance.js"
-      - "js/timetable.js"
-      - "js/xlsx-lite.js"
-      - "css/timetable-redesign.css"
       - "css/app.css"
       - "sw.js"
       - "tests/**"
@@ -59,12 +47,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Run complete Node test suite
+        run: npm test
       - name: Check JavaScript syntax and Service Worker assets
         run: npm run check
-      - name: Run complete Node test suite
-        id: full-suite
-        continue-on-error: true
-        run: npm test
       - name: Build static Pages output
         run: npm run build:pages
       - name: Install Chromium browser test dependencies
@@ -81,14 +67,7 @@ jobs:
           cat /tmp/prep-preview.log
           exit 1
       - name: Run desktop and mobile browser tests
-        run: npx playwright test tests/browser/prep-records-smoke.spec.mjs --reporter=line
-      - name: Preserve complete-suite regression gate
-        if: always()
-        run: |
-          if [ "${{ steps.full-suite.outcome }}" != "success" ]; then
-            echo "The full repository suite still has pre-existing failures; see the Node test log." >&2
-            exit 1
-          fi
+        run: npx playwright test tests/browser/homepage-smoke.spec.mjs tests/browser/prep-records-smoke.spec.mjs --reporter=line
       - name: Upload browser test artifacts
         if: always()
         uses: actions/upload-artifact@v4

@@ -265,7 +265,7 @@ function authError(j, status, operation = '登录') {
   }
   if (/signup_disabled|signups not allowed/i.test(detail)) return '当前 Supabase 项目未开放新用户注册，请在 Authentication 设置中启用新用户注册。';
   if (/phone.*disabled|phone_provider_disabled/i.test(detail)) return '当前 Supabase 项目尚未启用账号密码登录通道。请管理员在 Authentication → Providers → Phone 开启 Phone，并关闭 Phone confirmations；本系统不发送短信，也不验证号码归属。';
-  if (/Invalid login credentials|invalid_credentials/i.test(detail)) return '账号或密码不正确。';
+  if (/Invalid login credentials|invalid_credentials|账号或密码不匹配/i.test(detail)) return '账号或密码不匹配';
   if (/already registered|already exists|user_already_exists|phone_exists/i.test(detail)) return '该账号已注册，请直接登录。';
   if (/weak_password|Password should|password.*characters/i.test(detail)) return '密码强度不足，请设置至少 8 位的密码。';
   if (/phone.*not.*confirmed|phone_not_confirmed/i.test(detail)) return '当前账号仍要求确认。请管理员关闭 Phone confirmations；本系统不发送短信，也不验证号码归属。';
@@ -523,8 +523,10 @@ async function rest(path, opts = {}) {
   if (!c) throw new Error('还没配置 Supabase 地址');
   const at = await freshToken();
   if (!at) throw new Error('请先登录');
+  if(opts.expectedAccountUid && session()?.uid!==opts.expectedAccountUid)throw Object.assign(new Error('账号已切换，已停止旧账号请求'),{code:'ACCOUNT_CHANGED'});
+  const {expectedAccountUid: _expectedAccountUid,...requestOptions}=opts;
   const r = await fetch(c.url + '/rest/v1/' + path, {
-    ...opts,
+    ...requestOptions,
     headers: {
       apikey: c.anon,
       Authorization: 'Bearer ' + at,
@@ -535,7 +537,7 @@ async function rest(path, opts = {}) {
   if (r.status === 401) {
     setTok(null);
     notifySignedOut();
-    throw new Error('登录已过期，请重新登录');
+    throw Object.assign(new Error('登录已过期，请重新登录'),{status:401,code:'AUTH_EXPIRED'});
   }
   const text = await r.text();
   let data = null;
@@ -560,7 +562,7 @@ async function rest(path, opts = {}) {
     if (r.status === 413 || /Payload Too Large|request entity too large/i.test(msg)) {
       throw new Error('这个文件太大，服务器没收下。压缩后再传一次（图片可以先在相册里裁一下）');
     }
-    throw new Error(msg);
+    throw Object.assign(new Error(msg),{status:r.status,code:data?.code||'',details:data?.details||''});
   }
   return data;
 }
@@ -569,18 +571,32 @@ async function rest(path, opts = {}) {
 export async function getWorkbenchSnapshot() {
   const uid = session()?.uid;
   if (!uid) throw new Error('请先登录后再读取工作台数据');
-  const rows = await rest(`wb_user_data?select=payload,revision,updated_at&user_id=eq.${encodeURIComponent(uid)}`);
+  const rows = await rest(`wb_user_data?select=payload,revision,updated_at&user_id=eq.${encodeURIComponent(uid)}`,{expectedAccountUid:uid});
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
-export async function saveWorkbenchSnapshot(payload, expectedRevision = 0) {
-  if (!session()?.uid) throw new Error('登录状态已失效，无法保存工作台数据');
+export async function saveWorkbenchSnapshot(payload, expectedRevision = 0, expectedUid=session()?.uid) {
+  if (!expectedUid || session()?.uid!==expectedUid) throw new Error('登录状态已变化，无法保存此账号的工作台数据');
   const rows = await rest('rpc/wb_save_user_data', {
     method: 'POST',
+    expectedAccountUid:expectedUid,
     body: JSON.stringify({ p_payload: payload, p_expected_revision: Number(expectedRevision) || 0 }),
   });
   const row = Array.isArray(rows) ? rows[0] : rows;
   if (!row || !Number(row.revision)) throw new Error('云端没有返回保存确认');
   return row;
+}
+
+export async function uploadMaterialFiles(files, ownerId) {
+  const config = cfg(), token = await freshToken();
+  if (!token) throw new Error('请先登录教师账号后上传教材');
+  const form = new FormData();
+  form.append('owner_id', String(ownerId));
+  for (const file of files) form.append('files', new Blob([file.data], { type: file.mime || 'application/octet-stream' }), file.filename);
+  const response = await fetch(config.url + '/functions/v1/material-sharing', { method: 'POST', headers: { apikey: config.anon, Authorization: 'Bearer ' + token }, body: form });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || '教材上传失败，请稍后重试');
+  if (!Array.isArray(result.files) || result.files.length !== files.length) throw new Error('教材上传未完成，请重试');
+  return result.files;
 }
 
 /* ---------------- 字段清洗与表配置 ---------------- */
@@ -1018,3 +1034,5 @@ export async function listAttendance(query = {}) {
     rows: rows.filter((r) => ids.has(String(r.table_id))),
   };
 }
+
+

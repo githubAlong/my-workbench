@@ -62,8 +62,8 @@ test('天气城市搜索支持县级行政区和完整行政路径', () => {
 
 test('当前位置定位后保存并显示省市区县完整信息', () => {
   assert.match(home, /async function reverseGeocode\(lat, lon\)/);
-  assert.match(home, /r\.locality \|\| r\.localityName/);
-  assert.match(home, /r\.localityInfo\?\.administrative/);
+  assert.match(home, /return resolvePlace\(lat, lon, \{ previous: state.city \}\)/);
+  assert.match(home, /weather-location\.mjs/);
   assert.match(home, /source: 'geo'/);
   assert.match(home, /wxb-location-source/);
   assert.match(home, /使用当前位置定位/);
@@ -126,7 +126,7 @@ test('首页布局编辑入口位于顶栏且卡片管理仍然可用', () => {
 });
 
 test('首页保留的工作与个人中心导航目标已注册', () => {
-  assert.match(ui, /id: 'work', label: '工作'/);
+  assert.doesNotMatch(ui, /id: 'work', label: '工作'/);
   assert.match(ui, /id: 'timetable', label: '课表'/);
   assert.match(ui, /id: 'invigilation', label: '监考'/);
   assert.match(ui, /id: 'me', label: '我的'/);
@@ -139,7 +139,8 @@ test('我的个人中心各模块统一为可独立展开和收起的手风琴�
   for (const id of ['profile', 'workbench', 'account', 'messages', 'theme', 'wide', 'layout', 'logout']) {
     assert.ok(me.includes(`data-me-accordion="${id}"`), `缺少可折叠模块：${id}`);
   }
-  assert.match(me, /details class="me-accordion" data-me-accordion="profile" open/);
+  assert.match(me, /details class="me-accordion" data-me-accordion="profile">/);
+  assert.doesNotMatch(me, /data-me-accordion="profile"\s+open/);
   assert.match(me, /id="me-identity-toggle"/);
   assert.match(me, /class="me-accordion-chevron"/);
   assert.match(me, /renderProfile\(main\.querySelector\('#me-profile-panel'\), \{ inline: true \}\)/);
@@ -165,7 +166,7 @@ test('日历默认收起当天安排，点击日期后展开可滚动的24小时
   assert.match(home, /data-day-event=/);
   assert.match(home, /id="home-todo-day-title"/);
   assert.match(home, /id="home-course-day-title"/);
-  assert.match(home, /home-profile-heading.*个人信息/);
+  assert.match(home, /home-profile-heading.*个人名片/);
   assert.match(home, /cal-heading-main.*日历/);
   assert.doesNotMatch(home, /function calDayHeaderHTML|data-add-day|cal-day-head/);
   assert.match(home, /24小时 · 上下滑动查看/);

@@ -24,11 +24,12 @@ test("timetable normalizes imported period identifiers before rendering", () => 
   assert.match(source, /WINTER_PERIOD_TIMES/);
 });
 
-test("timetable rows use the fixed early, nine-lesson and evening axis", () => {
+test("timetable rows retain lunch and all configured or course-referenced evening periods", () => {
   assert.match(source, /function periodOrder\(period\)/);
-  assert.match(source, /for \(const number of \[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10\]\)/);
+  assert.match(source, /for \(const number of \[0, 1, 2, 3, 4, 5, 5\.5, 6, 7, 8, 9, 10\]\)/);
   assert.match(source, /const orderDiff = periodOrder\(a\) - periodOrder\(b\)/);
-  assert.match(source, /晚自习第一节/);
+  assert.match(source, /completeTimetablePeriods\(\[\.\.\.byNo\.values\(\)\], visibleCourses/);
+  assert.match(source, /completeTimetablePeriods\(configuredRows, visibleCourses/);
   assert.match(source, /samePeriodName\(periodName\(period\), label\)/);
 });
 
@@ -80,7 +81,7 @@ test("loading and error states remain while the empty schedule panel is removed"
 test("high-two 2026 autumn timetable keeps source row numbers, lunch span and title", () => {
   for (const marker of [
     "2026年秋季信息课表",
-    "colspan=\"7\"",
+    "colspan=\"8\"",
     "period_no: 1, class_name: \"11班\"",
     "period_no: 3, class_name: \"5班\"",
     "period_no: 5, class_name: \"7班\"",
@@ -88,8 +89,10 @@ test("high-two 2026 autumn timetable keeps source row numbers, lunch span and ti
     "period_no: 7, class_name: \"16班\"",
     "period_no: 9, class_name: \"15班\"",
     "period_no: 9, class_name: \"18班\"",
-    "period_no: 13",
+    '13:["21:10","21:55"]',
   ]) assert.ok(source.includes(marker), "missing exact source schedule marker: " + marker);
+  assert.match(source, /Object\.entries\(times\)\.map/);
+  assert.match(source, /period_no:Number\(no\)/);
   assert.match(source, /await api\.patch\("\/courses\/" \+ target\.id, data\)/);
 });
 
@@ -124,3 +127,4 @@ test("desktop timetable row density adapts to browser viewport height", () => {
   assert.match(css, /100dvh/);
   assert.match(css, /max-height:760px/);
 });
+

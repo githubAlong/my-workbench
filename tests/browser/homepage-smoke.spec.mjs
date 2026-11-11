@@ -29,16 +29,16 @@ for (const viewport of [
     await expect(page.locator('#side-user .side-user-label strong')).toHaveText('我的');
     await expect(page.locator('[data-hcard="profile"]')).toBeVisible({ timeout: 20000 });
     await expect(page.locator('#home-grid')).toBeVisible();
-    await expect(page.locator('.home-top-actions #teacher-layout')).toBeVisible();
+    await expect(page.locator('.home-profile-actions #teacher-layout')).toBeVisible();
     await expect(page.locator('#home-new-item')).toBeVisible();
     await expect(page.locator('#home-new-timetable')).toHaveCount(0);
     await expect(page.locator('.sidebar-foot #teacher-layout')).toHaveCount(0);
-    await expect(page.locator('[data-hcard]')).toHaveCount(11);
-    await expect(page.locator('[data-hcard]:visible')).toHaveCount(5);
-    for (const id of ['profile', 'todayCourse', 'todayTodo', 'weather', 'calendar']) {
+    await expect(page.locator('[data-hcard]')).toHaveCount(10);
+    await expect(page.locator('[data-hcard]:visible')).toHaveCount(6);
+    for (const id of ['profile', 'timeline', 'todayCourse', 'todayTodo', 'weather', 'calendar']) {
       await expect(page.locator('[data-hcard="' + id + '"]')).toBeVisible();
     }
-    for (const id of ['timeline', 'dailyQuote', 'weekLessons', 'invigilation', 'prepDeadline', 'recentNotes']) {
+    for (const id of ['weekLessons', 'invigilation', 'prepDeadline', 'recentNotes']) {
       await expect(page.locator('[data-hcard="' + id + '"]')).toBeHidden();
     }
     await expect(page.locator('#wx-card')).toBeVisible();
@@ -72,23 +72,21 @@ test('我的页面统一管理外观与布局设置，侧栏不再重复显示',
   for (const id of ['side-theme', 'side-wide', 'side-layout']) {
     await expect(page.locator('#' + id)).toHaveCount(0);
   }
-  await expect(page.locator('.me-home-section')).toHaveCount(1);
-  await expect(page.locator('.me-home-section-head')).toHaveCount(0);
-
-  for (const action of ['profile', 'workbench-settings', 'account-settings', 'messages', 'theme', 'wide', 'reset-layout']) {
-    await expect(page.locator('.me-home-settings-card [data-act="' + action + '"]')).toBeVisible();
+  await expect(page.locator('.me-accordion')).toHaveCount(8);
+  for (const section of ['profile','workbench','account','messages','theme','wide','layout','logout']) {
+    await expect(page.locator('[data-me-accordion="'+section+'"] summary')).toBeVisible();
   }
-  await expect(page.locator('[data-act="theme"]')).toContainText('主题外观');
-  await expect(page.locator('[data-act="messages"]')).toContainText('消息中心');
-
-  await page.locator('[data-act="wide"]').click();
+  await expect(page.locator('[data-me-accordion="profile"]')).toHaveJSProperty('open',false);
+  await page.locator('[data-me-accordion="wide"] summary').click();
+  await page.locator('#me-wide-toggle').click();
   await expect(page.locator('body')).toHaveClass(/is-wide/);
-  await expect(page.locator('#me-wide-value')).toHaveText('开');
-  await page.locator('[data-act="wide"]').click();
+  await expect(page.locator('#me-wide-value')).toHaveText('已开启平铺');
+  await page.locator('#me-wide-toggle').click();
   await expect(page.locator('body')).not.toHaveClass(/is-wide/);
-  await expect(page.locator('#me-wide-value')).toHaveText('关');
+  await expect(page.locator('#me-wide-value')).toHaveText('舒适宽度');
 
-  await page.locator('[data-act="theme"]').click();
+  await page.locator('[data-me-accordion="theme"] summary').click();
+  await page.locator('#me-theme-open').click();
   await expect(page.locator('[data-theme-id="ocean"]')).toBeVisible();
   await page.locator('[data-theme-id="ocean"]').click();
   await expect(page.locator('#me-theme-value')).toHaveText('海洋蓝');
@@ -110,7 +108,7 @@ test('首页右上角布局编辑按钮可进入和退出编辑状态', async ({
   await page.goto(`${baseURL}?e2e=1#/home`, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#home-grid')).toBeVisible({ timeout: 20000 });
 
-  const editButton = page.locator('.home-top-actions #teacher-layout');
+  const editButton = page.locator('.home-profile-actions #teacher-layout');
   await expect(editButton).toBeVisible();
   await expect(editButton).toHaveAttribute('aria-pressed', 'false');
   await expect(editButton).toContainText('编辑布局');
@@ -137,8 +135,7 @@ test('首页和工作页面共用后台品牌，首页不把品牌替换为个�
   await expect(brand.locator('.brand-name')).toHaveText('我的工作台', { timeout: 20000 });
   await expect(brand.locator('.brand-sub')).toHaveText('Workbench');
   await expect(brand).not.toHaveClass(/home-side-profile/);
-  await page.locator('.sidebar [data-nav-toggle="work"]').click();
-  await page.locator('.sidebar [data-nav="work/lessons"]').click();
+  await page.locator('.sidebar [data-nav="lessons"]').click();
   await expect(page.locator('#main')).not.toBeEmpty();
   await expect(brand.locator('.brand-name')).toHaveText('我的工作台');
   await expect(brand.locator('.brand-sub')).toHaveText('Workbench');
@@ -170,9 +167,8 @@ test('个人信息页按确认稿显示字段，联系电话可编辑且保存�
 
   const areas = await page.locator('.profile-fields').evaluate(el => getComputedStyle(el).gridTemplateAreas);
   expect(areas).toContain('name gender');
-  expect(areas).toContain('phone .');
-  expect(areas).toContain('subject title');
-  expect(areas).toContain('grade .');
+  expect(areas).toContain('phone subject');
+  expect(areas).toContain('title grade');
   await expect(page.locator('#f-school')).toBeVisible();
   await context.close();
 });
