@@ -355,7 +355,9 @@ const EXPORT_HEADERS = Object.freeze({
 });
 
 const exportRowData = row => row?.data && typeof row.data === 'object' ? row.data : {};
-const exportStatusLabel = value => value === 'y' ? '✓' : value === 'n' ? '✗' : '—';
+/* 「—」看不出是没登记还是导出丢了，统一写成「未登记」。
+   用户 11-12 裁决：导出要让每位教师的状态都能看到，空白表格没有意义。 */
+const exportStatusLabel = value => value === 'y' ? '✓' : value === 'n' ? '✗' : '未登记';
 const exportName = row => String(row?.name || row?.teacher || '').trim();
 const exportLeavePeriod = record => String(record?.period || record?.time_period || record?.part_of_day || record?.period_label || '').trim();
 const exportLeaveDuration = record => {
@@ -368,9 +370,10 @@ const exportLeaveDuration = record => {
 };
 
 /**
- * Build export grids from the saved attendance records, not from the full
- * teacher roster indiscriminately. The seat sheet is the cross-sheet summary;
- * class, research and leave exports contain only their corresponding records.
+ * 四个页签的导出都以「当前导出范围内的全量教师名单」为准（用户 11-12 裁决，
+ * 推翻了此前「只导出对应记录」的旧规则）：有记录的教师显示记录内容与状态，
+ * 没有记录的教师也要出现，状态明确写「未登记 / 未请假」，不再留白。
+ * 列头仍按页签分类，不做成统一的花名册式列。
  */
 export function buildAttendanceExportGrid({
   type = 'seat', grade = '', date = '', period = 1, teachers = [],
@@ -431,9 +434,11 @@ export function buildAttendanceExportGrid({
     });
     const count = key => rows.filter(row => row[{ class: 5, sit: 6, listen: 7, research: 8 }[key]] === '✓').length;
     const leaveCount = rows.filter(row => row[9] !== '无').length;
+    const unregistered = rows.filter(row => [5, 6, 7, 8].every(index => row[index] === '未登记') && row[9] === '无').length;
     const title = fileTitle + ' · 共' + people.length + '人 · 上课' + count('class')
       + ' · 坐班' + count('sit') + ' · 听课' + count('listen')
-      + ' · 教研' + count('research') + ' · 请假' + leaveCount;
+      + ' · 教研' + count('research') + ' · 请假' + leaveCount
+      + ' · 未登记' + unregistered + '人';
     return [[title], EXPORT_HEADERS[type], ...rows];
   }
 
@@ -486,10 +491,27 @@ export function buildAttendanceExportGrid({
         seenTeacherPeriods.add(key);
       }
     }
+    /* 全名单兜底：没有上课记录的教师也要出一行，状态明确写「未登记」，
+       否则导出只剩几个有课的人，整张名单看不出谁没登记。 */
+    const covered = new Set(entries.map(entry => entry.name));
+    let unregisteredPeople = 0;
+    for (const teacher of people) {
+      const name = String(teacher.name || '').trim();
+      if (!name || covered.has(name)) continue;
+      entries.push({
+        period: Number(period) || 0, name, className: '',
+        row: [0, departmentOf(teacher), gradeOf(teacher), name, teacher.subject || '',
+          '—', Number(period) === 0 ? '全天' : periodLabel(period),
+          Number(period) === 0 ? '—' : rangeText(period), '未登记', '', ''],
+      });
+      covered.add(name);
+      unregisteredPeople += 1;
+    }
     entries.sort((a, b) => a.period - b.period || a.name.localeCompare(b.name, 'zh-CN') || a.className.localeCompare(b.className, 'zh-CN'));
     const rows = entries.map((entry, index) => [index + 1, ...entry.row.slice(1)]);
-    const peopleCount = new Set(entries.map(entry => entry.name)).size;
-    return [[fileTitle + ' · 共' + peopleCount + '人 · ' + rows.length + '条上课记录'], EXPORT_HEADERS.class, ...rows];
+    const title = fileTitle + ' · 共' + people.length + '人 · '
+      + (rows.length - unregisteredPeople) + '条上课记录 · 未登记' + unregisteredPeople + '人';
+    return [[title], EXPORT_HEADERS.class, ...rows];
   }
 
   if (type === 'research') {
@@ -537,10 +559,24 @@ export function buildAttendanceExportGrid({
         seenTeacherPeriods.add(scopeKey);
       }
     }
+    /* 全名单兜底：没签到的教师也要出一行，签到状态写「未登记」 */
+    const covered = new Set(rows.map(row => String(row[3] || '').trim()));
+    let unregisteredPeople = 0;
+    for (const teacher of people) {
+      const name = String(teacher.name || '').trim();
+      if (!name || covered.has(name)) continue;
+      rows.push([
+        0, departmentOf(teacher), gradeOf(teacher), name, teacher.subject || '',
+        Number(period) === 0 ? '全天' : periodLabel(period), '—', '—', '未登记', '',
+      ]);
+      covered.add(name);
+      unregisteredPeople += 1;
+    }
     rows.sort((a, b) => String(a[5]).localeCompare(String(b[5]), 'zh-CN') || String(a[3]).localeCompare(String(b[3]), 'zh-CN'));
     const numbered = rows.map((row, index) => [index + 1, ...row.slice(1)]);
-    const peopleCount = new Set(numbered.map(row => row[3])).size;
-    return [[fileTitle + ' · 共' + peopleCount + '人 · ' + numbered.length + '条教研签到'], EXPORT_HEADERS.research, ...numbered];
+    const title = fileTitle + ' · 共' + people.length + '人 · '
+      + (numbered.length - unregisteredPeople) + '条教研签到 · 未登记' + unregisteredPeople + '人';
+    return [[title], EXPORT_HEADERS.research, ...numbered];
   }
 
   if (type === 'leave') {
@@ -563,8 +599,23 @@ export function buildAttendanceExportGrid({
         record.status || '未注明', record.remark || '',
       ];
     });
-    const peopleCount = new Set(entries.map(exportName)).size;
-    return [[fileTitle + ' · 共' + peopleCount + '人 · ' + entries.length + '条请假记录'], EXPORT_HEADERS.leave, ...rows];
+    /* 全名单兜底：没请假的教师也出一行，状态写「未请假」 */
+    const covered = new Set(entries.map(exportName));
+    let noLeavePeople = 0;
+    for (const teacher of people) {
+      const name = String(teacher.name || '').trim();
+      if (!name || covered.has(name)) continue;
+      rows.push([
+        0, departmentOf(teacher), gradeOf(teacher), name, teacher.subject || '',
+        '无', '—', '—', '—', '—', '未请假', '',
+      ]);
+      covered.add(name);
+      noLeavePeople += 1;
+    }
+    const numbered = rows.map((row, index) => [index + 1, ...row.slice(1)]);
+    const title = fileTitle + ' · 共' + people.length + '人 · '
+      + (numbered.length - noLeavePeople) + '条请假记录 · 未请假' + noLeavePeople + '人';
+    return [[title], EXPORT_HEADERS.leave, ...numbered];
   }
 
   throw new Error('不支持的考勤导出类型：' + type);

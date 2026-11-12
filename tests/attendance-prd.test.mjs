@@ -68,7 +68,7 @@ test('请假时长支持半天、上午、下午和小时小数', () => {
   assert.throws(() => parseLeaveDuration('0.25','day'), /0.5天/);
 });
 
-test('四类导出按状态筛选人员，坐班表保留全员总表', () => {
+test('四类导出都保留全量名单并显示对应状态（11-12 新裁决）', () => {
   const teachers = [
     {id:1,name:'李老师',subject:'语文',grade:'高一',active:1},
     {id:2,name:'王老师',subject:'数学',grade:'高一',active:1},
@@ -91,6 +91,10 @@ test('四类导出按状态筛选人员，坐班表保留全员总表', () => {
     {name:'赵老师',grade:'高一',subject:'英语',type:'病假',start_date:'2026-11-10',end_date:'2026-11-10',days:1,duration:1,duration_unit:'day',status:'已批'},
   ];
   const common = {grade:'高一',date:'2026-11-11',period:1,teachers,seatRows,classRows,researchRows,leaveRecords,resolvePeriodRange:()=>['08:00','08:45']};
+  const namesOf = grid => grid.slice(2).map(row => row[3]);
+  const rowByName = (grid, name) => grid.slice(2).find(row => row[3] === name);
+  const allNames = ['李老师','王老师','赵老师'];
+
   const seat = buildAttendanceExportGrid({...common,type:'seat'});
   assert.equal(seat.length,5);
   assert.deepEqual(seat[1],['序号','归属部门','归属年级','姓名','学科','上课','坐班','听课','教研','请假','备注']);
@@ -98,24 +102,69 @@ test('四类导出按状态筛选人员，坐班表保留全员总表', () => {
   assert.equal(seat[3][3],'王老师');
   assert.match(seat[3][9],/0.5天/);
   assert.match(seat[0][0],/共3人/);
+  assert.match(seat[0][0],/未登记\d+人/);
+  assert.deepEqual(new Set(namesOf(seat)),new Set(allNames));
+  /* 未登记的格子不能再是空白或「—」 */
+  const zhaoSeat = rowByName(seat,'赵老师');
+  assert.ok([5,6,7,8].every(index => zhaoSeat[index] !== '' && zhaoSeat[index] !== '—'));
 
   const classes = buildAttendanceExportGrid({...common,type:'class'});
-  assert.equal(classes.length,3);
-  assert.equal(classes[2][3],'李老师');
-  assert.equal(classes[2][5],'高一(1)班');
-  assert.equal(classes[2][8],'已上课');
-  assert.deepEqual(classes.slice(2).map(row=>row[3]),['李老师']);
+  assert.equal(classes.length,5);
+  assert.equal(rowByName(classes,'李老师')[5],'高一(1)班');
+  assert.equal(rowByName(classes,'李老师')[8],'已上课');
+  assert.equal(rowByName(classes,'王老师')[8],'未登记');
+  assert.equal(rowByName(classes,'赵老师')[8],'未登记');
+  assert.deepEqual(new Set(namesOf(classes)),new Set(allNames));
+  assert.match(classes[0][0],/共3人/);
+  assert.match(classes[0][0],/未登记2人/);
 
   const research = buildAttendanceExportGrid({...common,type:'research'});
-  assert.equal(research.length,3);
-  assert.equal(research[2][3],'李老师');
-  assert.equal(research[2][5],'第1节');
-  assert.equal(research[2][6],'会议室');
-  assert.deepEqual(research.slice(2).map(row=>row[3]),['李老师']);
+  assert.equal(research.length,5);
+  assert.equal(rowByName(research,'李老师')[5],'第1节');
+  assert.equal(rowByName(research,'李老师')[6],'会议室');
+  assert.equal(rowByName(research,'李老师')[8],'已签到');
+  assert.equal(rowByName(research,'王老师')[8],'未登记');
+  assert.equal(rowByName(research,'赵老师')[8],'未登记');
+  assert.deepEqual(new Set(namesOf(research)),new Set(allNames));
+  assert.match(research[0][0],/未登记2人/);
 
   const leave = buildAttendanceExportGrid({...common,type:'leave'});
-  assert.equal(leave.length,3);
-  assert.equal(leave[2][3],'王老师');
-  assert.match(leave[2][9],/0.5天/);
-  assert.doesNotMatch(JSON.stringify(leave),/赵老师/);
+  assert.equal(leave.length,5);
+  assert.match(rowByName(leave,'王老师')[9],/0.5天/);
+  assert.equal(rowByName(leave,'王老师')[10],'已批');
+  /* 赵老师那张病假是 11-10 单天，11-11 已失效，所以本场按「未请假」出名单 */
+  assert.equal(rowByName(leave,'赵老师')[5],'无');
+  assert.equal(rowByName(leave,'赵老师')[10],'未请假');
+  assert.equal(rowByName(leave,'李老师')[10],'未请假');
+  assert.deepEqual(new Set(namesOf(leave)),new Set(allNames));
+  assert.match(leave[0][0],/未请假2人/);
+});
+
+test('一场都没登记时，四个页签仍然输出全名单与明确状态，不留白', () => {
+  const teachers = [
+    {id:1,name:'李老师',subject:'语文',grade:'高一',active:1},
+    {id:2,name:'王老师',subject:'数学',grade:'高一',active:1},
+    {id:3,name:'赵老师',subject:'英语',grade:'高一',active:1},
+  ];
+  const common = {
+    grade:'高一',date:'2026-11-12',period:3,teachers,
+    seatRows:[],classRows:[],researchRows:[],leaveRecords:[],
+    resolvePeriodRange:()=>['10:10','10:55'],
+  };
+  const statusCells = {
+    seat:[5,6,7,8], class:[8], research:[8], leave:[10],
+  };
+  for (const type of ['seat','class','research','leave']) {
+    const grid = buildAttendanceExportGrid({...common,type});
+    assert.equal(grid.length,5,type+' 应是 2 行表头 + 3 行名单');
+    assert.deepEqual(grid.slice(2).map(row=>row[3]),['李老师','王老师','赵老师'],type+' 名单不全');
+    assert.match(grid[0][0],/共3人/,type+' 抬头缺人数');
+    for (const row of grid.slice(2)) {
+      for (const index of statusCells[type]) {
+        const value = String(row[index] ?? '');
+        assert.ok(value && value !== '—',type+' 的 '+row[3]+' 状态格是空白');
+      }
+    }
+    assert.ok(/未登记|未请假/.test(grid[0][0]),type+' 抬头缺未登记统计');
+  }
 });
