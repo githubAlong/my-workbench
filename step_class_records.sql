@@ -6,6 +6,8 @@ create table if not exists public.class_records (
   class_type text not null check (class_type in ('normal','i_substitute','substituted_for_me','swap')),
   subject text not null,
   class_name text,
+  grade text,
+  teacher text,
   class_time text,
   related_person text,
   amount numeric(12,2),

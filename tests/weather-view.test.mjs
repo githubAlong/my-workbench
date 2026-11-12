@@ -153,7 +153,8 @@ test('首页接线：卡片当天详情、一周抽屉、自动定位与默认�
   assert.match(home, /from '\.\/weather-view\.mjs'/);
   assert.match(ui, /from '\.\/weather-view\.mjs'/);
   assert.match(sw, /'\.\/js\/weather-view\.mjs'/);
-  assert.match(sw, /wb-v199-weather-today-week/);
+  /* 每次发布都会 bump 缓存版本，这里只校验命名格式，不写死具体版本。 */
+  assert.match(sw, /const CACHE = 'wb-v\d+-[^']+'/);
   // 默认城市不再是北京
   assert.match(ui, /\{\s*\.\.\.DEFAULT_PLACE\s*\}/);
   assert.doesNotMatch(home, /name: '北京', lat: 39\.9042/);

@@ -409,10 +409,11 @@
   cursor:grab;
 }
 .tt-course-block:hover{box-shadow:0 5px 13px rgba(82,49,151,.12);transform:translateY(-1px)}
-.tt-course-block.tt-grade-1{border-color:#dce8ff;border-left-color:#3977e8;background:linear-gradient(110deg,#edf4ff,#e7efff);color:#2457ae}
-.tt-course-block.tt-grade-2{border-color:#e7dcfb;border-left-color:#8057e8;background:linear-gradient(110deg,#f3edff,#eee7ff);color:#5427a6}
-.tt-course-block.tt-grade-3{border-color:#f7dcdc;border-left-color:#df5a68;background:linear-gradient(110deg,#fff0f1,#fde9eb);color:#a83248}
-.tt-course-block.tt-grade-all{border-color:#d8efe4;border-left-color:#2caa75;background:linear-gradient(110deg,#eaf8f1,#e3f5ec);color:#14734f}
+/* 年级配色：沿用原有四套色相，只把背景 / 文字 / 左边框加深，方便一眼区分年级。 */
+.tt-course-block.tt-grade-1{border-color:#b7cdf8;border-left-color:#1d4ed8;background:linear-gradient(110deg,#dce8ff,#c8dcff);color:#153e8f}
+.tt-course-block.tt-grade-2{border-color:#d9c9f8;border-left-color:#6d28d9;background:linear-gradient(110deg,#ece0ff,#ddccff);color:#4c1d95}
+.tt-course-block.tt-grade-3{border-color:#f5c6cb;border-left-color:#b91c1c;background:linear-gradient(110deg,#ffe1e4,#f9cdd2);color:#8a1c2c}
+.tt-course-block.tt-grade-all{border-color:#b6e3ce;border-left-color:#047857;background:linear-gradient(110deg,#d8f3e6,#c4ebd8);color:#065a42}
 .tt-course-icon{
   display:grid;
   place-items:center;
@@ -937,6 +938,39 @@ html[data-theme] .tt-workspace .tt-course-block{display:block;padding:6px 8px;he
   .tt-lunch-content strong{font-size:24px}
   .tt-season-switch{flex-basis:100%}.tt-season-switch button{flex:1}
   .tt-focus-query .tt-current-tag{font-size:11px;text-align:left}
+}
+
+/* ===== 课表改版 v2：标题常驻可改 + 年级配色在原有色系上加深 ===== */
+.tt-workspace .tt-grid-title{font-size:30px;line-height:1.3;letter-spacing:1.2px;gap:12px}
+.tt-workspace .tt-grid-title strong{font-weight:850}
+.tt-workspace .tt-title-edit{
+  display:grid;place-items:center;width:30px;height:30px;flex:0 0 30px;
+  border:1px solid var(--line,#e5e6eb);border-radius:8px;
+  background:var(--card,#fff);color:var(--primary,#4f46e5);cursor:pointer;
+  transition:background .15s,border-color .15s
+}
+.tt-workspace .tt-title-edit:hover{background:var(--primary-weak,#f0eaff);border-color:var(--primary,#4f46e5)}
+.tt-title-form{display:flex;flex-direction:column;gap:14px;padding:18px 20px 20px}
+.tt-title-form .muted{margin:0}
+.tt-title-actions{display:flex;justify-content:flex-end;gap:10px;padding-top:6px}
+/* 主题联动里原本把四个年级统一刷成主题色，这里恢复年级差异并加深（色相不变）。 */
+html[data-theme] .tt-workspace .tt-course-block.tt-grade-1{border-color:#b7cdf8;border-left-color:#1d4ed8;background:linear-gradient(110deg,#dce8ff,#c8dcff);color:#153e8f}
+html[data-theme] .tt-workspace .tt-course-block.tt-grade-2{border-color:#d9c9f8;border-left-color:#6d28d9;background:linear-gradient(110deg,#ece0ff,#ddccff);color:#4c1d95}
+html[data-theme] .tt-workspace .tt-course-block.tt-grade-3{border-color:#f5c6cb;border-left-color:#b91c1c;background:linear-gradient(110deg,#ffe1e4,#f9cdd2);color:#8a1c2c}
+html[data-theme] .tt-workspace .tt-course-block.tt-grade-all{border-color:#b6e3ce;border-left-color:#047857;background:linear-gradient(110deg,#d8f3e6,#c4ebd8);color:#065a42}
+html[data-theme] .tt-workspace .tt-grade-tag.tt-grade-1{background:#1d4ed8}
+html[data-theme] .tt-workspace .tt-grade-tag.tt-grade-2{background:#6d28d9}
+html[data-theme] .tt-workspace .tt-grade-tag.tt-grade-3{background:#b91c1c}
+html[data-theme] .tt-workspace .tt-grade-tag.tt-grade-all{background:#047857}
+html[data-theme] .tt-workspace .tt-course-block.tt-grade-1 .tt-course-icon{background:linear-gradient(145deg,#4b7ce0,#1d4ed8)}
+html[data-theme] .tt-workspace .tt-course-block.tt-grade-2 .tt-course-icon{background:linear-gradient(145deg,#8b5ce0,#6d28d9)}
+html[data-theme] .tt-workspace .tt-course-block.tt-grade-3 .tt-course-icon{background:linear-gradient(145deg,#dc5c68,#b91c1c)}
+html[data-theme] .tt-workspace .tt-course-block.tt-grade-all .tt-course-icon{background:linear-gradient(145deg,#2caa75,#047857)}
+@media(max-width:1100px){.tt-workspace .tt-grid-title{font-size:26px}}
+@media(max-width:720px){
+  .tt-workspace .tt-grid-title{font-size:22px;letter-spacing:.4px;gap:8px;padding:8px 10px}
+  .tt-workspace .tt-title-edit{width:26px;height:26px;flex-basis:26px}
+  .tt-workspace .tt-grid-title-note{display:none}
 }
 
 

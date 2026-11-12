@@ -4108,7 +4108,8 @@ for (const table of CRUD_TABLES) {
        别的入口调到的，只在界面拦等于没拦。
        挑的都是「空着这条记录就没意义」的字段，不做格式校验，不打扰正常录入。 */
     const REQUIRED = {
-      class_records: [['class_type', '请选择上课类型'], ['subject', '请填写学科']],
+      /* 上课记录：只有「上课日期 / 上课年级 / 上课班级」必填，其余都允许留空。 */
+      class_records: [['class_month', '请填写上课日期'], ['grade', '请填写上课年级'], ['class_name', '请填写上课班级']],
       preps: [['topic', '请填写备课主题'], ['prep_type', '请选择备课类型']],
       trips: [['to_place', '目的地不能为空']],
       invigilations: [['__atLeastOne', '考试名称 / 考场 / 开始时间至少填一个']],

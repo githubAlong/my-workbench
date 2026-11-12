@@ -9,6 +9,8 @@ const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '
 const TYPE_SUMMER = '夏令时课表';
 const TYPE_WINTER = '冬令时课表';
 const VIEW_KEY = 'wb_timetable_view_v1';
+const TITLE_KEY = 'wb_timetable_title_v1';
+const DEFAULT_TITLE = '2026年秋季信息课表';
 
 function parseJson(value, fallback = {}) {
   if (value && typeof value === 'object') return value;
@@ -178,6 +180,13 @@ function loadViewPreference() {
 function saveViewPreference(type, grade) {
   try { localStorage.setItem(VIEW_KEY, JSON.stringify({ type, grade })); } catch { }
 }
+/* 课表标题：本机先读，登录后用「我的设置」里的云端值覆盖，保证多端一致。 */
+function readLocalTitle() {
+  try { return String(localStorage.getItem(TITLE_KEY) || '').trim() || DEFAULT_TITLE; } catch { return DEFAULT_TITLE; }
+}
+function writeLocalTitle(value) {
+  try { localStorage.setItem(TITLE_KEY, value); } catch { }
+}
 
 export async function renderTimetable(box) {
   let allCourses = [];
@@ -186,8 +195,11 @@ export async function renderTimetable(box) {
   let courseTypes = {};
   let periodTimes = {};
   let periodDefinitions = {};
+  /* 页面不再提供「课表类型 / 年级」查询栏：用户上传了什么课程就全量显示什么。
+     appliedType / appliedGrade 只保留为内部变量，用于作息时间轴与设置存取，不再过滤课程。 */
   let appliedType = loadViewPreference().type;
   let appliedGrade = loadViewPreference().grade;
+  let titleText = readLocalTitle();
   let clockTimer = null;
   let lastDate = ymd();
   let loading = false;
@@ -219,6 +231,8 @@ export async function renderTimetable(box) {
       ]);
       settings = parseJson(results[2]?.settings, {});
       const timetable = parseJson(settings.timetable, {});
+      const cloudTitle = String(timetable.title || '').trim();
+      if (cloudTitle) { titleText = cloudTitle; writeLocalTitle(cloudTitle); }
       courseTypes = parseJson(timetable.courseTypes, {});
       periodTimes = parseJson(timetable.periodTimes, {});
       periodDefinitions = parseJson(timetable.periodDefinitions, {});
@@ -243,10 +257,9 @@ export async function renderTimetable(box) {
     }
   }
 
+  /* 不再按课表类型 / 年级筛选：上传了什么就显示什么。 */
   function getVisibleCourses() {
-    return allCourses.filter((course) =>
-      typeOfCourse(course, courseTypes) === appliedType && visibleByGrade(course, appliedGrade)
-    );
+    return allCourses;
   }
 
   function getPeriods(visibleCourses) {
@@ -382,14 +395,17 @@ export async function renderTimetable(box) {
       }).join('');
       return '<tr><td class="tt-period-cell"><strong>' + esc(periodName(period)) + '</strong></td><td class="tt-time-cell"><span>' + esc(time || '时间待设置') + '</span></td>' + cells + '</tr>';
     }).join('');
-    const title = appliedType === TYPE_WINTER && appliedGrade === '高二' ? '<div class="tt-grid-title"><span class="tt-grid-title-icon">' + icon('cal', 20) + '</span><strong>2026年秋季信息课表</strong><span class="tt-grid-title-note">每周课程安排</span></div>' : '';
+    /* 标题常驻、可修改：不再只在「冬令时 + 高二」时显示。 */
+    const title = '<div class="tt-grid-title" id="tt-grid-title"><span class="tt-grid-title-icon">' + icon('cal', 20) + '</span>' +
+      '<strong id="tt-grid-title-text">' + esc(titleText) + '</strong>' +
+      '<button class="tt-title-edit" type="button" id="tt-title-edit" aria-label="修改课表标题" title="修改课表标题">' + icon('edit', 14) + '</button>' +
+      '<span class="tt-grid-title-note">每周课程安排</span></div>';
     return title + '<div class="tt-grid-scroll"><table class="tt-grid-table tt-week-grid" aria-label="周课表"><colgroup><col class="tt-col-period"><col class="tt-col-time">' + DAYS.map(() => '<col class="tt-col-day">').join('') + '</colgroup><thead><tr><th class="tt-grid-corner">节次</th><th class="tt-grid-corner">时间</th>' + DAYS.map((day) => '<th class="tt-weekday-head ' + (day === new Date().getDay() ? 'is-today' : '') + '">' + DAY_NAMES[DAYS.indexOf(day)] + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
   function paint() {
     const visible = getVisibleCourses();
     const periods = getPeriods(visible);
-    const currentLabel = appliedGrade === '全部' ? '全部年级总课表' : appliedGrade + '课表';
     box.innerHTML = '<section class="tt-workspace" aria-label="我的课表">' +
       '<div class="tt-workspace-head"><div class="tt-workspace-title-wrap"><h2 class="tt-workspace-title">我的课表</h2></div>' +
       '<div class="tt-toolbar-actions">' +
@@ -399,13 +415,6 @@ export async function renderTimetable(box) {
         '<button class="btn primary sm" type="button" id="tt-add">' + icon('plus', 14) + ' 新增课程</button>' +
       '</div></div>' +
       reminderHtml(visible) +
-      '<div class="tt-query-bar tt-focus-query">' +
-        '<div class="tt-season-switch" role="group" aria-label="课表类型">' + [TYPE_WINTER, TYPE_SUMMER].map((type) => '<button type="button" data-schedule-type="' + type + '" aria-pressed="' + (appliedType === type) + '">' + type.replace('课表', '') + '</button>').join('') + '</div>' +
-        '<label class="tt-query-item"><span>课表类型</span><select id="tt-type"><option value="' + TYPE_SUMMER + '"' + (appliedType === TYPE_SUMMER ? ' selected' : '') + '>' + TYPE_SUMMER + '</option><option value="' + TYPE_WINTER + '"' + (appliedType === TYPE_WINTER ? ' selected' : '') + '>' + TYPE_WINTER + '</option></select></label>' +
-        '<label class="tt-query-item"><span>所属年级</span><select id="tt-grade"><option value="全部"' + (appliedGrade === '全部' ? ' selected' : '') + '>全部（跨年级总课表）</option><option value="高一"' + (appliedGrade === '高一' ? ' selected' : '') + '>高一</option><option value="高二"' + (appliedGrade === '高二' ? ' selected' : '') + '>高二</option><option value="高三"' + (appliedGrade === '高三' ? ' selected' : '') + '>高三</option></select></label>' +
-        '<button class="btn primary" type="button" id="tt-confirm">查看课表</button>' +
-        '<div class="tt-current-tag"><span>当前查看</span><b>' + esc(appliedType + ' · ' + currentLabel) + '</b></div>' +
-      '</div>' +
       gridHtml(visible, periods) +
       '<div class="tt-summary-bar"><span>当前课表共 ' + visible.length + ' 节课程</span><span>课程数据在本机保存，并通过工作台现有云同步机制同步到其他设备</span></div>' +
       '</section>';
@@ -507,7 +516,7 @@ export async function renderTimetable(box) {
       });
       list.querySelectorAll("[data-remove]").forEach((button) => button.onclick = () => {
         const i = Number(button.dataset.remove), no = Number(rows[i].period_no);
-        if (allCourses.some((c) => typeOfCourse(c, courseTypes) === appliedType && visibleByGrade(c, appliedGrade) && Number(c.period_no) === no)) {
+        if (allCourses.some((c) => Number(c.period_no) === no)) {
           toast("该节次已有课程，请先调整或删除相关课程", "warn"); return;
         }
         rows.splice(i, 1); draw();
@@ -615,21 +624,28 @@ export async function renderTimetable(box) {
     await loadData(false);
   }
 
+  /* 课表标题：独立弹窗修改，存到「我的设置」+ 本机，改完立即重绘。 */
+  function openTitleEditor() {
+    const body = el('<div class="tt-title-form">' +
+      '<p class="small muted">标题显示在课表网格上方，保存后会同步到其它设备。</p>' +
+      '<div class="field"><label class="field-label" for="tt-title-input">课表标题</label><input class="input" id="tt-title-input" maxlength="40" value="' + esc(titleText) + '" placeholder="例如：2026年秋季信息课表"></div>' +
+      '<div class="tt-title-actions"><button class="btn ghost sm" type="button" id="tt-title-cancel">取消</button><button class="btn primary sm" type="button" id="tt-title-save">保存标题</button></div>' +
+      '</div>');
+    const sh = sheet({ title: '修改课表标题', body });
+    body.querySelector('#tt-title-cancel').onclick = () => sh.close();
+    saving(body.querySelector('#tt-title-save'), async () => {
+      const next = body.querySelector('#tt-title-input').value.trim();
+      if (!next) throw new Error('课表标题不能为空');
+      titleText = next;
+      writeLocalTitle(next);
+      await saveTimetablePrefs({ title: next }).catch(() => toast('标题已存到本机，云端同步稍后重试', 'warn'));
+      sh.close();
+      paint();
+    });
+  }
+
   function bind(visible, periods) {
-    const typeSelect = box.querySelector('#tt-type');
-    const gradeSelect = box.querySelector('#tt-grade');
-    box.querySelectorAll('[data-schedule-type]').forEach((button) => {
-      button.addEventListener('click', () => {
-        typeSelect.value = button.dataset.scheduleType;
-        box.querySelectorAll('[data-schedule-type]').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
-      });
-    });
-    box.querySelector('#tt-confirm')?.addEventListener('click', async () => {
-      appliedType = typeSelect.value === TYPE_WINTER ? TYPE_WINTER : TYPE_SUMMER;
-      appliedGrade = gradeSelect.value || '全部';
-      saveViewPreference(appliedType, appliedGrade);
-      await loadData(true);
-    });
+    box.querySelector('#tt-title-edit')?.addEventListener('click', openTitleEditor);
     box.querySelector('#tt-add')?.addEventListener('click', () => openCourseEditor(null, periods));
     box.querySelector('#tt-period-settings')?.addEventListener('click', () => openPeriodSettings());
     box.querySelector('#tt-import')?.addEventListener('click', () => openImportDialog());
@@ -1178,10 +1194,11 @@ export async function renderTimetable(box) {
       }
       const replace = body.querySelector('#tt-import-replace').checked;
       if (replace) {
-        const ok = await confirmDialog('将替换' + appliedType + '中的旧课程，旧课程会进入回收站。是否继续？', { title: '替换当前课表', danger: true, okText: '替换并导入' });
+        const ok = await confirmDialog('将替换当前课表中的全部旧课程，旧课程会进入回收站。是否继续？', { title: '替换当前课表', danger: true, okText: '替换并导入' });
         if (!ok) return;
       }
-      const oldCourses = allCourses.filter((course) => typeOfCourse(course, courseTypes) === appliedType);
+      /* 不再按课表类型区分：替换就是把当前显示的全部旧课程换掉。 */
+      const oldCourses = allCourses;
       const existingKeys = new Set(replace ? [] : oldCourses.map(courseKey));
       const created = [];
       const nextTypes = { ...courseTypes };
