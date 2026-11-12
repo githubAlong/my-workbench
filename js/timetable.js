@@ -3,6 +3,10 @@ import { state, icon, onViewLeave } from './ui.js';
 import { detectTimetable } from './ttimage.js';
 import { readXlsx, readDelimited } from './xlsx-lite.js';
 import { cleanPeriodTime, getCanonicalPeriodNumber, normalizeTimetablePeriods, completeTimetablePeriods } from './timetable-periods.mjs';
+import {
+  AUTUMN_2026_SCHEDULE, cloneSchedule, buildDefinitions,
+  withScheduleDefinitions, withScheduleTimes, resolveDefinitions, matchScheduleRow,
+} from './timetable-schedule.mjs';
 
 const DAYS = [1, 2, 3, 4, 5, 6, 0];
 const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
@@ -263,28 +267,34 @@ export async function renderTimetable(box) {
   }
 
   function getPeriods(visibleCourses) {
-    const key = appliedType + "|" + appliedGrade;
-    const configured = periodDefinitions[key];
+    /* 导入后作息定义是唯一权威：按「作息类型」全校共用，不再按年级拆 key。
+       没有定义时只展示数据库里真实存在的节次，绝不按 periodDefaults 硬编码
+       补齐早自习/晚一——以前那套补齐正是「上下自动冒出别的时间」的根源。
+       completeTimetablePeriods 只补「有课但没定义」的节次，保留它。 */
+    const options = { periodTimes, scheduleType: appliedType };
+    const configured = resolveDefinitions(periodDefinitions, appliedType, appliedGrade);
     if (Array.isArray(configured) && configured.length) {
-      const configuredRows = [...configured].sort((a, b) => Number(a.order) - Number(b.order)).map((item) => ({
+      const configuredRows = [...configured].sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0)).map((item) => ({
         id: item.id || "custom-" + item.period_no,
         period_no: Number(item.period_no),
         name: String(item.name || ("第" + item.period_no + "节")),
         start_time: cleanPeriodTime(item.start_time),
         end_time: cleanPeriodTime(item.end_time),
       }));
-      return completeTimetablePeriods(configuredRows, visibleCourses, { periodTimes, scheduleType: appliedType });
+      return completeTimetablePeriods(configuredRows, visibleCourses, options);
     }
-    const byNo = new Map(allPeriods.map((period) => [Number(period.period_no), period]));
+    /* 从没导入过时给一套「跟课表一致」的默认，而不是 periodDefaults 那套
+       凭空造出来的 07:20 早自习 / 19:10 晚一。数据库里真实存在的额外节次
+       （比如用户自己加的早自习）保留，其余一律不补。 */
+    const byNo = new Map(AUTUMN_2026_SCHEDULE.map((row) => [
+      Number(row.period_no), { ...row, id: 'default-' + row.period_no },
+    ]));
     for (const number of [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10]) {
       if (byNo.has(number)) continue;
-      const fallback = periodDefaults(number, appliedType);
-      byNo.set(number, {
-        id: "fallback-" + number, period_no: number,
-        name: periodName({ period_no: number }), start_time: fallback[0] || "", end_time: fallback[1] || "",
-      });
+      const real = allPeriods.find((period) => Number(period.period_no) === number);
+      if (real) byNo.set(number, real);
     }
-    return sortPeriods(completeTimetablePeriods([...byNo.values()], visibleCourses, { periodTimes, scheduleType: appliedType }));
+    return sortPeriods(completeTimetablePeriods([...byNo.values()], visibleCourses, options));
   }
 
   function currentLesson(courses) {
@@ -487,8 +497,8 @@ export async function renderTimetable(box) {
   }
 
   function openPeriodSettings() {
-    const key = appliedType + "|" + appliedGrade;
-    const base = Array.isArray(periodDefinitions[key]) ? periodDefinitions[key] : getPeriods(getVisibleCourses()).map((p, index) => ({
+    const configured = resolveDefinitions(periodDefinitions, appliedType, appliedGrade);
+    const base = (Array.isArray(configured) && configured.length ? configured : getPeriods(getVisibleCourses())).map((p, index) => ({
       id: p.id, period_no: Number(p.period_no), name: p.name,
       start_time: p.start_time || "", end_time: p.end_time || "", order: index,
     }));
@@ -531,24 +541,16 @@ export async function renderTimetable(box) {
     body.querySelector("#tt-period-cancel").onclick = modal.close;
     saving(body.querySelector("#tt-period-save"), async () => {
       rows = rows.map((p, i) => ({ ...p, order: i, period_no: Number(p.period_no) }));
-      const seen = new Set();
-      for (const p of rows) {
-        if (!p.name) throw new Error("请填写所有节次名称");
-        if (!p.start_time || !p.end_time || !normalizeTime(p.start_time) || !normalizeTime(p.end_time)) throw new Error("请填写有效的开始和结束时间");
-        if (timeMinutes(p.end_time) <= timeMinutes(p.start_time)) throw new Error("结束时间必须晚于开始时间");
-        if (seen.has(p.period_no)) throw new Error("节次编号重复，请检查");
-        seen.add(p.period_no);
-      }
-      const nextDefs = { ...periodDefinitions, [key]: rows };
-      const nextTimes = { ...periodTimes, [appliedType]: { ...(periodTimes?.[appliedType] || {}) } };
-      rows.forEach((p) => { nextTimes[appliedType][String(p.period_no)] = { start_time: normalizeTime(p.start_time), end_time: normalizeTime(p.end_time) }; });
+      // 与导入共用一套校验/规范化，避免两处口径不一致
+      const defs = buildDefinitions(rows);
+      const nextDefs = withScheduleDefinitions(periodDefinitions, appliedType, defs);
+      const nextTimes = withScheduleTimes(periodTimes, appliedType, defs);
       await saveTimetablePrefs({ periodDefinitions: nextDefs, periodTimes: nextTimes });
       modal.close(); toast("作息时间已保存"); await loadData(false);
     });
   }
 
   async function importHigh2Winter() {
-    const key = TYPE_WINTER + "|高二";
     const schedule = [
       { weekday: 3, period_no: 1, class_name: "11班" },
       { weekday: 5, period_no: 1, class_name: "13班" },
@@ -572,10 +574,11 @@ export async function renderTimetable(box) {
       12:["20:20","21:00"], 13:["21:10","21:55"],
     };
     const names = {1:"第一节",2:"第二节",3:"第三节",4:"第四节",5:"第五节",5.5:"午休",6:"第六节",7:"第七节",8:"第八节",9:"第九节",10:"晚一",11:"晚二",12:"晚三",13:"晚四"};
-    const defs = Object.entries(times).map(([no, range], order) => ({
+    // 与通用导入共用同一套校验/规范化，两个入口结果必须一致
+    const defs = buildDefinitions(Object.entries(times).map(([no, range], order) => ({
       id:"high2-winter-"+no, period_no:Number(no), name:names[no],
       start_time:range[0], end_time:range[1], order,
-    }));
+    })));
     const ok = await confirmDialog("将按原件重建高二冬令时信息课表：逐项校正13条课程的星期、节次和时间；不会修改高一、高三或其他学科课程。是否继续？", {
       title:"按原件重建高二课表", okText:"确认重建",
     });
@@ -614,11 +617,8 @@ export async function renderTimetable(box) {
         added++;
       }
     }
-    const nextDefs = { ...periodDefinitions, [key]:defs };
-    const nextTimes = { ...periodTimes, [TYPE_WINTER]:{ ...(periodTimes?.[TYPE_WINTER] || {}) } };
-    Object.entries(times).forEach(([no, range]) => {
-      nextTimes[TYPE_WINTER][no] = { start_time:range[0], end_time:range[1] };
-    });
+    const nextDefs = withScheduleDefinitions(periodDefinitions, TYPE_WINTER, defs);
+    const nextTimes = withScheduleTimes(periodTimes, TYPE_WINTER, defs);
     await saveTimetablePrefs({ courseTypes:nextTypes, periodDefinitions:nextDefs, periodTimes:nextTimes });
     toast("已按原件校正高二课表：更新 " + updated + " 条，新增 " + added + " 条");
     await loadData(false);
@@ -1067,6 +1067,16 @@ export async function renderTimetable(box) {
       '<label class="tt-import-check"><input type="checkbox" id="tt-import-replace"> 替换当前课表类型中的旧课程（旧课程会进入回收站）</label>' +
       '<div class="tt-file-drop"><input type="file" id="tt-import-file" accept=".pdf,.xlsx,.csv,.tsv,image/png,image/jpeg"><b>选择课表文件</b><span>PDF / XLSX / CSV / PNG / JPG</span></div>' +
       '<div class="tt-import-status" id="tt-import-status">请选择文件开始识别</div>' +
+      '<div class="tt-import-schedule" style="margin:12px 0;padding:10px;border:1px solid #e3e8f2;border-radius:10px">' +
+        '<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">' +
+          '<b>本次课表作息（共 <span id="tt-schedule-count">14</span> 行，可滚动）</b>' +
+          '<span style="flex:1"></span>' +
+          '<button class="btn ghost sm" type="button" id="tt-schedule-reset">按 2026 秋季作息填入</button>' +
+          '<button class="btn ghost sm" type="button" id="tt-schedule-add">＋ 加一节</button>' +
+        '</div>' +
+        '<div class="small muted" style="margin:6px 0 2px">按课表「时间」列核对；保存时完全替换当前作息，全校共用这一套。</div>' +
+        '<div id="tt-schedule-rows" style="margin-top:6px;max-height:240px;overflow-y:auto"></div>' +
+      '</div>' +
       '<div id="tt-import-preview"></div>' +
       '<div class="confirm-actions"><button class="btn ghost" id="tt-import-cancel">取消</button><button class="btn primary" id="tt-import-save" disabled>导入到当前课表</button></div></div>');
     const modal = sheet({ title: '导入课表', body, wide: true });
@@ -1077,6 +1087,54 @@ export async function renderTimetable(box) {
 
     function selectedSubject() { return body.querySelector('#tt-import-subject').value.trim(); }
     function selectedGrade() { return body.querySelector('#tt-import-grade').value.trim(); }
+
+    /* 图片识别只读得出「哪个格子有字」，读不出时间列文字。
+       所以作息由这张表给出：默认按 2026 秋季原件预填，老师可核对修改，
+       改过的内容随 /me settings 存下来，同一学季下次导入直接复用。 */
+    const savedTimetable = parseJson(settings.timetable, {});
+    const savedRows = parseJson(savedTimetable.importSchedule, []);
+    let scheduleRows = Array.isArray(savedRows) && savedRows.length
+      ? savedRows.map((row) => ({ ...row }))
+      : cloneSchedule(AUTUMN_2026_SCHEDULE);
+
+    function drawSchedule() {
+      const wrap = body.querySelector('#tt-schedule-rows');
+      const counter = body.querySelector('#tt-schedule-count');
+      if (counter) counter.textContent = String(scheduleRows.length);
+      wrap.innerHTML = '<div class="tt-import-table-wrap"><table class="tt-import-table"><thead><tr>' +
+        '<th>节次名称</th><th>开始</th><th>结束</th><th></th></tr></thead><tbody>' +
+        scheduleRows.map((row, index) => '<tr data-srow="' + index + '">' +
+          '<td><input data-sk="name" value="' + esc(row.name) + '" placeholder="第1节"></td>' +
+          '<td><input data-sk="start_time" value="' + esc(row.start_time) + '" placeholder="08:00"></td>' +
+          '<td><input data-sk="end_time" value="' + esc(row.end_time) + '" placeholder="08:40"></td>' +
+          '<td><button class="icon-btn sm" type="button" data-sdel="' + index + '" aria-label="移除">×</button></td>' +
+        '</tr>').join('') + '</tbody></table></div>';
+      wrap.querySelectorAll('[data-srow]').forEach((tr) => {
+        tr.querySelectorAll('[data-sk]').forEach((input) => {
+          input.addEventListener('change', () => {
+            scheduleRows[Number(tr.dataset.srow)][input.dataset.sk] = input.value.trim();
+            drawSchedule();
+          });
+        });
+      });
+      wrap.querySelectorAll('[data-sdel]').forEach((button) => {
+        button.onclick = () => { scheduleRows.splice(Number(button.dataset.sdel), 1); drawSchedule(); };
+      });
+    }
+
+    body.querySelector('#tt-schedule-reset').onclick = async () => {
+      const ok = await confirmDialog('用 2026 秋季课表的 14 行作息替换当前编辑内容？', { title: '填入秋季作息' });
+      if (!ok) return;
+      scheduleRows = cloneSchedule(AUTUMN_2026_SCHEDULE);
+      drawSchedule();
+    };
+    body.querySelector('#tt-schedule-add').onclick = () => {
+      const used = new Set(scheduleRows.map((row) => Number(row.period_no)));
+      let no = 1; while (used.has(no)) no++;
+      scheduleRows.push({ period_no: no, name: '第' + no + '节', start_time: '', end_time: '' });
+      drawSchedule();
+    };
+    drawSchedule();
 
     function buildEntries() {
       const subject = selectedSubject();
@@ -1202,17 +1260,23 @@ export async function renderTimetable(box) {
       const existingKeys = new Set(replace ? [] : oldCourses.map(courseKey));
       const created = [];
       const nextTypes = { ...courseTypes };
-      const nextPeriodTimes = { ...periodTimes, [appliedType]: { ...(periodTimes?.[appliedType] || {}) } };
+      /* 以本次作息表为唯一权威：全量重建定义与时间，清掉旧的按年级拆分的
+         定义、自动补齐行和残留默认作息；课程节次只从这张表里匹配，
+         不再往 /periods 里乱建行（那会把旧错号反复固化）。 */
+      const defs = buildDefinitions(scheduleRows);
+      const nextDefs = withScheduleDefinitions(periodDefinitions, appliedType, defs);
+      const nextTimes = withScheduleTimes(periodTimes, appliedType, defs);
       for (const entry of entries) {
-        const periodRow = await ensurePeriod(entry.periodLabel, entry.start_time, entry.end_time);
+        const periodRow = matchScheduleRow(defs, entry.periodLabel, entry.start_time, entry.end_time);
+        if (!periodRow) throw new Error('节次「' + entry.periodLabel + '」不在本次作息表里，请核对节次名称');
         const candidate = {
           weekday: Number(entry.weekday),
           period_no: Number(periodRow.period_no),
           grade: entry.grade,
           class_name: entry.class_name,
           subject: entry.subject,
-          start_time: normalizeTime(entry.start_time) || periodRow.start_time || '',
-          end_time: normalizeTime(entry.end_time) || periodRow.end_time || '',
+          start_time: periodRow.start_time,
+          end_time: periodRow.end_time,
         };
         const key = courseKey(candidate);
         if (existingKeys.has(key)) continue;
@@ -1222,14 +1286,14 @@ export async function renderTimetable(box) {
         });
         created.push(saved);
         nextTypes[String(saved.id)] = appliedType;
-        if (candidate.start_time || candidate.end_time) {
-          nextPeriodTimes[appliedType][String(periodRow.period_no)] = {
-            start_time: candidate.start_time, end_time: candidate.end_time,
-          };
-        }
       }
       if (!created.length && !replace) throw new Error('没有新增课程：可能这些课程已经存在');
-      await saveTimetablePrefs({ courseTypes: nextTypes, periodTimes: nextPeriodTimes });
+      await saveTimetablePrefs({
+        courseTypes: nextTypes,
+        periodDefinitions: nextDefs,
+        periodTimes: nextTimes,
+        importSchedule: scheduleRows,
+      });
       if (replace) {
         for (const course of oldCourses) await api.del('/courses/' + course.id);
       }
