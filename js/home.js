@@ -1,4 +1,5 @@
 import { resolvePlace, locationWarning } from './weather-location.mjs';
+import { DEFAULT_PLACE, lookupLocalPlaces, placeNames, todayMetrics, hoursForDate, weekRows } from './weather-view.mjs';
 import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_CN, WD_SHORT, fmtTime, fmtDateTime, relDay, parseDT, countdown, speak, stopSpeak, colorOf, ls, exportUrl, download, addToSystemCalendar } from './core.js';
 import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
 import { syncDay, DAY_SYNC } from './homelayout.js';
@@ -186,7 +187,7 @@ function outfitFor(t, code, wind, rain) {
 let weatherTimer = null;
 let weatherRequestSeq = 0;
 async function loadWeather(force = false) {
-  const city = { ...(state.city || { name: '北京', lat: 39.9042, lon: 116.4074 }) };
+  const city = { ...(state.city || { ...DEFAULT_PLACE }) };
   const requestId = ++weatherRequestSeq;
   const cache = ls.get('weather', null);
   const matchesCity = (item) => {
@@ -268,6 +269,9 @@ async function reverseGeocode(lat, lon) {
 }
 let geoRequestSeq = 0;
 let cityChoiceSeq = 0;
+/* 本次会话内用户手动选过城市时，不再被后台自动定位覆盖。
+   不写进 localStorage：刷新/下次打开仍按「当前位置在哪就显示哪」重新定位。 */
+let manualLockSession = false;
 function setGeoMode(mode) {
   state.geoMode = mode;
   ls.set('geoMode', mode);
@@ -411,6 +415,22 @@ async function geocodeCity(kw) {
 
   let rows = (await Promise.all([...terms].map(grab))).flat();
 
+  /* 在线地名库查不到中国县级行政区（实测「咸丰县」「咸丰」都是 0 条），
+     用户只能选到地级市「恩施」，天气就差了 100 多公里。
+     本地这份带完整行政区划，命中后排在在线结果前面。 */
+  const localHit = lookupLocalPlaces(kw2).map((c) => ({
+    name: c.name,
+    latitude: c.lat,
+    longitude: c.lon,
+    admin1: c.province,
+    admin2: c.prefecture,
+    admin3: c.district,
+    feature_code: 'ADM3',
+    population: 9e9,
+    _local: true,
+  }));
+  if (localHit.length) rows = localHit.concat(rows);
+
   /* 在线地名库不可用时，保留原有常用地级市兜底；不伪造县级地区坐标。 */
   const seedHit = SEED_CITIES
     .filter((c) => c.name.includes(kw2) || kw2.includes(c.name))
@@ -539,6 +559,7 @@ function pickCity() {
     }
     cityChoiceSeq += 1;
     geoRequestSeq += 1;
+    manualLockSession = true;
     const city = {
       name: candidate.name,
       fullName: cityFullName(candidate),
@@ -668,17 +689,24 @@ function pickCity() {
    湿度/风速/日出日落、小时预报、7 天预报都折进「详细天气」里 */
 /* 天气卡片中的位置行：明确显示完整地区，并标注位置来源。 */
 function weatherCityLineHTML(city) {
-  const location = cityFullName(city);
+  /* 2026-11-12：位置行改成「区县级短名 + 完整行政路径」。
+     自动定位回来的 fullName 是「湖北省 · 恩施土家族苗族自治州 · 咸丰县」，
+     整串当主标题既太长、也看不出自己到底在哪；用户要的是「咸丰县」。 */
+  const names = placeNames(city);
   const sourceLabel = city?.source === 'geo'
-    ? '当前位置'
+    ? '当前定位'
     : city?.source === 'manual'
       ? '手动选择'
-      : '当前天气位置';
+      : city?.source === 'default'
+        ? '默认城市'
+        : '当前天气位置';
+  const detail = names.full === names.short ? sourceLabel : sourceLabel + ' · ' + names.full;
   return '<div class="wxb-city">' +
     '<span class="wxb-location-pin">' + icon('loc', 13) + '</span>' +
     '<span class="wxb-location-copy">' +
-      '<strong class="wxb-location-name" title="' + esc(location) + '">' + esc(location) + '</strong>' +
-      '<small class="wxb-location-source">' + esc(sourceLabel) + (city?.locationResolved === false ? ' · 地名暂不可用' : '') + '</small>' + weatherLocationCredit(city) +
+      '<strong class="wxb-location-name" title="' + esc(names.full) + '">' + esc(names.short) + '</strong>' +
+      '<small class="wxb-location-source" title="' + esc(names.full) + '">' + esc(detail) +
+        (city?.locationResolved === false ? ' · 地名暂不可用' : '') + '</small>' + weatherLocationCredit(city) +
     '</span>' +
     '<span style="flex:1"></span>' +
     '<button class="icon-btn sm" data-wx-refresh title="刷新天气">' + icon('refresh', 14) + '</button>' +
@@ -694,7 +722,7 @@ function weatherLocationCredit(city) {
 
 function weatherBriefHTML() {
   const w = state.weather?.raw;
-  const c = state.city || { name: '北京', lat: 39.9042, lon: 116.4074 };
+  const c = state.city || { ...DEFAULT_PLACE };
   if (!w) {
     return weatherCityLineHTML(c) +
       '<div class="wxb-main"><div class="wxb-temp">--<span class="deg">°</span></div>' +
@@ -714,7 +742,38 @@ function weatherBriefHTML() {
         '<div class="wxb-range">' + Math.round(day.temperature_2m_min[0]) + '° ~ ' + Math.round(day.temperature_2m_max[0]) + '° · 体感 ' + Math.round(cur.apparent_temperature) + '°</div>' +
       '</div>' +
     '</div>' +
+    wxTodayDetailHTML(w) +
     '<div class="wxb-outfit">' + esc(outfitFor(cur.temperature_2m, cur.weather_code, cur.wind_speed_10m, rainToday)) + '</div>';
+}
+
+/* 当天详情：逐时 + 今日指标。原来卡片中间是一整块空白、
+   一周预报和指标全挤在抽屉里；现在卡片只讲「今天」，抽屉只讲「一周」。 */
+function wxTodayDetailHTML(w) {
+  const m = todayMetrics(w);
+  const today = w.daily?.time?.[0];
+  const hours = hoursForDate(w, today);
+  const metric = (ico, label, value) => '<div class="wx-metric"><span class="k">' + icon(ico, 11) + ' ' + label + '</span><span class="v">' + value + '</span></div>';
+  const hoursHTML = hours.map((r) => {
+    const [e] = wxInfo(r.code);
+    const pop = (r.pop != null && r.pop >= 30) ? '<i class="wxb-pop">' + Math.round(r.pop) + '%</i>' : '';
+    return '<div class="wx-hour' + (r.isNow ? ' now' : '') + '">' +
+      '<span class="tiny muted" style="color:inherit">' + (r.isNow ? '现在' : r.label.slice(0, 2) + '时') + '</span>' +
+      '<span class="e">' + e + '</span>' +
+      '<span class="t">' + (r.temp == null ? '--' : Math.round(r.temp) + '°') + '</span>' + pop + '</div>';
+  }).join('');
+  const dateLabel = today ? String(today).slice(5).replace('-', ' / ') : '';
+  return '<div class="wxb-today">' +
+    '<div class="wxb-today-h"><span>今天 · 逐时</span><span>' + dateLabel + '</span></div>' +
+    '<div class="wx-hours">' + hoursHTML + '</div>' +
+    '<div class="wx-metrics wxb-metrics">' +
+      metric('drop', '湿度', m.humidity == null ? '--' : Math.round(m.humidity) + '%') +
+      metric('wind', '风速', m.wind == null ? '--' : Math.round(m.wind) + ' km/h') +
+      metric('rain', '降水', m.rainProb == null ? '--' : Math.round(m.rainProb) + '%') +
+      metric('uv', '紫外线', m.uv == null ? '--' : Math.round(m.uv)) +
+      metric('sunrise', '日出', m.sunrise || '--') +
+      metric('sunset', '日落', m.sunset || '--') +
+    '</div>' +
+  '</div>';
 }
 
 function weatherHTML() {
@@ -826,9 +885,13 @@ registerView(async function home(main) {
   homeData = homeResult;
   homeCourseRows = Array.isArray(courseRows) ? courseRows : null;
   renderHome();
-  if (state.geoMode === 'auto') {
+  /* 2026-11-12：当前位置在哪就显示哪。以前只要手动选过一次城市，
+     geoMode 被永久设成 manual，之后再也不会自动定位，天气一直停在旧城市。
+     现在每次进入首页都尝试设备定位（浏览器首次会弹授权框），
+     只有「本次会话内手动选过」才跳过；没授权就保持默认武汉或手动城市。 */
+  if (!manualLockSession) {
     locate({ silent: true }).then((city) => {
-      if (city) applyCityWeather({ silent: true });
+      if (city && !manualLockSession) applyCityWeather({ silent: true });
     });
   }
   /* 拉一次云端布局：另一台设备排过的话，这里自动换成那一套。
@@ -2251,21 +2314,83 @@ function renderWeatherOnly() {
   if (drawer) drawer.innerHTML = wxDrawerHTML();
 }
 
-/* 抽屉里那块内容：当前指标 + 逐时 + 未来一周 */
-function wxDrawerHTML() {
-  if (!state.weather?.raw) {
-    return `<div class="small muted" style="padding:10px 0;line-height:1.7">
-      天气还没加载出来。回到首页点天气卡右上角的刷新，或换一个城市再试。</div>`;
+/* 详细天气：最近一周为主，点某一天展开当天的逐时与指标。
+   跟手机天气 App 一致：首屏讲今天，往下翻才是一周。
+   renderWeatherOnly() 里换城市/刷新后也会调 wxDrawerHTML() 重绘。 */
+function wxWeekHTML(selected = 0) {
+  const w = state.weather?.raw;
+  if (!w) {
+    return '<div class="small muted" style="padding:10px 0;line-height:1.7">' +
+      '天气还没加载出来。回到首页点天气卡右上角的刷新，或换一个城市再试。</div>';
   }
-  return `${wxMetricsHTML()}
-    <div class="wxd-title">未来一周</div>
-    ${wxForecastHTML()}`;
+  const rows = weekRows(w);
+  if (!rows.length) return '<div class="small muted">暂时没有一周预报数据</div>';
+  const gMin = Math.min(...rows.map((r) => (r.lo == null ? 0 : r.lo)));
+  const gMax = Math.max(...rows.map((r) => (r.hi == null ? 0 : r.hi)));
+  const span = Math.max(1, gMax - gMin);
+  const idx = Math.min(Math.max(0, Number(selected) || 0), rows.length - 1);
+  const cur = rows[idx];
+  const [emo, desc] = wxInfo(cur.code);
+  const list = rows.map((r) => {
+    const [e, t] = wxInfo(r.code);
+    const lo = r.lo == null ? gMin : r.lo;
+    const hi = r.hi == null ? gMin : r.hi;
+    const left = Math.max(0, Math.min(100, ((lo - gMin) / span) * 100));
+    const width = Math.max(12, Math.min(100 - left, ((hi - lo) / span) * 100));
+    const pop = r.pop == null ? '' : '<span class="wxd-pop">降水 ' + Math.round(r.pop) + '%</span>';
+    return '<button class="wxd-row' + (r.index === idx ? ' on' : '') + '" type="button" data-wxday="' + r.index + '">' +
+      '<span class="wxd-d"><b>' + r.label + '</b><small>' + r.shortDate + '</small></span>' +
+      '<span class="wxd-e">' + e + '</span>' +
+      '<span class="wxd-t">' + t + pop + '</span>' +
+      '<span class="wxd-lo">' + (r.lo == null ? '--' : Math.round(r.lo) + '°') + '</span>' +
+      '<span class="wx-bar"><i style="left:' + left.toFixed(1) + '%;width:' + width.toFixed(1) + '%"></i></span>' +
+      '<span class="wxd-hi">' + (r.hi == null ? '--' : Math.round(r.hi) + '°') + '</span>' +
+    '</button>';
+  }).join('');
+  const detailHours = hoursForDate(w, cur.date, { step: 3 }).slice(0, 9);
+  const hoursHTML = detailHours.map((h) => {
+    const [e] = wxInfo(h.code);
+    return '<div class="wx-hour' + (h.isNow ? ' now' : '') + '">' +
+      '<span class="tiny muted" style="color:inherit">' + (h.isNow ? '现在' : h.label.slice(0, 2) + '时') + '</span>' +
+      '<span class="e">' + e + '</span>' +
+      '<span class="t">' + (h.temp == null ? '--' : Math.round(h.temp) + '°') + '</span></div>';
+  }).join('');
+  const chip = (label, value) => '<span class="wxd-chip"><i>' + label + '</i><b>' + value + '</b></span>';
+  return '<div class="wxd-week">' + list + '</div>' +
+    '<div class="wxd-day" id="wxd-day">' +
+      '<div class="wxd-day-h"><b>' + cur.label + ' · ' + cur.shortDate + '</b>' +
+        '<span>' + emo + ' ' + desc + '</span></div>' +
+      '<div class="wxd-chips">' +
+        chip('最高', cur.hi == null ? '--' : Math.round(cur.hi) + '°') +
+        chip('最低', cur.lo == null ? '--' : Math.round(cur.lo) + '°') +
+        chip('降水', cur.pop == null ? '--' : Math.round(cur.pop) + '%') +
+        chip('风速', cur.wind == null ? '--' : Math.round(cur.wind) + ' km/h') +
+        chip('紫外线', cur.uv == null ? '--' : Math.round(cur.uv)) +
+        chip('日出/日落', (cur.sunrise || '--') + ' / ' + (cur.sunset || '--')) +
+      '</div>' +
+      '<div class="wxd-day-label">当天逐时</div>' +
+      '<div class="wx-hours">' + hoursHTML + '</div>' +
+    '</div>';
 }
 
-/* 天气详情抽屉：默认不显示，点「详细信息」才打开 */
+function wxDrawerHTML(selected = 0) {
+  return wxWeekHTML(selected);
+}
+
 function openWeatherSheet() {
-  const body = el(`<div class="wx-drawer" id="wxd-body">${wxDrawerHTML()}</div>`);
-  sheet({ title: `${cityFullName(state.city) + ' · 未来一周天气'}`, body, wide: true });
+  const names = placeNames(state.city);
+  const s = sheet({
+    title: names.short + ' · 最近一周天气',
+    body: el('<div class="wx-drawer" id="wxd-body">' + wxWeekHTML(0) + '</div>'),
+    wide: true,
+  });
+  /* 事件委托挂在 sheet-body 上：点某一天只替换内部内容，弹层不用重开。 */
+  s.body.addEventListener('click', (e) => {
+    const row = e.target.closest?.('[data-wxday]');
+    if (!row) return;
+    const body = document.getElementById('wxd-body');
+    if (body) body.innerHTML = wxWeekHTML(Number(row.dataset.wxday));
+  });
 }
 
 /* 清理计时器（切换页面时） */

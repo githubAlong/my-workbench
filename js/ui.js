@@ -1,6 +1,7 @@
 import { api, el, esc, toast, ls, sheet } from './core.js';
 import { decodeQR as qrDecode } from './qrdecode.js';
 import { setActiveAccount, load as loadLocalDB } from './localdb.js';
+import { DEFAULT_PLACE } from './weather-view.mjs';
 
 /* ---------------- 图标 ---------------- */
 const I = {
@@ -87,7 +88,7 @@ export const state = {
   theme: (() => { try { return document.documentElement.dataset.theme || 'light'; } catch { return 'light'; } })(),
   unread: 0,
   weather: ls.get('weather', null),
-  city: ls.get('city', { name: '北京', lat: 39.9042, lon: 116.4074 }),
+  city: ls.get('city', { ...DEFAULT_PLACE }),
   /* auto = 进入首页时尝试更新当前位置；拒绝权限后自动切回 manual。 */
   geoMode: ls.get('geoMode', 'auto'),
 };

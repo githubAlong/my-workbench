@@ -4673,3 +4673,59 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .lesson-plan-sheet .lp-simple-editor .lp-meta-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 22px}.lesson-plan-sheet:has(.lp-simple-editor){max-width:860px!important}.lp-simple-editor .lp-process{min-height:225px;line-height:1.85}.lp-simple-editor [hidden]{display:none!important}@media(max-width:700px){.lesson-plan-sheet .lp-simple-editor .lp-meta-grid{grid-template-columns:1fr;gap:16px}}
 
 .sheet-mask:has(.lp-simple-editor){align-items:center;padding:20px}.lesson-plan-sheet:has(.lp-simple-editor){border-radius:14px;max-height:calc(100dvh - 40px)!important}.lesson-plan-sheet:has(.lp-simple-editor) .sheet-head,.lesson-plan-sheet:has(.lp-simple-editor) .sheet-foot{flex-shrink:0}.lesson-plan-sheet:has(.lp-simple-editor) .sheet-body{min-height:0;flex:1;overflow:auto}.lesson-plan-sheet:has(.lp-simple-editor) .lp-footer{width:100%}@media(max-width:700px){.sheet-mask:has(.lp-simple-editor){padding:10px}.lesson-plan-sheet:has(.lp-simple-editor){max-height:calc(100dvh - 20px)!important}}
+
+
+/* ===== 2026-11-12 天气：卡片显示当天详情，详细天气显示最近一周 ===== */
+.wxb-today { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.wxb-today-h { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 11px; font-weight: 650; color: var(--text-3); }
+.wxb-today-h span:last-child { font-weight: 500; font-variant-numeric: tabular-nums; }
+.wxb-today .wx-hours { margin: 0 -2px; }
+.wxb-today .wx-hour { padding: 0 6px; position: relative; }
+.wxb-today .wx-hour .t { display: block; }
+.wxb-pop { display: block; font-size: 9px; font-style: normal; color: var(--primary); line-height: 1; }
+.wxb-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.wxb-metrics .wx-metric { padding: 4px 7px; gap: 0; border-radius: 8px; }
+.wxb-metrics .wx-metric .k { font-size: 9.5px; }
+.wxb-metrics .wx-metric .k svg { width: 10px; height: 10px; }
+.wxb-metrics .wx-metric .v { font-size: 12px; }
+/* 内容变多后允许卡内滚动，避免把「详细天气」按钮挤出可视区 */
+.home-weather-card .wx-body { overflow-y: auto; }
+.home-weather-card .wx-body::-webkit-scrollbar { width: 4px; }
+.home-weather-card .wx-body::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+
+.wxd-week { display: grid; gap: 3px; min-width: 0; }
+.wxd-row { display: grid;
+  grid-template-columns: 62px 26px minmax(84px, 1fr) 34px minmax(56px, 1.1fr) 34px;
+  align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
+  border: 0; border-radius: 10px; background: transparent; color: var(--text);
+  font-size: 12.5px; text-align: left; padding: 7px 9px; cursor: pointer;
+  transition: background .14s; }
+.wxd-row:hover { background: var(--wx-btn); }
+.wxd-row.on { background: var(--primary-weak); }
+.wxd-row > * { min-width: 0; }
+.wxd-d { display: flex; flex-direction: column; line-height: 1.25; }
+.wxd-d b { font-weight: 700; }
+.wxd-d small { font-size: 10px; color: var(--text-3); }
+.wxd-e { font-size: 18px; text-align: center; }
+.wxd-t { color: var(--text-2); font-size: 11.5px; }
+.wxd-pop { display: block; font-size: 10px; color: var(--primary); }
+.wxd-lo, .wxd-hi { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.wxd-hi { font-weight: 700; }
+.wxd-row .wx-bar { width: 100%; }
+.wxd-day { border-top: 1px solid var(--line-2); padding-top: 12px;
+  display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.wxd-day-h { display: flex; align-items: baseline; gap: 10px; }
+.wxd-day-h b { font-size: 14px; }
+.wxd-day-h span { color: var(--text-2); font-size: 12px; }
+.wxd-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.wxd-chip { display: inline-flex; align-items: baseline; gap: 5px;
+  background: var(--wx-tile); border-radius: 8px; padding: 4px 8px; font-size: 11px; }
+.wxd-chip i { font-style: normal; color: var(--text-3); }
+.wxd-chip b { font-variant-numeric: tabular-nums; }
+.wxd-day-label { font-size: 11px; font-weight: 650; color: var(--text-3); }
+@media (max-width: 700px) {
+  .wxd-row { grid-template-columns: 52px 22px minmax(64px, 1fr) 30px 34px; gap: 5px; padding: 6px; }
+  .wxd-row .wx-bar { display: none; }
+  .wxd-pop { display: none; }
+}

@@ -19,8 +19,12 @@ export function parsePlace(data, provider) {
   if (provider === 'photon') {
     const p = data?.features?.[0]?.properties;
     if (!p) return null;
-    // A nearby POI/street name is not an administrative district.
-    return place(p.state, p.city || p.county, p.district || p.locality, provider);
+    // Photon 的 city 可能是乡镇/街道（咸丰县实测返回「高乐山镇」），
+    // 不能拿它当行政层级；优先用 county/district 这类真实区划。
+    const district = clean(p.district || p.locality || p.county);
+    const prefecture = clean(p.city || p.county);
+    const validPrefecture = /(镇|乡|街道|村|社区)$/.test(prefecture) ? '' : prefecture;
+    return place(p.state, validPrefecture, district, provider);
   }
   const admin = Array.isArray(data?.localityInfo?.administrative) ? data.localityInfo.administrative : [];
   const level = n => admin.find(item => Number(item?.adminLevel) === n)?.name;

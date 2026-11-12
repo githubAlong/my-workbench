@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v198-quiet-save';
+const CACHE = 'wb-v199-weather-today-week';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -83,6 +83,7 @@ const ASSETS = [
   /* 各业务页面 */
   './js/home.js',
   './js/weather-location.mjs',
+  './js/weather-view.mjs',
   './js/work.js',
   './js/material-sharing.mjs',
   './student.html',
