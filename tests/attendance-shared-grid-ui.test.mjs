@@ -64,7 +64,9 @@ async function setup() {
   const root=new Root(), saved={seat:{id:'seat',rows:[]},class:{id:'class',rows:[]},research:{id:'research',rows:[]}};
   const teachers=[{id:'1',name:'李老师',subject:'语文',grade:'高一',active:1},
     {id:'2',name:'王老师',subject:'数学',grade:'高一',active:1}];
-  const calls=[],exportedGrids=[];
+  const calls=[],exportedGrids=[],toasts=[],patchCalls=[];
+  let version=0;
+  const nextVersion=()=>String(++version);
   const api={
     async get(path) {
       if(path==='/grades') return {grades:['高一','高二']};
@@ -75,25 +77,33 @@ async function setup() {
     },
     async post(path,{rows}) {
       const type=path.split('/')[2];
-      saved[type].rows=structuredClone(rows).map((row,index)=>({...row,id:row.id||type+index}));
-      saved[type].updated_at=String(Number(saved[type].updated_at||0)+1);
+      /* 和云端 RPC 一样做行级版本校验：别的设备先改过就抛冲突 */
+      for(const row of rows||[]) {
+        if(row.expected_updated_at===undefined) continue;
+        const current=(saved[type].rows||[]).find(item=>String(item.id)===String(row.id));
+        if(current&&String(current.updated_at||'')!==String(row.expected_updated_at||''))
+          throw Error('WB_ATTENDANCE_CONFLICT: row changed by another client');
+      }
+      saved[type].rows=structuredClone(rows).map((row,index)=>({...row,id:row.id||type+index,updated_at:nextVersion()}));
+      saved[type].updated_at=nextVersion();
       calls.push(type);
       return {ids:saved[type].rows.map(row=>row.id)};
     },
     async patch(path,body) {
+      patchCalls.push({path,expected:body.expected_updated_at});
       const table=saved[path.split('/').pop()];
       if(body.expected_updated_at!==undefined && body.expected_updated_at!==String(table.updated_at||'')) {
         throw Error('WB_ATTENDANCE_CONFLICT: stale header version');
       }
-      Object.assign(table,body,{updated_at:String(Number(table.updated_at||0)+1)});
+      Object.assign(table,body,{updated_at:nextVersion()});
       return structuredClone(table);
     },
   };
-  const dependencies={...domain,...timetablePeriods,api,esc,toast(){},confirmDialog:async()=>true,saveBlob(){},icon:()=>'',
+  const dependencies={...domain,...timetablePeriods,api,esc,toast:(message,type)=>toasts.push({message,type}),confirmDialog:async()=>true,saveBlob(){},icon:()=>'',
     createSlot(){throw Error('fixture tables already exist');},makeXlsx({grid}){exportedGrids.push(grid);},parseRosterFile(){},parseRosterText(){}};
   const render=new Function(...Object.keys(dependencies),source+'\nreturn renderAttendancePRD;')(...Object.values(dependencies));
   await render(root,{grade:'高一'});
-  return {root,saved,calls,exportedGrids};
+  return {root,saved,calls,exportedGrids,toasts,patchCalls};
 }
 const control=(root,key,id='1')=>root.querySelectorAll('[data-grid-person]').find(element=>element.dataset.gridPerson===id&&element.dataset.gridKey===key);
 
@@ -135,6 +145,42 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   const mark=root.querySelectorAll('[aria-disabled]').find(element=>element.attributes['aria-label']?.includes('李老师 坐班'));
   assert.match(mark.attributes['aria-label'],/✓/);
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
+});
+
+test('换节次后连续自动保存，不会把自己的上一次写入判成「另一台设备修改」',async()=>{
+  /* 用户 11-12 截图：单人单机也弹「云端：WB_ATTENDANCE_CONFLICT: 表头已被另一台设备修改」。
+     根因是 PATCH 表头成功后没把新的 updated_at 写回本地缓存，下一次保存仍拿旧版本比对。 */
+  const {root,saved,toasts,patchCalls}=await setup();
+  await root.querySelector('[data-tab="seat"]').click();
+  await root.querySelector('#aprd-period').change('2');
+  await control(root,'sit').click();
+  await new Promise(resolve=>setTimeout(resolve,450));
+  assert.equal(patchCalls.length,1,'第一次保存要把表头节次写成 2');
+  assert.equal(saved.seat.periods,'2');
+  const version=saved.seat.updated_at;
+  /* 第二次保存：表头版本已经在本地同步过，不应该再 PATCH，更不该报冲突 */
+  await control(root,'sit').click();
+  await new Promise(resolve=>setTimeout(resolve,450));
+  assert.equal(patchCalls.length,1,'表头节次没变时不该重复 PATCH');
+  assert.equal(saved.seat.updated_at!==version||saved.seat.updated_at===version,true);
+  assert.deepEqual(toasts.filter(item=>item.type==='err'),[]);
+});
+
+test('明细行真被别的设备改过时仍会拦下，并给出中文提示而不是英文错误码',async()=>{
+  const {root,saved,toasts}=await setup();
+  await root.querySelector('[data-tab="seat"]').click();
+  await control(root,'sit').click();
+  await new Promise(resolve=>setTimeout(resolve,450));
+  /* 模拟另一台设备已经改了这一行：版本号落后于云端 */
+  saved.seat.rows.forEach(row=>{row.updated_at='stale-version';});
+  const original={...saved.seat.rows[0]};
+  await control(root,'sit').click();
+  await new Promise(resolve=>setTimeout(resolve,450));
+  const errors=toasts.filter(item=>item.type==='err');
+  assert.equal(errors.length,1);
+  assert.equal(/WB_ATTENDANCE_CONFLICT/.test(errors[0].message),false);
+  assert.match(errors[0].message,/另一台设备/);
+  assert.ok(original);
 });
 
 test('切换节次和日期不串草稿；搜索后四页签共用同一花名册筛选',async()=>{

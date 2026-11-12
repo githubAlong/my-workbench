@@ -24,6 +24,15 @@ const objectValue = (value) => {
   try { const parsed = JSON.parse(String(value || '')); return parsed && typeof parsed === 'object' ? parsed : {}; }
   catch { return {}; }
 };
+/* 按键名排序后再序列化：判断「云端这行和本地这行内容是否一模一样」用，
+   顺序不同不能算不同，否则每次都会误判成真冲突。 */
+const stableValue = (value) => {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((out, key) => { out[key] = stableValue(value[key]); return out; }, {});
+  }
+  return value;
+};
 const SUMMER_SCHEDULE = '夏令时课表';
 const WINTER_SCHEDULE = '冬令时课表';
 const FALLBACK_PERIOD_TIMES = {
@@ -170,28 +179,130 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         changed = true;
       }
       if (changed) {
-        await saveRows(t,rows);
+        await saveRows('class',t,rows);
         t = await api.get('/attendance/'+t.id);
         details[type] = t;
       }
     }
     return t;
   };
-  const saveRows = async (table, rows) => {
-    // Saving rows advances the table version as well. Check and update header
-    // metadata first so our own row write cannot cause a false conflict afterward.
+  /* 表头版本就地同步：PATCH 表头、写明细（表上有 touch 触发器，已确认的表还会改
+     meta.confirm_dirty）都会推进云端的 updated_at。本地 details 里的版本号不跟着换，
+     下一次保存就拿过期版本去比对，云端匹配 0 行，于是单人单机也弹
+     「表头已被另一台设备修改」——自动保存一开就必撞。 */
+  const syncHeader = (type, table, header) => {
+    if (!header || !header.id) return table;
+    Object.assign(table, header);
+    if (type) details[type] = table;
+    return table;
+  };
+  /* 保存串行化：自动保存的 350ms 防抖回调和「切页签/节次前落盘」会撞在一起，
+     两个请求拿同一个表头版本，后一个必然被判成冲突。排队执行，谁都不用抢。 */
+  let saveQueue = Promise.resolve();
+  const queueSave = (task) => {
+    const run = saveQueue.then(task, task);
+    saveQueue = run.then(() => null, () => null);
+    return run;
+  };
+  /* 云端冲突原文（WB_ATTENDANCE_CONFLICT: …）不该直接怼到用户脸上：
+     表头版本对不上属内部时序问题，下面已自动重试；只有明细行真被别的设备改过
+     才需要用户核对，那时候也必须说清「这次没保存」。 */
+  const attendanceErrorText = (error) => {
+    const text = String(error?.message || error || '');
+    if (error?.conflictScope === 'rows') {
+      return '这张考勤表刚在另一台设备上改过。为避免覆盖，本次未保存；请刷新后核对再改。';
+    }
+    if (/WB_ATTENDANCE_CONFLICT/.test(text)) {
+      return '表头版本刚被更新过，已自动重新同步；如果反复出现，请刷新页面后再试。';
+    }
+    return text || '保存失败，请检查网络后重试';
+  };
+  const saveRows = async (type, table, rows) => {
+    /* 保存成功后把云端的最新版本回填到本地缓存。
+       表头、每一行都有自己的 updated_at，写入一次就全变；不回填的话，
+       下一次点击（或切回别的节次草稿）还拿旧版本去比对，
+       刚被自己保存过的行会被判成「另一台设备改过」，与表头那条同源。 */
+    const refreshSavedVersions = async () => {
+      const fresh = await api.get('/attendance/'+table.id).catch(() => null);
+      if (!fresh?.id) return;
+      const header = {...fresh};
+      delete header.rows;
+      syncHeader(type, table, header);
+      const byId = new Map((fresh.rows||[]).map(row=>[String(row.id), row]));
+      const stamp = row => {
+        const saved = row?.id ? byId.get(String(row.id)) : null;
+        if (saved?.updated_at) row.updated_at = saved.updated_at;
+      };
+      (rows||[]).forEach(stamp);
+      draftCache.forEach(cached=>(cached||[]).forEach(stamp));
+      (details[type]?.rows||[]).forEach(stamp);
+    };
+    /* 写明细会让表头版本前进，所以表头节次要在写明细之前对齐，
+       并且一律用云端最新版本号去比对。 */
     if (String(table.periods || '') !== String(period)) {
-      await api.patch('/attendance/'+table.id,{expected_updated_at:table.updated_at || '',periods:String(period)});
+      const patchHeader = (expected) => api.patch('/attendance/'+table.id,
+        {expected_updated_at:expected || '',periods:String(period)});
+      let header;
+      try {
+        header = await patchHeader(table.updated_at);
+      } catch (error) {
+        /* 版本号过期多半是刚被自己上一次保存推进的：表头只存节次这类元数据，
+           不该因此打断录入 —— 取最新版本重试一次，仍失败才算真冲突。 */
+        if (!/WB_ATTENDANCE_CONFLICT/.test(String(error?.message || error || ''))) throw error;
+        const latest = await api.get('/attendance/'+table.id).catch(() => null);
+        header = await patchHeader(latest?.updated_at || '');
+      }
+      /* 这一步不能省：PATCH 成功后云端 updated_at 已经变了，
+         本地还留旧值的话，下一次保存必定再被判成冲突。 */
+      syncHeader(type, table, header);
     }
     const payload = rows.map(r => ({id:r.id,teacher:r.teacher,subject:r.subject,data:rowData(r),expected_updated_at:r.updated_at || ''}));
-    const res = await api.post('/attendance/'+table.id+'/rows',{rows:payload,dirty:true});
-    if (Array.isArray(res?.ids)) rows.forEach((r,i)=>{ if(!r.id && res.ids[i]) r.id=res.ids[i]; });
+    try {
+      const res = await api.post('/attendance/'+table.id+'/rows',{rows:payload,dirty:true});
+      if (Array.isArray(res?.ids)) rows.forEach((r,i)=>{ if(!r.id && res.ids[i]) r.id=res.ids[i]; });
+      await refreshSavedVersions();
+      return res;
+    } catch (error) {
+      if (!/WB_ATTENDANCE_CONFLICT/.test(String(error?.message || error || ''))) throw error;
+      /* 版本冲突先比内容：如果云端每一行都和这次要写的一模一样，说明只是自己
+         上一次保存把版本推进了（重复写同样的值），回填最新版本重发一次就行；
+         内容真的不同才算「另一台设备改过」，那种才必须让用户核对。 */
+      const latest = await api.get('/attendance/'+table.id).catch(() => null);
+      if (latest?.id) {
+        const byId = new Map((latest.rows||[]).map(row=>[String(row.id), row]));
+        const identical = rows.every(row=>{
+          if (!row.id) return true;
+          const current = byId.get(String(row.id));
+          if (!current) return false;
+          return String(current.teacher||'')===String(row.teacher||'')
+            && String(current.subject||'')===String(row.subject||'')
+            && JSON.stringify(stableValue(current.data||{}))===JSON.stringify(stableValue(rowData(row)));
+        });
+        if (identical) {
+          rows.forEach(row=>{
+            const current = row.id ? byId.get(String(row.id)) : null;
+            if (current?.updated_at) row.updated_at = current.updated_at;
+          });
+          const latestHeader = {...latest};
+          delete latestHeader.rows;
+          syncHeader(type, table, latestHeader);
+          const retry = rows.map(r => ({id:r.id,teacher:r.teacher,subject:r.subject,data:rowData(r),expected_updated_at:r.updated_at || ''}));
+          const res = await api.post('/attendance/'+table.id+'/rows',{rows:retry,dirty:true});
+          if (Array.isArray(res?.ids)) rows.forEach((r,i)=>{ if(!r.id && res.ids[i]) r.id=res.ids[i]; });
+          await refreshSavedVersions();
+          return res;
+        }
+      }
+      /* 明细行版本冲突才是真的「另一台设备改过」：留给用户核对，不能被自动重试掩盖。 */
+      error.conflictScope = 'rows';
+      throw error;
+    }
   };
-  const persistAndReload = async (type, rows, message='已保存') => {
+  const persistAndReload = async (type, rows, message='已保存') => queueSave(async () => {
     const t = await getTable(type);
-    await saveRows(t,rows);
+    await saveRows(type,t,rows);
     toast(message,'ok'); await load();
-  };
+  });
   const visibleTeachers = () => teachers.filter(t =>
     (!search || (t.name+' '+t.subject).toLowerCase().includes(search.toLowerCase()))
     && (!subject || (t.subject || '未填学科') === subject)
@@ -292,12 +403,12 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     }
     return mergeTeacherGridRows(rows,draftRows,period);
   };
-  const persistDraft = async (type,{reload=true,key:overrideKey=null}={}) => {
+  const persistDraft = async (type,{reload=true,key:overrideKey=null}={}) => queueSave(async () => {
     /* overrideKey：自动保存可能在用户切了日期/节次之后才触发，必须写回点击时
        那张草稿，否则会把改动写进新节次的空草稿里、旧改动丢掉。 */
     const key=overrideKey||draftKey(type),draftRows=draftCache.get(key)||getDraftRows(type),table=await getTable(type);
     const rows=mergeDraftRows(type,table,draftRows);
-    await saveRows(table,rows);
+    await saveRows(type,table,rows);
     if(reload){
       draftCache.delete(key);
       await load();
@@ -307,7 +418,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       if(details[type])details[type]={...details[type],rows};
       draftCache.set(key,draftRows);
     }
-  };
+  });
   /* 用户 11-12 裁决：去掉「保存本表」，点一下单元格就自动落盘。成功静默，
      只在失败时提示，避免每点一次弹一次「已保存」。 */
   let autoSaveTimer=null,autoSaveKey=null,autoSaveType=null;
@@ -317,7 +428,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     autoSaveTimer=setTimeout(async()=>{
       autoSaveTimer=null;
       try{await persistDraft(type,{reload:false,key:autoSaveKey});}
-      catch(error){toast(error.message||'自动保存失败，请检查网络后重试','err',4000);}
+      catch(error){toast(attendanceErrorText(error),'err',4000);}
     },350);
   };
   /* 切页签/节次/日期之前先把待写的内容落盘，避免刚点完就切换导致改动丢失 */
@@ -325,7 +436,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     if(!autoSaveTimer)return;
     clearTimeout(autoSaveTimer);autoSaveTimer=null;
     try{await persistDraft(autoSaveType,{key:autoSaveKey});}
-    catch(error){toast(error.message||'自动保存失败，请检查网络后重试','err',4000);}
+    catch(error){toast(attendanceErrorText(error),'err',4000);}
   };
   const generateTable = async type => {
     const existed=!!details[type];
@@ -699,7 +810,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         const data={...rowData(row)},record={...data.__classRecord,status:next};
         row.data={...data,__classRecord:record};
       });
-      await saveRows(table,table.rows||[]);
+      await saveRows('class',table,table.rows||[]);
       await load();
       return;
     }
@@ -727,7 +838,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         remark:data.remark||'',
       };
       row.data={...rowData(row),__classRecord:record};
-      await saveRows(table,table.rows||[]);
+      await saveRows('class',table,table.rows||[]);
       await load();
     });
   };
@@ -751,7 +862,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         status:present.length?'已登记':'待登记',
       };
       row.data={...rowData(row),__research:nextRecord};
-      await saveRows(table,table.rows||[]);
+      await saveRows('research',table,table.rows||[]);
       await load();
     };
     if(existing){
@@ -772,7 +883,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         ...record,subject:subjectName,expected:members.length,attendees:present,
         absent:members.filter(name=>!present.includes(name)),status:present.length?'已登记':'待登记',
       }};
-      await saveRows(table,table.rows||[]);
+      await saveRows('research',table,table.rows||[]);
       await load();
       return;
     }
@@ -789,7 +900,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
           absent:members.filter(name=>!attendees.includes(name)),status:'已登记',
         }},
       });
-      await saveRows(table,table.rows);
+      await saveRows('research',table,table.rows);
       await load();
     });
   };
@@ -1047,7 +1158,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       if(!row)return;
       row.data={...rowData(row),__deleted:true};paint();
     }));
-    root.querySelector('[data-save-class]')?.addEventListener('click',async()=>{try{await persistDraft('class');toast('上课表修改已保存','ok');}catch(error){toast(error.message||'保存失败','err');}});
+    root.querySelector('[data-save-class]')?.addEventListener('click',async()=>{try{await persistDraft('class');toast('上课表修改已保存','ok');}catch(error){toast(attendanceErrorText(error),'err');}});
 
 
     root.querySelector('[data-add-class]')?.addEventListener('click',()=>openEditor('新增班级上课记录',[
@@ -1079,7 +1190,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       if(!row)return;
       row.data={...rowData(row),__deleted:true};paint();
     }));
-    root.querySelector('[data-save-class]')?.addEventListener('click',async()=>{try{await persistDraft('class');toast('上课表修改已保存','ok');}catch(error){toast(error.message||'保存失败','err');}});
+    root.querySelector('[data-save-class]')?.addEventListener('click',async()=>{try{await persistDraft('class');toast('上课表修改已保存','ok');}catch(error){toast(attendanceErrorText(error),'err');}});
 
 
     root.querySelectorAll('[data-seat]').forEach(el=>el.addEventListener('change',()=>{
@@ -1090,7 +1201,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const data={...rowData(row)},periods={...(data.__periods||{})},record={...(periods[String(period)]||{})};
       record[el.dataset.k]=el.value;periods[String(period)]=record;row.data={...data,__periods:periods};
     }));
-    root.querySelector('[data-save-seat]')?.addEventListener('click',async()=>{try{await persistDraft('seat');toast('坐班表修改已保存','ok');}catch(error){toast(error.message||'保存失败','err');}});
+    root.querySelector('[data-save-seat]')?.addEventListener('click',async()=>{try{await persistDraft('seat');toast('坐班表修改已保存','ok');}catch(error){toast(attendanceErrorText(error),'err');}});
 
 
     root.querySelector('[data-add-research]')?.addEventListener('click',()=>{
@@ -1151,7 +1262,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         paint();
       });
     }));
-    root.querySelector('[data-save-research]')?.addEventListener('click',async()=>{try{await persistDraft('research');toast('教研表修改已保存','ok');}catch(error){toast(error.message||'保存失败','err');}});
+    root.querySelector('[data-save-research]')?.addEventListener('click',async()=>{try{await persistDraft('research');toast('教研表修改已保存','ok');}catch(error){toast(attendanceErrorText(error),'err');}});
 
     root.querySelector('[data-subject-manager]')?.addEventListener('click',()=>toast('学科管理请在名册管理入口维护','warn'));
   };
