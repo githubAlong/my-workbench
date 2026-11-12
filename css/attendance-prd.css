@@ -128,3 +128,20 @@
 
 .attendance-prd .aprd-grid-summary{grid-template-columns:repeat(6,minmax(0,1fr));margin:0 0 12px}
 @media(max-width:760px){.attendance-prd .aprd-grid-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* PNG 导出：分页长图 + 可滚动预览 */
+.aprd-dialog.aprd-png-dialog{position:fixed;inset:0;background:#17274466;z-index:1100;display:grid;place-items:center;padding:16px}
+.attendance-prd .aprd-png-preview{width:min(1000px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;border-radius:16px;background:#fff;box-shadow:0 20px 70px rgba(15,35,70,.24)}
+.attendance-prd .aprd-png-preview>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #e8edf4}
+.attendance-prd .aprd-png-preview h3{margin:0;color:#172744;font-size:17px}
+.attendance-prd .aprd-png-preview header p{margin:5px 0 0;color:#8290a5;font-size:12px}
+.attendance-prd .aprd-png-preview header button{width:32px;height:32px;border:0;border-radius:8px;background:#f2f5fa;color:#53627a;font-size:22px;cursor:pointer;line-height:1}
+.attendance-prd .aprd-png-scroll{padding:14px 20px;overflow:auto;-webkit-overflow-scrolling:touch;display:grid;gap:14px;background:#f6f8fc}
+.attendance-prd .aprd-png-scroll figure{margin:0;display:grid;gap:6px}
+.attendance-prd .aprd-png-scroll img{width:100%;height:auto;display:block;border:1px solid #e1e8f2;border-radius:10px;background:#fff}
+.attendance-prd .aprd-png-scroll figcaption{font-size:11px;color:#8290a5;text-align:center}
+.attendance-prd .aprd-png-preview>footer{display:flex;justify-content:flex-end;gap:8px;padding:13px 20px;border-top:1px solid #e8edf4}
+.attendance-prd .aprd-png-preview>footer button{border:1px solid #dce5f1;background:#fff;border-radius:8px;padding:8px 14px;cursor:pointer;color:#354965;font:inherit}
+.attendance-prd .aprd-png-preview>footer button.primary{background:#165dff;border-color:#165dff;color:#fff}
+.attendance-prd .aprd-png-preview>footer button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:760px){.attendance-prd .aprd-png-scroll{padding:10px}.attendance-prd .aprd-png-preview>header,.attendance-prd .aprd-png-preview>footer{padding:12px 14px}}

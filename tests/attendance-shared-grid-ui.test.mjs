@@ -109,25 +109,26 @@ test('实际四页签展示相同名单和列，花名册无考勤编辑入口�
     assert.deepEqual(headers(),expectedHeaders);
     assert.deepEqual(names(),expectedNames);
     assert.equal(root.querySelectorAll('[data-grid-person]').length,12);
-    assert.ok(root.querySelector('[data-grid-save]'));
+    /* 用户 11-12 裁决：去掉「保存本表」，改为点一下即自动保存 */
+    assert.equal(root.querySelector('[data-grid-save]'),null);
+    assert.equal(/保存本表/.test(root.innerHTML),false);
   }
 });
 
-test('真实操作链：草稿跨页签保留，保存仅写本表，重新打开与花名册汇总一致',async()=>{
+test('真实操作链：草稿跨页签保留，自动保存仅写本表，重新打开与花名册汇总一致',async()=>{
   const {root,saved,calls}=await setup();
   await root.querySelector('[data-tab="seat"]').click();
   await control(root,'sit').click();
   await control(root,'remark').input('本表的备注');
+  /* 不再需要点「保存本表」：点击后自动落盘（350ms 防抖），这里等它执行完 */
+  await new Promise(resolve=>setTimeout(resolve,450));
+  assert.deepEqual(calls,['seat']);
+  assert.equal(saved.class.rows.length,0);
+  assert.equal(saved.research.rows.length,0);
   await root.querySelector('[data-tab="class"]').click();
   assert.match(control(root,'sit').attributes['aria-label'],/—/);
   assert.equal(control(root,'remark').value,'');
   await root.querySelector('[data-tab="seat"]').click();
-  assert.match(control(root,'sit').attributes['aria-label'],/✓/);
-  assert.equal(control(root,'remark').value,'本表的备注');
-  await root.querySelector('[data-grid-save]').click();
-  assert.deepEqual(calls,['seat']);
-  assert.equal(saved.class.rows.length,0);
-  assert.equal(saved.research.rows.length,0);
   assert.match(control(root,'sit').attributes['aria-label'],/✓/);
   assert.equal(control(root,'remark').value,'本表的备注');
   await root.querySelector('[data-tab="roster"]').click();
@@ -137,13 +138,15 @@ test('真实操作链：草稿跨页签保留，保存仅写本表，重新打�
 });
 
 test('切换节次和日期不串草稿；搜索后四页签共用同一花名册筛选',async()=>{
-  const {root}=await setup();
+  const {root,saved}=await setup();
   await root.querySelector('[data-tab="research"]').click();
   await control(root,'research').click();
   await root.querySelector('#aprd-period').change('2');
   assert.match(control(root,'research').attributes['aria-label'],/—/);
   await root.querySelector('#aprd-period').change('1');
   assert.match(control(root,'research').attributes['aria-label'],/✓/);
+  /* 真实环境按日期分表，换日期就是另一张空表；这里清空桩数据来模拟 */
+  Object.values(saved).forEach(table=>{table.rows=[];});
   await root.querySelector('#aprd-date').change('2026-10-01');
   assert.match(control(root,'research').attributes['aria-label'],/—/);
   await root.querySelector('#aprd-search').input('王老师');

@@ -205,9 +205,9 @@ export function deriveTableGridState(teacher, type, rows, context = {}) {
     ...saved,
   };
   // Historical multi-category entries display one category without rewriting history.
-  const preferred = {seat:'sit',class:'class',research:'research'}[type];
-  const selected = [preferred, ...GRID_KEYS.filter(key => key !== preferred)]
-    .find(key => result[key] === 'y' || result[key] === 'n');
+  /* 单张表内也按全局优先级裁决（上课 > 坐班 > 听课 > 教研），
+     历史数据里一格同时留了多个状态时，保留的必须是优先级最高的那个。 */
+  const selected = ['class','sit','listen','research'].find(key => result[key] === 'y' || result[key] === 'n');
   for (const key of GRID_KEYS) if (key !== selected) result[key] = 'u';
   return result;
 }
@@ -257,21 +257,57 @@ export function mergeTeacherGridRows(savedRows, draftRows, period) {
   return rows;
 }
 
+/* 五种状态互斥（用户 11-12 裁决）：请假 > 上课 > 坐班 > 听课 > 教研。
+   坐班表和上课表是两张独立的表，同一个人很容易两边都有记录，合并显示
+   时必须只留一个状态，否则会出现「上课✓ 坐班✓」两个勾同时亮。 */
+const STATE_PRIORITY = ['leave', 'class', 'sit', 'listen', 'research'];
+function exclusiveRosterState(state) {
+  const statusOf = key => {
+    if (key === 'listen' || key === 'research') {
+      const explicit = key === 'listen' ? state.listenStatus : state.researchStatus;
+      if (explicit === 'y' || explicit === 'n' || explicit === 'u') return explicit;
+      const value = key === 'listen' ? state.listen : state.research;
+      return value === true || value === 'y' ? 'y' : value === 'n' ? 'n' : 'u';
+    }
+    return state[key] === 'y' || state[key] === 'n' ? state[key] : 'u';
+  };
+  const next = {
+    ...state,
+    listenStatus: statusOf('listen'),
+    researchStatus: statusOf('research'),
+  };
+  /* raw 保留互斥前的原始状态：显示只留一个，但「坐班次数/上课次数」这类
+     次数统计必须两边都算，否则同一个人既上课又坐班会少算一次。 */
+  next.raw = {
+    class: statusOf('class'), sit: statusOf('sit'),
+    listenStatus: statusOf('listen'), researchStatus: statusOf('research'),
+  };
+  next.listen = next.listenStatus === 'y';
+  next.research = next.researchStatus === 'y';
+  const winner = STATE_PRIORITY.find(key => key === 'leave' ? !!state.leave : statusOf(key) === 'y');
+  if (!winner) return next;
+  if (winner !== 'class') next.class = 'u';
+  if (winner !== 'sit') next.sit = 'u';
+  if (winner !== 'listen') { next.listen = false; next.listenStatus = 'u'; }
+  if (winner !== 'research') { next.research = false; next.researchStatus = 'u'; }
+  return next;
+}
+
 export function deriveRosterState(teacher, context = {}) {
   const legacy = deriveLegacyRosterState(teacher, context);
   const period = context.period ?? 1;
   const hasGrid = GRID_TYPES.some(type => (context[type + 'Rows'] || []).some(row =>
     !rowData(row).__deleted && matchesGridTeacher(row, teacher) && gridRecord(row, period)));
-  if (!hasGrid) return legacy;
+  if (!hasGrid) return exclusiveRosterState(legacy);
   const states = GRID_TYPES.map(type => deriveTableGridState(teacher, type, context[type + 'Rows'] || [], context));
   const aggregate = key => states.some(state => state[key] === 'y') ? 'y'
     : states.some(state => state[key] === 'n') ? 'n' : 'u';
-  return {
+  return exclusiveRosterState({
     ...legacy, class: aggregate('class'), sit: aggregate('sit'),
     listen: aggregate('listen') === 'y', research: aggregate('research') === 'y',
     listenStatus: aggregate('listen'), researchStatus: aggregate('research'),
     leave: states.find(state => state.leave)?.leave || legacy.leave,
-  };
+  });
 }
 
 export function calculateDailySummary(context = {}) {
@@ -293,21 +329,27 @@ export function calculateDailySummary(context = {}) {
       return;
     }
     const states = [...periods].map(period => ({ period, state: deriveRosterState(teacher, { ...context, period }) }));
-    const seats = [0,1,2,3,4,5,6,7,8,9].map(period => deriveRosterState(teacher, { ...context, period }).sit);
+    const rawOf = item => item.state.raw || {
+      class: item.state.class, sit: item.state.sit,
+      listenStatus: item.state.listenStatus || (item.state.listen ? 'y' : 'u'),
+      researchStatus: item.state.researchStatus || (item.state.research ? 'y' : 'u'),
+    };
+    const seats = [0,1,2,3,4,5,6,7,8,9].map(period => deriveRosterState(teacher, { ...context, period }))
+      .map(state => (state.raw?.sit) || state.sit);
     output.seatPresent = seats.filter(value => value === 'y').length;
     output.seatExpected = seats.filter(value => value === 'y' || value === 'n').length;
     // Retain legacy records outside the edited periods, including multiple classes.
     const classes = (context.classRows || []).filter(row => !rowData(row).__deleted
       && matchesGridTeacher(row, teacher) && rowData(row).__classRecord?.status === 'y'
       && !periods.has(Number(rowData(row).__classRecord.period ?? 1))).length;
-    output.classes = classes + states.filter(item => item.state.class === 'y').length;
+    output.classes = classes + states.filter(item => rawOf(item).class === 'y').length;
     const seatListens = (context.seatRows || []).filter(row => matchesGridTeacher(row, teacher))
       .flatMap(row => Object.entries(rowData(row).__periods || {}))
       .filter(([period, record]) => !periods.has(Number(period)) && !!record.listen_class).length;
     const classListens = (context.classRows || []).filter(row => !rowData(row).__deleted
       && !periods.has(Number(rowData(row).__classRecord?.period ?? 1))
       && rowData(row).__classRecord?.listeners?.includes(teacher.name)).length;
-    output.listens = seatListens + classListens + states.filter(item => item.state.listen).length;
+    output.listens = seatListens + classListens + states.filter(item => rawOf(item).listenStatus === 'y').length;
     const explicitResearch = [...periods].filter(period => GRID_TYPES.some(type => (context[type+'Rows']||[]).some(row => !rowData(row).__deleted && matchesGridTeacher(row,teacher) && gridRecord(row,period)?.research==='y')));
     const researchOverrides = [...periods].filter(period => (context.researchRows||[]).some(row => !rowData(row).__deleted && matchesGridTeacher(row,teacher) && gridRecord(row,period)));
     const legacyResearch = (context.researchRows || []).filter(row => !rowData(row).__deleted && rowData(row).__research?.attendees?.includes(teacher.name)
@@ -315,7 +357,11 @@ export function calculateDailySummary(context = {}) {
     output.research = legacyResearch + explicitResearch.length;
     const onLeave = states.some(item => item.state.leave) || output.leaveDays > 0;
     if (onLeave) leavePeople.add(teacher.name);
-    const registered = states.some(({state})=>state.class !== 'u' || state.sit !== 'u' || state.listenStatus === 'y' || state.listenStatus === 'n' || state.researchStatus === 'y' || state.researchStatus === 'n');
+    const registered = states.some(({state})=>{
+      const raw = rawOf({state});
+      return raw.class !== 'u' || raw.sit !== 'u' || raw.listenStatus === 'y' || raw.listenStatus === 'n'
+        || raw.researchStatus === 'y' || raw.researchStatus === 'n';
+    });
     const legacyAbsent = (context.seatRows||[]).some(row=>matchesGridTeacher(row,teacher) && Object.entries(rowData(row).__periods||{}).some(([p,value])=>!periods.has(Number(p)) && value.status==='n'))
       || (context.classRows||[]).some(row=>matchesGridTeacher(row,teacher) && !rowData(row).__deleted && rowData(row).__classRecord?.status==='n' && !periods.has(Number(rowData(row).__classRecord.period??1)));
     output.overall = onLeave || registered || legacyAbsent || output.classes || output.seatPresent || output.listens || output.research ? '已登记' : '未登记';
@@ -344,6 +390,23 @@ export function formatLeaveDuration(record) {
   if(Number(record.days)>0)parts.push(Number(Number(record.days).toFixed(2))+'天');
   if(Number(record.hours)>0)parts.push(Number(Number(record.hours).toFixed(2))+'小时');
   return parts.join(' / ') || '0天';
+}
+
+/**
+ * 导出网格分页：PNG 一张长图在手机/预览器里没法上下滑动，按固定行数切页，
+ * 每页都带同一份表头，导出后逐页查看或打印。
+ */
+export function paginateExportGrid(grid, rowsPerPage = 18) {
+  const headers = Array.isArray(grid?.[1]) ? grid[1] : [];
+  const body = Array.isArray(grid) ? grid.slice(2) : [];
+  const size = Math.max(1, Number(rowsPerPage) || 18);
+  const pageCount = Math.max(1, Math.ceil(body.length / size));
+  return Array.from({ length: pageCount }, (_, index) => ({
+    index,
+    pageCount,
+    headers,
+    rows: body.slice(index * size, (index + 1) * size),
+  }));
 }
 
 const EXPORT_HEADERS = Object.freeze({
@@ -393,8 +456,10 @@ export function buildAttendanceExportGrid({
     const range = typeof resolvePeriodRange === 'function' ? resolvePeriodRange(Number(value)) : [];
     return Array.isArray(range) && range.filter(Boolean).length ? range.filter(Boolean).join('—') : '—';
   };
+  /* 全天导出要同时算「全天登记」（__teacherGrid['0']）和第 1~9 节的分节登记：
+     页面在全天模式下读的是 '0'，只遍历 1~9 会让导出全是「未登记」。 */
   const periodNumbers = Number(period) === 0
-    ? Array.from({ length: 9 }, (_, index) => index + 1)
+    ? [0, ...Array.from({ length: 9 }, (_, index) => index + 1)]
     : [Number(period)];
   const baseTitle = type === 'roster' ? '花名册' : ({
     seat: '坐班表', class: '上课表', research: '教研表', leave: '请假总表',

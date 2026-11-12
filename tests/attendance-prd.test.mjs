@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   ATTENDANCE_COLUMNS, nextTriState, leaveCoversDate, activeLeavesFor,
   deriveRosterState, calculateDailySummary, parseLeaveDuration, formatLeaveDuration, buildAttendanceExportGrid,
+  deriveTableGridState, paginateExportGrid,
 } from '../js/attendance-prd-domain.mjs';
 
 test('PRD 固定六页签字段顺序', () => {
@@ -30,15 +31,28 @@ test('请假区间按开始与结束日期覆盖当前日期', () => {
 
 test('花名册状态可从坐班、上课、教研与请假记录汇总', () => {
   const teacher={name:'李老师',subject:'语文'};
+  const seatOnly=deriveRosterState(teacher,{
+    seatRows:[{teacher:'李老师',data:{__periods:{'1':{status:'y',listen_class:'高一(1)班'}}}}],
+    classRows:[],researchRows:[],leaveRecords:[],date:'2026-11-08',period:1,
+  });
+  assert.equal(seatOnly.sit,'y');
+  /* 互斥：坐班优先于听课，显示层只留坐班；听课原始状态保留在 raw 里，
+     「听课人次」统计仍然算得到。 */
+  assert.equal(seatOnly.listen,false);
+  assert.equal(seatOnly.raw.listenStatus,'y');
+  /* 五种状态互斥（11-12 裁决）：请假优先级最高，有请假时其他状态不显示，
+     但原始状态仍保留在 raw 里，供坐班次数/上课次数统计使用。 */
   const state=deriveRosterState(teacher,{
     seatRows:[{teacher:'李老师',data:{__periods:{'1':{status:'y',listen_class:'高一(1)班'}}}}],
     classRows:[],researchRows:[],
     leaveRecords:[{name:'李老师',start_date:'2026-11-08',end_date:'2026-11-08',type:'病假'}],
     date:'2026-11-08',period:1,
   });
-  assert.equal(state.sit,'y');
-  assert.equal(state.listen,true);
   assert.equal(state.leave,'病假');
+  assert.equal(state.sit,'u');
+  assert.equal(state.listen,false);
+  assert.equal(state.raw.sit,'y');
+  assert.equal(state.raw.listenStatus,'y');
 });
 
 test('汇总 KPI 跨节次累计，未登记与缺勤不混为一类', () => {
@@ -167,4 +181,67 @@ test('一场都没登记时，四个页签仍然输出全名单与明确状态�
     }
     assert.ok(/未登记|未请假/.test(grid[0][0]),type+' 抬头缺未登记统计');
   }
+});
+
+test('全天录入的状态能原样导出（不会被判成未登记）', () => {
+  const teachers = [{ id: 1, name: '李老师', subject: '语文', grade: '高一', active: 1 },
+    { id: 2, name: '王老师', subject: '数学', grade: '高一', active: 1 }];
+  /* 用户实际用法：节次选「全天」，状态写进 __teacherGrid['0'] */
+  const seatRows = [
+    { teacher: '李老师', subject: '语文', data: { __teacherId: 1, __teacherGrid: { 0: { class: 'y', sit: 'u', listen: 'u', research: 'u', leave: '' } } } },
+    { teacher: '王老师', subject: '数学', data: { __teacherId: 2, __teacherGrid: { 0: { class: 'u', sit: 'y', listen: 'u', research: 'u', leave: '' } } } },
+  ];
+  const grid = buildAttendanceExportGrid({
+    type: 'seat', grade: '高一', date: '2026-11-12', period: 0, teachers, seatRows,
+    classRows: [], researchRows: [], leaveRecords: [], resolvePeriodRange: () => ['00:00', '23:59'],
+  });
+  const rows = grid.slice(2);
+  assert.equal(rows[0][5], '✓');
+  assert.equal(rows[0][6], '未登记');
+  assert.equal(rows[1][6], '✓');
+  assert.equal(rows[1][5], '未登记');
+  assert.match(grid[0][0], /上课1/);
+  assert.match(grid[0][0], /坐班1/);
+  assert.match(grid[0][0], /未登记0人/);
+});
+
+test('五种状态互斥：同一人只显示一个状态，按 请假>上课>坐班>听课>教研 裁决', () => {
+  const teacher = { id: 1, name: '李老师', subject: '语文', grade: '高一', active: 1 };
+  const cell = (period, patch) => [{ teacher: '李老师', subject: '语文',
+    data: { __teacherId: 1, __teacherGrid: { [period]: { class: 'u', sit: 'u', listen: 'u', research: 'u', leave: '', ...patch } } } }];
+  const context = { teachers: [teacher], classRows: [], researchRows: [], leaveRecords: [], date: '2026-11-12', period: 1 };
+
+  const classWins = deriveRosterState(teacher, { ...context, seatRows: cell(1, { class: 'y', sit: 'y', listen: 'y', research: 'y' }) });
+  assert.equal(classWins.class, 'y');
+  assert.equal(classWins.sit, 'u');
+  assert.equal(classWins.listen, false);
+  assert.equal(classWins.research, false);
+
+  const sitWins = deriveRosterState(teacher, { ...context, seatRows: cell(1, { sit: 'y', listen: 'y', research: 'y' }) });
+  assert.equal(sitWins.sit, 'y');
+  assert.equal(sitWins.listen, false);
+  assert.equal(sitWins.research, false);
+
+  /* 跨表冲突：坐班表勾坐班、上课表勾上课，合并后也只留上课 */
+  const cross = deriveRosterState(teacher, { ...context,
+    seatRows: cell(1, { sit: 'y' }), classRows: cell(1, { class: 'y' }) });
+  assert.equal(cross.class, 'y');
+  assert.equal(cross.sit, 'u');
+  /* 原始状态保留，次数统计仍能两边都算 */
+  assert.equal(cross.raw.class, 'y');
+  assert.equal(cross.raw.sit, 'y');
+});
+
+test('导出 PNG 按页切分，每页都带表头，方便上下滑动查看', () => {
+  const grid = [['坐班表 · 高一年级 · 2026-11-12 · 全天'],
+    ['序号', '姓名', '学科'],
+    ...Array.from({ length: 46 }, (_, index) => [index + 1, '教师' + (index + 1), '语文'])];
+  const pages = paginateExportGrid(grid, 18);
+  assert.equal(pages.length, 3);
+  assert.deepEqual(pages.map(page => page.rows.length), [18, 18, 10]);
+  pages.forEach(page => {
+    assert.deepEqual(page.headers, ['序号', '姓名', '学科']);
+    assert.equal(page.pageCount, 3);
+  });
+  assert.equal(paginateExportGrid([['标题'], ['表头']], 18).length, 1);
 });

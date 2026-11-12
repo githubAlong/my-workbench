@@ -42,9 +42,13 @@ test('花名册汇总三张已保存工作表，不改变任何表的原始数�
   updateTeacherGrid(researchRows,teacher,'research',1,'research','y',context);
   const source=JSON.stringify({seatRows,classRows,researchRows});
   const state=deriveRosterState(teacher,{...context,seatRows,classRows,researchRows});
+  /* 五种状态互斥（11-12 裁决）：坐班优先于「未上课」和教研，显示层只留一个；
+     原始状态保留在 raw 里，三张表的原始数据与次数统计都不受影响。 */
   assert.equal(state.sit,'y');
-  assert.equal(state.class,'n');
-  assert.equal(state.research,true);
+  assert.equal(state.class,'u');
+  assert.equal(state.research,false);
+  assert.equal(state.raw.class,'n');
+  assert.equal(state.raw.researchStatus,'y');
   assert.equal(JSON.stringify({seatRows,classRows,researchRows}),source);
 });
 
