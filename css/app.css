@@ -4215,7 +4215,7 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 [data-cell].tt-drop-target{outline:3px solid var(--primary)!important;outline-offset:-3px;background:color-mix(in srgb,var(--primary) 13%,var(--card))!important}
 @media(hover:hover){[data-course-id][draggable="true"]:hover{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--primary) 45%,transparent)}}
 
-/* 电子备课记录表：类型标签与详细内容摘要 */
+/* 备课记录表：内容摘要与备注 */
 .prep-type-filter { gap: 6px; margin-bottom: 7px; }
 .prep-type-badge {
   display: inline-flex; align-items: center; vertical-align: middle;
@@ -4562,11 +4562,11 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   .iv-tier-row span { display:none; }
 }
 
-/* Electronic lesson planning */
-.lesson-plan-list{width:100%}.lp-list-toolbar{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:14px}.lp-list-caption{color:var(--text-2);font-size:13px;margin-bottom:8px}.lp-filter-row{display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:12px}.lp-type-filter{width:150px;min-height:34px}.lp-table-wrap{width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card)}.lp-table{width:100%;min-width:680px;border-collapse:collapse}.lp-table th,.lp-table td{padding:13px 14px;border-bottom:1px solid var(--line);text-align:left;font-size:13.5px;vertical-align:middle}.lp-table th{color:var(--text-2);background:var(--card-2);font-weight:650;white-space:nowrap}.lp-type-label{margin-top:4px;color:var(--text-3);font-size:11px}.lp-row-actions{display:flex;align-items:center;gap:5px;white-space:nowrap}.lp-delete-btn,.lp-attach-remove{color:var(--red)!important}.lp-empty{padding:42px 12px!important;text-align:center!important;color:var(--text-3)!important}.lp-record-count{margin-top:10px;color:var(--text-3);font-size:12px;text-align:right}.lp-load-error{padding:24px;color:var(--red);background:var(--card);border-radius:12px}.lesson-plan-sheet{width:min(960px,100%)!important;max-width:960px!important;max-height:92vh!important}.lesson-plan-sheet .sheet-body{padding:0!important}.lesson-plan-editor{padding:20px 24px 24px}.lp-meta-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px}.lp-section-title{margin:22px 0 10px;color:var(--text);font-size:14px;font-weight:700}.lp-textarea{min-height:108px;line-height:1.65}.lp-process{min-height:220px}.lp-two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.lp-attach-box{padding:15px;border:1px dashed var(--line-2);border-radius:10px;background:var(--card-2)}.lp-attach-top,.lp-attach-detail,.lp-attach-actions,.lp-actions-left{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.lp-hidden-file{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important}.lp-attach-list{display:grid;gap:7px;margin-top:12px}.lp-attach-item{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card)}.lp-attach-name{font-size:13px;overflow-wrap:anywhere}.lp-attach-size,.lp-tool-status{color:var(--text-3);font-size:11px}.lp-footer{display:flex;align-items:center;justify-content:space-between;gap:14px}.lp-save-btn{min-width:142px}@media(max-width:900px){.lp-meta-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:700px){.lp-meta-grid,.lp-two-col{grid-template-columns:1fr}.lesson-plan-sheet{width:100%!important;max-width:100%!important;max-height:94vh!important}.lesson-plan-editor{padding:16px 15px 20px}.lp-footer{align-items:stretch;flex-direction:column}.lp-actions-left{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.lp-actions-left .btn,.lp-save-btn{width:100%}}
+/* 备课记录 */
+.lesson-plan-list{width:100%}.lp-list-toolbar{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:14px}.lp-list-caption{color:var(--text-2);font-size:13px;margin-bottom:8px}.lp-filter-row{display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:12px}.lp-type-filter{width:150px;min-height:34px}.lp-table-wrap{width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card)}.lp-table{width:100%;min-width:1000px;border-collapse:collapse}.lp-table th,.lp-table td{padding:13px 14px;border-bottom:1px solid var(--line);text-align:left;font-size:13.5px;vertical-align:middle}.lp-table th{color:var(--text-2);background:var(--card-2);font-weight:650;white-space:nowrap}.lp-type-label{margin-top:4px;color:var(--text-3);font-size:11px}.lp-row-actions{display:flex;align-items:center;gap:5px;white-space:nowrap}.lp-delete-btn,.lp-attach-remove{color:var(--red)!important}.lp-empty{padding:42px 12px!important;text-align:center!important;color:var(--text-3)!important}.lp-record-count{margin-top:10px;color:var(--text-3);font-size:12px;text-align:right}.lp-load-error{padding:24px;color:var(--red);background:var(--card);border-radius:12px}.lesson-plan-sheet{width:min(960px,100%)!important;max-width:960px!important;max-height:92vh!important}.lesson-plan-sheet .sheet-body{padding:0!important}.lesson-plan-editor{padding:20px 24px 24px}.lp-meta-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px}.lp-section-title{margin:22px 0 10px;color:var(--text);font-size:14px;font-weight:700}.lp-textarea{min-height:108px;line-height:1.65}.lp-process{min-height:220px}.lp-two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.lp-attach-box{padding:15px;border:1px dashed var(--line-2);border-radius:10px;background:var(--card-2)}.lp-attach-top,.lp-attach-detail,.lp-attach-actions,.lp-actions-left{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.lp-hidden-file{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important}.lp-attach-list{display:grid;gap:7px;margin-top:12px}.lp-attach-item{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card)}.lp-attach-name{font-size:13px;overflow-wrap:anywhere}.lp-attach-size,.lp-tool-status{color:var(--text-3);font-size:11px}.lp-footer{display:flex;align-items:center;justify-content:space-between;gap:14px}.lp-save-btn{min-width:142px}@media(max-width:900px){.lp-meta-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:700px){.lp-meta-grid,.lp-two-col{grid-template-columns:1fr}.lesson-plan-sheet{width:100%!important;max-width:100%!important;max-height:94vh!important}.lesson-plan-editor{padding:16px 15px 20px}.lp-footer{align-items:stretch;flex-direction:column}.lp-actions-left{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.lp-actions-left .btn,.lp-save-btn{width:100%}}
 
 
-/* 电子备课列表：筛选标签与下拉框固定横向排列，避免“备课类型”竖向拆字 */
+/* 备课记录列表：筛选标签与下拉框固定横向排列，避免标签竖向拆字 */
 .lesson-plan-list .lp-list-toolbar > div:first-child { min-width:0; }
 .lesson-plan-list .lp-filter-row {
   display:flex;
@@ -4745,3 +4745,26 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .demo-clean-notes strong { color: var(--text); }
 .demo-clean .field-label { display: block; margin-bottom: 6px; }
 .demo-clean-sheet .sheet-body { max-height: 66vh; overflow: auto; }
+/* 备课记录：批量工具条、筛选器、列表两行截断、详情底部按钮 */
+.lp-bulk-bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  margin-bottom: 12px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+}
+.lp-bulk-hint { color: var(--text-3); font-size: 11.5px; }
+.lesson-plan-list .lp-filter-row { flex-flow: row wrap; width: auto; max-width: 100%; }
+.lp-filter-select { flex: 0 1 130px; width: 130px; min-width: 110px; min-height: 34px; }
+.lp-filter-date { flex: 0 1 150px; width: 150px; min-width: 130px; min-height: 34px; }
+.lp-date-sep { flex: 0 0 auto; color: var(--text-3); font-size: 12px; }
+.lp-filter-keyword { flex: 0 1 190px; width: 190px; min-width: 150px; min-height: 34px; }
+.lp-topic-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-clip-2 { max-width: 260px; line-height: 1.55; overflow-wrap: anywhere; word-break: break-word; }
+.lp-clip-1 { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-footer-actions { display: flex; align-items: center; gap: 8px; }
+.lp-remark { min-height: 72px; }
+@media (max-width: 700px) {
+  .lp-filter-select, .lp-filter-date, .lp-filter-keyword { flex: 1 1 100%; width: 100%; }
+  .lp-bulk-bar .btn { flex: 1 1 auto; }
+  .lp-footer-actions { width: 100%; }
+  .lp-footer-actions .btn { flex: 1 1 0; }
+}

@@ -658,7 +658,7 @@ export async function recognizeRosterPhoto(file, onProgress = () => {}, forcedRo
 }
 
 
-/* 电子备课图片 OCR：复用工作台已加载的中文 Tesseract Worker，返回原始文字供教师核对。 */
+/* 备课图片 OCR：复用工作台已加载的中文 Tesseract Worker，返回原始文字供教师核对。 */
 export async function recognizeLessonPlanImage(file, onProgress = () => {}) {
   if (!file || !String(file.type || '').startsWith('image/')) throw new Error('请选择 JPG、PNG 或 WebP 图片');
   if (file.size > 30 * 1024 * 1024) throw new Error('图片超过 30MB，请先压缩后再识别');

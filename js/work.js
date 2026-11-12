@@ -104,7 +104,7 @@ registerView(async function work(main, { tab, third }) {
   const meta = {
     lessons: ['上课', '登记正常上课、代课与换课记录'],
     timetable: ['周课表', '一周课程安排、上课时间与班级一目了然'],
-    prep: ['电子备课', '线上编写教案，管理备课记录与附件素材'],
+    prep: ['备课记录', '管理备课时间、授课内容与备注，支持按筛选条件批量导入导出'],
     repairs: ['维修记录表', '按月份查看维修记录、处理状态与待跟踪事项'],
     attendance: ['考勤', '按年级分开管：花名册、每日三张表、统计'],
     invigilation: ['监考', '监考场次、时间、补贴，一场不漏'],
@@ -3060,7 +3060,7 @@ async function materialEditor(m, catId, reload) {
   });
 }
 
-/* 电子备课模块由 js/prep.js 独立维护。 */
+/* 备课记录模块由 js/prep.js 独立维护。 */
 
 /* ================= 笔记（知识库） ================= */
 async function renderNotes(box) {

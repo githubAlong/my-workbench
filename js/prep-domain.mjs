@@ -65,7 +65,7 @@ export function validatePrepRecord(payload, { isNew = false } = {}) {
 }
 
 
-/* 电子备课 PRD V1.0：完整内容放入现有 preps.content，不新增数据库列。 */
+/* 备课记录：完整内容放入现有 preps.content，不新增数据库列。 */
 export const LESSON_PLAN_CONTENT_PREFIX = 'WB_LESSON_PLAN_V1\n';
 export const LESSON_PLAN_CONTENT_FIELDS = Object.freeze([
   'grade', 'target', 'keyPoint', 'hardPoint', 'prepare', 'process',
