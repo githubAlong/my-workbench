@@ -20,7 +20,7 @@ export const TABLE_LABELS = {
   trips: '出差报销',
   materials: '课件资料',
   notes: '笔记',
-  preps: '备课记录',
+  preps: '备课',
   categories: '分类',
   homework: '作业',
   studies: '学习记录',

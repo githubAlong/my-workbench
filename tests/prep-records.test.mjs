@@ -38,7 +38,7 @@ test('教案内容写入原 content 字段，旧纯文本可读取，备注走 r
   }
 });
 
-test('备课记录接线：批量导入导出、附件与离线资源', async () => {
+test('备课接线：批量导入导出、附件与离线资源', async () => {
   const files = await Promise.all([
     '../js/work.js', '../js/prep.js', '../js/ui.js',
     '../js/localapi.js', '../js/ocr.js', '../sw.js',
@@ -52,7 +52,7 @@ test('备课记录接线：批量导入导出、附件与离线资源', async ()
   assert.match(prep, /批量导出/);
   assert.match(prep, /api\.req\('POST', '\/upload', fd\)/);
   assert.doesNotMatch(prep, /extractDocx|extractPdf|recognizeLessonPlanImage|lp-prep-type/);
-  assert.match(ui, /label: '备课记录'/);
+  assert.match(ui, /label: '备课'/);
   assert.match(localapi, /\['attendance', 'prep'\]/);
   assert.match(ocr, /recognizeLessonPlanImage/);
   assert.equal([...sw.matchAll(/const CACHE\s*=\s*['"][^'"]+['"]/g)].length, 1);

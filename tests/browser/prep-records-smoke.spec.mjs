@@ -89,7 +89,7 @@ test('按筛选条件批量导出 CSV，导入时套用筛选默认值', async (
   const downloaded = page.waitForEvent('download');
   await page.locator('#prep-export').click();
   const download = await downloaded;
-  expect(download.suggestedFilename()).toMatch(/^备课记录_\d{8}\.csv$/);
+  expect(download.suggestedFilename()).toMatch(/^备课_\d{8}\.csv$/);
   const csv = await readFile(await download.path(), 'utf8');
   expect(csv.startsWith('\uFEFF')).toBe(true);
   expect(csv).toContain('备课时间,学科,年级,标题,授课内容,备注');

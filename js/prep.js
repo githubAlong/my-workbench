@@ -59,7 +59,7 @@ function formatBytes(bytes) {
 }
 
 function safeFilename(value) {
-  return String(value || '备课记录').replace(/[\\/:*?"<>|]/g, '_');
+  return String(value || '备课').replace(/[\\/:*?"<>|]/g, '_');
 }
 
 function downloadBlob(blob, filename) {
@@ -91,8 +91,8 @@ function optionList(values, selected, allLabel) {
 }
 
 async function removeRecord(record, reload) {
-  const ok = await confirmDialog('确定删除这条备课记录？删除后记录将进入回收站。', {
-    title: '删除备课记录', danger: true, okText: '删除',
+  const ok = await confirmDialog('确定删除这条备课？删除后记录将进入回收站。', {
+    title: '删除备课', danger: true, okText: '删除',
   });
   if (!ok) return;
   try {
@@ -104,7 +104,7 @@ async function removeRecord(record, reload) {
       catch (error) { failed += 1; console.warn('备课附件清理失败', attachment.name, error); }
     }
     await reload();
-    toast(failed ? '记录已删除，但有 ' + failed + ' 个附件未能清理' : '备课记录已删除', failed ? 'warn' : 'ok');
+    toast(failed ? '记录已删除，但有 ' + failed + ' 个附件未能清理' : '备课已删除', failed ? 'warn' : 'ok');
   } catch (error) {
     toast(error?.message || '删除失败，请重试', 'err');
   }
@@ -148,7 +148,7 @@ export async function renderPreps(box) {
         '<span class="lp-bulk-hint">按当前筛选条件导入 / 导出（CSV，Excel 可直接打开）</span>' +
       '</div>' +
       '<div class="lp-list-toolbar"><div>' +
-        '<div class="lp-list-caption">备课记录</div>' +
+        '<div class="lp-list-caption">备课</div>' +
         '<div class="lp-filter-row">' +
           '<label for="lp-filter-subject">学科</label><select class="input lp-filter-select" id="lp-filter-subject">' +
             optionList([...SUBJECT_OPTIONS, ...records.map((r) => r.subject)], filters.subject, '全部学科') + '</select>' +
@@ -160,10 +160,10 @@ export async function renderPreps(box) {
           '<input class="input lp-filter-date" id="lp-filter-to" type="date" value="' + esc(filters.to) + '">' +
           '<input class="input lp-filter-keyword" id="lp-filter-keyword" type="search" placeholder="搜索标题 / 内容 / 备注" value="' + esc(filters.keyword) + '">' +
         '</div>' +
-      '</div><button class="btn primary" id="prep-add" type="button">＋ 新建备课记录</button></div>' +
+      '</div><button class="btn primary" id="prep-add" type="button">＋ 新建备课</button></div>' +
       '<div class="lp-table-wrap"><table class="lp-table" id="lp-record-table">' +
       '<thead><tr><th>备课时间</th><th>学科</th><th>年级</th><th>标题</th><th>授课内容</th><th>备注</th><th>操作</th></tr></thead>' +
-      '<tbody>' + (rows || '<tr><td colspan="7" class="lp-empty">暂时还没有备课记录，点击「新建备课记录」开始填写。</td></tr>') + '</tbody>' +
+      '<tbody>' + (rows || '<tr><td colspan="7" class="lp-empty">暂时还没有备课，点击「新建备课」开始填写。</td></tr>') + '</tbody>' +
       '</table></div><div class="lp-record-count">共 ' + ordered.length + ' 条记录</div></section>';
 
     const bind = (selector, event, key) => {
@@ -191,8 +191,8 @@ export async function renderPreps(box) {
         title: row.title, process: row.process, remark: row.remark,
       })));
       downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }),
-        '备课记录_' + ymd(new Date()).replace(/-/g, '') + '.csv');
-      toast('已按当前筛选条件导出 ' + list.length + ' 条备课记录', 'ok');
+        '备课_' + ymd(new Date()).replace(/-/g, '') + '.csv');
+      toast('已按当前筛选条件导出 ' + list.length + ' 条备课', 'ok');
     });
     const importInput = box.querySelector('#prep-import-file');
     box.querySelector('#prep-import').addEventListener('click', () => importInput.click());
@@ -204,8 +204,8 @@ export async function renderPreps(box) {
         if (parsed.errors.length) { toast(parsed.errors.join('；'), 'err', 6000); return; }
         if (!parsed.rows.length) { toast('文件里没有可导入的记录', 'warn'); return; }
         const ok = await confirmDialog(
-          '将按当前筛选条件导入 ' + parsed.rows.length + ' 条备课记录；文件里缺失的学科 / 年级 / 备课时间会套用当前筛选值。是否继续？',
-          { title: '批量导入备课记录', okText: '开始导入' }
+          '将按当前筛选条件导入 ' + parsed.rows.length + ' 条备课；文件里缺失的学科 / 年级 / 备课时间会套用当前筛选值。是否继续？',
+          { title: '批量导入备课', okText: '开始导入' }
         );
         if (!ok) return;
         let done = 0, failed = 0;
@@ -213,7 +213,7 @@ export async function renderPreps(box) {
           const filled = applyFilterDefaults(row, filters);
           if (validateRow(filled)) { failed += 1; continue; }
           try { await api.post('/preps', buildPayload(filled)); done += 1; }
-          catch (error) { failed += 1; console.warn('备课记录导入失败，第 ' + row.__line + ' 行', error); }
+          catch (error) { failed += 1; console.warn('备课导入失败，第 ' + row.__line + ' 行', error); }
         }
         toast('导入完成：成功 ' + done + ' 条' + (failed ? '，失败 ' + failed + ' 条' : ''), failed ? 'warn' : 'ok');
         if (done) await reload();
@@ -240,8 +240,8 @@ export async function renderPreps(box) {
       records = await api.get('/preps') || [];
       paint();
     } catch (error) {
-      console.error('读取备课记录失败', error);
-      box.innerHTML = '<section class="lesson-plan-list"><div class="lp-load-error">读取备课记录失败：' +
+      console.error('读取备课失败', error);
+      box.innerHTML = '<section class="lesson-plan-list"><div class="lp-load-error">读取备课失败：' +
         esc(error?.message || '请检查网络或工作台数据状态') + '</div></section>';
     }
   };
@@ -288,7 +288,7 @@ function openEditor(record, reload) {
   );
 
   const dialog = sheet({
-    title: currentRecord ? '查看 / 编辑备课记录' : '新建备课记录',
+    title: currentRecord ? '查看 / 编辑备课' : '新建备课',
     body, footer, wide: true, cls: 'lesson-plan-sheet',
   });
   const saveButton = footer.querySelector('#lp-save');
@@ -398,7 +398,7 @@ function openEditor(record, reload) {
       currentRecord = saved;
       if (creating) {
         const title = dialog.wrap.querySelector('.sheet-title');
-        if (title) title.textContent = '查看 / 编辑备课记录';
+        if (title) title.textContent = '查看 / 编辑备课';
       }
       if (pendingFiles.length) {
         const fd = new FormData();
@@ -415,7 +415,7 @@ function openEditor(record, reload) {
         removedIds.delete(id);
         existingAttachments = existingAttachments.filter((item) => String(item.id) !== id);
       }
-      toast(creating ? '备课记录已创建' : '备课记录已保存', 'ok');
+      toast(creating ? '备课已创建' : '备课已保存', 'ok');
       dialog.close();
       await reload();
     } catch (error) {

@@ -2,16 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('页面标题统一使用「备课记录」，不再出现「电子备课」', async () => {
+test('页面标题统一使用「备课」，不再出现「电子备课」', async () => {
   const [work, prep, ui] = await Promise.all([
     readFile(new URL('../js/work.js', import.meta.url), 'utf8'),
     readFile(new URL('../js/prep.js', import.meta.url), 'utf8'),
     readFile(new URL('../js/ui.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(work, /prep:\s*\['备课记录',/);
-  assert.match(prep, /lp-list-caption">备课记录<\/div>/);
-  assert.match(ui, /label: '备课记录'/);
+  /* 用户 11-13 裁决：模块名从「备课记录」改回「备课」 */
+  assert.match(work, /prep:\s*\['备课',/);
+  assert.match(prep, /lp-list-caption">备课<\/div>/);
+  assert.match(ui, /label: '备课'/);
   assert.doesNotMatch(work + prep + ui, /电子备课/);
+  assert.doesNotMatch(work + prep + ui, /备课记录/);
 });
 
 test('筛选标签与下拉框在同一行显示并适配窄屏', async () => {
@@ -38,7 +40,7 @@ test('批量导入导出放在列表标题上方，并按筛选条件作用', as
   const prep = await readFile(new URL('../js/prep.js', import.meta.url), 'utf8');
   const bulkBar = prep.indexOf('lp-bulk-bar');
   const caption = prep.indexOf('lp-list-caption');
-  assert.ok(bulkBar > -1 && caption > bulkBar, '批量工具条在「备课记录」标题上方');
+  assert.ok(bulkBar > -1 && caption > bulkBar, '批量工具条在「备课」标题上方');
   for (const marker of ['buildPrepCsv', 'parsePrepCsv', 'applyFilterDefaults', 'filterPrepRows']) {
     assert.match(prep, new RegExp(marker));
   }
