@@ -52,7 +52,7 @@ test('考勤：四页签同名单同列，各表独立保存，花名册只读�
   await sit.click();
   await page.locator('[data-grid-person="1"][data-grid-key="remark"]').fill('浏览器测试坐班备注');
   await page.locator('[data-grid-save]').click();
-  await expect(page.locator('#toast-box')).toContainText('本表已保存');
+  // 2026-11-12：保存成功提示已统一静默；写入是否生效由下面的按钮状态、勾选与跨页签数据校验保证
   await expect(page.locator('[data-grid-save]')).toBeEnabled();
   await expect(sit).toHaveText('✓');
   await page.locator('[data-tab="class"]').click();

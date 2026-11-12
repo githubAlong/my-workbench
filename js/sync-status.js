@@ -35,9 +35,11 @@ export function startSyncStatus() {
   let current=getAccountSyncStatus();
   const paint=()=>{
     let host=document.getElementById('wb-sync-status');
-    if(!current?.uid||current.uid!==activeAccountId()){host?.remove();return;}
+    /* 2026-11-12：保存成功(saved)时不再显示右下角状态条，后台照常同步；
+       其余状态（等待/同步中/离线/冲突/失败）仍显示，并保留重试、导出备份、处理冲突入口。 */
+    if(!current?.uid||current.uid!==activeAccountId()||current.status==='saved'){host?.remove();return;}
     if(!host){host=document.createElement('aside');host.id='wb-sync-status';host.setAttribute('aria-live','polite');document.body.appendChild(host);}
-    const messages={saved:'云端已保存',pending:'已保存到本机，等待同步',saving:'已保存到本机，正在同步',offline:'已保存到本机，联网后同步',conflict:'修改已保留，需要处理冲突',error:'同步未完成，请查看提示'};
+    const messages={pending:'已保存到本机，等待同步',saving:'已保存到本机，正在同步',offline:'已保存到本机，联网后同步',conflict:'修改已保留，需要处理冲突',error:'同步未完成，请查看提示'};
     host.dataset.state=current.status;
     host.innerHTML='<span class="sync-status-copy">'+esc(current.message||messages[current.status]||'同步状态待确认')+'</span>'+(current.status==='conflict'?'<button type="button" data-sync-conflicts>处理冲突</button>':current.pending&&current.status!=='saving'?'<button type="button" data-sync-retry>重试同步</button>':'')+(current.pending||['error','conflict'].includes(current.status)?'<button type="button" data-sync-backup>导出本机备份</button>':'');
     host.querySelector('[data-sync-conflicts]')?.addEventListener('click',openConflicts);

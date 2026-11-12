@@ -259,7 +259,24 @@ export async function addToSystemCalendar(alarms, toast) {
 /* ms 是第三个参数：默认 2.4 秒够看一句话，但「本站没配短信服务」这种要用户
    去后台配置的提示，2.4 秒根本读不完，得能停久一点。以前调用处写了 6000，
    函数只收两个参数，第三个数被静默丢掉——加参数比改调用处更省事。 */
+/* 2026-11-12：保存成功提示统一静默。
+   数据在后台照常落盘 / 云同步，界面不再反复弹「已保存」「已添加」。
+   只拦「纯确认」文案；含迁移统计、后续指引、警告或错误的提示照常显示，
+   避免静默掉真正需要用户处理的信息。 */
+const SILENT_SAVE_MESSAGES = new Set([
+  '已保存', '已添加', '本表已保存', '上课表修改已保存', '坐班表修改已保存',
+  '教研表修改已保存', '草稿已保存', '布局已保存', '工作台品牌设置已保存',
+  '个人信息已保存', '监考记录已保存', '计价规则已保存', '已保存作业情况',
+  '学习记录已保存', '作息时间已保存', '课程已保存', '名单已保存', '冲突选择已保存',
+]);
+const SILENT_SAVE_PATTERN = /^(?:已保存（\d+ 次修改）|已保存\s*\d+\s*个节次时间|已添加「[^」]*」)$/;
+export function isSilentSaveToast(msg, type = 'ok') {
+  if (type !== 'ok') return false;
+  const text = String(msg ?? '');
+  return SILENT_SAVE_MESSAGES.has(text) || SILENT_SAVE_PATTERN.test(text);
+}
 export function toast(msg, type = 'ok', ms = 2400) {
+  if (isSilentSaveToast(msg, type)) return;
   let box = document.getElementById('toast-box');
   if (!box) { box = el('<div id="toast-box" class="toast-box"></div>'); document.body.appendChild(box); }
   const t = el(`<div class="toast toast-${type}">${esc(msg)}</div>`);
