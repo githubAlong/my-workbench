@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v201-timetable-schedule';
+const CACHE = 'wb-v201-clean-demo-data';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -78,7 +78,6 @@ const ASSETS = [
   './js/localdb.js',
   './js/prep-domain.mjs',
   './js/timetable-periods.mjs',
-  './js/timetable-schedule.mjs',
   './js/invigilation.js',
   './js/invigilation-domain.mjs',
   /* 各业务页面 */
@@ -100,6 +99,8 @@ const ASSETS = [
   './js/study-records.js',
   './js/study-records-domain.mjs',
   './js/me.js',
+  './js/demo-data-scan.mjs',
+  './js/clean-demo-data.js',
   './js/repairs.js',
   './js/repairs-domain.mjs',
   './js/recycle.js',

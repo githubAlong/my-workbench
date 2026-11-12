@@ -7,6 +7,7 @@ import { makeShareLink } from './cloudsync.js';
 import { loginSheet, cloudOn } from './auth.js';
 import * as cloud from './cloud.js';
 import { load as loadLocalDB, save as saveLocalDB } from './localdb.js';
+import { hasDemoData, openCleanDemoSheet } from './clean-demo-data.js';
 
 const ADMIN_PHONE = '+8613071825243';
 
@@ -63,6 +64,8 @@ async function renderMe(main) {
     u.bindings?.workbuddy ? '<span class="chip purple">WorkBuddy已绑定</span>' : '',
     needProfile ? '<span class="chip amber">资料待完善</span>' : '<span class="chip green">资料已完善</span>'
   ].filter(Boolean).join('');
+  /* 只有确实检测到系统灌入的示例数据时才显示清理入口，清完自动消失 */
+  const showDemoClean = hasDemoData();
 
   main.innerHTML = `
     <header class="me-home-head">
@@ -173,6 +176,20 @@ async function renderMe(main) {
         </div>
       </details>
 
+      ${showDemoClean ? `<details class="me-accordion" data-me-accordion="demo-data">
+        <summary class="me-accordion-head">
+          <span class="me-accordion-icon">${icon('trash', 19)}</span>
+          <span class="me-accordion-copy"><strong>数据管理</strong><small>清理系统预置的示例数据，保留自己录入的记录</small></span>
+          <span class="me-accordion-chevron">${icon('down', 17)}</span>
+        </summary>
+        <div class="me-accordion-panel">
+          <div class="me-inline-setting">
+            <div><strong>清理示例数据</strong><p>只删除系统自动灌入、且从未修改过的演示课表与示例记录；你自己录入的数据全部保留。执行前会先下载一份完整备份。</p></div>
+            <button type="button" class="btn ghost" id="me-clean-demo">查看并清理…</button>
+          </div>
+        </div>
+      </details>` : ''}
+
       <details class="me-accordion" data-me-accordion="logout">
         <summary class="me-accordion-head">
           <span class="me-accordion-icon danger">${icon('logout', 19)}</span>
@@ -246,6 +263,9 @@ async function renderMe(main) {
       toast('重置首页布局失败：' + (e.message || e), 'err');
     }
   };
+
+  const cleanDemoButton = main.querySelector('#me-clean-demo');
+  if (cleanDemoButton) cleanDemoButton.onclick = () => openCleanDemoSheet();
 
   const logoutButton = main.querySelector('#me-logout');
   if (logoutButton) logoutButton.onclick = async () => {

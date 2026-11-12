@@ -4729,3 +4729,19 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   .wxd-row .wx-bar { display: none; }
   .wxd-pop { display: none; }
 }
+
+/* ================= 清理示例数据 ================= */
+.demo-clean { padding: 2px 2px 10px; }
+.demo-clean-lead { margin: 0 0 12px; font-size: 14px; line-height: 1.7; color: var(--text-2); }
+.demo-clean-lead strong { color: var(--text); }
+.demo-clean-table { max-height: 250px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.demo-clean-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.demo-clean-table th, .demo-clean-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+.demo-clean-table th { position: sticky; top: 0; z-index: 1; background: var(--bg-sunken); font-weight: 650; color: var(--text-2); }
+.demo-clean-table tr:last-child td { border-bottom: 0; }
+.demo-clean-table .demo-num { width: 92px; text-align: right; font-variant-numeric: tabular-nums; }
+.demo-clean-notes { margin: 12px 0 16px; padding: 10px 12px; border-radius: 10px; background: var(--bg-sunken); font-size: 12.5px; line-height: 1.75; color: var(--text-2); }
+.demo-clean-notes p { margin: 0; }
+.demo-clean-notes strong { color: var(--text); }
+.demo-clean .field-label { display: block; margin-bottom: 6px; }
+.demo-clean-sheet .sheet-body { max-height: 66vh; overflow: auto; }
