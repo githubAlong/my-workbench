@@ -1,7 +1,7 @@
 import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_CN, WD_SHORT, fmtTime, fmtDateTime, relDay, parseDT, countdown, speak, stopSpeak, colorOf, ls, exportUrl, download, addToSystemCalendar } from './core.js';
 import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
 import { syncDay, DAY_SYNC } from './homelayout.js';
-import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud } from './homegrid.js';
+import { mount as mountGrid, resetLayout as resetGridLayout, migrateLegacyLayout } from './homegrid.js';
 
 /* ================= 欢迎语 =================
    【第 5 条：按时段问候 + 头像上移】
@@ -567,7 +567,7 @@ registerView(async function home(main) {
   renderHome();
   /* 拉一次云端布局：另一台设备排过的话，这里自动换成那一套。
      没登录云端、或云端没有记录时什么都不会发生，本地这份照常用。 */
-  pullLayoutCloud().catch(() => {});
+  migrateLegacyLayout().catch(() => {});
 });
 
 /* 换城市之后统一走这里：先把天气真正换成新城市的，再只重绘天气区块。

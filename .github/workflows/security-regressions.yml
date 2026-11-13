@@ -1,0 +1,66 @@
+name: Security regression tests
+
+on:
+  push:
+    branches:
+      - test
+      - dev
+    paths:
+      - "js/auth.js"
+      - "js/cloud.js"
+      - "js/cloudsync.js"
+      - "js/home-layout-migration.mjs"
+      - "js/homegrid.js"
+      - "js/home.js"
+      - "js/main.js"
+      - "js/realtime.js"
+      - "js/startup-safety.mjs"
+      - "supabase_setup.sql"
+      - "README.md"
+      - "tests/security-regressions.test.mjs"
+      - "tests/home-layout-migration.test.mjs"
+      - ".github/workflows/security-regressions.yml"
+  pull_request:
+    branches:
+      - dev
+      - master
+    paths:
+      - "js/auth.js"
+      - "js/cloud.js"
+      - "js/cloudsync.js"
+      - "js/home-layout-migration.mjs"
+      - "js/homegrid.js"
+      - "js/home.js"
+      - "js/main.js"
+      - "js/realtime.js"
+      - "js/startup-safety.mjs"
+      - "supabase_setup.sql"
+      - "README.md"
+      - "tests/security-regressions.test.mjs"
+      - "tests/home-layout-migration.test.mjs"
+      - ".github/workflows/security-regressions.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check all browser JavaScript syntax
+        run: |
+          for file in js/*.js js/*.mjs; do
+            node --check "$file"
+          done
+          node --check sw.js
+      - name: Run security regressions
+        run: |
+          node --test tests/roster-structure.test.mjs
+          node --test tests/security-regressions.test.mjs
+          node --test tests/home-layout-migration.test.mjs

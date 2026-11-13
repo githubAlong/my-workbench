@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v118-timetable-row-drag-fix';;;;
+const CACHE = 'wb-v121-attendance-class-sheet';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -51,6 +51,8 @@ const ASSETS = [
   './js/main.js',
   './js/ui.js',
   './js/core.js',
+  './js/startup-safety.mjs',
+  './js/home-layout-migration.mjs',
   './js/cloudsync.js',
   './js/cloud.js',
   './js/auth.js',
@@ -74,6 +76,7 @@ const ASSETS = [
   /* 功能模块 */
   './js/attendance.js',
   './js/ocr.js',
+  './js/roster-structure.mjs',
   './js/alarm.js',
   './js/qrdecode.js',
   './js/pdfprint.js',

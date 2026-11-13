@@ -21,9 +21,7 @@
    只有真的在用（页面底部那个小圆点）才会显示「未连接」。
    ========================================================================== */
 
-/* 和 cloud.js 保持同一个键。这里不走 import，避免两个模块互相拽着初始化。 */
-const CFG_KEY = 'wb_supa_cfg';
-const TOK_KEY = 'wb_supa_tok';
+import { cfg as cloudCfg, SESSION_STORAGE_KEY } from './cloud.js';
 
 /* 需要实时的表。加表只改这里一行 ——
    SQL 那边也要把同名表加进 supabase_realtime 发布，两处必须对得上。 */
@@ -36,11 +34,14 @@ export const REALTIME_TABLES = [
 ];
 
 function cfg() {
-  try { return JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch { return null; }
+  return cloudCfg();
 }
 function tok() {
-  try { return JSON.parse(localStorage.getItem(TOK_KEY) || 'null'); } catch { return null; }
+  try { return JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch { return null; }
 }
+
+/* 供安全回归测试确认：Realtime 与其余请求使用同一个已验证配置。 */
+export function realtimeConfig() { return cfg(); }
 
 /* ---------------------------------------------------------------------------
    回显抑制

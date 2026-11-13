@@ -36,46 +36,49 @@ export const SESSION_STORAGE_KEY = TOK_KEY;
    现在把内置配置放在 cloud.js 自己身上（登录相关的代码都在这里），
    auth.js 里的常量改为从这里读。这样无论谁先加载，cfg() 都有值。
 
-   【?supa= 仍然优先】
-   这是留给测试的口子：本地起一个假 Supabase，靠它把前端指过去。
-   正常访问（没有这个参数）永远用内置的生产地址 ——
-   localStorage 里残留的旧配置、别人给的错误地址，都会被纠正回来。
+   【地址来源必须唯一】
+   只接受当前项目正式 Supabase origin。URL 查询参数、历史 localStorage
+   和旧手动同步配置都不能把登录、Token 刷新或数据请求带去其他地址。
+   localStorage 中残留的旧配置、别人给的错误地址，都会被纠正回来。
 --------------------------------------------------------------------------- */
-export const BUILTIN_URL = 'https://gfgxvpvexzcfbujkwsqw.supabase.co';
-export const BUILTIN_ANON = 'sb_publishable_-cCYwAxVzEIioR4rdsmGpw_HThEm8gi';
+export const BUILTIN_URL = 'https://vainbhgvzntusebaqdas.supabase.co';
+export const BUILTIN_ANON = 'sb_publishable_f4Hpk2NCZaL8U-fDrSamKw_v9aKjSKo';
+const TRUSTED_ORIGIN = new URL(BUILTIN_URL).origin;
+
+/* 云端地址只能来自这份受信任配置。URL 参数、历史 localStorage 和旧手动同步
+   配置都不能把认证凭证带去另一个 origin。 */
+export function trustedSupabaseConfig(url, anon) {
+  let parsed;
+  try { parsed = new URL(String(url || '')); } catch { return null; }
+  if (parsed.protocol !== 'https:'
+    || parsed.username
+    || parsed.password
+    || parsed.origin !== TRUSTED_ORIGIN
+    || parsed.pathname !== '/'
+    || parsed.search
+    || parsed.hash
+    || String(anon || '') !== BUILTIN_ANON) return null;
+  return { url: TRUSTED_ORIGIN, anon: BUILTIN_ANON };
+}
 
 export function cfg() {
-  /* 优先级：地址栏的 ?supa= （测试用） > localStorage > 内置的正式项目。
-     顺序不能反 —— ?supa= 是用来临时指到别的项目的，被 localStorage 盖掉就失去意义了。 */
-  let forced = '';
-  try { forced = new URLSearchParams(location.search).get('supa') || ''; } catch { }
-  if (forced) {
-    const f = forced.replace(/\/+$/, '');
-    try { localStorage.setItem(CFG_KEY, JSON.stringify({ url: f, anon: BUILTIN_ANON })); } catch { }
-    return { url: f, anon: BUILTIN_ANON };
-  }
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch { }
+  const trusted = trustedSupabaseConfig(stored?.url, stored?.anon);
+  if (trusted) return trusted;
 
-  let c = null;
-  try { c = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch { }
-  if (c && c.url) {
-    const storedUrl = String(c.url).replace(/\/+$/, '');
-    if (storedUrl === BUILTIN_URL) {
-      const current = { url: BUILTIN_URL, anon: BUILTIN_ANON };
-      if (c.anon !== BUILTIN_ANON) {
-        try { localStorage.setItem(CFG_KEY, JSON.stringify(current)); } catch { }
-      }
-      return current;
-    }
-    return c;
-  }
-
-  /* 从没配过：灌内置的正式项目，登录框立刻可用 */
-  try { localStorage.setItem(CFG_KEY, JSON.stringify({ url: BUILTIN_URL, anon: BUILTIN_ANON })); } catch { }
-  return { url: BUILTIN_URL, anon: BUILTIN_ANON };
+  /* 清除历史遗留或手工篡改的配置，并恢复唯一的正式项目地址。 */
+  try { localStorage.removeItem(CFG_KEY); } catch { }
+  const fallback = { url: TRUSTED_ORIGIN, anon: BUILTIN_ANON };
+  try { localStorage.setItem(CFG_KEY, JSON.stringify(fallback)); } catch { }
+  return fallback;
 }
 
 export function saveCfg(url, anon) {
-  localStorage.setItem(CFG_KEY, JSON.stringify({ url: url.replace(/\/+$/, ''), anon }));
+  const trusted = trustedSupabaseConfig(url, anon);
+  if (!trusted) throw new Error('只能连接当前正式 Supabase 项目');
+  localStorage.setItem(CFG_KEY, JSON.stringify(trusted));
+  return trusted;
 }
 export function clearCfg() {
   localStorage.removeItem(CFG_KEY);
@@ -530,6 +533,22 @@ export async function saveWorkbenchSnapshot(payload, expectedRevision = 0) {
   const row = Array.isArray(rows) ? rows[0] : rows;
   if (!row || !Number(row.revision)) throw new Error('云端没有返回保存确认');
   return row;
+}
+
+/* 旧首页布局的只读迁移入口。服务端不接受 key 或 UID 参数，
+   只根据当前 JWT 的 auth.uid() 返回该用户自己的旧布局。 */
+export async function getLegacyHomeLayout() {
+  if (!session()?.uid) throw new Error('请先登录后再读取旧首页布局');
+  const rows = await rest('rpc/wb_get_home_layout', {
+    method: 'POST',
+    body: '{}',
+  });
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  if (!row?.payload) return null;
+  return {
+    updated_at: row.updated_at || '',
+    payload: row.payload,
+  };
 }
 
 /* ---------------- 字段清洗与表配置 ---------------- */

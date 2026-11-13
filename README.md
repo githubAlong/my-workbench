@@ -96,7 +96,9 @@ https://<项目Ref>.supabase.co/functions/v1/send-sms-hook
 首页 6 张卡片（个人信息、每日一句、天气、今日事项、今日课程、日历）是 12 列栅格里可拖拽、可缩放的模块，实现见 `js/homegrid.js`。搜索框和倒计时通栏是固定区域，不参与拖拽。
 
 - **位置存在哪**：账号的 `settings.homeLayout`，结构是 `{ version, updatedAt, breakpoints: { desktop, tablet, mobile } }`，每套断点各自存 `layout`（`{ id, x, y, w, h }`）与 `hidden`。
-- **跨设备**：保存时额外写一份到 Supabase 的 `wb_sync`（RPC `wb_put`），键名 `home-layout-v1-<用户UID>`；进入首页时用 `wb_get` 拉一次，云端比本地新就用云端。云端不可用时静默退回本地那份，不影响使用。
+- **跨设备**：布局保存在账号快照 `wb_user_data.payload.meta.user.settings.homeLayout`，保存通过账号快照 revision 写入。旧 `wb_sync` 只作为历史数据保留；登录用户可通过受控的 `wb_get_home_layout()` 读取并人工确认迁移，不再通过旧 RPC 写入。云端不可用时保留本机布局。
+- **旧手动云同步**：不再创建新的匿名同步钥匙。历史 `wb_sync` 数据不自动删除，也不自动关联到其他账号；后续需要独立的安全备份恢复接口。
+- **数据库权限**：当前 `wb_user_data` 仍允许登录用户通过 Data API 直接写自己的行，revision CAS 只能约束受控 RPC。后续收口方案见 `docs/S0-03-database-permissions.md`。
 - **保存策略**：显式点「保存布局」才提交（不做自动保存）。失败时草稿留在本机 `localStorage` 的 `wb_home_layout_draft`，刷新后仍可重新保存。
 - **隐藏**：隐藏只是不渲染，位置配置保留，三套断点共享同一份 `hidden`；至少保留一张卡片。
 - **手机**：自动单列（`w=12`、行高 auto），不沿用桌面位置，也不提供拖拽/缩放，只保留隐藏/显示。

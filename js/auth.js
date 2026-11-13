@@ -23,29 +23,12 @@ import * as cloud from './cloud.js';
 import { setActiveAccount } from './localdb.js';
 import { migrateLessons, previewMigration, migrateInvigilations, migrateAttendance, migrateAttachments } from './migrate.js';
 
-/* ---------------------------------------------------------------------------
-   ★★★ 部署前要填这两个值 ★★★
-   Supabase 后台 → Settings → API：
-     Project URL      → SUPA_URL
-     anon / publishable key → SUPA_ANON
-   这两个都是「公开信息」，写进前端不丢人（它没有读取权限，
-   真正管权限的是 RLS 和登录账号）。但 URL 填错就整站连不上，
-   所以这里留一个显眼的注释，日后换项目别漏改。
-   --------------------------------------------------------------------------- */
-/* 内置的云端地址与 key 放在 cloud.js 里（见那边的注释：谁先加载都要能用）。
-   这里只是取过来继续用，不再各存一份 —— 两份地址最容易改了一处忘了另一处。 */
-const SUPA_URL = cloud.BUILTIN_URL;
-const SUPA_ANON = cloud.BUILTIN_ANON;
+/* 云端地址和公开 key 统一由 cloud.js 的可信配置解析器管理。 */
 
-/* 把内置配置写进 localStorage，cloud.js 只认 localStorage 里的，
-   这样「换一个项目」只要改上面两行，不需要用户做任何事。
-
-   【故意不覆盖的情况】地址里带了 ?supa=<地址>。
-   这是留给测试用的口子：本地起一个假 Supabase，靠它把前端指过去。
-   正常访问（没有这个参数）永远用上面的生产地址，
-   所以用户手里残留的旧配置、别人给的错误地址，都会被强制纠正回来。 */
+/* 正式 Supabase 地址只由 cloud.js 的可信配置解析器提供。
+   URL 参数和旧 localStorage 配置都不能改变认证请求目标。 */
 function ensureCfg() {
-  /* 纠正与 ?supa= 的处理都挪到 cloud.cfg() 里了 ——
+  /* 地址校验统一收口在 cloud.cfg() 里 ——
      那里是唯一的入口，所有模块读到的配置一定是同一份。 */
   return cloud.cfg();
 }
@@ -107,11 +90,12 @@ export async function makeDeviceLink() {
     throw new Error(tj.msg || tj.message || '生成一次性凭证失败');
   }
 
-  /* 拼链接要连「查询串」一起带上。
-     线上是 /my-workbench/ 这种目录地址，但本地/预览常见 /index.html，
-     只取 origin+pathname 会把 ?supa=… 这类参数丢掉，
-     在测试环境和多参数部署下指向就错了。 */
-  const base = location.origin + location.pathname + location.search;
+  /* 保留部署所需的查询参数，但不把最终会被忽略的 supa 参数继续传播。 */
+  const baseUrl = new URL(location.origin + location.pathname);
+  for (const [key, value] of new URLSearchParams(location.search)) {
+    if (key !== 'supa') baseUrl.searchParams.append(key, value);
+  }
+  const base = baseUrl.href;
   return `${base}#k=${encodeURIComponent(tj.token_hash)}&t=${encodeURIComponent(j.access_token)}`;
 }
 
@@ -323,7 +307,12 @@ export function loginSheet(opts = {}) {
     if (!u) return;
     const a = prompt('anon / publishable key', cloud.cfg()?.anon || '');
     if (!a) return;
-    cloud.saveCfg(u, a);
+    try {
+      cloud.saveCfg(u, a);
+    } catch (e) {
+      toast(e.message || '只能连接当前正式 Supabase 项目', 'err');
+      return;
+    }
     toast('已切换项目，请重新登录', 'ok');
     sh.close();
     setTimeout(() => loginSheet(opts), 200);
