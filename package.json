@@ -8,5 +8,8 @@
     "check": "node scripts/check-project.mjs",
     "preview": "node scripts/preview-server.mjs",
     "build:pages": "node scripts/build-pages.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
   }
 }

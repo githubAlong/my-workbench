@@ -14,10 +14,13 @@ test('fixed environment and startup safety regressions', async (t) => {
     assert.equal(resolveEnvironmentProfile('https://abc123.my-workbench-test.pages.dev/').name, 'test');
     assert.equal(resolveEnvironmentProfile('http://192.168.1.20:8080/').name, 'test');
     assert.throws(() => resolveEnvironmentProfile('https://unknown.example/'), /未配置/);
-    /* 生产与测试共用同一个自建 Supabase 实例，不再要求两个环境使用不同的库或密钥。 */
-assert.match(ENVIRONMENT_PROFILES.test.supabaseUrl, /^https:\/\/[a-z0-9.-]+$/);
+    /* 自建 Supabase：两个环境共用同一个实例，地址不再限定 *.supabase.co。
+       只约束「必须是带域名的 https 源」+「两边都配了密钥」。 */
+    assert.match(ENVIRONMENT_PROFILES.test.supabaseUrl, /^https:\/\/[a-z0-9.-]+$/);
     assert.match(ENVIRONMENT_PROFILES.production.supabaseUrl, /^https:\/\/[a-z0-9.-]+$/);
-    });
+    assert.ok(ENVIRONMENT_PROFILES.test.publishableKey.length > 20);
+    assert.ok(ENVIRONMENT_PROFILES.production.publishableKey.length > 20);
+  });
 
   await t.test('URL and localStorage cannot redirect test auth requests', async () => {
     const storage = installBrowser({
@@ -31,13 +34,11 @@ assert.match(ENVIRONMENT_PROFILES.test.supabaseUrl, /^https:\/\/[a-z0-9.-]+$/);
     assert.equal(JSON.parse(storage.getItem('wb_supa_cfg')).url, ENVIRONMENT_PROFILES.test.supabaseUrl);
   });
 
-  await t.test('test build cannot save production or third-party config', async () => {
+  await t.test('test build cannot save a third-party config', async () => {
     installBrowser({ href: 'https://preview.my-workbench-test.pages.dev/' });
     const cloud = await import('../js/cloud.js?security=save-test');
-    assert.throws(
-      () => cloud.saveCfg(ENVIRONMENT_PROFILES.production.supabaseUrl, ENVIRONMENT_PROFILES.production.publishableKey),
-      /只能连接当前/,
-    );
+    /* 自建 Supabase 下线上与测试共用同一实例，production 与 test 的地址相同，
+       所以这里只验证「不能把前端指到别的后端」这条约束本身。 */
     assert.throws(
       () => cloud.saveCfg('https://attacker.example', ENVIRONMENT_PROFILES.test.publishableKey),
       /只能连接当前/,
