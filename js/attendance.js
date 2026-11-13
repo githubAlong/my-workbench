@@ -314,17 +314,46 @@ export async function renderAttendance(box, opts = {}) {
     const c = (detail?.columns || []).find((x) => /请假/.test(x.label || ''));
     return c && r.data?.[c.key] === '1' ? '请假' : '';
   };
+  /* 上课表按「第 N 节 + 下午课时」逐格记，节次存在行数据里，
+     不依赖列定义 —— 坐班/教研表的列仍然是 上课/坐班/签到/请假。 */
+  const CLASS_PERIOD_KEYS = ['k_p1', 'k_p2', 'k_p3', 'k_p4'];
+  const classHasLesson = (r) => CLASS_PERIOD_KEYS.some((k) => r.data?.[k] === '1') || r.data?.k_下午 === '1';
+  const classExportColumns = [
+    ...CLASS_PERIOD_KEYS.map((_, i) => ({ key: `__p${i + 1}`, label: `第${i + 1}节`, type: 'text', w: 62 })),
+    { key: '__pm', label: '下午课时', type: 'text', w: 82 },
+    { key: '__leave', label: '请假信息', type: 'text', w: 132 },
+  ];
+  const classExportView = (title) => ({
+    title,
+    columns: classExportColumns,
+    rows: visibleRows().map((r) => ({
+      teacher: r.teacher,
+      subject: r.subject || '',
+      data: {
+        __p1: r.data?.k_p1 === '1' ? '上课' : '—',
+        __p2: r.data?.k_p2 === '1' ? '上课' : '—',
+        __p3: r.data?.k_p3 === '1' ? '上课' : '—',
+        __p4: r.data?.k_p4 === '1' ? '上课' : '—',
+        __pm: r.data?.k_下午 === '1' ? '上课' : '—',
+        __leave: rowLeaveText(r) || '—',
+      },
+    })),
+  });
   const stats = () => {
     const rows = getRows();
     const count = (key) => rows.filter((r) => r.data?.[key] === '1').length;
     const listenKey = keyByLabel('听课', 'k_听课');
     const leave = rows.filter((r) => rowLeaveText(r)).length;
     const total = rows.length;
-    if (activeTab === 'class') return { total, items: [
-      { label: '应到教师', value: total, tone: '' },
-      { label: '已上课', value: count(keyByLabel('上课', 'k_上课')), tone: 'blue' },
-      { label: '听课', value: count(listenKey), tone: 'violet' },
-    ] };
+    if (activeTab === 'class') {
+      const taught = rows.filter(classHasLesson).length;
+      return { total, items: [
+        { label: '应到教师', value: total, tone: '' },
+        { label: '已上课', value: taught, tone: 'blue' },
+        { label: '请假', value: leave, tone: 'amber' },
+        { label: '待录入', value: Math.max(0, total - taught - leave), tone: 'gray' },
+      ] };
+    }
     if (activeTab === 'seat') {
       return { total, items: [
         { label: '应到教师', value: total, tone: '' },
@@ -368,19 +397,51 @@ export async function renderAttendance(box, opts = {}) {
       <thead><tr><th>序号</th><th>姓名</th><th>学科</th></tr></thead>
       <tbody>${rosterRows.map((r, i) => `<tr><td>${i + 1}</td><td class="aw-name">${esc(r.name || '')}</td><td>${esc(r.subject || '未填学科')}</td></tr>`).join('')}</tbody>
     </table></div>${rosterRows.length ? '' : `<div class="att-work-empty"><b>暂无教师名单</b><p>请先导入或维护本年级花名册。</p></div>`}`;
-    const classViewNote = isClass ? `<div class="att-work-locked-note">上课表独立保存、独立确认。可录入跨年级临时教师；临时记录只保留在当天这张表，不写入花名册。</div>` : '';
-    const tableHTML = isRoster ? rosterHTML : detail ? `
-      ${classViewNote}
+    const rowIndexOf = (r) => detail.rows.findIndex((x) => (r.id && String(x.id) === String(r.id)) || (r._uiKey && x._uiKey === r._uiKey) || (!r.id && !r._uiKey && !x.id && String(r.teacher || '').trim() === String(r.teacher || '').trim()));
+    const leaveCell = (r, ix) => {
+      const lt = rowLeaveText(r);
+      return lt
+        ? `<button class="aw-leave" data-leave-row="${ix}" title="点击修改请假信息">${esc(lt)}</button>`
+        : `<button class="aw-dash-btn" data-leave-row="${ix}" title="点击登记请假">—</button>`;
+    };
+    /* 上课表：姓名 / 学科 / 第1~4节 / 下午课时 / 请假信息（对应确认稿） */
+    const classTableHTML = `<div class="att-work-table-scroll"><table class="att-work-table aw-class-table">
+      <thead><tr><th>姓名</th><th>学科</th>${CLASS_PERIOD_KEYS.map((_, i) => `<th>第${i + 1}节</th>`).join('')}<th>下午课时</th><th>请假信息</th><th></th></tr></thead>
+      <tbody>${rows.length ? rows.map((r) => {
+        const ix = rowIndexOf(r);
+        return `<tr><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td>
+          <td>${esc(r.subject || '—')}</td>
+          ${CLASS_PERIOD_KEYS.map((k) => `<td class="aw-class-cell"><button class="aw-mark aw-class-mark ${r.data?.[k] === '1' ? 'on' : ''}" data-class-mark data-row="${ix}" data-key="${k}">${r.data?.[k] === '1' ? '上课' : '—'}</button></td>`).join('')}
+          <td class="aw-class-cell"><button class="aw-mark aw-class-mark ${r.data?.k_下午 === '1' ? 'on' : ''}" data-class-mark data-row="${ix}" data-key="k_下午">${r.data?.k_下午 === '1' ? '上课' : '—'}</button></td>
+          <td>${leaveCell(r, ix)}</td>
+          <td class="aw-edit-cell">${r.data?.__temp ? '<button class="aw-edit-btn" data-edit-row>编辑</button>' : ''}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">当前年级暂无在册教师，请先维护花名册。</td></tr>`}</tbody>
+    </table></div>`;
+    const classMobileHTML = `<div class="att-work-mobile-list">${rows.length ? rows.map((r) => {
+      const ix = rowIndexOf(r);
+      const lt = rowLeaveText(r);
+      return `<div class="aw-mobile-card">
+        <div class="aw-mobile-person"><b>${esc(r.teacher || '')}</b>${r.subject ? `<span>${esc(r.subject)}</span>` : ''}${r.data?.__temp ? '<em>临时</em>' : ''}</div>
+        <div class="aw-mobile-periods">${CLASS_PERIOD_KEYS.map((k, i) => `<button class="aw-mark aw-class-mark ${r.data?.[k] === '1' ? 'on' : ''}" data-class-mark data-row="${ix}" data-key="${k}"><small>第${i + 1}节</small>${r.data?.[k] === '1' ? '上课' : '—'}</button>`).join('')}</div>
+        <div class="aw-mobile-leave" data-leave-row="${ix}">${lt ? `请假：${esc(lt)}` : '请假：—'}</div>
+        ${r.data?.__temp ? '<div class="aw-mobile-edit" data-edit-row>编辑临时老师</div>' : ''}
+      </div>`;
+    }).join('') : '<div class="att-work-empty"><b>暂无教师</b><p>请先维护本年级花名册。</p></div>'}</div>`;
+    const tableHTML = isRoster ? rosterHTML
+      : isClass ? (detail ? classTableHTML + classMobileHTML : `
+        <div class="att-work-empty"><b>当天这张表尚未生成</b><p>请检查本年级花名册，或生成这张表后开始录入。</p><button class="btn primary sm" id="att-work-create">生成${esc(TYPE_SHORT[type] || '考勤表')}草稿</button></div>`)
+        : detail ? `
       <div class="att-work-table-scroll att-work-sheet-scroll"><table class="att-work-table att-work-sheet-table">
         <thead><tr><th>序号</th><th>姓名</th><th>学科</th>${displayColumns.map((col) => `<th>${esc(col.label)}</th>`).join('')}</tr></thead>
         <tbody>${rows.length ? rows.map((r) => {
-          const ix = detail.rows.findIndex((x) => (r.id && String(x.id) === String(r.id)) || (r._uiKey && x._uiKey === r._uiKey) || (!r.id && !r._uiKey && !x.id && String(x.teacher || '').trim() === String(r.teacher || '').trim()));
+          const ix = rowIndexOf(r);
           return `<tr data-row="${ix}"><td>${ix + 1}</td><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td><td>${esc(r.subject || '—')}</td>
             ${displayColumns.map((col) => col.type === 'check'
               ? `<td class="aw-check-cell"><button class="aw-mark aw-big-mark ${r.data?.[col.key] === '1' ? 'on' : ''}" data-row="${ix}" data-key="${esc(col.key)}" aria-label="${esc(col.label)}">${r.data?.[col.key] === '1' ? '✓' : ''}</button></td>`
               : `<td><input class="aw-cell-input" data-cell-input data-row="${ix}" data-key="${esc(col.key)}" value="${esc(r.data?.[col.key] || '')}" placeholder="—"></td>`).join('')}
           </tr>`;
-        }).join('') : `<tr><td colspan="${3 + displayColumns.length}" class="muted" style="text-align:center;padding:24px">${isClass ? '当前年级暂无在册教师，请先维护花名册。' : '暂无教师记录。'}</td></tr>`}</tbody>
+        }).join('') : `<tr><td colspan="${3 + displayColumns.length}" class="muted" style="text-align:center;padding:24px">暂无教师记录。</td></tr>`}</tbody>
       </table></div>` : `
       <div class="att-work-empty"><b>当天这张表尚未生成</b><p>请检查本年级花名册，或生成这张表后开始录入。</p><button class="btn primary sm" id="att-work-create">生成${esc(TYPE_SHORT[type] || '考勤表')}草稿</button></div>`;
 
@@ -388,17 +449,17 @@ export async function renderAttendance(box, opts = {}) {
       <div class="att-work-shell">
         <div class="att-work-crumb">工作模块 <span>/</span> 考勤 <span>/</span> ${esc(activeGrade)}</div>
         <div class="att-work-head">
-          <div><h2>${esc(activeGrade)} · 考勤</h2><div class="att-work-sync"><i></i> 数据已加载</div></div>
+          <div><h2>${esc(activeGrade)}考勤</h2><div class="att-work-sync"><i></i> ${dirty ? '有未保存修改' : '数据已同步'}</div></div>
           <div class="att-work-head-actions"><button class="btn ghost sm" id="att-work-create-group">补齐三张表</button><select class="input att-work-grade" id="att-work-grade">${gradesData.tabs.map((g) => `<option value="${esc(g)}" ${g === activeGrade ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
         </div>
         <div class="att-work-meta-controls">
           <div class="att-work-date"><button class="icon-btn" id="att-work-prev" aria-label="前一天">‹</button><label><input type="date" id="att-work-date" value="${esc(viewDate)}"> <span>${esc(dateLabel(viewDate))}</span></label><button class="icon-btn" id="att-work-next" aria-label="后一天">›</button><button class="btn ghost sm" id="att-work-today">今天</button></div>
           <label>时间段 <select class="input" id="att-work-time-range"><option value="全天">全天</option><option value="上午">上午</option><option value="下午">下午</option></select></label>
-          ${activeTab === 'research' || isRoster ? '' : `<label>节次 <input class="input" id="att-work-period" type="number" min="1" max="9" step="1" list="att-work-period-options" value="${esc(selectedPeriod)}" inputmode="numeric" aria-label="选择或输入节次"><datalist id="att-work-period-options">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" label="第 ${p} 节"></option>`).join('')}</datalist></label>`}
+          ${activeTab === 'research' || isRoster || isClass ? '' : `<label>节次 <input class="input" id="att-work-period" type="number" min="1" max="9" step="1" list="att-work-period-options" value="${esc(selectedPeriod)}" inputmode="numeric" aria-label="选择或输入节次"><datalist id="att-work-period-options">${Array.from({ length: 9 }, (_, i) => i + 1).map((p) => `<option value="${p}" label="第 ${p} 节"></option>`).join('')}</datalist></label>`}
           <span class="att-work-meta-hint">日期、时间段和节次可手动调整</span>
         </div>
         <nav class="att-work-tabs">
-          <button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button><button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button>
+          <button data-tab="roster" class="${activeTab === 'roster' ? 'on' : ''}">花名册</button><button data-tab="seat" class="${activeTab === 'seat' ? 'on' : ''}">坐班表</button><button data-tab="research" class="${activeTab === 'research' ? 'on' : ''}">教研表</button><button data-tab="class" class="${activeTab === 'class' ? 'on' : ''}">上课表</button><button data-tab="stats">统计表</button>
         </nav>
         ${isRoster ? '' : `<div class="att-work-stats">${(st.items || []).map((item) => `<div class="aw-stat ${item.tone || ''}"><span>${item.label}</span><b>${item.value}</b><small>人</small></div>`).join('')}</div>`}
         <section class="att-work-panel">
@@ -407,17 +468,29 @@ export async function renderAttendance(box, opts = {}) {
             <input class="input aw-search" id="att-work-search" placeholder="⌕ 搜索教师姓名" value="${esc(searchText)}">
             ${isRoster ? `<button class="btn primary sm" id="att-work-add">＋ 管理花名册</button><button class="btn ghost sm" id="att-work-photo">${icon('camera', 14)} 拍照建册</button>` : `<button class="btn ghost sm" id="att-work-photo">${icon('camera', 14)} 拍照导入</button><button class="btn primary sm" id="att-work-voice">${icon('mic', 14)} 语音录入</button>${isClass ? `<button class="btn ghost sm" id="att-work-add">＋ 新增临时老师</button>` : ''}`}
             <span class="att-work-spacer"></span>
-            ${isRoster ? `<span class="att-roster-count">${roster.filter((r) => r.active).length} 位在册教师</span>` : `<div class="att-work-export-wrap"><button class="btn ghost sm" id="att-work-export">${icon('download', 14)} 导出 ▾</button><div class="att-work-export-menu" id="att-work-export-menu" hidden><button data-export="pdf">导出 PDF</button><button data-export="png">导出 PNG</button><button data-export="xlsx">导出 Excel</button><label><input type="checkbox" id="att-work-watermark" checked> 添加水印</label></div></div>`}
+            ${isRoster ? `<span class="att-roster-count">${roster.filter((r) => r.active).length} 位在册教师</span>` : `<div class="att-work-export-wrap"><button class="btn ghost sm" id="att-work-export">${icon('download', 14)} 导出 ▾</button><div class="att-work-export-menu att-export-card" id="att-work-export-menu" hidden>
+              <div class="aec-title">导出当前${isClass ? '上课表' : (tabTitle[activeTab] || '考勤表')}</div>
+              <div class="aec-label">导出格式</div>
+              <div class="aec-formats" id="att-work-fmt"><button data-fmt="pdf" class="on">PDF</button><button data-fmt="png">PNG</button><button data-fmt="xlsx">Excel</button></div>
+              <label class="aec-wm"><span>添加水印</span><input type="checkbox" id="att-work-watermark"></label>
+              <div class="aec-meta">${esc(activeGrade)}　${esc(viewDate)}</div>
+              <div class="aec-note"><i>ⓘ</i> 每张考勤表独立导出一个文件</div>
+              <button class="btn primary aec-go" id="att-work-export-go">导出文件</button>
+            </div></div>`}
           </div>
           <div class="att-work-table-title"><div><h3>${isRoster ? '教师花名册' : (tabTitle[activeTab] || '上课考勤表')}</h3><span>${isRoster ? `${esc(activeGrade)} · ${roster.filter((r) => r.active).length} 位教师 · ${subjects.length} 个学科` : `${esc(dateLabel(viewDate))} · ${esc(activeGrade)} · ${rows.length} 位教师`}</span></div>${isRoster ? `<span class="att-work-confirm ok">名单已加载</span>` : `<span class="att-work-confirm ${detail?.confirm_state === 'confirmed' ? 'ok' : detail?.confirm_state === 'modified' ? 'warn' : ''}">${stateText}</span>`}</div>
           ${tableHTML}
-          ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；姓名和学科必填，重复记录会在确认前拦截。</span></div>` : `<div class="att-work-foot"><span>${isClass ? 'ⓘ 上课表独立记录当天数据；临时教师不进入永久花名册，次日不会自动出现。' : activeTab === 'seat' ? 'ⓘ 坐班表独立记录并确认，不参与上课表内容。' : 'ⓘ 教研表独立记录签到、请假与备注，可按学科批量签到。'}</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? `重新确认${TYPE_SHORT[activeTab]}` : `确认生成${TYPE_SHORT[activeTab]}`}</button></div></div>`}
+          ${isRoster ? `<div class="att-work-foot"><span>ⓘ 花名册按年级独立管理；姓名和学科必填，重复记录会在确认前拦截。</span></div>`
+            : isClass ? `<div class="att-work-warnbar ${detail?.confirm_state === 'confirmed' && !dirty ? 'ok' : ''}"><span><i></i>${detail?.confirm_state === 'confirmed' && !dirty ? '本表已确认生成；再改动需要重新确认' : '修改尚未生效，请重新确认生成'}</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">确认生成</button></div></div>`
+            : `<div class="att-work-foot"><span>${activeTab === 'seat' ? 'ⓘ 坐班表独立记录并确认，不参与上课表内容。' : 'ⓘ 教研表独立记录签到、请假与备注，可按学科批量签到。'}</span><div><button class="btn ghost sm" id="att-work-save">保存草稿</button><button class="btn primary sm" id="att-work-confirm">${detail?.confirm_state === 'confirmed' ? `重新确认${TYPE_SHORT[activeTab]}` : `确认生成${TYPE_SHORT[activeTab]}`}</button></div></div>`}
         </section>
       </div>`;
 
     box.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => {
       const tab = b.dataset.tab;
+      if (tab === 'stats') { statsSheet(activeGrade); return; }
       activeTab = tab; sessionStorage.setItem('wb_att_tab', tab); searchText = ''; subjectFilter = '';
+      if (tab === 'class' && selectedPeriod !== '1') { selectedPeriod = '1'; sessionStorage.setItem('wb_att_period', '1'); }
       (async () => {
         try {
           if (tab !== 'roster' && !listFor(tab).length) {
@@ -504,7 +577,13 @@ export async function renderAttendance(box, opts = {}) {
       });
     });
     box.querySelectorAll('[data-roster-manage]').forEach((b) => b.onclick = () => rosterSheet(activeGrade, () => load()));
-    box.querySelector('#att-work-export')?.addEventListener('click', () => { const m = box.querySelector('#att-work-export-menu'); if (m) m.hidden = !m.hidden; });
+    const exportMenu = box.querySelector('#att-work-export-menu');
+    box.querySelector('#att-work-export')?.addEventListener('click', () => { if (exportMenu) exportMenu.hidden = !exportMenu.hidden; });
+    let exportFormat = 'pdf';
+    box.querySelectorAll('#att-work-fmt [data-fmt]').forEach((b) => b.onclick = () => {
+      exportFormat = b.dataset.fmt;
+      box.querySelectorAll('#att-work-fmt [data-fmt]').forEach((x) => x.classList.toggle('on', x === b));
+    });
     const watermarkToggle = box.querySelector('#att-work-watermark');
     if (watermarkToggle) {
       watermarkToggle.checked = attExportSetting().on;
@@ -519,26 +598,17 @@ export async function renderAttendance(box, opts = {}) {
         } catch (e) { watermarkToggle.checked = !watermarkToggle.checked; toast(e.message || '水印设置保存失败', 'err'); }
       };
     }
-    box.querySelectorAll('[data-export]').forEach((b) => b.onclick = async () => {
+    box.querySelector('#att-work-export-go')?.addEventListener('click', async () => {
       if (!detail) return toast('没有可导出的考勤表', 'warn');
+      if (exportMenu) exportMenu.hidden = true;
+      const title = `${activeGrade}${tabTitle[activeTab] || '考勤表'}_${viewDate}`;
       const rowsNow = getRows();
-      const title = `${activeGrade}${tabTitle[activeTab]}_${viewDate}`;
-      if (b.dataset.export === 'pdf') return saveThenPdf(detail, rowsNow);
-      if (b.dataset.export === 'png') return shotTable(detail.id);
-      const exportCols = displayColumns;
-      const grid = attendanceExportGrid({
-        grade: activeGrade,
-        date: viewDate,
-        type: activeTab,
-        columns: exportCols,
-        rows: rowsNow,
-      }).slice(1);
-      saveBlob(makeXlsx({ title, grid }), attendanceExportFileName({
-        grade: activeGrade,
-        date: viewDate,
-        type: activeTab,
-        extension: 'xlsx',
-      }));
+      if (exportFormat === 'pdf') return isClass ? saveThenPdf(detail, null, classExportView(title)) : saveThenPdf(detail, rowsNow);
+      if (exportFormat === 'png') return isClass ? shotTable(detail.id, classExportView(title)) : shotTable(detail.id);
+      const cols = isClass ? classExportColumns : displayColumns;
+      const dataRows = isClass ? classExportView(title).rows : rowsNow;
+      const grid = [['序号', '姓名', '学科', ...cols.map((c) => c.label)], ...dataRows.map((r, i) => [i + 1, r.teacher, r.subject || '', ...cols.map((c) => isClass ? String(r.data?.[c.key] || '') : c.type === 'check' ? (r.data?.[c.key] === '1' ? '✓' : r.data?.[c.key] === '0' ? '×' : '') : String(r.data?.[c.key] || ''))])];
+      saveBlob(makeXlsx({ title, grid }), `${title}.xlsx`);
     });
     box.querySelector('#att-work-create')?.addEventListener('click', async () => {
       try { await createSlot({ date: viewDate, grade: activeGrade, type, period: type === 'research' ? '' : selectedPeriod }); await load({ makeToday: false }); }
@@ -546,7 +616,36 @@ export async function renderAttendance(box, opts = {}) {
     });
     box.querySelectorAll('[data-mark]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
     box.querySelectorAll('[data-cell-input]').forEach((input) => input.onchange = () => { const row = detail?.rows?.[Number(input.dataset.row)]; if (!row) return; row.data = { ...(row.data || {}), [input.dataset.key]: input.value }; dirty = true; });
-    box.querySelectorAll('.aw-mark[data-row]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
+    box.querySelectorAll('.aw-big-mark[data-row]').forEach((b) => b.onclick = () => toggleMark(Number(b.dataset.row), b.dataset.key));
+    const repaintKeepScroll = () => {
+      const old = box.querySelector('.att-work-table-scroll');
+      const top = old ? old.scrollTop : 0;
+      const left = old ? old.scrollLeft : 0;
+      paint();
+      const next = box.querySelector('.att-work-table-scroll');
+      if (next) { next.scrollTop = top; next.scrollLeft = left; }
+    };
+    /* 上课表逐节勾选：每节独立，不互相覆盖；请假单独维护，不清空节次 */
+    box.querySelectorAll('[data-class-mark]').forEach((b) => b.onclick = () => {
+      const row = detail?.rows?.[Number(b.dataset.row)];
+      if (!row) return;
+      const key = b.dataset.key;
+      row.data = { ...(row.data || {}), [key]: row.data?.[key] === '1' ? '' : '1' };
+      dirty = true;
+      repaintKeepScroll();
+    });
+    box.querySelectorAll('[data-leave-row]').forEach((b) => b.onclick = () => {
+      const ix = Number(b.dataset.leaveRow);
+      const row = detail?.rows?.[ix];
+      if (!row) return;
+      leaveDialog(row.data?.__leave || {}, (lv) => {
+        row.data = { ...(row.data || {}), __leave: lv };
+        const leaveCol = (detail.columns || []).find((c) => /请假/.test(c.label || ''));
+        if (leaveCol) row.data[leaveCol.key] = '1';
+        dirty = true;
+        repaintKeepScroll();
+      });
+    });
     box.querySelectorAll('[data-edit-row]').forEach((b) => b.onclick = () => detail && openTable(detail.id, () => load()));
     box.querySelector('#att-work-save')?.addEventListener('click', () => persistWorkspace(false));
     box.querySelector('#att-work-confirm')?.addEventListener('click', () => persistWorkspace(true));
@@ -3696,8 +3795,8 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat, wm = '' }) 
   const DPR = 2;
   const PAD = 28;
   const colW = isSeat ? [44, 104, 70] : [44, 104, 70];
-  const chkW = 62;
-  const tableW = colW.reduce((a, b) => a + b, 0) + cols.length * chkW;
+  const colw = (c) => Number(c.w) || 62;
+  const tableW = colW.reduce((a, b) => a + b, 0) + cols.reduce((s, c) => s + colw(c), 0);
   const W = Math.max(tableW, isSeat ? 860 : 560) + PAD * 2;
   const HEAD_H = 34;
   const ROW_H = 34;
@@ -3727,7 +3826,7 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat, wm = '' }) 
   }
 
   const heads = ['序号', '姓名', '学科', ...cols.map((c) => c.label.replace(/^[左右]栏·/, ''))];
-  const widths = [...colW, ...cols.map(() => chkW)];
+  const widths = [...colW, ...cols.map(colw)];
   const left = (W - widths.reduce((a, b) => a + b, 0)) / 2;
   const top = PAD + TOP - PAD;
 
@@ -3763,11 +3862,12 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat, wm = '' }) 
       cx += widths[i];
     });
     /* 勾选列：画勾/叉，不画字 —— 和纸表一致，也避免字体里没有 ✓ 的机器显示成方块 */
-    cols.forEach((c) => {
+    cols.forEach((c, ci) => {
       const v = r.data?.[c.key];
+      const cw = widths[3 + ci];
       ctx.strokeStyle = '#d8d8dc';
-      ctx.strokeRect(cx + 0.5, y + 0.5, chkW, ROW_H);
-      const mx = cx + chkW / 2;
+      ctx.strokeRect(cx + 0.5, y + 0.5, cw, ROW_H);
+      const mx = cx + cw / 2;
       const my = y + ROW_H / 2;
       if (v === '1') {
         ctx.strokeStyle = '#1a7f37';
@@ -3788,8 +3888,13 @@ async function renderSheetPng({ title, dateLine, rows, cols, isSeat, wm = '' }) 
         ctx.moveTo(mx + 8, my - 8); ctx.lineTo(mx - 8, my + 8);
         ctx.stroke();
         ctx.lineWidth = 1;
+      } else if (v !== undefined && v !== null && v !== '') {
+        /* 文字列（上课/—/请假信息）直接写字，导出件与页面一致 */
+        ctx.fillStyle = '#1c1c1e';
+        ctx.font = `12px ${FONT}`;
+        ctx.fillText(String(v).slice(0, 14), mx, my);
       }
-      cx += chkW;
+      cx += cw;
     });
   });
 
