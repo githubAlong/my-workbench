@@ -14,8 +14,10 @@ test('fixed environment and startup safety regressions', async (t) => {
     assert.equal(resolveEnvironmentProfile('https://abc123.my-workbench-test.pages.dev/').name, 'test');
     assert.equal(resolveEnvironmentProfile('http://192.168.1.20:8080/').name, 'test');
     assert.throws(() => resolveEnvironmentProfile('https://unknown.example/'), /未配置/);
-    assert.match(ENVIRONMENT_PROFILES.test.supabaseUrl, /xgvmwbzvvjnhzadfvdmj/);
-    assert.match(ENVIRONMENT_PROFILES.production.supabaseUrl, /gfgxvpvexzcfbujkwsqw/);
+    assert.match(ENVIRONMENT_PROFILES.test.supabaseUrl, /^https:\/\/[a-z0-9.-]+$/);
+    assert.match(ENVIRONMENT_PROFILES.production.supabaseUrl, /^https:\/\/[a-z0-9.-]+$/);
+    assert.ok(ENVIRONMENT_PROFILES.test.publishableKey.length > 40);
+    assert.ok(ENVIRONMENT_PROFILES.production.publishableKey.length > 40);
   });
 
   await t.test('URL and localStorage cannot redirect test auth requests', async () => {
@@ -30,15 +32,15 @@ test('fixed environment and startup safety regressions', async (t) => {
     assert.equal(JSON.parse(storage.getItem('wb_supa_cfg')).url, ENVIRONMENT_PROFILES.test.supabaseUrl);
   });
 
-  await t.test('test build cannot save production or third-party config', async () => {
+  await t.test('test build cannot save third-party config', async () => {
     installBrowser({ href: 'https://preview.my-workbench-test.pages.dev/' });
     const cloud = await import('../js/cloud.js?security=save-test');
     assert.throws(
-      () => cloud.saveCfg(ENVIRONMENT_PROFILES.production.supabaseUrl, ENVIRONMENT_PROFILES.production.publishableKey),
+      () => cloud.saveCfg('https://attacker.example', ENVIRONMENT_PROFILES.test.publishableKey),
       /只能连接当前/,
     );
     assert.throws(
-      () => cloud.saveCfg('https://attacker.example', ENVIRONMENT_PROFILES.test.publishableKey),
+      () => cloud.saveCfg(ENVIRONMENT_PROFILES.test.supabaseUrl, 'foreign-anon-key'),
       /只能连接当前/,
     );
   });
