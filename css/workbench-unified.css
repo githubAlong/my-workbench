@@ -1,0 +1,924 @@
+/* ==========================================================================
+   全站统一 UI 规范
+   参考：工作台课表确认稿
+   原则：统一外壳、导航、卡片、按钮、表单、表格；业务结构与交互保持不变。
+   所有主题色读取现有主题变量，跟随「我的 - 主题外观」设置。
+   ========================================================================== */
+
+:root {
+  --wb-sidebar-width: 236px;
+  --wb-panel-radius: 12px;
+  --wb-control-radius: 8px;
+  --wb-panel-shadow: 0 3px 16px rgba(35, 70, 120, .055);
+}
+
+html[data-theme="dark"] { color-scheme: dark; }
+html[data-theme]:not([data-theme="dark"]) { color-scheme: light; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ---------- 桌面工作台外壳 ---------- */
+.app {
+  align-items: stretch;
+  gap: 0;
+  background: var(--bg);
+}
+
+.app > .sidebar {
+  width: var(--wb-sidebar-width);
+  flex: 0 0 var(--wb-sidebar-width);
+  height: 100vh;
+  min-height: 0;
+  padding: 16px 10px 12px;
+  gap: 0;
+  overflow: hidden;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+}
+
+.app > .sidebar .brand {
+  flex: 0 0 auto;
+  min-width: 0;
+  gap: 10px;
+  margin: 0 0 9px;
+  padding: 2px 6px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.app > .sidebar .brand-logo {
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+}
+
+.app > .sidebar .brand-name {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+.app > .sidebar .brand-sub {
+  margin-top: 3px;
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.app > .sidebar .side-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.app > .sidebar .nav-item {
+  min-height: 39px;
+  margin: 2px 0;
+  padding: 7px 10px;
+  gap: 9px;
+  border-radius: 8px;
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 550;
+}
+
+.app > .sidebar .nav-item:hover {
+  color: var(--text);
+  background: var(--bg-sunken);
+}
+
+.app > .sidebar .nav-item.active {
+  color: var(--primary);
+  background: var(--primary-weak);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 17%, transparent);
+  font-weight: 700;
+}
+
+.app > .sidebar .nav-item .ni {
+  width: 18px;
+  height: 18px;
+  flex-basis: 18px;
+}
+
+.app > .sidebar .nav-sub {
+  margin: 2px 0 3px 18px;
+  padding-left: 8px;
+  border-left-color: var(--line);
+}
+
+.app > .sidebar .nav-subitem {
+  min-height: 31px;
+  padding: 6px 8px;
+  gap: 7px;
+  border-radius: 7px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.app > .sidebar .nav-subitem.on {
+  color: var(--primary);
+  background: var(--primary-weak);
+  font-weight: 700;
+}
+
+.app > .sidebar .nav-sub3 {
+  margin-left: 12px;
+  padding-left: 7px;
+  border-left-color: var(--line-2);
+}
+
+.app > .sidebar .nav-subitem.lv3 {
+  min-height: 29px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+/* 「我的」是独立底栏，不进入可滚动导航列表。 */
+.app > .sidebar .sidebar-foot {
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.app > .sidebar .sidebar-foot > #side-user {
+  min-height: 44px;
+  margin: 0;
+  padding: 6px 9px;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.app > .sidebar .sidebar-foot > #side-user:hover {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--line));
+  background: var(--primary-weak);
+}
+
+.app > .sidebar .sidebar-foot > #side-user.active {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--line));
+  background: var(--primary-weak);
+  box-shadow: none;
+}
+
+.app > .sidebar .sidebar-foot > #side-user .side-user-avatar {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+
+.app > .sidebar .sidebar-foot > #side-user .side-user-label strong {
+  color: inherit;
+  font-size: 12.5px;
+}
+
+.app > .sidebar .sidebar-foot > #side-user .side-user-label small {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+/* 主工作区：浅灰背景上的白色内容面板。 */
+@media (min-width: 901px) {
+  .app > .main {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: calc(100vh - 28px);
+    max-width: 2000px;
+    margin: 14px auto;
+    padding: 17px 17px 24px;
+    overflow: visible;
+    border: 1px solid var(--line);
+    border-radius: var(--wb-panel-radius);
+    background: var(--card);
+    box-shadow: var(--wb-panel-shadow);
+  }
+
+  .app:has(#home-grid) > .main {
+    max-width: 2000px;
+    margin: 14px auto;
+    padding: 17px;
+    background: var(--card);
+  }
+
+  .home-redesign-app > .sidebar.home-sidebar {
+    width: var(--wb-sidebar-width);
+    flex-basis: var(--wb-sidebar-width);
+  }
+
+  .home-redesign-app > .main.home-redesign {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: 2000px;
+    min-height: calc(100vh - 28px);
+    margin: 14px auto;
+    padding: 17px;
+    border: 1px solid var(--line);
+    border-radius: var(--wb-panel-radius);
+    background: var(--card);
+    box-shadow: var(--wb-panel-shadow);
+  }
+
+  body.is-wide .app > .main,
+  body.is-wide .home-redesign-app > .main.home-redesign {
+    max-width: none;
+  }
+}
+
+/* ---------- 页面标题 ---------- */
+.main > .page-head,
+.main .page-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 15px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.main .page-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.main .page-title::before {
+  content: "";
+  display: block;
+  flex: 0 0 3px;
+  width: 3px;
+  height: 16px;
+  border-radius: 3px;
+  background: var(--primary);
+}
+
+.main .page-sub {
+  margin-top: 3px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* ---------- 通用卡片与内容容器 ---------- */
+.main .card,
+.main .table-wrap,
+.main .att-work-panel {
+  border-color: var(--line);
+  border-radius: var(--wb-panel-radius);
+  box-shadow: var(--shadow-s);
+}
+
+.main .card {
+  background-color: var(--card);
+}
+
+.main .table-wrap {
+  background: var(--card);
+}
+
+.main .card-title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.main .list-item {
+  border-color: var(--line);
+}
+
+.main .list-item:hover {
+  background: var(--card-2);
+}
+
+/* ---------- 按钮 ---------- */
+.main .btn {
+  min-height: 34px;
+  border-radius: var(--wb-control-radius);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.main .btn.sm {
+  min-height: 30px;
+  height: 30px;
+  padding-right: 10px;
+  padding-left: 10px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.main .btn.primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 3px 9px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.main .btn.primary:hover {
+  border-color: var(--primary-deep);
+  background: var(--primary-deep);
+}
+
+.main .btn.ghost {
+  border-color: var(--line-2);
+  background: var(--card);
+  color: var(--text-2);
+}
+
+.main .btn.ghost:hover {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--line));
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+
+.main .btn.soft {
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+
+.main .icon-btn {
+  border-radius: 8px;
+}
+
+.main .icon-btn:hover {
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+
+/* ---------- 输入框、搜索与筛选 ---------- */
+.main .input,
+.main select.input,
+.main textarea.input,
+.main input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.main select:not(.unstyled) {
+  border-color: var(--line-2);
+  border-radius: var(--wb-control-radius);
+  background-color: var(--card);
+  color: var(--text);
+}
+
+.main .input:focus,
+.main input:focus,
+.main select:focus,
+.main textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-weak);
+  outline: none;
+}
+
+.main input::placeholder,
+.main textarea::placeholder {
+  color: var(--text-3);
+}
+
+.main .searchbar {
+  border-color: var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: none;
+}
+
+/* ---------- 分段选择、标签与状态 ---------- */
+.main .seg {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg-sunken);
+}
+
+.main .seg button {
+  border-radius: 7px;
+  color: var(--text-2);
+}
+
+.main .seg button.on {
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: 0 1px 3px rgba(20, 45, 85, .08);
+}
+
+.main .chip-btn.on {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ---------- 表格 ---------- */
+.main .table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+}
+
+.main table.tbl {
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.main table.tbl th {
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  border-bottom-color: var(--line);
+  font-weight: 700;
+}
+
+.main table.tbl td {
+  border-bottom-color: var(--line);
+}
+
+.main table.tbl tbody tr:hover td {
+  background: var(--primary-weak);
+}
+
+/* ---------- 弹窗 ---------- */
+.main .sheet,
+.sheet-mask .sheet {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+}
+
+.sheet-head {
+  border-bottom: 1px solid var(--line);
+}
+
+.sheet-foot {
+  border-top-color: var(--line);
+  background: var(--card);
+}
+
+/* ---------- 首页、个人中心与便签页的统一细节 ---------- */
+.home-redesign .home-card,
+.home-redesign #home-grid > .hg-item > .card {
+  border-color: var(--line);
+  border-radius: var(--wb-panel-radius);
+  box-shadow: var(--shadow-s);
+}
+
+.main .me-home-head {
+  align-items: center;
+  margin: 0 0 15px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.main .me-home-head h1 {
+  margin: 3px 0;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 750;
+}
+
+.main .me-home-head p {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.main .me-identity-card {
+  margin-bottom: 16px;
+  padding: 17px 18px;
+  border-color: var(--line);
+  border-radius: var(--wb-panel-radius);
+  background: var(--primary-weak);
+  box-shadow: var(--shadow-s);
+}
+
+.main .account-security-shell {
+  border-color: var(--line);
+  border-radius: var(--wb-panel-radius);
+  box-shadow: var(--shadow-s);
+}
+
+.main .account-security-banner {
+  background: linear-gradient(110deg,
+    color-mix(in srgb, var(--primary-weak) 92%, var(--card)),
+    color-mix(in srgb, var(--primary) 10%, var(--card)));
+}
+
+.main .account-security-banner-icon {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--card));
+  box-shadow: none;
+}
+
+.main .me-page-toolbar {
+  margin-bottom: 10px;
+}
+
+.main .me-back-home {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border-color: var(--line);
+  background: var(--card);
+  color: var(--primary);
+  font-size: 12.5px;
+}
+
+.main .note-card {
+  border-color: var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow-s);
+}
+
+.main .note-card.going {
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--line));
+  background: var(--primary-weak);
+}
+
+.main .note-card.finished {
+  background: var(--bg-sunken);
+}
+
+/* ---------- 考勤工作台跟随全局主题 ---------- */
+.main .att-work-shell {
+  color: var(--text);
+}
+
+.main .att-work-crumb,
+.main .att-work-table-title span {
+  color: var(--text-3);
+}
+
+.main .att-work-head h2,
+.main .att-work-table-title h3 {
+  color: var(--text);
+}
+
+.main .att-work-grade,
+.main .att-work-date label,
+.main .att-work-date .icon-btn,
+.main .att-work-export-menu {
+  border-color: var(--line);
+  background: var(--card);
+  color: var(--text);
+}
+
+.main .att-work-tabs {
+  border-bottom-color: var(--line);
+}
+
+.main .att-work-tabs button {
+  color: var(--text-2);
+}
+
+.main .att-work-tabs button.on {
+  color: var(--primary);
+}
+
+.main .att-work-tabs button.on:after {
+  background-color: var(--primary);
+}
+
+.main .att-work-stats .aw-stat {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+  color: var(--text);
+  background: var(--card);
+}
+
+.main .att-work-stats .aw-stat.blue {
+  background: var(--primary-weak);
+}
+
+.main .att-work-stats .aw-stat.amber {
+  background: var(--amber-weak);
+}
+
+.main .att-work-stats .aw-stat.gray {
+  background: var(--bg-sunken);
+}
+
+.main .att-work-stats .aw-stat b {
+  color: var(--text);
+}
+
+.main .att-work-stats .aw-stat small {
+  color: var(--text-3);
+}
+
+.main .att-work-panel {
+  background: var(--card);
+  border-color: var(--line);
+  box-shadow: var(--shadow-s);
+}
+
+.main .att-work-toolbar .btn.primary {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.main .att-work-export-menu {
+  box-shadow: var(--shadow-m);
+}
+
+.main .att-work-export-menu button {
+  color: var(--text-2);
+}
+
+.main .att-work-export-menu button:hover {
+  color: var(--primary);
+  background: var(--primary-weak);
+}
+
+.main .att-work-table-scroll {
+  border-color: var(--line);
+  border-radius: 9px;
+}
+
+.main .att-work-shell table th {
+  background: var(--bg-sunken);
+  color: var(--text-2);
+}
+
+.main .att-work-shell table td {
+  border-color: var(--line);
+}
+
+/* ---------- 移动端：保持原有底部导航与抽屉逻辑 ---------- */
+@media (max-width: 900px) {
+  .app > .main {
+    width: 100%;
+    min-height: 0;
+    max-width: none;
+    margin: 0;
+    padding: 14px 14px calc(var(--nav-h) + var(--safe-b) + 18px);
+    border: 0;
+    border-radius: 0;
+    background: var(--bg);
+    box-shadow: none;
+  }
+
+  .home-redesign-app > .main.home-redesign {
+    width: 100%;
+    min-height: 0;
+    max-width: none;
+    margin: 0;
+    padding: 14px 14px calc(var(--nav-h) + var(--safe-b) + 18px);
+    border: 0;
+    border-radius: 0;
+    background: var(--bg);
+    box-shadow: none;
+  }
+
+  .bottom-nav {
+    background: var(--card);
+    border-top-color: var(--line);
+  }
+}
+
+@media (max-width: 640px) {
+  .main > .page-head,
+  .main .page-head {
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .main .page-title { font-size: 17px; }
+  .main .page-sub { font-size: 11.5px; }
+
+  .main .page-head .btn { margin-left: auto; }
+
+  .main .card,
+  .main .table-wrap { border-radius: 10px; }
+
+  .main .me-identity-card {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 13px;
+    padding: 14px;
+  }
+}
+
+
+
+/* ================= 我的页面：统一手风琴式设置面板 ================= */
+.main.page-me-home {
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding-bottom:28px;
+}
+.main.page-me-home .me-home-head { margin:2px 0 16px; }
+.main.page-me-home .me-home-head h1 { font-size:24px; }
+.main.page-me-home .me-home-head p { font-size:12px; }
+.main .me-identity-card {
+  position:relative;
+  min-height:78px;
+  margin:0 0 14px;
+  padding:14px 18px;
+  border:0;
+  border-radius:12px;
+  background:linear-gradient(112deg,#19458f 0%,#2866cf 55%,#4385f4 100%);
+  box-shadow:0 6px 18px rgba(36,91,171,.14);
+  color:#fff;
+}
+.main .me-identity-main { align-items:center; gap:14px; }
+.main .me-identity-avatar,
+.main .me-identity-avatar > img,
+.main .me-identity-avatar .avatar-img,
+.main .me-identity-avatar .avatar-fallback {
+  width:54px!important;height:54px!important;border-radius:13px!important;
+}
+.main .me-identity-camera { width:22px;height:22px;right:-4px;bottom:-4px;border-color:#2866cf; }
+.main .me-identity-name { color:#fff; font-size:16px; font-weight:800; }
+.main .me-identity-meta,
+.main .me-identity-account,
+.main .me-identity-signature { margin-top:3px; color:rgba(255,255,255,.88); font-size:11px; }
+.main .me-identity-account svg { color:#fff; }
+.main .me-identity-chips { margin-top:5px; }
+.main .me-identity-chips .chip { border-color:rgba(255,255,255,.2); background:rgba(255,255,255,.15); color:#fff; }
+.main .me-identity-toggle {
+  flex:0 0 auto;
+  min-width:54px;
+  min-height:34px;
+  padding:0 12px;
+  border:1px solid rgba(255,255,255,.5);
+  border-radius:9px;
+  background:#fff;
+  color:#2455a1;
+  font-size:12px;
+  font-weight:750;
+  cursor:pointer;
+}
+.main .me-identity-compact { display:none; color:#fff; font-size:13px; font-weight:750; }
+.main .me-identity-card.is-collapsed { min-height:54px; padding:9px 14px; }
+.main .me-identity-card.is-collapsed .me-identity-main { display:none; }
+.main .me-identity-card.is-collapsed .me-identity-compact { display:block; flex:1; min-width:0; }
+
+.main .me-home-accordions { display:grid; grid-template-columns:minmax(0,1fr); gap:11px; }
+.main .me-accordion {
+  min-width:0;
+  overflow:hidden;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--card);
+  box-shadow:var(--shadow-s);
+}
+.main .me-accordion-head {
+  display:flex;
+  align-items:center;
+  gap:11px;
+  min-height:64px;
+  padding:11px 14px;
+  cursor:pointer;
+  list-style:none;
+  outline:none;
+}
+.main .me-accordion-head::-webkit-details-marker { display:none; }
+.main .me-accordion-head::marker { content:""; }
+.main .me-accordion-head:hover { background:var(--bg-sunken); }
+.main .me-accordion[open] > .me-accordion-head {
+  border-bottom:1px solid var(--line);
+  background:var(--primary-weak);
+}
+.main .me-accordion-icon {
+  display:grid;
+  place-items:center;
+  flex:0 0 36px;
+  width:36px;
+  height:36px;
+  border-radius:10px;
+  background:var(--card);
+  color:var(--primary);
+}
+.main .me-accordion-icon.danger { background:var(--red-weak); color:var(--red); }
+.main .me-accordion-copy { display:flex; flex:1; min-width:0; flex-direction:column; gap:3px; }
+.main .me-accordion-copy strong { color:var(--text); font-size:13px; font-weight:800; }
+.main .me-accordion-copy small { color:var(--text-3); font-size:11px; line-height:1.45; }
+.main .me-accordion-summary-extra { color:var(--text-3); font-size:11px; white-space:nowrap; }
+.main .me-accordion-badge {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:22px;
+  height:21px;
+  padding:0 7px;
+  border-radius:99px;
+  background:var(--red-weak);
+  color:var(--red);
+  font-size:10px;
+  font-weight:750;
+}
+.main .me-accordion-chevron {
+  display:grid;
+  place-items:center;
+  flex:0 0 28px;
+  width:28px;
+  height:28px;
+  border-radius:8px;
+  color:var(--text-3);
+  transition:transform .18s ease,color .18s ease;
+}
+.main .me-accordion[open] .me-accordion-chevron { color:var(--primary); transform:rotate(180deg); }
+.main .me-accordion-chevron svg { width:17px; height:17px; }
+.main .me-accordion-panel { min-width:0; padding:17px 18px 19px; }
+.main .me-accordion-panel.page-me-profile,
+.main .me-accordion-panel.page-me-workbench-settings,
+.main .me-accordion-panel.page-me-account-settings,
+.main .me-accordion-panel.page-me-messages {
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding:0;
+}
+.main .me-accordion-panel .profile-shell {
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+  background:transparent;
+}
+.main .me-accordion-panel .profile-banner-inline {
+  min-height:84px;
+  justify-content:space-between;
+  gap:14px;
+  padding:12px 14px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--bg-sunken);
+  isolation:auto;
+}
+.main .me-accordion-panel .profile-banner-inline::before,
+.main .me-accordion-panel .profile-banner-inline::after { display:none; }
+.main .me-accordion-panel .profile-banner-inline .profile-banner-content { align-items:center; gap:13px; }
+.main .me-accordion-panel .profile-banner-inline .profile-avatar-image { width:54px!important;height:54px!important; outline:0; box-shadow:none; }
+.main .me-accordion-panel .profile-banner-inline .profile-banner-name { color:var(--text); font-size:14px; font-weight:750; }
+.main .me-accordion-panel .profile-banner-inline .profile-banner-meta { margin-top:3px; color:var(--text-2); font-size:11px; }
+.main .me-accordion-panel .profile-banner-inline .profile-banner-hint { margin-top:4px; color:var(--text-3); font-size:10px; }
+.main .profile-avatar-actions { display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+.main .profile-avatar-actions .btn { min-height:34px; padding:0 12px; font-size:11px; }
+.main .me-accordion-panel .profile-content { padding:19px 10px 10px; }
+.main .me-accordion-panel .profile-section-title { margin-bottom:14px; font-size:15px; }
+.main .me-accordion-panel .profile-section-title > span { height:19px; }
+.main .me-accordion-panel .profile-fields { gap:2px 22px; }
+.main .me-accordion-panel .profile-fields .field { margin-bottom:12px; }
+.main .me-accordion-panel .profile-fields .input { height:40px; border-radius:9px; }
+.main .me-accordion-panel .profile-save-row { margin-top:8px; padding-top:14px; }
+.main .me-accordion-panel .profile-save-row .btn { min-width:112px; height:38px; }
+.main .me-accordion-panel.page-me-workbench-settings .wb-brand-settings {
+  padding:0;
+  border:0;
+  box-shadow:none;
+  background:transparent;
+}
+.main .me-accordion-panel.page-me-workbench-settings .wb-brand-settings-head { margin-bottom:13px; }
+.main .me-accordion-panel.page-me-workbench-settings .wb-brand-preview { min-height:82px; padding:14px 17px; }
+.main .me-accordion-panel.page-me-account-settings .account-security-shell { border:0; box-shadow:none; }
+.main .me-accordion-panel.page-me-account-settings .account-security-banner { display:none; }
+.main .me-accordion-panel.page-me-account-settings .account-security-content { padding:4px 0; }
+.main .me-accordion-panel.page-me-account-settings .account-security-art,
+.main .me-accordion-panel.page-me-account-settings .account-security-caption { display:none; }
+.main .me-accordion-panel.page-me-messages .me-page-toolbar,
+.main .me-accordion-panel.page-me-messages .page-head { display:none; }
+.main .me-accordion-panel.page-me-messages .msg-seg { margin-bottom:12px!important; }
+.main .me-accordion-panel.page-me-messages > .card { border:0; box-shadow:none; }
+.main .me-inline-setting {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  min-height:62px;
+  padding:4px 2px;
+}
+.main .me-inline-setting strong { color:var(--text); font-size:13px; font-weight:750; }
+.main .me-inline-setting p { margin:5px 0 0; color:var(--text-3); font-size:11px; line-height:1.6; }
+.main .me-inline-setting .btn { flex:0 0 auto; min-height:36px; }
+@media(max-width:760px) {
+  .main.page-me-home { padding-left:12px; padding-right:12px; }
+  .main .me-identity-card { gap:10px; padding:12px; }
+  .main .me-identity-main { gap:10px; }
+  .main .me-identity-avatar,
+  .main .me-identity-avatar > img,
+  .main .me-identity-avatar .avatar-img,
+  .main .me-identity-avatar .avatar-fallback { width:48px!important;height:48px!important; }
+  .main .me-identity-toggle { min-width:48px; padding:0 9px; }
+  .main .me-accordion-head { min-height:58px; padding:9px 10px; }
+  .main .me-accordion-panel { padding:13px 11px 15px; }
+  .main .me-accordion-panel .profile-banner-inline { align-items:flex-start; flex-direction:column; }
+  .main .profile-avatar-actions { width:100%; }
+  .main .profile-avatar-actions .btn { flex:1; }
+  .main .me-accordion-panel .profile-content { padding:16px 2px 8px; }
+  .main .me-accordion-panel .profile-fields { grid-template-columns:1fr; gap:0; }
+  .main .me-inline-setting { align-items:flex-start; flex-direction:column; }
+  .main .me-inline-setting .btn { width:100%; }
+}

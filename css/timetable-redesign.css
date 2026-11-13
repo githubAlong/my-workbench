@@ -1,0 +1,365 @@
+/* ==========================================================================
+   周课表 · 按用户确认稿重构
+   只作用于 .tt-workspace，不影响其他业务页面。
+   颜色跟随「我的 - 主题外观」中的全局主题变量。
+   ========================================================================== */
+
+.tt-workspace {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0 0;
+  color: var(--text);
+}
+
+.tt-workspace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 10px;
+}
+
+.tt-workspace-title-wrap {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.tt-workspace-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.35;
+  font-weight: 750;
+}
+
+.tt-workspace-title::before {
+  content: "";
+  width: 3px;
+  height: 18px;
+  flex: 0 0 3px;
+  border-radius: 3px;
+  background: var(--primary);
+}
+
+.tt-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.tt-toolbar-actions > .btn {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.tt-toolbar-actions > .btn.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.tt-more-actions {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.tt-more-actions > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.tt-more-actions > summary::-webkit-details-marker { display: none; }
+
+.tt-more-actions > summary:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-weak);
+}
+
+.tt-more-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  min-width: 156px;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow-m);
+}
+
+.tt-more-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tt-more-menu button:hover {
+  color: var(--primary);
+  background: var(--primary-weak);
+}
+
+.tt-workspace-hint {
+  margin: 0 0 12px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.tt-grid-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tt-grid-table {
+  width: 100%;
+  min-width: 1050px;
+  table-layout: fixed;
+  border: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--card);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.tt-grid-table .tt-col-time { width: 112px; }
+.tt-grid-table .tt-col-period { width: 76px; }
+.tt-grid-table .tt-col-day { width: auto; }
+
+.tt-grid-table thead th {
+  height: 42px;
+  padding: 8px 7px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.tt-grid-table thead th:last-child { border-right: 0; }
+
+.tt-grid-table thead th.tt-weekday-head.is-today {
+  background: var(--primary);
+  color: #fff;
+  border-bottom-color: var(--primary);
+}
+
+.tt-grid-table tbody td {
+  height: 66px;
+  padding: 5px 6px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+  text-align: center;
+  vertical-align: middle;
+}
+
+.tt-grid-table tbody tr:last-child td { border-bottom: 0; }
+.tt-grid-table tbody td:last-child { border-right: 0; }
+
+.tt-grid-table .tt-time-cell,
+.tt-grid-table .tt-period-cell {
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.tt-grid-table .tt-time-cell {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tt-grid-table .tt-period-cell {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.tt-grid-table .tt-slot {
+  cursor: pointer;
+  transition: background-color .14s ease, box-shadow .14s ease;
+}
+
+.tt-grid-table .tt-slot.is-empty:hover {
+  background: var(--primary-weak);
+}
+
+.tt-empty-add {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--text-3);
+  font-size: 15px;
+  line-height: 1;
+  opacity: .55;
+  transition: .14s ease;
+}
+
+.tt-slot.is-empty:hover .tt-empty-add {
+  color: var(--primary);
+  background: var(--card);
+  opacity: 1;
+}
+
+.tt-course-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 6px 8px;
+  overflow: hidden;
+  border-left: 3px solid var(--primary);
+  border-radius: 7px;
+  background: var(--primary-weak);
+  color: var(--primary-deep);
+  text-align: left;
+  cursor: grab;
+  user-select: none;
+  transition: box-shadow .14s ease, transform .14s ease;
+}
+
+.tt-course-card strong {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tt-course-card span {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--primary-deep) 78%, var(--text-2));
+  font-size: 10.5px;
+  font-weight: 550;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tt-slot[data-course-id] { cursor: grab; }
+.tt-slot[data-course-id]:hover .tt-course-card {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+.tt-slot.tt-dragging { opacity: .42; }
+.tt-slot.tt-drop-target {
+  outline: 3px solid var(--primary);
+  outline-offset: -3px;
+  background: var(--primary-weak);
+}
+
+.tt-grid-table .tt-lunch-row td {
+  height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--primary-weak);
+  color: var(--primary-deep);
+  text-align: center;
+  letter-spacing: .2px;
+}
+
+.tt-lunch-row strong {
+  margin-right: 10px;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.tt-lunch-row span {
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tt-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-sunken);
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .tt-workspace { padding-top: 0; }
+  .tt-workspace-head { align-items: flex-start; }
+  .tt-grid-table { min-width: 1000px; }
+  .tt-summary-bar { align-items: flex-start; flex-direction: column; gap: 3px; }
+}
+
+@media (max-width: 640px) {
+  .tt-workspace-head { flex-direction: column; gap: 9px; }
+  .tt-toolbar-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .tt-workspace-title { font-size: 17px; }
+  .tt-workspace-hint { font-size: 11px; }
+  .tt-grid-table { min-width: 940px; }
+  .tt-grid-table thead th { height: 40px; }
+  .tt-grid-table tbody td { height: 62px; }
+  .tt-course-card { min-height: 43px; padding: 5px 6px; }
+  .tt-course-card strong { font-size: 11.5px; }
+  .tt-course-card span { font-size: 10px; }
+}

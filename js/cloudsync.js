@@ -93,6 +93,9 @@ function stableJson(value) {
 function isRevisionConflict(error) {
   return /WB_DATA_REVISION_CONFLICT|40001|revision conflict/i.test(String(error?.message || ''));
 }
+function isWriteBusy(error) {
+  return /WB_DATA_WRITE_BUSY|55P03|lock_not_available|lock timeout/i.test(String(error?.message || error?.code || ''));
+}
 function makeRevisionConflict(raw) {
   _conflictPaused = true;
   _syncReady = false;
@@ -112,7 +115,7 @@ async function adoptRemoteIfSame(cloud, raw, payload, savingSeq) {
   window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved', at: remote.updated_at } }));
   return remote;
 }
-async function pushSnapshot() {
+async function pushSnapshotUnlocked() {
   if (!_uid || !_pending) return;
   if (_conflictPaused) throw makeRevisionConflict(localStorage.getItem(DB_KEY) || '');
   const cloud = await import('./cloud.js');
@@ -147,6 +150,15 @@ async function pushSnapshot() {
   window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'saved', at: saved.updated_at } }));
   return saved;
 }
+/* Cross-tab serialization: keep the wait in the browser, not in a Postgres
+   connection. All tabs on this origin share the same localStorage snapshot/revision. */
+async function pushSnapshot() {
+  if (typeof navigator === 'undefined' || !navigator.locks?.request) {
+    return pushSnapshotUnlocked();
+  }
+  return navigator.locks.request(`wb-snapshot:${_uid}`, { mode: 'exclusive' }, () => pushSnapshotUnlocked());
+}
+
 export async function initializeAccountSync() {
   const cloud = await import('./cloud.js');
   const uid = cloud.session()?.uid || '';
@@ -218,6 +230,20 @@ export function hookSave() {
         _syncReady = false;
         window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'conflict', message: e.message } }));
         toast(e.message || '检测到多端数据冲突，自动同步已暂停以保护云端数据。', 'err', 12000);
+        return;
+      }
+      if (isWriteBusy(e)) {
+        /* 同一账号的并发写入属于暂时性竞争：保留本地修改，静默排队重试。 */
+        console.warn('[sync] 云端写入繁忙，已安排自动重试', e);
+        window.dispatchEvent(new CustomEvent('wb:sync-status', {
+          detail: { status: 'saving', message: '云端正在处理其他保存请求，系统会自动重试。' },
+        }));
+        clearTimeout(_debounce);
+        const retryDelay = _retryDelay;
+        _debounce = setTimeout(() => {
+          if (_syncReady && !_conflictPaused) hookSave();
+        }, retryDelay);
+        _retryDelay = Math.min(30000, Math.max(1500, _retryDelay * 2));
         return;
       }
       window.dispatchEvent(new CustomEvent('wb:sync-status', { detail: { status: 'error', message: e.message } }));

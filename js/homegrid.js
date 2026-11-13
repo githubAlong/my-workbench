@@ -25,22 +25,12 @@
    天生冲突（拖一下就滚不动了），得不偿失。手机上保留隐藏/显示即可。
    ========================================================================== */
 
-import { el, esc, toast, confirmDialog, sheet } from './core.js';
+import { api, el, esc, toast, confirmDialog } from './core.js';
 import { state, icon } from './ui.js';
-import {
-  HOME_LAYOUT_CARDS,
-  readHomeLayoutFromSnapshot,
-  selectHomeLayoutCandidate,
-  homeLayoutErrorCode,
-} from './home-layout-migration.mjs';
-import {
-  saveHomeLayoutToAccount,
-  migrateLegacyHomeLayout,
-  adoptAccountHomeLayout,
-} from './cloudsync.js';
+import * as cloud from './cloud.js';
 
 export const COLS = 12;
-const ROW_H = 68;      /* 新首页卡片基准行高；h=3 就是 3 行 */
+const ROW_H = 52;      /* 新首页卡片基准行高；h=4 约为一张标准首屏卡片 */
 const GAP = 14;        /* 卡片间距，和 CSS 里的 gap 必须一致 */
 
 const BP = {
@@ -48,55 +38,64 @@ const BP = {
   tablet: 860,
 };
 
-/* 卡片清单与安全验证器共用同一份真实白名单。 */
-export const CARDS = HOME_LAYOUT_CARDS;
+/* 卡片清单。顺序 = 卡片管理面板里的顺序 = 默认布局顺序 */
+export const CARDS = [
+  { id: 'profile', title: '个人信息与每日一句', minW: 3, minH: 3 },
+  { id: 'timeline', title: '日期与时间', minW: 3, minH: 3 },
+  { id: 'todayCourse', title: '今日上课提醒', minW: 3, minH: 3 },
+  { id: 'todayTodo', title: '今日事项', minW: 3, minH: 3 },
+  { id: 'calendar', title: '日历', minW: 3, minH: 3 },
+  { id: 'weather', title: '天气', minW: 3, minH: 3 },
+  { id: 'weekLessons', title: '本周课时', minW: 2, minH: 2 },
+  { id: 'invigilation', title: '监考任务', minW: 2, minH: 2 },
+  { id: 'prepDeadline', title: '备课截止', minW: 2, minH: 2 },
+  { id: 'recentNotes', title: '最近笔记', minW: 2, minH: 2 },
+];
 const CARD_MAP = new Map(CARDS.map((c) => [c.id, c]));
 export const cardTitle = (id) => CARD_MAP.get(id)?.title || id;
 
-/* 默认布局：和需求里的那张图一一对应
-     第一行：个人信息 / 每日一句 / 天气
-     第二行：今日事项 / 今日课程 / 日历 */
+/* 默认布局：按首页参考图排列
+     第一行：个人信息与每日一句 / 日期时钟 / 今日上课提醒
+     第二行：今日事项 / 日历 / 天气 */
+const DEFAULT_HIDDEN = ['weekLessons', 'invigilation', 'prepDeadline', 'recentNotes'];
 const DEFAULTS = {
   desktop: [
-    ['timeline', 0, 0, 7, 2], ['profile', 7, 0, 5, 2],
-    ['todayCourse', 0, 2, 7, 4], ['weather', 7, 2, 5, 2],
-    ['todayTodo', 0, 6, 4, 3], ['dailyQuote', 4, 6, 3, 3],
-    ['calendar', 7, 4, 5, 5],
-    ['weekLessons', 0, 9, 3, 2], ['invigilation', 3, 9, 3, 2],
-    ['prepDeadline', 6, 9, 3, 2], ['recentNotes', 9, 9, 3, 2],
+    ['profile', 0, 0, 4, 4], ['timeline', 4, 0, 4, 4], ['weather', 8, 0, 4, 4],
+    ['todayTodo', 0, 4, 4, 7], ['todayCourse', 4, 4, 4, 7], ['calendar', 8, 4, 4, 7],
+    ['weekLessons', 0, 11, 3, 2], ['invigilation', 3, 11, 3, 2],
+    ['prepDeadline', 6, 11, 3, 2], ['recentNotes', 9, 11, 3, 2],
   ],
   tablet: [
-    ['timeline', 0, 0, 6, 3], ['profile', 6, 0, 6, 3],
-    ['todayCourse', 0, 3, 6, 4], ['weather', 6, 3, 6, 3],
-    ['todayTodo', 0, 7, 6, 4], ['dailyQuote', 6, 6, 6, 3],
-    ['calendar', 6, 9, 6, 5],
-    ['weekLessons', 0, 11, 3, 2], ['invigilation', 3, 11, 3, 2],
-    ['prepDeadline', 0, 13, 6, 2], ['recentNotes', 6, 14, 6, 2],
+    ['profile', 0, 0, 6, 4], ['timeline', 6, 0, 6, 4],
+    ['weather', 0, 4, 12, 5],
+    ['todayTodo', 0, 9, 6, 7], ['todayCourse', 6, 9, 6, 7],
+    ['calendar', 0, 16, 12, 7],
+    ['weekLessons', 0, 20, 6, 2], ['invigilation', 6, 20, 6, 2],
+    ['prepDeadline', 0, 22, 6, 2], ['recentNotes', 6, 22, 6, 2],
   ],
   mobile: [
-    ['timeline', 0, 0, 12, 3], ['profile', 0, 3, 12, 3],
-    ['todayCourse', 0, 6, 12, 5], ['weather', 0, 11, 12, 3],
-    ['todayTodo', 0, 14, 12, 5], ['dailyQuote', 0, 19, 12, 3],
-    ['calendar', 0, 22, 12, 6],
-    ['weekLessons', 0, 28, 12, 2], ['invigilation', 0, 30, 12, 2],
-    ['prepDeadline', 0, 32, 12, 2], ['recentNotes', 0, 34, 12, 2],
+    ['profile', 0, 0, 12, 4], ['timeline', 0, 4, 12, 4],
+    ['weather', 0, 8, 12, 6], ['todayTodo', 0, 14, 12, 7],
+    ['todayCourse', 0, 21, 12, 7], ['calendar', 0, 28, 12, 7],
+    ['weekLessons', 0, 32, 12, 2], ['invigilation', 0, 34, 12, 2],
+    ['prepDeadline', 0, 36, 12, 2], ['recentNotes', 0, 38, 12, 2],
   ],
 };
 
 function defaultSeg(bp) {
   return {
     layout: DEFAULTS[bp].map(([id, x, y, w, h]) => ({ id, x, y, w, h })),
-    hidden: [],
+    hidden: [...DEFAULT_HIDDEN],
   };
 }
 
 export function defaultState() {
   return {
-    version: 2,
+    version: 6,
     /* 【为什么这里是空串而不是 new Date()】
        updatedAt 用来判断「云端和本地谁更新」。如果默认状态取"现在"，
-       那一个从没排过布局的新设备，其本地时间会被误认为比云端那次保存更晚，
-       从而拒绝采用账号快照里的布局 ——
+       那一个从没排过布局的新设备，其本地时间永远比云端那次保存更晚，
+       pullCloud 就会一直认为「本地更新」而拒绝采用云端布局 ——
        换台电脑登录，看到的永远是默认排布，多端同步等于没有。
        空串表示「从未保存过」，Date.parse('') 得到 NaN，比较时按 0 处理。 */
     updatedAt: '',
@@ -164,11 +163,13 @@ export const isMobile = () => currentBp() === 'mobile';
 
 /* ---------------- 状态 ---------------- */
 
-/* 布局存在账号 settings.homeLayout 里：跟着账号快照走。
-   旧 wb_sync 仅用于一次性只读迁移，不再作为日常写入来源。 */
+/* 布局存在账号 settings.homeLayout 里：跟着账号走，
+   换浏览器登录同一个账号还在。云端那一份（wb_sync）用作跨设备同步，
+   拿不到就退回本地这份，功能不受影响。 */
 const SETTING_KEY = 'homeLayout';
 const DRAFT_KEY = 'wb_home_layout_draft';
 
+const temporaryMinRows = new Map(); /* 展开日历时临时扩高，不写入用户保存的布局 */
 let ST = null;      /* 已保存的布局 */
 let draft = null;   /* 编辑中的草稿 */
 let editing = false;
@@ -182,10 +183,15 @@ function normalize(raw) {
   const out = defaultState();
   if (!raw || typeof raw !== 'object' || !raw.breakpoints) return out;
   const rawVersion = Number(raw.version) || 1;
-  if (rawVersion < 2) {
-    const hidden = [...new Set((raw.breakpoints.desktop?.hidden || []).map(String).filter((id) => CARD_MAP.has(id)))];
+  /* v5 首页重排：旧布局只迁移辅助卡片的隐藏偏好，核心六张卡片恢复为参考图默认布局。
+     只更新展示布局，不触碰课程、事项、天气或其他业务数据。 */
+  if (rawVersion < 6) {
+    const auxiliary = new Set(['weekLessons', 'invigilation', 'prepDeadline', 'recentNotes']);
+    const oldHidden = (raw.breakpoints.desktop?.hidden || []).map(String).filter((id) => auxiliary.has(id));
+    const hidden = [...new Set([...DEFAULT_HIDDEN, ...oldHidden])];
     for (const bp of Object.keys(out.breakpoints)) out.breakpoints[bp].hidden = hidden;
     out.updatedAt = raw.updatedAt || '';
+    out.version = 6;
     return out;
   }
   out.version = rawVersion;
@@ -236,16 +242,6 @@ function ensure() {
   return ST;
 }
 
-function rememberLayout(layout) {
-  ST = layout;
-  if (state.user) {
-    state.user = {
-      ...state.user,
-      settings: { ...(state.user.settings || {}), [SETTING_KEY]: layout },
-    };
-  }
-}
-
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const segOf = (st, bp = currentBp()) => st.breakpoints[bp] || st.breakpoints.desktop;
 
@@ -266,6 +262,15 @@ function paint() {
   /* 手机：单列，按 layout 的顺序从上往下堆。x/w 不参与，
      否则用户从桌面切过来会看到一堆半宽卡片。 */
   let view = seg.layout.map((i) => ({ ...i }));
+  if (!mobile && temporaryMinRows.size) {
+    for (const [id, minRows] of temporaryMinRows) {
+      const target = view.find((item) => item.id === id);
+      if (!target || hidden.has(id)) continue;
+      target.h = Math.max(target.h, minRows);
+      /* 临时扩高时让其他可见卡片避让；收起后完全恢复保存的布局。 */
+      resolve(view.filter((item) => !hidden.has(item.id)), id);
+    }
+  }
   if (mobile) {
     view = view.map((i) => ({ ...i, x: 0, w: COLS }));
     compact(view);
@@ -290,9 +295,17 @@ function paint() {
     if (hb) hb.hidden = false;
   }
 
-  /* 网格容器在手机上要退回 auto 行高，否则卡片被固定成 64px 一行 */
+  /* 桌面首页使用等分弹性行高：可见卡片按当前屏幕高度铺满，
+     不再把每行固定为 52px，避免大屏下方留下大片空白。
+     平板保留原有固定行高，手机继续自然纵向堆叠。 */
   gridEl.classList.toggle('hg-mobile', mobile);
-  gridEl.style.gridAutoRows = mobile ? 'auto' : `${ROW_H}px`;
+  const desktop = bp === 'desktop';
+  const expanded = temporaryMinRows.size > 0;
+  gridEl.style.gridAutoRows = mobile
+    ? 'auto'
+    : (desktop && !expanded ? 'minmax(0, 1fr)' : `${ROW_H}px`);
+  gridEl.classList.toggle('hg-fill-viewport', desktop && !expanded);
+  gridEl.classList.toggle('hg-expanded-layout', expanded);
 
   paintToolbar();
 }
@@ -322,12 +335,24 @@ function paintToolbar() {
 
 /* ---------------- 拖拽 / 缩放 ---------------- */
 
+const gridGap = (axis) => {
+  if (!gridEl) return GAP;
+  const raw = Number.parseFloat(window.getComputedStyle(gridEl)[axis]);
+  return Number.isFinite(raw) ? raw : GAP;
+};
 const stepX = () => {
   if (!gridEl) return 0;
   const w = gridEl.clientWidth || 1;
-  return (w - GAP * (COLS - 1)) / COLS + GAP;
+  const gap = gridGap('columnGap');
+  return (w - gap * (COLS - 1)) / COLS + gap;
 };
-const stepY = () => ROW_H + GAP;
+const stepY = () => {
+  if (!gridEl) return ROW_H + GAP;
+  const style = window.getComputedStyle(gridEl);
+  const firstTrack = Number.parseFloat(style.gridTemplateRows.split(/\s+/)[0]);
+  const gap = gridGap('rowGap');
+  return (Number.isFinite(firstTrack) ? firstTrack : ROW_H) + gap;
+};
 
 function beginEdit() {
   if (editing) return;
@@ -359,30 +384,18 @@ async function saveEdit() {
     breakpoints: draft.breakpoints,
   };
   try {
-    const result = await saveHomeLayoutToAccount(payload);
-    if (!result.localSaved) throw result.error || new Error('布局没有保存到本机');
-    if (result.status === 'conflict') {
-      const selected = await resolveLayoutConflict(result.analysis, {
-        title: '布局保存冲突',
-        description: '另一台设备也更新了首页布局。本机刚才保存的布局已经保留，请明确选择云端要使用哪一份。',
-      });
-      editing = false;
-      draft = null;
-      localStorage.removeItem(DRAFT_KEY);
-      rememberLayout(selected?.layout || payload);
-      paint();
-      toast(selected
-        ? '布局冲突已处理'
-        : '已保留本机布局，云端版本未改动', selected ? 'ok' : 'warn', 7000);
-      return;
-    }
+    /* settings 走浅合并（服务端按顶层键合并），只换 homeLayout 这一块 */
+    const settings = { ...(state.user?.settings || {}), [SETTING_KEY]: payload };
+    const r = await api.patch('/me', { settings });
+    if (r?.user) state.user = r.user;
+    ST = payload;
     editing = false;
     draft = null;
     localStorage.removeItem(DRAFT_KEY);
-    rememberLayout(payload);
     paint();
-    if (result.status === 'saved' || result.status === 'confirmed') toast('布局已保存并同步', 'ok');
-    else toast('布局已保存在本机，云端暂未确认；稍后再保存一次即可重试', 'warn', 7000);
+    toast('布局已保存', 'ok');
+    /* 云端那一份是「锦上添花」：失败不影响本地，也不打扰用户 */
+    pushCloud(payload).catch(() => {});
   } catch (e) {
     /* 保存失败时把草稿留在本机，刷新之后还能捡回来 */
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ at: Date.now(), draft })); } catch { }
@@ -398,26 +411,15 @@ async function resetAll() {
      应该能同步到另一台设备，而不是被别的设备当成旧数据忽略掉。 */
   const st = { ...defaultState(), updatedAt: new Date().toISOString(), version: (Number(ST?.version) || 1) + 1 };
   try {
-    const result = await saveHomeLayoutToAccount(st);
-    if (!result.localSaved) throw result.error || new Error('布局没有保存到本机');
-    if (result.status === 'conflict') {
-      const selected = await resolveLayoutConflict(result.analysis, {
-        title: '恢复默认布局冲突',
-        description: '另一台设备也更新了首页布局。请明确选择云端要使用哪一份。',
-      });
-      if (editing) { editing = false; draft = null; }
-      localStorage.removeItem(DRAFT_KEY);
-      rememberLayout(selected?.layout || st);
-      paint();
-      toast(selected ? '布局冲突已处理' : '已保留本机默认布局，云端版本未改动', selected ? 'ok' : 'warn', 7000);
-      return;
-    }
+    const settings = { ...(state.user?.settings || {}), [SETTING_KEY]: st };
+    const r = await api.patch('/me', { settings });
+    if (r?.user) state.user = r.user;
+    ST = st;
     if (editing) { editing = false; draft = null; }
     localStorage.removeItem(DRAFT_KEY);
-    rememberLayout(st);
     paint();
-    if (result.status === 'saved' || result.status === 'confirmed') toast('已恢复默认布局并同步', 'ok');
-    else toast('已恢复默认布局并保存在本机，云端暂未确认', 'warn', 7000);
+    toast('已恢复默认布局', 'ok');
+    pushCloud(st).catch(() => {});
   } catch (e) {
     toast('恢复失败：' + (e.message || e), 'err');
   }
@@ -580,77 +582,50 @@ function openManager() {
   });
 }
 
-/* ---------------- 旧布局安全迁移 ---------------- */
+/* ---------------- 云端同步（跨设备） ---------------- */
 
-async function chooseLayoutConflict(analysis) {
-  const labels = { local: '本机当前布局', snapshot: '账号快照布局', legacy: '旧设备布局' };
-  const choices = (analysis?.choices || []).filter((item) => labels[item.source]);
-  if (choices.length < 2) return false;
-  const body = el(`<div class="sheet-body">
-    <div class="small muted" style="line-height:1.7;margin-bottom:12px">
-      发现多个不同的首页布局。系统不会自动覆盖任何版本，请明确选择一个作为账号布局。
-    </div>
-    <div class="col">${choices.map((item) => `<button class="btn ghost block" data-layout-choice="${item.source}">
-      <b>${labels[item.source]}</b>
-      <span class="tiny muted">记录时间：${esc(item.updatedAt || '未知')}<br>内容标识：${esc(item.checksum)}</span>
-    </button>`).join('')}</div>
-    <div class="small muted" style="margin-top:10px">取消会保留本机、账号快照和旧布局现状。</div>
-  </div>`);
-  const source = await new Promise((resolve) => {
-    const sh = sheet({
-      title: '选择首页布局版本',
-      body,
-      onClose: () => resolve(''),
-    });
-    body.querySelectorAll('[data-layout-choice]').forEach((btn) => {
-      btn.onclick = () => {
-        const selected = btn.dataset.layoutChoice;
-        sh.close();
-        resolve(selected);
-      };
-    });
-  });
-  if (!source) return false;
-  let selected;
+function cloudKey() {
+  const uid = cloud.session()?.uid || '';
+  return uid ? `home-layout-v1-${uid}` : '';
+}
+
+function rpc(path, payload) {
+  const c = cloud.cfg();
+  if (!c) return Promise.resolve(null);
+  return fetch(c.url + '/rest/v1/rpc/' + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: c.anon },
+    body: JSON.stringify(payload),
+  }).then((r) => (r.ok ? r.json() : null));
+}
+
+async function pushCloud(st) {
+  const k = cloudKey();
+  if (!k) return;
+  await rpc('wb_put', { k, p: st });
+}
+
+/* 登录后拉一次。规则很简单：云端比本地新就用云端。
+   两边都没有就什么都不做，等用户自己排。 */
+export async function pullCloud() {
+  const k = cloudKey();
+  if (!k) return false;
   try {
-    selected = selectHomeLayoutCandidate(analysis, source);
+    const rows = await rpc('wb_get', { k });
+    const remote = Array.isArray(rows) && rows[0]?.payload;
+    if (!remote || !remote.breakpoints) return false;
+    const localAt = Date.parse(ensure().updatedAt || 0) || 0;
+    const remoteAt = Date.parse(remote.updatedAt || 0) || 0;
+    if (remoteAt <= localAt) return false;
+    const st = normalize(remote);
+    ST = st;
+    const settings = { ...(state.user?.settings || {}), [SETTING_KEY]: st };
+    api.patch('/me', { settings }).then((r) => { if (r?.user) state.user = r.user; }).catch(() => {});
+    paint();
+    return true;
   } catch {
     return false;
   }
-  const result = await saveHomeLayoutToAccount(selected, { normalizer: normalize });
-  if (!result.localSaved) {
-    toast(result.error?.message || '所选布局没有保存，现有版本均未删除', 'err', 8000);
-    return false;
-  }
-  rememberLayout(selected);
-  paint();
-  toast(result.status === 'saved' || result.status === 'confirmed'
-    ? '已采用所选首页布局'
-    : '所选布局已保存在本机，云端暂未确认', result.status === 'saved' || result.status === 'confirmed' ? 'ok' : 'warn', 7000);
-  return true;
-}
-
-/* 登录后只读当前用户的旧布局；不传 UID、不传 key，也不删除旧数据。 */
-export async function migrateLegacyLayout() {
-  const result = await migrateLegacyHomeLayout({
-    normalizer: normalize,
-    hasUnsavedDraft: !!(draft || editing),
-  });
-  if (result.status === 'conflict') {
-    await chooseLayoutConflict(result.analysis);
-    return result;
-  }
-  if ((result.status === 'saved' || result.status === 'confirmed') && result.markerWritten) {
-    const layout = readHomeLayoutFromSnapshot(result.payload, normalize);
-    if (layout) {
-      rememberLayout(layout);
-      paint();
-      toast(result.status === 'saved' ? '首页布局已安全迁移到账号' : '首页布局已确认同步', 'ok', 4500);
-    }
-  } else if (result.status === 'failed') {
-    console.warn('[home-layout] 旧布局迁移未完成，本机布局和旧数据均保留', result.error || result.reason || '');
-  }
-  return result;
 }
 
 /* ---------------- 对外接口 ---------------- */
@@ -664,9 +639,7 @@ function unbind() {
 export function mount(grid) {
   unbind();
   gridEl = grid;
-  /* 每次整页重建都从最新的账号快照重读；编辑中的局部重绘才保留 ST。 */
-  if (editing) ensure();
-  else ST = readState();
+  ensure();
   /* 跨断点时重画一次。只注册一次 —— mount 会随首页重绘反复调用，
      每次都 new 一个 resize 监听的话，拖窗口就会触发十几个重排。 */
   if (!offResize) offResize = watchBreakpoint();
@@ -711,6 +684,7 @@ export function mount(grid) {
 
 export function unmount() {
   unbind();
+  temporaryMinRows.clear();
   gridEl = null;
 }
 
@@ -729,6 +703,14 @@ export function watchBreakpoint() {
 
 export function resetLayout() {
   return resetAll();
+}
+
+/* 临时调整卡片高度，仅影响当前显示，不保存到账号布局。 */
+export function setTemporaryHeight(id, minRows = 0) {
+  const rows = Math.round(Number(minRows) || 0);
+  if (rows > 0) temporaryMinRows.set(String(id), Math.max(2, rows));
+  else temporaryMinRows.delete(String(id));
+  paint();
 }
 
 export const isEditing = () => editing;

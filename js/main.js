@@ -97,7 +97,21 @@ if (cloudSession?.uid) {
     cloudSession = null;
   }
 }
-state.user = cloudSession?.uid ? await loadMe() : null;
+/* 仅供本地 Playwright 使用的隔离登录夹具。
+   必须同时满足 localhost/127.0.0.1 与显式 ?e2e=1；不写 Supabase token、
+   不请求云端认证、不在任何线上域名启用。每个浏览器 context 使用全新存储。 */
+const E2E_LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname)
+  && new URLSearchParams(location.search).get('e2e') === '1'
+  && !cloudSession?.uid;
+let e2eLocalUser = null;
+if (E2E_LOCAL) {
+  e2eLocalUser = await api.post('/auth/login-cloud', {
+    account: '12345678901',
+    email: 'e2e@workbench.local',
+    uid: 'e2e-local-only',
+  }, { silent: true });
+}
+state.user = E2E_LOCAL ? (e2eLocalUser?.user || null) : (cloudSession?.uid ? await loadMe() : null);
 if (!location.hash) location.hash = '#/home';
 window.addEventListener('hashchange', () => render());
 
@@ -118,6 +132,8 @@ window.addEventListener('wb:signout', async () => {
 });
 
 await render();
+window.__wbBooted = true;
+window.dispatchEvent(new Event('wb:booted'));
 
 /* ============================================================================
    实时同步（一端改动，另一端自己变）
@@ -137,10 +153,13 @@ try {
   live.bindLiveDot();
   window.addEventListener('wb:snapshot-applied', async () => {
     try {
-      state.user = await loadMe();
+      /* 云端快照已经写入本地库，必须同步刷新内存中的用户对象。
+         否则「我的」首页仍拿旧 state.user 渲染，顶部资料卡片会显示旧信息。 */
+      await loadMe();
+      /* profileDraft 会保留当前正在编辑的未保存输入；重绘可让资料表单与顶部卡片一起读取最新 state.user。 */
       await render();
     } catch (e) {
-      console.warn('[sync] 远端数据刷新失败', e);
+      console.warn('[sync] 远端资料刷新失败', e);
     }
   });
   rt.syncWithAuth();

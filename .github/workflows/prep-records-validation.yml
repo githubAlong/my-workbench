@@ -1,0 +1,78 @@
+name: Electronic prep records validation
+
+on:
+  pull_request:
+    branches:
+      - test
+    paths:
+      - "js/work.js"
+      - "js/localdb.js"
+      - "js/localapi.js"
+      - "js/prep-domain.mjs"
+      - "js/ui.js"
+      - "css/app.css"
+      - "sw.js"
+      - "tests/**"
+      - "scripts/check-project.mjs"
+      - "package.json"
+      - ".github/workflows/prep-records-validation.yml"
+  push:
+    branches:
+      - test
+    paths:
+      - "js/work.js"
+      - "js/localdb.js"
+      - "js/localapi.js"
+      - "js/prep-domain.mjs"
+      - "js/ui.js"
+      - "css/app.css"
+      - "sw.js"
+      - "tests/**"
+      - "scripts/check-project.mjs"
+      - "package.json"
+      - ".github/workflows/prep-records-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  prep-records-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax and Service Worker assets
+        run: npm run check
+      - name: Run complete Node test suite
+        run: npm test
+      - name: Build static Pages output
+        run: npm run build:pages
+      - name: Install Chromium browser test dependencies
+        run: |
+          npm install --no-save @playwright/test
+          npx playwright install --with-deps chromium
+      - name: Start local preview server
+        run: |
+          npm run preview > /tmp/prep-preview.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:4173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/prep-preview.log
+          exit 1
+      - name: Run desktop and mobile browser tests
+        run: npx playwright test tests/browser/homepage-smoke.spec.mjs tests/browser/prep-records-smoke.spec.mjs --reporter=line
+      - name: Upload browser test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prep-records-browser-results
+          path: |
+            artifacts/homepage-*.png
+            test-results/**
+          if-no-files-found: warn
+          retention-days: 14

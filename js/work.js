@@ -4,6 +4,7 @@ import { registerView, state, icon, go, pageHead, onViewLeave, subCurrentOf, NAV
 import { renderAttendance } from './attendance.js';
 import { detectTimetable } from './ttimage.js';
 import { loginBanner, hookBanner } from './auth.js';
+import { PREP_TYPE_OPTIONS, PREP_UNCLASSIFIED, normalizePrepType, prepTypeLabel, filterPrepRecords, validatePrepRecord } from './prep-domain.mjs';
 
 const M = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 /* 备注字段统一生成器。
@@ -103,8 +104,8 @@ registerView(async function work(main, { tab, third }) {
      点进「考勤」看到的还是「工作」，会让人怀疑自己点错了。 */
   const meta = {
     lessons: ['上课记录', '记录授课进度，管理课时与代课结算'],
-    timetable: ['课表', '这周几节课、哪个班、哪间教室'],
-    prep: ['备课', '课前备什么、讲到哪了、下次接着讲什么'],
+    timetable: ['周课表', '一周课程安排、上课时间与班级一目了然'],
+    prep: ['电子备课记录表', '统一记录信息课与特色课备课内容，按类型筛选和追踪进度'],
     repairs: ['维修', '投影、网络、门锁、灯管坏了——报一声，修完留个底'],
     attendance: ['考勤', '按年级分开管：花名册、每日三张表、统计'],
     invigilation: ['监考', '监考场次、时间、补贴，一场不漏'],
@@ -135,7 +136,7 @@ registerView(async function work(main, { tab, third }) {
   }
   if (t === 'lessons') return renderLessons(body);
   if (t === 'prep') return renderPreps(body);
-  if (t === 'timetable') return renderTimetable(body);
+  if (t === 'timetable') { headEl.remove(); return renderTimetable(body); }
   if (t === 'attendance') {
     /* PRD 第 4 节：两级。第三段是年级（#/work/attendance/高一），
        没有第三段就是年级列表页。中文要解码，URL 里是 %E9%AB%98%E4%B8%80。 */
@@ -812,57 +813,120 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
 /* ================= 课表 ================= */
 async function renderTimetable(box) {
   const load = async () => {
-    const [courses, periods] = await Promise.all([api.get('/courses'), api.get('/periods')]);
-    const maxP = Math.max(8, ...periods.map((p) => Number(p.period_no)));
-    /* 【列顺序】周一到周日，周日放最后。
-       数据里 weekday 用 0 表示周日（跟 Date.getDay() 一致），
-       但「0 排最前」是 JS 的约定，不是人的习惯 —— 老师看课表都是从周一开始。
-       所以这里单独定一张显示顺序表，不直接拿数字排序。 */
+    const [courseResult, periodResult] = await Promise.all([api.get('/courses'), api.get('/periods')]);
+    const courses = Array.isArray(courseResult) ? courseResult : [];
+    const periods = Array.isArray(periodResult) ? periodResult : [];
+    const maxP = Math.max(8, ...periods.map((p) => Number(p.period_no) || 0), ...courses.map((c) => Number(c.period_no) || 0));
+    /* 数据 weekday：0=周日；界面固定按周一至周日展示。 */
     const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
     const wd = WD_ORDER;
+    const today = new Date().getDay();
+    const periodByNo = new Map(periods.map((p) => [Number(p.period_no), p]));
     const get = (d, p) => courses.find((c) => Number(c.weekday) === d && Number(c.period_no) === p);
+    const fmtTime = (value) => String(value || '').slice(0, 5);
+    const timeRange = (start, end) => {
+      const a = fmtTime(start);
+      const b = fmtTime(end);
+      return a && b ? a + '–' + b : (a || b || '时间待设置');
+    };
+    const courseTime = (course, period) => timeRange(
+      course?.start_time || period?.start_time,
+      course?.end_time || period?.end_time
+    );
+
     box.innerHTML = `
-      <div class="row wrap" style="margin-bottom:12px">
-        <button class="btn primary sm" id="add-course">${icon('plus', 15)} 添加课程</button>
-        <button class="btn ghost sm" id="import-tt">${icon('download', 15)} 导入课表</button>
-        <button class="btn ghost sm" id="edit-periods">编辑节次时间</button>
-        <button class="btn ghost sm" id="print-tt">${icon('download', 15)} 打印/导出课表</button>
-        <span style="flex:1"></span>
-        <span class="tiny muted">点击任意格子即可修改，时间、节次、班级都会变的情况也支持</span>
-      </div>
-      <div class="table-wrap"><table class="tbl" style="min-width:860px">
-        <thead><tr><th style="width:96px">节次</th>${wd.map((d) => `<th>周${WD_SHORT[d]}</th>`).join('')}</tr></thead>
-        <tbody>${Array.from({ length: maxP }, (_, i) => i + 1).map((p) => {
-          const per = periods.find((x) => Number(x.period_no) === p);
-          /* 【第 40 条：课表中间没有午休】
-             老师看课表的习惯是「上午四节 → 午休 → 下午四节」，
-             真实贴在墙上的课表中间一定有一条「午休」。
-             这里按节次时间的空隙自动判断：
-               上一节结束到这一节开始，跨过了 12:00 且间隔 ≥ 40 分钟 → 就是午休。
-             不去读「午休」这种行，是因为节次表里根本没存它；
-             按时间算出来的，改了节次时间也自动跟着对。 */
-          const prev = periods.find((x) => Number(x.period_no) === p - 1);
-          const lunch = lunchGap(prev, per);
-          const lunchRow = lunch ? `<tr class="tt-lunch">
-            <td colspan="${wd.length + 1}">🍚 午休 ${lunch}</td></tr>` : '';
-          return `${lunchRow}<tr><td><b>第${p}节</b><div class="tiny muted mono">${per ? per.start_time + '-' + per.end_time : '未设置'}</div></td>
-            ${wd.map((d) => {
-              const c = get(d, p);
-              return `<td data-cell="${d}-${p}" ${c ? `data-course-id="${esc(c.id)}" draggable="true"` : ''} style="cursor:${c ? 'grab' : 'pointer'};min-width:104px;height:52px;background:${c ? colorBg(c.class_name) : 'transparent'}">
-                ${c ? `<div class="tt-course-chip"><span class="tt-drag-handle" aria-hidden="true">⠿</span><div><div class="small bold">${esc(c.class_name)}</div><div class="tiny muted">${esc(c.subject)} ${esc(c.room || '')}</div></div></div>` : '<span class="tiny muted">＋</span>'}
-              </td>`;
-            }).join('')}
-          </tr>`;
-        }).join('')}</tbody>
-      </table></div>
-      <div class="small muted" style="margin-top:10px">课时统计：本表每周共 ${courses.length} 节，按 4.3 周/月估算约 ${Math.round(courses.length * 4.3)} 节。实际以「上课」中的记录为准。</div>`;
+      <section class="tt-workspace" aria-label="周课表">
+        <div class="tt-workspace-head">
+          <div class="tt-workspace-title-wrap">
+            <h2 class="tt-workspace-title">周课表</h2>
+          </div>
+          <div class="tt-toolbar-actions">
+            <button class="btn ghost sm" id="edit-periods" type="button">作息设置</button>
+            <button class="btn primary sm" id="add-course" type="button">${icon('plus', 15)} 新增课程</button>
+            <details class="tt-more-actions">
+              <summary>更多操作</summary>
+              <div class="tt-more-menu">
+                <button type="button" id="import-tt">${icon('download', 14)} 导入课表</button>
+                <button type="button" id="print-tt">${icon('printer', 14)} 打印 / 导出课表</button>
+              </div>
+            </details>
+          </div>
+        </div>
+        <p class="tt-workspace-hint">点空格直接加课；课程块可以按住拖到别的节次或星期（落点有课则对调），点一下能改班级、时间或删除；右侧「作息设置」可以调整节次名称、上下课时间和午休时段。</p>
+        <div class="tt-grid-scroll">
+          <table class="tt-grid-table" aria-label="周课程安排">
+            <colgroup>
+              <col class="tt-col-time">
+              <col class="tt-col-period">
+              ${wd.map(() => '<col class="tt-col-day">').join('')}
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col" class="tt-fixed-head">时间</th>
+                <th scope="col" class="tt-fixed-head">节次</th>
+                ${wd.map((d) => `<th scope="col" class="tt-weekday-head ${d === today ? 'is-today' : ''}">周${WD_SHORT[d]}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${Array.from({ length: maxP }, (_, i) => i + 1).map((p) => {
+                const period = periodByNo.get(p);
+                const prev = periodByNo.get(p - 1);
+                const lunch = lunchGap(prev, period);
+                const lunchRow = lunch ? `
+                  <tr class="tt-lunch-row">
+                    <td colspan="${wd.length + 2}">
+                      <strong>午休</strong><span>${esc(lunch)}</span>
+                    </td>
+                  </tr>` : '';
+                return lunchRow + `
+                  <tr class="tt-period-row">
+                    <td class="tt-time-cell">
+                      <span>${esc(period ? timeRange(period.start_time, period.end_time) : '时间待设置')}</span>
+                    </td>
+                    <td class="tt-period-cell">第${p}节</td>
+                    ${wd.map((d) => {
+                      const course = get(d, p);
+                      const time = course ? courseTime(course, period) : '';
+                      const detail = course ? [course.subject, course.room].filter(Boolean).join(' · ') : '';
+                      const label = course
+                        ? [course.class_name || course.subject || '课程', time, detail].filter(Boolean).join('，')
+                        : '周' + WD_SHORT[d] + '第' + p + '节，点击新增课程';
+                      return `
+                        <td class="tt-slot ${course ? 'has-course' : 'is-empty'}"
+                          data-cell="${d}-${p}"
+                          ${course ? `data-course-id="${esc(course.id)}" draggable="true"` : ''}
+                          aria-label="${esc(label)}">
+                          ${course ? `
+                            <div class="tt-course-card" title="${esc(detail || label)}">
+                              <strong>${esc(course.class_name || course.subject || '课程')}</strong>
+                              <span>${esc(time)}</span>
+                            </div>` : '<span class="tt-empty-add" aria-hidden="true">＋</span>'}
+                        </td>`;
+                    }).join('')}
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="tt-summary-bar">
+          <span>本周共 ${courses.length} 节课程，按 4.3 周/月估算约 ${Math.round(courses.length * 4.3)} 节；实际以「上课」中的记录为准。</span>
+          <span>与「信息课教师工作台」的课表是同一份数据</span>
+        </div>
+      </section>`;
+
     let draggedCourseId = null;
     let suppressCellClick = false;
     box.querySelectorAll('[data-cell]').forEach((td) => {
       td.onclick = () => {
         if (suppressCellClick) { suppressCellClick = false; return; }
         const [d, p] = td.dataset.cell.split('-').map(Number);
-        courseEditor(get(d, p) || { weekday: d, period_no: p }, load);
+        const period = periodByNo.get(p) || {};
+        courseEditor(get(d, p) || {
+          weekday: d,
+          period_no: p,
+          start_time: period.start_time || '',
+          end_time: period.end_time || ''
+        }, load);
       };
       td.addEventListener('dragover', (event) => {
         if (!draggedCourseId) return;
@@ -879,9 +943,8 @@ async function renderTimetable(box) {
         const [toDay, toPeriod] = td.dataset.cell.split('-').map(Number);
         if (Number(source.weekday) === toDay && Number(source.period_no) === toPeriod) return;
         const target = get(toDay, toPeriod);
-        const periodMap = new Map(periods.map((item) => [Number(item.period_no), item]));
-        const sourceTime = periodMap.get(Number(source.period_no)) || {};
-        const targetTime = periodMap.get(toPeriod) || {};
+        const sourceTime = periodByNo.get(Number(source.period_no)) || {};
+        const targetTime = periodByNo.get(toPeriod) || {};
         try {
           const sourcePayload = {
             weekday: target ? Number(target.weekday) : toDay,
@@ -890,7 +953,8 @@ async function renderTimetable(box) {
             end_time: targetTime.end_time || (target ? target.end_time : '') || ''
           };
           const targetPayload = target ? {
-            weekday: Number(source.weekday), period_no: Number(source.period_no),
+            weekday: Number(source.weekday),
+            period_no: Number(source.period_no),
             start_time: sourceTime.start_time || target.start_time || '',
             end_time: sourceTime.end_time || target.end_time || ''
           } : null;
@@ -904,8 +968,10 @@ async function renderTimetable(box) {
           } catch (error) {
             if (target && targetUpdated) {
               await api.patch('/courses/' + target.id, {
-                weekday: Number(target.weekday), period_no: Number(target.period_no),
-                start_time: target.start_time || '', end_time: target.end_time || ''
+                weekday: Number(target.weekday),
+                period_no: Number(target.period_no),
+                start_time: target.start_time || '',
+                end_time: target.end_time || ''
               }).catch(() => {});
             }
             throw error;
@@ -936,10 +1002,15 @@ async function renderTimetable(box) {
       });
     });
     box.querySelector('#add-course').onclick = () => courseEditor(null, load);
-    box.querySelector('#import-tt').onclick = () => importTimetableDialog(load);
     box.querySelector('#edit-periods').onclick = () => periodEditor(periods, load);
-    box.querySelector('#print-tt').onclick = async () => {
+    box.querySelector('#import-tt').onclick = () => {
+      box.querySelector('.tt-more-actions').open = false;
+      importTimetableDialog(load);
+    };
+    box.querySelector('#print-tt').onclick = () => {
+      box.querySelector('.tt-more-actions').open = false;
       const w = window.open('', '_blank');
+      if (!w) return toast('浏览器拦截了打印窗口，请允许本站弹出窗口', 'warn');
       w.document.write(printTimetableHTML(courses, periods, maxP));
       w.document.close();
     };
@@ -1426,7 +1497,7 @@ function courseEditor(row, reload) {
      全站不再预填「语文 / 高二」这类默认值 —— 预填的东西如果不符实际，
      用户还得先删掉才能填，反而更慢。所以默认留空，直接手填。
      但又不想让用户每次都从头打字：把已存课程里出现过的科目/年级/班级
-     收集成候选，挂在 datalist 上——点一下就能填，不打字也行。
+     按最近更新时间优先去重，每个字段只保留最近 5 个候选，挂在 datalist 上。
      这叫「手填为主，联想为辅」：没有强制默认值，只是给个快捷入口。
 
      注意：这里必须保持同步函数。弹层要立刻出现，不能等接口；
@@ -1440,7 +1511,7 @@ function courseEditor(row, reload) {
     <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(row?.grade || '')}" data-hist="grade"></div>
     <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(row?.class_name || '')}" data-hist="class_name"></div>
     <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}" data-hist="subject"></div>
-    <div class="field"><label class="field-label">教室</label><input class="input" id="room" value="${esc(row?.room || '')}" data-hist="room"></div>
+    <div class="field"><label class="field-label">地点</label><input class="input" id="room" value="${esc(row?.room || '')}" placeholder="例如：教学楼A栋101、大操场、机房" autocomplete="off"></div>
     <div class="field"><label class="field-label">生效开始日</label><input class="input" type="date" id="sd" value="${esc(row?.start_date || '')}"></div>
     <div class="field"><label class="field-label">生效结束日</label><input class="input" type="date" id="ed" value="${esc(row?.end_date || '')}"></div>
   </div>
@@ -1450,8 +1521,27 @@ function courseEditor(row, reload) {
 
   /* 历史值异步补上：失败就静默，手填照常可用 */
   api.get('/courses').then((all) => {
-    for (const k of ['grade', 'class_name', 'subject', 'room']) {
-      const vals = [...new Set(all.map((c) => String(c[k] || '').trim()).filter(Boolean))].slice(0, 40);
+    // 最近使用的课程优先；优先按更新时间，其次创建时间，最后用 ID 稳定排序。
+    const timestampOf = (course) => {
+      const updatedAt = Date.parse(course?.updated_at || '');
+      if (Number.isFinite(updatedAt)) return updatedAt;
+      const createdAt = Date.parse(course?.created_at || '');
+      return Number.isFinite(createdAt) ? createdAt : Number(course?.id) || 0;
+    };
+    const recent = [...(Array.isArray(all) ? all : [])].sort((a, b) =>
+      timestampOf(b) - timestampOf(a) || (Number(b?.id) || 0) - (Number(a?.id) || 0)
+    );
+    for (const k of ['grade', 'class_name', 'subject']) {
+      const seen = new Set();
+      const vals = [];
+      for (const course of recent) {
+        const value = String(course?.[k] || '').trim();
+        const normalized = value.toLocaleLowerCase();
+        if (!value || seen.has(normalized)) continue;
+        seen.add(normalized);
+        vals.push(value);
+        if (vals.length === 5) break;
+      }
       if (!vals.length) continue;
       const input = body.querySelector(`[data-hist="${k}"]`);
       if (!input) continue;
@@ -1496,7 +1586,7 @@ function periodEditor(periods, reload) {
       <td><button class="icon-btn sm" data-delp="1">${icon('close', 14)}</button></td></tr>`).join('')}</tbody></table></div>
     <div class="row" style="margin-top:10px"><button class="btn ghost sm" id="addp">＋ 加一节</button><span style="flex:1"></span><button class="btn primary" id="savep">保存</button></div>
   </div>`);
-  const s = sheet({ title: '编辑节次时间', body, wide: true });
+  const s = sheet({ title: '作息设置', body, wide: true });
   body.querySelector('#addp').onclick = async () => {
     const next = (Math.max(0, ...periods.map((p) => Number(p.period_no))) || 0) + 1;
     await api.post('/periods', { period_no: next, name: `第${next}节`, start_time: '00:00', end_time: '00:00' });
@@ -3208,34 +3298,26 @@ async function materialEditor(m, catId, reload) {
   };
 }
 
-/* ================= 备课 =================
-   用户的原话：「有时候我不记得我备课备到哪里了，看了这个之后以后就不会忘记了。」
-   所以这个页面的重点不是「存一份教案」，而是**一眼看到进度断点**：
-   - 最上面单独一块「接着备」：只放还没备完的，按日期排，点一下直接进编辑；
-   - 下面才是完整清单，能按班级筛、按状态筛；
-   - 每条记录强制露出「备到哪了 / 下一步」，这两栏是空的话，列表会显示提醒文字。
-   和「上课」的区别：课上完记一条；备课是课前的事，一节课可能备两次，也可能一次备两节，
-   所以是独立的一张表，用 lesson_id 松松地挂一下（选填）。 */
+/* ================= 电子备课记录表 =================
+   信息课与特色课共用同一张记录表，只有备课类型不同。
+   历史记录没有类型字段时按「待分类」展示，不批量改写旧数据。 */
 const PREP_STATUS = { doing: ['在备', 'amber'], done: ['备好了', 'green'] };
 
-/* 备课清单的筛选逻辑单独抽出来：paint() 和「搜索框边打边筛」都要用同一套规则，
-   抄两遍迟早会出现「输入框筛出来的和点按钮筛出来的不一样」。 */
-function filterList(src, { fClass = '', fStatus = '', keyword = '' } = {}) {
-  let out = src;
-  if (fClass) out = out.filter((p) => (p.class_name || '').trim() === fClass);
-  if (fStatus) out = out.filter((p) => ((p.status || 'doing') === 'done') === (fStatus === 'done'));
-  if (keyword) {
-    const k = keyword.toLowerCase();
-    out = out.filter((p) => [p.topic, p.progress, p.next_step, p.class_name, p.remark]
-      .some((x) => String(x || '').toLowerCase().includes(k)));
-  }
-  return out;
+/* 备课清单筛选统一走领域规则，避免类型、班级、状态和关键词筛选互相覆盖。 */
+function filterList(src, { fClass = '', fStatus = '', fType = '', keyword = '' } = {}) {
+  return filterPrepRecords(src, {
+    className: fClass,
+    status: fStatus,
+    type: fType,
+    keyword,
+  });
 }
 
 async function renderPreps(box) {
   let list = [];
   let fClass = '';
-  let fStatus = '';   // '' 全部 / 'doing' 未完成 / 'done' 已完成
+  let fStatus = '';
+  let fType = '';
   let keyword = '';
 
   const load = async () => {
@@ -3243,7 +3325,6 @@ async function renderPreps(box) {
     paint();
   };
 
-  /* 一条记录「备到哪了」的断点短句：优先 next_step，其次 progress，都没有就说没写 */
   const breakpointOf = (p) => {
     const nx = (p.next_step || '').trim();
     if (nx) return { k: 'next', v: nx };
@@ -3255,8 +3336,13 @@ async function renderPreps(box) {
   const paint = () => {
     const classes = [...new Set(list.map((p) => (p.class_name || '').trim()).filter(Boolean))].sort();
     const doing = list.filter((p) => (p.status || 'doing') !== 'done');
-
-    const show = filterList(list, { fClass, fStatus, keyword });
+    const countOf = (type) => list.filter((p) => normalizePrepType(p.prep_type) === type).length;
+    const typeFilters = [
+      { value: '', label: '全部类型', count: list.length },
+      ...PREP_TYPE_OPTIONS.map((item) => ({ ...item, count: countOf(item.value) })),
+      { value: PREP_UNCLASSIFIED, label: '待分类', count: countOf(PREP_UNCLASSIFIED) },
+    ];
+    const show = filterList(list, { fClass, fStatus, fType, keyword });
 
     box.innerHTML = `
     <div class="row wrap" style="gap:8px;margin-bottom:14px">
@@ -3269,7 +3355,7 @@ async function renderPreps(box) {
         <span class="ps-k">已备好</span>
       </div>
       <span style="flex:1"></span>
-      <button class="btn primary sm" id="prep-add">${icon('plus', 15)} 记一次备课</button>
+      <button class="btn primary sm" id="prep-add">${icon('plus', 15)} 新建备课记录</button>
     </div>
 
     ${doing.length ? `<section class="card card-pad prep-next">
@@ -3281,7 +3367,7 @@ async function renderPreps(box) {
           return `<button class="prep-next-i" data-open="${p.id}">
             <span class="pni-l">
               <span class="pni-t">${esc(p.topic || '未命名课题')}</span>
-              <span class="pni-m">${p.class_name ? esc(p.class_name) + ' · ' : ''}${esc(p.subject || '')}${p.date ? ' · ' + esc(String(p.date).slice(5)) : ''}</span>
+              <span class="pni-m">${esc(prepTypeLabel(p))}${p.class_name ? ' · ' + esc(p.class_name) : ''}${p.subject ? ' · ' + esc(p.subject) : ''}${p.date ? ' · ' + esc(String(p.date).slice(5)) : ''}</span>
             </span>
             <span class="pni-bp">${bp
               ? `${bp.k === 'next' ? '下一步' : '进度'}：${esc(bp.v)}`
@@ -3294,6 +3380,9 @@ async function renderPreps(box) {
     </section>` : ''}
 
     <div class="prep-filter">
+      <div class="prep-type-filter row wrap" aria-label="备课类型筛选">
+        ${typeFilters.map((item) => `<button class="sr-chip${fType === item.value ? ' on' : ''}" data-ft="${item.value}">${esc(item.label)}（${item.count}）</button>`).join('')}
+      </div>
       <div class="row wrap" style="gap:6px">
         <button class="sr-chip${fClass === '' ? ' on' : ''}" data-fc="">全部班级</button>
         ${classes.map((c) => `<button class="sr-chip${fClass === c ? ' on' : ''}" data-fc="${esc(c)}">${esc(c)}</button>`).join('')}
@@ -3303,29 +3392,28 @@ async function renderPreps(box) {
         <button class="sr-chip${fStatus === 'doing' ? ' on' : ''}" data-fs="doing">在备</button>
         <button class="sr-chip${fStatus === 'done' ? ' on' : ''}" data-fs="done">备好了</button>
         <span style="flex:1"></span>
-        <input class="input prep-q" id="prep-q" placeholder="搜课题 / 进度" value="${esc(keyword)}">
+        <input class="input prep-q" id="prep-q" placeholder="搜索课题 / 备课内容 / 进度" value="${esc(keyword)}">
       </div>
     </div>
 
     <div class="card prep-list-card">
       ${show.length ? `<div class="prep-list">${show.map(prepRow).join('')}</div>` : `<div class="empty">
-        ${list.length ? '没有符合筛选条件的备课记录' : '还没有备课记录<br><span class="tiny muted">点右上角「记一次备课」，一分钟就能记一条</span>'}
+        ${list.length ? '没有符合筛选条件的备课记录' : '还没有备课记录<br><span class="tiny muted">点击「新建备课记录」，选择信息课或特色课开始填写</span>'}
       </div>`}
     </div>`;
 
     box.querySelector('#prep-add').onclick = () => prepEditor(null, load);
+    box.querySelectorAll('[data-ft]').forEach((b) => { b.onclick = () => { fType = b.dataset.ft; paint(); }; });
     box.querySelectorAll('[data-fc]').forEach((b) => { b.onclick = () => { fClass = b.dataset.fc; paint(); }; });
     box.querySelectorAll('[data-fs]').forEach((b) => { b.onclick = () => { fStatus = b.dataset.fs; paint(); }; });
     const q = box.querySelector('#prep-q');
     if (q) {
       q.oninput = () => {
         keyword = q.value.trim();
-        /* 只重画列表那一块，不整页重绘。整页重绘会把输入框本身也重建，
-           光标和输入法候选框都会丢——中文输入时表现为「打一个字跳一次」，很难用。
-           所以先把列表容器里的内容换掉，输入框本身原封不动。 */
+        /* 只重画列表，保留输入框与中文输入法的焦点。 */
         const card = box.querySelector('.prep-list-card');
         if (!card) return;
-        const shown = filterList(list, { fClass, fStatus, keyword });
+        const shown = filterList(list, { fClass, fStatus, fType, keyword });
         card.innerHTML = shown.length
           ? `<div class="prep-list">${shown.map(prepRow).join('')}</div>`
           : `<div class="empty">${list.length ? '没有符合筛选条件的备课记录' : '还没有备课记录'}</div>`;
@@ -3357,14 +3445,18 @@ async function renderPreps(box) {
   const prepRow = (p) => {
     const st = PREP_STATUS[p.status || 'doing'] || PREP_STATUS.doing;
     const bp = breakpointOf(p);
+    const typeClass = normalizePrepType(p.prep_type) === PREP_UNCLASSIFIED ? ' is-unclassified' : '';
+    const content = String(p.content || '').trim();
     return `<div class="prep-row${(p.status || 'doing') === 'done' ? ' is-done' : ''}" data-open="${p.id}">
       <div class="pr-date"><b>${esc((p.date || '').slice(5) || '—')}</b><span>${esc((p.date || '').slice(0, 4))}</span></div>
       <div class="pr-main">
         <div class="pr-t">${esc(p.topic || '未命名课题')}
+          <span class="prep-type-badge${typeClass}">${esc(prepTypeLabel(p))}</span>
           <span class="chip ${st[1]}">${st[0]}</span>
           ${p.seq ? `<span class="sr-no">编号 ${String(p.seq).padStart(3, '0')}</span>` : ''}
         </div>
         <div class="pr-m">${p.class_name ? `<span>${esc(p.class_name)}</span>` : ''}${p.subject ? `<span>${esc(p.subject)}</span>` : ''}${p.minutes ? `<span>${p.minutes} 分钟</span>` : ''}</div>
+        ${content ? `<div class="pr-content">${esc(content.length > 150 ? content.slice(0, 150) + '…' : content)}</div>` : ''}
         ${bp ? `<div class="pr-bp"><i>${bp.k === 'next' ? '下一步' : '进度'}</i>${esc(bp.v)}</div>`
           : `<div class="pr-bp empty">还没写进度和下一步，点开补一句，下次就知道从哪接</div>`}
         ${p.remark ? `<div class="pr-rm">${icon('edit', 11)}<span>${esc(p.remark)}</span></div>` : ''}
@@ -3376,14 +3468,23 @@ async function renderPreps(box) {
   await load();
 }
 
-/* 备课编辑弹窗 */
+/* 电子备课记录编辑弹窗：两种类型共用同一套字段与保存逻辑。 */
 function prepEditor(row, reload) {
   const isNew = !row;
   const today = ymd(new Date());
   const st = row?.status || 'doing';
+  const currentType = isNew ? '' : normalizePrepType(row?.prep_type);
+  const typeOptions = [
+    isNew
+      ? '<option value="">请选择备课类型</option>'
+      : '<option value="unclassified">待分类（旧记录）</option>',
+    ...PREP_TYPE_OPTIONS.map((item) => `<option value="${item.value}">${esc(item.label)}</option>`),
+  ].join('');
   const body = el(`<div class="sheet-body">
-    <div class="prep-tip">${icon('alert', 14)} 记清三件事，下次一定接得上：<b>给哪个班备</b>、<b>备的是哪一课</b>、<b>备到哪了</b>。</div>
+    <div class="prep-tip">${icon('alert', 14)} 信息课与特色课使用同一张电子备课记录表；请先选择备课类型，再填写相同的备课内容。</div>
     <div class="form-grid">
+      <div class="field"><label class="field-label">备课类型 <span class="req">*</span></label>
+        <select class="input" id="p-type" ${isNew ? 'required' : ''}>${typeOptions}</select></div>
       <div class="field"><label class="field-label">备课日期</label>
         <input class="input" type="date" id="p-date" value="${esc(row?.date || today)}"></div>
       <div class="field"><label class="field-label">班级</label>
@@ -3395,9 +3496,11 @@ function prepEditor(row, reload) {
     </div>
     <div class="field"><label class="field-label">备的是哪一课 <span class="req">*</span></label>
       <input class="input" id="p-topic" value="${esc(row?.topic || '')}"></div>
-    <div class="field"><label class="field-label">备到哪了</label>
+    <div class="field"><label class="field-label">备课内容</label>
+      <textarea class="input" id="p-content" rows="6" placeholder="填写教学目标、重点难点、教学流程、活动设计、课前准备等">${esc(row?.content || '')}</textarea></div>
+    <div class="field"><label class="field-label">备课进度</label>
       <textarea class="input" id="p-progress" rows="3">${esc(row?.progress || '')}</textarea></div>
-    <div class="field"><label class="field-label">下次接着备什么 <span class="prep-hint">这句是重点，写了下回一看就明白</span></label>
+    <div class="field"><label class="field-label">下次接着备什么 <span class="prep-hint">写清下一步，方便下次继续</span></label>
       <textarea class="input" id="p-next" rows="2">${esc(row?.next_step || '')}</textarea></div>
     ${remarkField({ id: 'p-remark', value: row?.remark || '', placeholder: '如：需要打印学案、借投影笔' })}
     <div class="field"><label class="field-label">状态</label>
@@ -3412,7 +3515,9 @@ function prepEditor(row, reload) {
       <button class="btn primary" id="p-save">保存</button>
     </div>
   </div>`);
-  const s = sheet({ title: isNew ? '记一次备课' : '编辑备课记录', body, wide: true });
+  const s = sheet({ title: isNew ? '新增电子备课记录' : '编辑电子备课记录', body, wide: true });
+  const typeSelect = body.querySelector('#p-type');
+  if (typeSelect) typeSelect.value = currentType;
   let status = st;
   body.querySelectorAll('[data-s]').forEach((b) => {
     b.onclick = () => {
@@ -3431,12 +3536,16 @@ function prepEditor(row, reload) {
   }
   saving(body.querySelector('#p-save'), async () => {
     const topic = body.querySelector('#p-topic').value.trim();
-    if (!topic) return toast('请填「备的是哪一课」', 'warn');
+    const prep_type = typeSelect.value;
+    const validationMessage = validatePrepRecord({ prep_type, topic }, { isNew });
+    if (validationMessage) return toast(validationMessage, 'warn');
     const payload = {
+      prep_type,
       date: body.querySelector('#p-date').value || today,
       class_name: body.querySelector('#p-class').value.trim(),
       subject: body.querySelector('#p-subject').value.trim(),
       topic,
+      content: body.querySelector('#p-content').value.trim(),
       progress: body.querySelector('#p-progress').value.trim(),
       next_step: body.querySelector('#p-next').value.trim(),
       minutes: Number(body.querySelector('#p-min').value) || 0,
@@ -3447,7 +3556,7 @@ function prepEditor(row, reload) {
       if (isNew) await api.post('/preps', payload);
       else await api.patch('/preps/' + row.id, payload);
       s.close();
-      toast(isNew ? '已记下这次备课' : '已保存');
+      toast(isNew ? '电子备课记录已保存' : '已保存');
       reload();
     } catch (e) { toast(e.message || '保存失败', 'err'); }
   });

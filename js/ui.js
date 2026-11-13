@@ -88,10 +88,8 @@ export const state = {
   unread: 0,
   weather: ls.get('weather', null),
   city: ls.get('city', { name: '北京', lat: 39.9042, lon: 116.4074 }),
-  /* manual = 用户自己选城市（默认）。
-     以前默认 auto，进首页就弹定位授权，拒绝了还报错，观感很差。
-     城市由用户自己在「选城市」里挑一次，之后一直记住，比每次猜更省事。 */
-  geoMode: ls.get('geoMode', 'manual'),
+  /* auto = 进入首页时尝试更新当前位置；拒绝权限后自动切回 manual。 */
+  geoMode: ls.get('geoMode', 'auto'),
 };
 
 /* 【一级 / 二级 / 三级导航】
@@ -279,10 +277,20 @@ export function openThemeSheet() {
   return s;
 }
 function syncThemeButton() {
-  const b = document.getElementById('side-theme');
-  if (!b) return;
-  const t = THEME_MAP[state.theme] || THEMES[0];
-  b.innerHTML = `<span class="theme-dot" style="background:${t.sw.pri}"></span><span>主题外观</span><span class="theme-now">${esc(t.name)}</span>`;
+  const value = document.getElementById('me-theme-value');
+  if (!value) return;
+  value.textContent = themeName(state.theme);
+}
+
+/* 平铺整页是设备级显示偏好，由「我的」页面统一管理。 */
+export function isWideMode() {
+  try { return localStorage.getItem('wb.wide') === '1'; } catch { return false; }
+}
+export function setWideMode(on) {
+  const enabled = !!on;
+  document.body.classList.toggle('is-wide', enabled);
+  try { localStorage.setItem('wb.wide', enabled ? '1' : '0'); } catch { }
+  return enabled;
 }
 
 /* ---------------- 注册 / 订阅 ---------------- */
@@ -377,6 +385,16 @@ function bindShell() {
       e.preventDefault();
       e.stopPropagation();
       const key = b.dataset.navToggle;
+      /* 分组标题本身也是一级/二级页面入口：
+         点文字进入该分组默认页；只有点右侧箭头才单独折叠/展开。
+         之前整行都只执行 toggle，用户点「工作」时页面不切换，
+         容易误以为一级导航失效。 */
+      if (!e.target.closest('.nav-caret')) {
+        setNavGroupOpen(key, true);
+        go(key === 'work' ? 'work/lessons' : key);
+        return;
+      }
+
       const willOpen = !isNavGroupOpen(key);
       setNavGroupOpen(key, willOpen);
 
@@ -387,44 +405,16 @@ function bindShell() {
         });
       }
 
-      /* 小助手既是分组入口也是管理页：从其他页面首次展开时进入管理页；
-         在小助手内部再次点击则只收起/展开子菜单，不打断当前页面。 */
-      if (key.includes('/') && willOpen && !routeIsInNavGroup(key)) go(key);
+      /* 点击箭头只负责折叠/展开，不改变当前页面。 */
     };
   });
-  const st = document.getElementById('side-theme');
-  if (st) st.onclick = () => openThemeSheet();
   const su = document.getElementById('side-user');
   if (su) su.onclick = () => go('me');
   /* 拖拽一定要配一个「恢复默认」。
      没有退路的功能用户不敢用——尤其手机上拖到一半松手，卡片落在奇怪的位置，
      找不回来的话下次就不拖了。这里延后导入，避免 home.js ↔ ui.js 循环依赖。 */
-  /* 平铺整页：把 body 挂上 .is-wide，CSS 里 .main 的 max-width 放开。
-     存在 localStorage 就够了——这是「这台机器看起来多宽」的偏好，不必跨端同步。 */
-  const sw = document.getElementById('side-wide');
-  const applyWide = (on) => {
-    document.body.classList.toggle('is-wide', !!on);
-    const now = document.getElementById('wide-now');
-    if (now) now.textContent = on ? '开' : '关';
-    if (sw) sw.classList.toggle('on', !!on);
-  };
-  applyWide(localStorage.getItem('wb.wide') === '1');
-  if (sw) sw.onclick = () => {
-    const on = !document.body.classList.contains('is-wide');
-    localStorage.setItem('wb.wide', on ? '1' : '0');
-    applyWide(on);
-    toast(on ? '已平铺整页，再点一次恢复舒适宽度' : '已恢复舒适宽度', 'ok', 3000);
-  };
-  const sl = document.getElementById('side-layout');
-  if (sl) sl.onclick = async () => {
-    try {
-      const m = await import('./home.js');
-      /* 必须 await：重置现在会先弹确认框，不 await 就会「确认框还在，
-         页面已经跳走了」，用户点确定的时候弹层已经被清掉。 */
-      await m.restoreHomeLayout();
-      go('home');
-    } catch { /* 首页模块加载失败时静默，重置本身不关键 */ }
-  };
+  /* 在应用壳层恢复用户保存的整页宽度偏好；开关入口统一放在「我的」。 */
+  setWideMode(isWideMode());
 }
 
 /* ---------------- 路由 ---------------- */
@@ -517,13 +507,17 @@ export async function render() {
   }
   const fn = views[viewName];
   const app = document.getElementById('app');
+  // 所有页面统一读取后台工作台设计；没有配置的字段分别使用系统默认值。
+  // 不依赖 enabled 标记，兼容此前已经保存的品牌配置。
   const brandData = loadLocalDB()?.meta?.workbenchBrand || {};
   const brandTitle = String(brandData.title || '').trim() || '我的工作台';
   const brandSubtitle = String(brandData.subtitle || '').trim() || 'Workbench';
-  const brandImage = typeof brandData.image === 'string' && /^data:image\/(png|jpeg|webp);base64,/i.test(brandData.image)
-    ? brandData.image : '';
-  // 与「工作台设置」的实时预览共用同一默认图标；未上传自定义图片时也不再显示文字占位。
-  const brandLogo = '<img src="' + esc(brandImage || './icons/icon-192.png') + '" alt="" loading="eager">';
+  const brandImage = typeof brandData.image === 'string'
+    && /^data:image\/(png|jpeg|webp);base64,/i.test(brandData.image) ? brandData.image : '';
+  const defaultBrandLogo = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4.5" y="4.5" width="15" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v8M8 12h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  const brandLogo = brandImage
+    ? '<img src="' + esc(brandImage) + '" alt="" loading="eager">'
+    : defaultBrandLogo;
   const pageShell = `<div class="app">
     <aside class="sidebar">
       <div class="brand brand-static" id="side-brand" aria-label="${esc(brandTitle)}">
@@ -532,9 +526,6 @@ export async function render() {
       </div>
       <div class="side-nav">${NAV.filter((n) => n.id !== 'me').map((n) => navHTML(n, 'nav-item') + subNavHTML(n)).join('')}</div>
       <div class="sidebar-foot">
-        <button class="nav-item" id="side-theme" title="切换主题外观"><span class="theme-dot" style="background:${(THEME_MAP[state.theme] || THEMES[0]).sw.pri}"></span><span>主题外观</span><span class="theme-now">${esc(themeName(state.theme))}</span></button>
-        <button class="nav-item" id="side-wide" title="让正文铺满整个屏幕宽度"><span class="ni">${icon('expand', 18)}</span><span>平铺整页</span><span class="theme-now" id="wide-now">关</span></button>
-        <button class="nav-item" id="side-layout" title="把首页卡片恢复到默认位置"><span class="ni">${icon('grid', 18)}</span><span>重置首页布局</span></button>
         <button class="nav-item side-user-entry${isActive('me') ? ' active' : ''}" id="side-user" data-nav="me" title="打开个人中心" aria-label="我的，${esc(state.user?.nickname || '用户')}"><span class="ni side-user-avatar">${esc((state.user?.nickname || '师').slice(0, 1))}</span><span class="side-user-label"><strong>我的</strong><small>${esc(state.user?.nickname || '个人中心')}</small></span></button>
       </div>
     </aside>
@@ -634,7 +625,7 @@ const QQ_G = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor
      siteQrLogin —— 本站自己的扫码登录（自己的二维码 + 手机确认）。
    以前只有一个 qrEnabled，看到 false 就以为「扫码登录不能用」，
    于是界面上真能用的扫码 tab 被一行「未开通」误导了很久。 */
-/* 登录页在「手机号登录」和「手机号注册」之间切换。 */
+/* 登录页在「账号登录」和「账号注册」之间切换。 */
 let authMode = 'login';
 
 export const AUTH_CFG = { allowRegister: true, demoMode: false, smsEnabled: false, qrEnabled: false, siteQrLogin: true, wbEnabled: false, testPasscode: false };
@@ -647,8 +638,8 @@ export async function loadAuthConfig() {
   return AUTH_CFG;
 }
 
-/* Phone/password is the single app-wide Supabase Auth flow. Registration does
-   not verify ownership of the supplied phone number because SMS is disabled. */
+/* 11位数字账号 + 密码是工作台统一登录方式。Supabase 内部沿用既有 Phone Auth
+   标识字段，但只把它当账号键使用；不验证号码归属、不发送短信、不使用 OTP。 */
 const ALLOW_SIGNUP = true;
 
 function authTabsHTML() {
@@ -782,16 +773,16 @@ function authPassword() {
   const isReg = authMode === 'register';
   const body = document.getElementById('auth-body');
   body.innerHTML = `
-    <div class="auth-input"><input id="acct" type="tel" inputmode="numeric" autocomplete="tel"
-      placeholder="手机号" maxlength="11"></div>
+    <div class="auth-input"><input id="acct" type="text" inputmode="numeric" autocomplete="username"
+      placeholder="账号（11位数字）" maxlength="11"></div>
     <div class="auth-input"><input id="pwd" type="password" autocomplete="${isReg ? 'new-password' : 'current-password'}"
       placeholder="${isReg ? '设置密码（至少 8 位）' : '密码'}" maxlength="72"></div>
     <button class="auth-btn" id="do-login" style="margin-top:6px">${isReg ? '注册并登录' : '登录'}</button>
     <div class="small muted" id="auth-hint" style="margin-top:10px;line-height:1.6"></div>
     <div class="small muted" style="margin-top:6px;line-height:1.6">
       ${isReg
-      ? '手机号作为账号，注册后即可登录。本版本不验证手机号归属，请使用你本人持有的号码。'
-      : '使用手机号和密码登录。忘记密码请联系管理员重置；本机数据按账号隔离。'}
+      ? '使用11位数字作为账号，设置密码后即可登录。不发送短信，也不验证号码归属。'
+      : '使用11位数字账号和密码登录。忘记密码请联系管理员重置；数据按账号隔离。'}
     </div>`;
 
   const hint = document.getElementById('auth-hint');
@@ -799,9 +790,9 @@ function authPassword() {
 
   const submit = async () => {
     if (!checkAgree()) return;
-    const phone = document.getElementById('acct').value.trim();
+    const account = document.getElementById('acct').value.trim();
     const pwd = document.getElementById('pwd').value;
-    if (!/^1[3-9]\d{9}$/.test(phone)) return toast('请输入正确的 11 位手机号', 'warn');
+    if (!/^\d{11}$/.test(account)) return toast('请输入11位数字账号', 'warn');
     if (!pwd || (isReg && pwd.length < 8)) return toast(isReg ? '密码至少 8 位' : '请填写密码', 'warn');
     const btn = document.getElementById('do-login');
     btn.disabled = true; btn.textContent = isReg ? '注册中…' : '登录中…';
@@ -809,9 +800,9 @@ function authPassword() {
     try {
       const cloud = await import('./cloud.js');
       const session = isReg
-        ? await cloud.signUpPhone(phone, pwd)
-        : await cloud.loginPhone(phone, pwd);
-      if (!session?.uid) throw new Error('Supabase 未返回有效账号，请检查手机号认证配置');
+        ? await cloud.signUpPhone(account, pwd)
+        : await cloud.loginPhone(account, pwd);
+      if (!session?.uid) throw new Error('Supabase 未返回有效账号，请检查账号密码认证配置');
       setActiveAccount(session.uid);
       if (location.hash.includes('#import=')) {
         try {
@@ -822,7 +813,8 @@ function authPassword() {
         }
       }
       const local = await api.post('/auth/login-cloud', {
-        phone: session.phone || cloud.normalizePhone(phone),
+        account,
+        phone: session.phone || cloud.normalizePhone(account),
         uid: session.uid,
         email: session.email || '',
       }, { silent: true });
@@ -837,7 +829,7 @@ function authPassword() {
       btn.disabled = false; btn.textContent = isReg ? '注册并登录' : '登录';
       let message = e.message || (isReg ? '注册失败，请稍后重试。' : '登录失败，请稍后重试。');
       if (isReg) {
-        console.warn('[auth] 手机号注册失败', e);
+        console.warn('[auth] 账号注册失败', e);
         try {
           const cloud = await import('./cloud.js');
           message = cloud.registrationError(e);

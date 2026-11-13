@@ -18,6 +18,10 @@
    每次请求放进 Authorization: Bearer。没有 token 时 RLS 一律拒绝 ——
    这正是「只有我这个账号能看」的实现方式，不再是靠一把可以复制的钥匙。
    ========================================================================== */
+import { resolveEnvironmentProfile, assertTrustedSupabaseConfig } from './environment-config.mjs';
+import { normalizeAccountIdentifier } from './auth-identifier.mjs';
+
+const ENV_PROFILE = resolveEnvironmentProfile(globalThis.location);
 
 const CFG_KEY = 'wb_supa_cfg';    // { url, anon }
 const TOK_KEY = 'wb_supa_tok';    // { access_token, refresh_token, expires_at, email, uid }
@@ -41,24 +45,14 @@ export const SESSION_STORAGE_KEY = TOK_KEY;
    和旧手动同步配置都不能把登录、Token 刷新或数据请求带去其他地址。
    localStorage 中残留的旧配置、别人给的错误地址，都会被纠正回来。
 --------------------------------------------------------------------------- */
-export const BUILTIN_URL = 'https://vainbhgvzntusebaqdas.supabase.co';
-export const BUILTIN_ANON = 'sb_publishable_f4Hpk2NCZaL8U-fDrSamKw_v9aKjSKo';
+export const BUILTIN_URL = ENV_PROFILE.supabaseUrl;
+export const BUILTIN_ANON = ENV_PROFILE.publishableKey;
 const TRUSTED_ORIGIN = new URL(BUILTIN_URL).origin;
 
 /* 云端地址只能来自这份受信任配置。URL 参数、历史 localStorage 和旧手动同步
    配置都不能把认证凭证带去另一个 origin。 */
 export function trustedSupabaseConfig(url, anon) {
-  let parsed;
-  try { parsed = new URL(String(url || '')); } catch { return null; }
-  if (parsed.protocol !== 'https:'
-    || parsed.username
-    || parsed.password
-    || parsed.origin !== TRUSTED_ORIGIN
-    || parsed.pathname !== '/'
-    || parsed.search
-    || parsed.hash
-    || String(anon || '') !== BUILTIN_ANON) return null;
-  return { url: TRUSTED_ORIGIN, anon: BUILTIN_ANON };
+  return assertTrustedSupabaseConfig(ENV_PROFILE, url, anon);
 }
 
 export function cfg() {
@@ -244,19 +238,11 @@ export function cloudEmail() {
   return t && t.email ? t.email : '';
 }
 
-/* 统一把用户输入或历史会话中的手机号转成 Supabase 所需的 E.164 格式。
-   兼容三种历史数据：11 位本地号、86 开头、+86 开头，以及旧数据中的 0086。 */
-export function normalizePhone(phone) {
-  const value = String(phone || '').trim().replace(/[\s()-]/g, '');
-  if (!/^\+?\d+$/.test(value)) throw new Error('请输入正确的中国大陆手机号');
-  const digits = value.replace(/^\+/, '');
-  const national = digits.startsWith('0086') && digits.length === 15
-    ? digits.slice(4)
-    : digits.startsWith('86') && digits.length === 13
-      ? digits.slice(2)
-      : digits;
-  if (/^1[3-9]\d{9}$/.test(national)) return '+86' + national;
-  throw new Error('请输入正确的中国大陆手机号');
+/* 11位数字账号 → Supabase Phone Auth 使用的内部标识格式。
+   这里只做格式映射，不验证号码归属、不发送短信、不使用 OTP；
+   同时兼容历史账号保存的 +86 / 86 / 0086 格式。 */
+export function normalizePhone(account) {
+  return normalizeAccountIdentifier(account);
 }
 
 /* 仅用于界面展示：账号底层仍保留原始号码，所有手机号展示统一去掉国家区号。 */
@@ -278,11 +264,11 @@ function authError(j, status, operation = '登录') {
     return 'Supabase API 密钥无效或与项目不匹配，请检查项目 URL 和 Publishable key 是否来自同一个项目。';
   }
   if (/signup_disabled|signups not allowed/i.test(detail)) return '当前 Supabase 项目未开放新用户注册，请在 Authentication 设置中启用新用户注册。';
-  if (/phone.*disabled|phone_provider_disabled/i.test(detail)) return 'Supabase 尚未启用手机号登录，请先在 Authentication → Providers 中启用 Phone。';
-  if (/Invalid login credentials|invalid_credentials/i.test(detail)) return '手机号或密码不正确。';
-  if (/already registered|already exists|user_already_exists|phone_exists/i.test(detail)) return '该手机号已注册，请直接登录。';
+  if (/phone.*disabled|phone_provider_disabled/i.test(detail)) return '当前 Supabase 项目尚未启用账号密码登录通道。请管理员在 Authentication → Providers → Phone 开启 Phone，并关闭 Phone confirmations；本系统不发送短信，也不验证号码归属。';
+  if (/Invalid login credentials|invalid_credentials/i.test(detail)) return '账号或密码不正确。';
+  if (/already registered|already exists|user_already_exists|phone_exists/i.test(detail)) return '该账号已注册，请直接登录。';
   if (/weak_password|Password should|password.*characters/i.test(detail)) return '密码强度不足，请设置至少 8 位的密码。';
-  if (/phone.*not.*confirmed|phone_not_confirmed/i.test(detail)) return '该手机号尚未确认。当前不发送短信，请在 Supabase 中关闭 Phone confirmations 后重新注册。';
+  if (/phone.*not.*confirmed|phone_not_confirmed/i.test(detail)) return '当前账号仍要求确认。请管理员关闭 Phone confirmations；本系统不发送短信，也不验证号码归属。';
   if (/over_sms_send_rate_limit|sms.*rate|rate limit/i.test(detail)) return '操作过于频繁，请稍后再试。';
   if (/captcha/i.test(detail)) return '验证码校验失败。请检查 Supabase 验证码配置后重试。';
   if (/user_banned/i.test(detail)) return '该账号已被停用，请联系管理员。';
@@ -292,7 +278,7 @@ function authError(j, status, operation = '登录') {
 export function registrationError(error) {
   const message = String(error?.message || '');
   if (/[\u3400-\u9fff]/.test(message)) return message;
-  return '注册未能完成。请检查网络和 Supabase 项目配置后重试；如果提示手机号已注册，请切换到登录。';
+  return '注册未能完成。请检查网络和 Supabase 账号认证配置后重试；如果提示账号已注册，请切换到登录。';
 }
 
 export async function signUpPhone(phone, password) {
@@ -312,7 +298,7 @@ export async function signUpPhone(phone, password) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(authError(j, r.status, '注册'));
   if (!j.access_token) {
-    throw new Error('账号已提交，但 Supabase 当前要求短信确认。若本期不发送短信，请在 Authentication 设置中关闭 Phone confirmations 后重新注册。');
+    throw new Error('账号已创建，但当前 Supabase 项目仍要求确认。请管理员关闭 Phone confirmations；本系统不发送短信。');
   }
   adoptTokens(j);
   return session();
@@ -335,7 +321,7 @@ export async function loginPhone(phone, password) {
 
 export async function updatePhonePassword(oldPassword, newPassword) {
   const current = session();
-  if (!current?.phone) throw new Error('当前登录账号不是手机号账号');
+  if (!current?.phone) throw new Error('当前登录账号不是数字账号');
   if (String(newPassword || '').length < 8) throw new Error('新密码至少需要 8 位');
   await loginPhone(current.phone, oldPassword);
   const c = cfg();
@@ -352,6 +338,67 @@ export async function updatePhonePassword(oldPassword, newPassword) {
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(authError(j, r.status));
+}
+
+
+/* Change the Supabase phone-auth identifier without changing the user UUID.
+   The current password is re-checked before the privileged Edge Function runs.
+   The 11-digit account is an identifier only: no SMS or phone-ownership check. */
+export async function changeLoginAccount(newAccount, currentPassword) {
+  const current = session();
+  if (!current?.uid || !current?.phone) {
+    throw new Error('当前登录账号状态不完整，请刷新页面后重试');
+  }
+  if (!String(currentPassword || '')) throw new Error('请输入当前登录密码');
+
+  const currentPhone = normalizePhone(current.phone);
+  const currentAccount = accountIdentifierFromPhone(currentPhone);
+  const nextPhone = normalizePhone(newAccount);
+  if (nextPhone === currentPhone) throw new Error('新账号不能与当前账号相同');
+
+  /* Re-authentication proves the caller knows the current account password. */
+  await loginPhone(currentAccount, currentPassword);
+
+  const c = cfg();
+  const accessToken = await freshToken();
+  if (!accessToken) throw new Error('登录已过期，请重新登录后再试');
+
+  let response;
+  try {
+    response = await fetch(c.url + '/functions/v1/change-login-account', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: c.anon,
+        Authorization: 'Bearer ' + accessToken,
+      },
+      body: JSON.stringify({
+        currentAccount,
+        newAccount: accountIdentifierFromPhone(nextPhone),
+      }),
+    });
+  } catch {
+    throw new Error('暂时无法连接账号修改服务，请检查网络后重试');
+  }
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const code = String(result.error || result.code || '');
+    if (code === 'ACCOUNT_ALREADY_EXISTS') throw new Error('这个登录账号已被其他用户使用，请更换一个账号');
+    if (code === 'CURRENT_ACCOUNT_MISMATCH') throw new Error('当前登录账号已发生变化，请刷新页面后重试');
+    if (code === 'INVALID_ACCOUNT') throw new Error('新登录账号必须是11位数字');
+    if (response.status === 401 || code === 'UNAUTHORIZED') throw new Error('登录状态已过期，请重新登录后再试');
+    throw new Error('修改登录账号失败，请稍后重试（' + (code || '服务异常') + '）');
+  }
+
+  const phone = normalizePhone(result.phone || nextPhone);
+  const stored = tok() || {};
+  setTok({ ...stored, phone });
+  return {
+    uid: stored.uid || current.uid,
+    phone,
+    account: accountIdentifierFromPhone(phone),
+  };
 }
 
 export async function login(email, password) {
@@ -535,22 +582,6 @@ export async function saveWorkbenchSnapshot(payload, expectedRevision = 0) {
   return row;
 }
 
-/* 旧首页布局的只读迁移入口。服务端不接受 key 或 UID 参数，
-   只根据当前 JWT 的 auth.uid() 返回该用户自己的旧布局。 */
-export async function getLegacyHomeLayout() {
-  if (!session()?.uid) throw new Error('请先登录后再读取旧首页布局');
-  const rows = await rest('rpc/wb_get_home_layout', {
-    method: 'POST',
-    body: '{}',
-  });
-  const row = Array.isArray(rows) ? rows[0] : rows;
-  if (!row?.payload) return null;
-  return {
-    updated_at: row.updated_at || '',
-    payload: row.payload,
-  };
-}
-
 /* ---------------- 字段清洗与表配置 ---------------- */
 
 /* 前端传进来的字段可能带这些「本地专用」的东西，云端不认，剔掉
@@ -593,7 +624,7 @@ const TABLES = {
   },
   attendance_tables: {
     order: 'order=month.desc.nullslast,id.desc',
-    filter: ['month', 'grade', 'subject', 'kind', 'sheet_type'],
+    filter: ['month', 'grade', 'subject', 'kind', 'sheet_type', 'sheet_date'],
     date: ['sheet_date'],
     json: ['columns', 'meta'],
     jsonDefault: { columns: [], meta: {} },
@@ -683,13 +714,26 @@ function rowOf(table, body) {
 
 function queryOf(table, query) {
   const spec = TABLES[table] || {};
+  if (table === 'attendance_rows' && Array.isArray(query.table_id)) {
+    const ids = query.table_id.map(Number).filter(Number.isInteger);
+    return ids.length ? 'table_id=in.(' + ids.join(',') + ')' : 'id=in.()';
+  }
   if (table === 'attendance_rows' && query.table_id != null && query.table_id !== '') {
     return 'table_id=eq.' + encodeURIComponent(query.table_id);
   }
   const p = new URLSearchParams();
+  if (table === 'attendance_tables' && /^\d{4}$/.test(String(query.year || ''))) {
+    const year = Number(query.year);
+    p.set('sheet_date', `gte.${year}-01-01`);
+    p.append('sheet_date', `lt.${year + 1}-01-01`);
+  }
   for (const [k, v] of Object.entries(query || {})) {
     if (v === undefined || v === null || v === '') continue;
     if (!(spec.filter || []).includes(k)) continue;
+    if (k === 'month' && table === 'attendance_tables') {
+      p.set('month', 'eq.' + v);
+      continue;
+    }
     if (k === 'month' && /^\d{4}-\d{2}$/.test(String(v))) {
       const [y, m] = String(v).split('-').map(Number);
       const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
@@ -710,8 +754,19 @@ export async function listRows(table, query = {}) {
   const parts = ['select=' + (spec.select || '*'), 'deleted_at=is.null'];
   if (spec.order) parts.push(spec.order);
   const extra = queryOf(table, query);
-  const rows = await rest(`${table}?${parts.join('&')}${extra ? '&' + extra : ''}`);
-  return Array.isArray(rows) ? rows : [];
+  const base = `${table}?${parts.join('&')}${extra ? '&' + extra : ''}`;
+  /* PostgREST caps a response at the project's max-rows setting (typically
+     1000). A single day can legitimately reach 1000 attendance rows, so walk
+     pages until a short page is returned. */
+  const out = [];
+  const pageSize = 1000;
+  for (let offset = 0; offset < 1_000_000; offset += pageSize) {
+    const page = await rest(`${base}&limit=${pageSize}&offset=${offset}`);
+    if (!Array.isArray(page) || !page.length) break;
+    out.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return out;
 }
 
 /* ============================================================================
@@ -862,6 +917,73 @@ export async function getRow(table, id) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
+export async function updateAttendanceTable(id, body, expectedUpdatedAt) {
+  const patch = rowOf('attendance_tables', body || {});
+  if (!Object.keys(patch).length) return getRow('attendance_tables', id);
+  const filters = [
+    `id=eq.${encodeURIComponent(id)}`,
+    'deleted_at=is.null',
+    `updated_at=eq.${encodeURIComponent(String(expectedUpdatedAt))}`,
+  ].join('&');
+  const rows = await rest(`attendance_tables?${filters}&select=*`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(patch),
+  });
+  if (!Array.isArray(rows) || !rows.length) {
+    throw new Error('WB_ATTENDANCE_CONFLICT: 表头已被另一台设备修改');
+  }
+  markLocal('attendance_tables', rows[0].id);
+  return rows[0];
+}
+
+/* Atomic row save with optimistic concurrency.
+   The RPC locks the table row, compares every expected_updated_at value before
+   writing anything, and raises WB_ATTENDANCE_CONFLICT on the first mismatch.
+   That makes concurrent multi-device edits visible instead of silently
+   overwriting the other client's work. */
+export async function saveAttendanceRows(tableId, rows, { dirty = true } = {}) {
+  const payload = {
+    p_table_id: Number(tableId),
+    p_rows: (Array.isArray(rows) ? rows : []).map((row) => ({
+      id: row?.id ?? null,
+      teacher: String(row?.teacher || '').trim(),
+      subject: String(row?.subject || '').trim(),
+      data: row?.data && typeof row.data === 'object' ? row.data : {},
+      expected_updated_at: row?.expected_updated_at || null,
+    })),
+    p_mark_dirty: dirty !== false,
+  };
+  const result = await rest('rpc/wb_save_attendance_rows', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(payload),
+  });
+  const value = Array.isArray(result) ? result[0] : result;
+  const saved = value?.result && typeof value.result === 'object' ? value.result : value;
+  return {
+    ids: Array.isArray(saved?.ids) ? saved.ids : [],
+    saved: Number(saved?.saved) || (Array.isArray(saved?.ids) ? saved.ids.length : 0),
+  };
+}
+
+export async function renameAttendanceGrade(oldName, newName) {
+  const result = await rest('rpc/wb_rename_attendance_grade', {
+    method: 'POST',
+    body: JSON.stringify({ p_old: String(oldName), p_new: String(newName) }),
+  });
+  return Number(Array.isArray(result) ? result[0] : result) || 0;
+}
+
+export async function deleteAttendanceGrade(name) {
+  const result = await rest('rpc/wb_delete_attendance_grade', {
+    method: 'POST',
+    body: JSON.stringify({ p_grade: String(name) }),
+  });
+  const value = Array.isArray(result) ? result[0] : result;
+  return value?.result && typeof value.result === 'object' ? value.result : (value || {});
+}
+
 /* 一张考勤表可能带 40~60 行明细。逐条 POST 就是 60 次往返，
    手机上要等十几秒。PostgREST 支持一次提交数组，所以这里必须批量。 */
 export async function createRows(table, list) {
@@ -894,10 +1016,11 @@ export async function deleteAttendanceTable(id) {
 /* 一次读齐：主表 + 所有明细。考勤页打开就要这两样，
    分两次请求会多一个来回，也容易出现"表出来了但格子空着"的闪烁。 */
 export async function listAttendance(query = {}) {
-  const [tables, rows] = await Promise.all([
-    listRows('attendance_tables', query),
-    listRows('attendance_rows', {}),
-  ]);
+  const tables = await listRows('attendance_tables', query);
+  const tableIds = tables.map((t) => Number(t.id)).filter(Number.isInteger);
+  const rows = tableIds.length
+    ? await listRows('attendance_rows', { table_id: tableIds })
+    : [];
   const ids = new Set(tables.map((t) => String(t.id)));
   return {
     tables,

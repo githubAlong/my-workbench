@@ -2318,6 +2318,8 @@ html[data-theme="dark"] .lessons-page { --lesson-blue: #60a5fa; --lesson-blue-we
   /* 容器本身收窄并居中即可，内部不要再各写一套边距——
      之前 .me-hero 自带 margin 抖动，导致头像卡比下面的分组卡片宽出一截、左右不齐。 */
   .page-me { max-width: 720px; margin: 0 auto; }
+  /* 消息中心使用主内容区全宽，不继承个人设置页的 720px 窄版布局。 */
+  .page-me.page-me-messages { max-width: none; margin: 0; }
   .page-me > * { max-width: 100%; }
 }
 
@@ -3447,6 +3449,7 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 /* ---------- 年级管理 ---------- */
 .gm-list { display: flex; flex-direction: column; gap: 8px; }
 .gm-row { display: flex; align-items: center; gap: 8px; }
+.gm-row.is-selected { padding: 7px; border: 1px solid color-mix(in srgb, var(--primary) 34%, var(--line)); border-radius: 10px; background: var(--primary-weak); }
 .gm-row .gm-name { flex: 1; min-width: 0; }
 .gm-meta { font-size: 12px; color: var(--text-3); white-space: nowrap; }
 
@@ -3840,8 +3843,13 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   border:1px solid color-mix(in srgb,var(--primary) 18%,var(--line));
   border-radius:17px;background:var(--card);color:var(--text);
 }
-.account-security-password-row { cursor:pointer;transition:border-color .16s,box-shadow .16s,transform .16s; }
-.account-security-password-row:hover {
+.account-security-password-row,
+.account-security-login-row {
+  cursor:pointer;transition:border-color .16s,box-shadow .16s,transform .16s;
+  font:inherit;color:var(--text);background:var(--card);
+}
+.account-security-password-row:hover,
+.account-security-login-row:hover {
   border-color:color-mix(in srgb,var(--primary) 55%,var(--line));
   box-shadow:0 7px 18px rgba(37,99,235,.08);transform:translateY(-1px);
 }
@@ -3855,6 +3863,13 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .account-security-row-value {
   flex:0 0 auto;color:var(--text);font-size:21px;font-weight:650;
   font-variant-numeric:tabular-nums;letter-spacing:.3px;
+}
+.account-login-current {
+  display:flex;flex-direction:column;gap:7px;margin:0 0 16px;padding:13px 15px;
+  border:1px solid var(--line);border-radius:12px;background:var(--bg-soft,var(--surface));
+}
+.account-login-current strong {
+  color:var(--text);font-size:19px;font-weight:750;font-variant-numeric:tabular-nums;
 }
 .account-security-chevron { display:grid;place-items:center;flex:0 0 auto;color:var(--text-3); }
 .account-security-art {
@@ -3968,6 +3983,11 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 }
 .me-identity-edit:hover { border-color:var(--primary);background:var(--primary-weak); }
 .me-home-sections { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start; }
+/* 「我的」统一设置卡片：不再拆分重复的「个人设置 / 消息与偏好」分组。 */
+.me-home-sections.me-home-settings-unified { grid-template-columns:minmax(0,1fr); }
+.me-home-settings-card .me-settings-list { padding:8px 16px 12px; }
+.me-home-settings-card .me-setting-row:first-child { border-top:0; }
+.me-home-settings-card .me-setting-row { min-height:68px; }
 .me-home-section { min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:18px;background:var(--card);box-shadow:var(--shadow-s); }
 .me-home-section-head { display:flex;align-items:center;gap:12px;padding:18px 18px 14px; }
 .me-home-section-icon { display:grid;place-items:center;width:42px;height:42px;flex:0 0 auto;border-radius:13px; }
@@ -4014,6 +4034,7 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   font-size:23px;font-weight:800;box-shadow:var(--shadow-s);
 }
 .wb-brand-preview-logo img,.wb-brand-image-preview img { width:100%;height:100%;object-fit:cover; }
+.wb-brand-preview-logo svg,.wb-brand-image-preview svg { display:block;width:28px;height:28px; }
 .wb-brand-preview-copy { min-width:0; }
 .wb-brand-preview-title { color:var(--text);font-size:17px;font-weight:800;line-height:1.35;overflow-wrap:anywhere; }
 .wb-brand-preview-subtitle { margin-top:4px;color:var(--text-3);font-size:11px;line-height:1.5;overflow-wrap:anywhere; }
@@ -4030,9 +4051,12 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .wb-brand-tip { max-width:620px;color:var(--text-3);font-size:11px;line-height:1.65; }
 .wb-brand-settings-footer { display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:20px;padding-top:17px;border-top:1px solid var(--line); }
 .wb-brand-settings-footer .btn { flex:0 0 auto;min-height:42px; }
-.brand-static { cursor:default;user-select:none; }
-.brand-static .brand-logo { overflow:hidden;flex:0 0 38px;width:38px;height:38px; }
+.brand-static { cursor:default;user-select:none;gap:12px;padding:8px 10px 18px; }
+.brand-static .brand-logo { overflow:hidden;flex:0 0 48px;width:48px;height:48px;border-radius:14px; }
 .brand-static .brand-logo img { width:100%;height:100%;object-fit:cover; }
+.brand-static .brand-logo svg { display:block;width:25px;height:25px; }
+.brand-static .brand-name { font-size:17px;font-weight:750;letter-spacing:.1px; }
+.brand-static .brand-sub { font-size:12px; }
 @media(max-width:900px) {
   .page-me-home { max-width:680px; }
   .me-home-sections { grid-template-columns:1fr;gap:13px; }
@@ -4155,3 +4179,111 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 [data-course-id].tt-dragging{opacity:.42;outline:2px dashed var(--primary);outline-offset:-3px}
 [data-cell].tt-drop-target{outline:3px solid var(--primary)!important;outline-offset:-3px;background:color-mix(in srgb,var(--primary) 13%,var(--card))!important}
 @media(hover:hover){[data-course-id][draggable="true"]:hover{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--primary) 45%,transparent)}}
+
+/* 电子备课记录表：类型标签与详细内容摘要 */
+.prep-type-filter { gap: 6px; margin-bottom: 7px; }
+.prep-type-badge {
+  display: inline-flex; align-items: center; vertical-align: middle;
+  margin-left: 6px; padding: 2px 7px; border-radius: 999px;
+  background: var(--primary-weak); color: var(--primary);
+  font-size: 10.5px; font-weight: 650; line-height: 1.5; white-space: nowrap;
+}
+.prep-type-badge.is-unclassified {
+  background: var(--amber-weak, rgba(240,160,30,.1)); color: var(--amber, #d68a12);
+}
+.pr-content {
+  margin-top: 5px; color: var(--text-2); font-size: 12px; line-height: 1.55;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* 个人信息页：三行双列排列，移动端改为单列。 */
+.profile-shell-single .profile-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "name gender"
+    "phone subject"
+    "title grade";
+  align-items: start;
+  gap: 12px 28px;
+}
+.profile-shell-single .profile-field-name { grid-area: name; }
+.profile-shell-single .profile-field-gender { grid-area: gender; }
+.profile-shell-single .profile-field-phone { grid-area: phone; }
+.profile-shell-single .profile-field-subject { grid-area: subject; }
+.profile-shell-single .profile-field-title { grid-area: title; }
+.profile-shell-single .profile-field-grade { grid-area: grade; }
+
+@media (max-width: 760px) {
+  .profile-shell-single .profile-fields {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "name"
+      "gender"
+      "phone"
+      "subject"
+      "title"
+      "grade";
+    gap: 0;
+  }
+}
+
+
+/* 个人信息页重新排版：三行双列填满，不再留下中间空白。 */
+.profile-shell-single .profile-banner {
+  min-height:148px;
+  padding:24px 32px;
+  background:
+    radial-gradient(ellipse at 78% 18%, color-mix(in srgb,var(--card) 72%,transparent), transparent 31%),
+    linear-gradient(112deg,
+      color-mix(in srgb,var(--primary-weak) 78%,var(--bg)) 0%,
+      color-mix(in srgb,var(--primary) 13%,var(--bg)) 54%,
+      var(--bg) 100%);
+}
+.profile-shell-single .profile-banner::before {
+  background:linear-gradient(155deg,
+    color-mix(in srgb,var(--primary) 5%,transparent),
+    color-mix(in srgb,var(--primary) 22%,transparent));
+}
+.profile-shell-single .profile-banner::after {
+  background:color-mix(in srgb,var(--card) 32%,transparent);
+}
+.profile-shell-single .profile-banner-name { color:var(--text); }
+.profile-shell-single .profile-banner-meta { color:var(--text-2); }
+.profile-shell-single .profile-banner-hint { color:var(--text-3); }
+.profile-shell-single .profile-avatar-image {
+  outline-color:var(--card);
+  box-shadow:0 8px 24px color-mix(in srgb,var(--primary) 16%,transparent);
+}
+.profile-shell-single .profile-avatar-btn .pa-tip {
+  border-color:var(--card);
+  background:var(--primary);
+  color:#fff;
+}
+.profile-shell-single .profile-content { padding:24px 30px 22px; }
+.profile-shell-single .profile-section-title { margin-bottom:14px; }
+.profile-shell-single .profile-fields .field { min-width:0; margin-bottom:0; }
+.profile-shell-single .profile-fields .input,
+.profile-shell-single .profile-work-section .input {
+  background:var(--card);
+  border-color:var(--line);
+  color:var(--text);
+}
+.profile-shell-single .profile-work-section {
+  margin-top:18px;
+  padding:18px 20px 20px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--bg-sunken);
+}
+.profile-shell-single .profile-work-section .profile-section-title { margin-bottom:12px; }
+.profile-shell-single .profile-work-field { margin:0; }
+.profile-shell-single .profile-save-row {
+  margin-top:18px;
+  padding-top:16px;
+}
+@media (max-width:760px) {
+  .profile-shell-single .profile-banner { min-height:128px; padding:19px 17px; }
+  .profile-shell-single .profile-content { padding:20px 16px; }
+  .profile-shell-single .profile-fields .field { margin-bottom:12px; }
+  .profile-shell-single .profile-work-section { margin-top:12px; padding:15px 14px 16px; }
+}

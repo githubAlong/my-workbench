@@ -2,8 +2,9 @@
 /* 首页只负责展示年级与每日进度；所有生成、编辑、确认动作仍由年级工作台处理。 */
 import { api, esc, toast } from './core.js';
 import { icon, go } from './ui.js';
-import { dayProgress, ymd, readSeatPeriods } from './attday.js';
+import { dayProgress, ymd } from './attday.js';
 import { addGradeDialog, gradeManageDialog, gradeTabs } from './attgrade.js';
+import { dailyTableState } from './attendance-domain.mjs';
 
 const GRADE_URL = (g) => `work/attendance/${encodeURIComponent(g)}`;
 const TYPE_LABEL = { seat: '坐班表', research: '教研表', class: '上课表' };
@@ -15,39 +16,23 @@ function dateText(date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}（周${week}）`;
 }
 
-function tableState(tables, grade, type, periods, classConfirmed) {
-  const matches = (periods || ['']).map((period) => {
-    const candidates = tables.filter((t) =>
-      t.grade === grade
-      && (t.sheet_type || t.kind) === type
-      && (type !== 'seat' || String(t.periods || '') === String(period || ''))
-      && !t.deleted_at);
-    return candidates.find((t) => t.confirm_state === 'confirmed')
-      || candidates.find((t) => t.confirm_state === 'modified')
-      || candidates[0]
-      || null;
-  });
-  const existing = matches.filter(Boolean);
-  if (!existing.length) {
-    if (type === 'seat' && !classConfirmed) return { label: '待上课表确认', tone: 'locked' };
-    return { label: '未生成', tone: 'idle' };
-  }
-  if (existing.length === matches.length && existing.every((t) => t.confirm_state === 'confirmed')) {
+function tableState(slot) {
+  if (!slot.table) return { label: '未生成', tone: 'idle' };
+  if (slot.table.confirm_state === 'confirmed' || slot.table.confirmed_at) {
     return { label: '已确认', tone: 'ok' };
   }
-  if (existing.some((t) => t.confirm_state === 'modified')) return { label: '待重新确认', tone: 'warn' };
+  if (slot.table.confirm_state === 'modified') return { label: '待重新确认', tone: 'warn' };
   return { label: '待确认', tone: 'wait' };
 }
 
 export async function renderGradeList(box) {
+  const today = ymd();
   const [gradesData, tables] = await Promise.all([
     api.get('/grades').catch(() => ({ grades: [], counts: {} })),
-    api.get('/attendance').catch(() => []),
+    api.get('/attendance', { sheet_date: today }).catch(() => []),
   ]);
   const tabs = gradeTabs(gradesData);
   const counts = gradesData.counts || {};
-  const today = ymd();
-  const seatPeriods = readSeatPeriods().map(String);
   const progressList = tabs.map((grade) => ({
     grade,
     count: Number(counts[grade] || 0),
@@ -62,13 +47,8 @@ export async function renderGradeList(box) {
     const pct = progress.total ? Math.round(progress.done / progress.total * 100) : 0;
     const todayTables = tables.filter((t) =>
       t.grade === grade && String(t.sheet_date || '') === today && !t.deleted_at);
-    const classConfirmed = todayTables.some((t) =>
-      (t.sheet_type || t.kind) === 'class' && t.confirm_state === 'confirmed');
-    const states = [
-      { type: 'seat', state: tableState(todayTables, grade, 'seat', seatPeriods, classConfirmed) },
-      { type: 'research', state: tableState(todayTables, grade, 'research', [''], classConfirmed) },
-      { type: 'class', state: tableState(todayTables, grade, 'class', [''], classConfirmed) },
-    ];
+    const states = dailyTableState(todayTables, today, grade).slots
+      .map((slot) => ({ type: slot.type, state: tableState(slot) }));
     const overall = count === 0 ? { label: '暂无教师', tone: 'empty' }
       : progress.done === progress.total ? { label: '今日已查齐', tone: 'ok' }
         : progress.built ? { label: '今日进行中', tone: 'wait' }
