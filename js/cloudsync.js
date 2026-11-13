@@ -443,7 +443,13 @@ function handleSyncError(error) {
   _retryDelay=Math.min(30000,_retryDelay*2);
   queueSave(delay);
 }
-function queueSave(delay = 800) {
+/* 【流量】合并窗口从 0.8 秒放宽到 3 秒。
+   整包快照一次保存约 60~110KB，手机端连续改十来个格子的场景里，
+   0.8 秒窗口会把它们拆成十几次上传。3 秒窗口把连续的编辑合并成一次。
+   数据安全不受影响：每次改动仍然先写 localStorage 与待同步日志，
+   就算用户当场关掉页面，下次打开也会从日志里补推。 */
+const SAVE_DEBOUNCE_MS = 3000;
+function queueSave(delay = SAVE_DEBOUNCE_MS) {
   clearTimeout(_debounce);
   if(!_pending||_conflictPaused)return;
   if(globalThis.navigator?.onLine===false){emitSyncStatus('offline','已保存到本机，联网后继续同步');return;}

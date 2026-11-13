@@ -607,7 +607,11 @@ async function renderWorkbenchSettings(main, { inline = false } = {}) {
         const img = new Image();
         img.onload = () => {
           try {
-            const maxSide = 640;
+            /* 【流量】这张图会以 base64 存在账号快照里，而快照每保存一次就要
+               整包上传一次。640px/q0.82 压出来约 60KB，等于每次保存多传 60KB。
+               左上角图标实际最大显示 40px，@3x 也就 120px，256px 完全够用。
+               压到 256px / q0.75 后一般 10~20KB，单次保存体积直接少一半。 */
+            const maxSide = 256;
             const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
             const canvas = document.createElement('canvas');
             canvas.width = Math.max(1, Math.round(img.width * scale));
@@ -621,7 +625,7 @@ async function renderWorkbenchSettings(main, { inline = false } = {}) {
               reader.onload = () => resolve(reader.result);
               reader.onerror = () => reject(new Error('图片读取失败'));
               reader.readAsDataURL(blob);
-            }, 'image/jpeg', 0.82);
+            }, 'image/jpeg', 0.75);
           } catch (err) { URL.revokeObjectURL(url); reject(err); }
         };
         img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('无法读取这张图片')); };

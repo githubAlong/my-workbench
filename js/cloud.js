@@ -574,9 +574,14 @@ export async function getWorkbenchSnapshot() {
   const rows = await rest(`wb_user_data?select=payload,revision,updated_at&user_id=eq.${encodeURIComponent(uid)}`,{expectedAccountUid:uid});
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
+/* 【流量】只回版本号，不回整包。
+   旧版 wb_save_user_data 用 RETURNING 把整包 payload 又传回浏览器，
+   一次保存 = 上传约 110KB + 下载约 110KB。免费档 5GB 配额就是这么耗完的。
+   v2 的条件更新与冲突检测逻辑完全相同，只是不再回传 payload。
+   老函数保留不动，旧版本客户端仍可正常调用。 */
 export async function saveWorkbenchSnapshot(payload, expectedRevision = 0, expectedUid=session()?.uid) {
   if (!expectedUid || session()?.uid!==expectedUid) throw new Error('登录状态已变化，无法保存此账号的工作台数据');
-  const rows = await rest('rpc/wb_save_user_data', {
+  const rows = await rest('rpc/wb_save_user_data_v2', {
     method: 'POST',
     expectedAccountUid:expectedUid,
     body: JSON.stringify({ p_payload: payload, p_expected_revision: Number(expectedRevision) || 0 }),

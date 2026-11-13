@@ -36,7 +36,7 @@ async function setup(context, { missing = false, failOnce = false } = {}) {
   await sync.initializeAccountSync();
   window.addEventListener('wb:localchange', sync.hookSave);
   context.mock.timers.enable({ apis: ['setTimeout'] });
-  const advance = async (milliseconds = 800) => { context.mock.timers.tick(milliseconds); await flush(); };
+  const advance = async (milliseconds = 3000) => { context.mock.timers.tick(milliseconds); await flush(); };
   return { db, sync, storage, writes, advance, holdNext: () => { hold = true; }, release: () => release(),
     remote: payload => { remote = { payload, revision: (remote?.revision || 0) + 1 }; } };
 }
@@ -67,7 +67,7 @@ test('one real edit is saved once and rapid edits are combined into the latest p
   await state.advance(400);
   state.db.load().notes[0].title = 'latest';
   state.db.save();
-  await state.advance(799);
+  await state.advance(2999);
   assert.equal(state.writes.length, 0);
   await state.advance(1);
   assert.equal(state.writes.length, 1);
