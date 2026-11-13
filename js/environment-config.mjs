@@ -10,8 +10,8 @@ export const ENVIRONMENT_PROFILES = Object.freeze({
   }),
   test: Object.freeze({
     name: 'test',
-    supabaseUrl: 'https://xgvmwbzvvjnhzadfvdmj.supabase.co',
-    publishableKey: 'sb_publishable_9SpX4rho5F_tXG9CEGCXBA_XAKyUBjn',
+    supabaseUrl: 'https://vainbhgvzntusebaqdas.supabase.co',
+    publishableKey: 'sb_publishable_f4Hpk2NCZaL8U-fDrSamKw_v9aKjSKo',
     hosts: Object.freeze(['localhost', '127.0.0.1', 'my-workbench-test.pages.dev']),
     hostSuffixes: Object.freeze(['.my-workbench-test.pages.dev']),
   }),
