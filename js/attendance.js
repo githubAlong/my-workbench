@@ -317,7 +317,13 @@ export async function renderAttendance(box, opts = {}) {
   /* 上课表按「第 N 节 + 下午课时」逐格记，节次存在行数据里，
      不依赖列定义 —— 坐班/教研表的列仍然是 上课/坐班/签到/请假。 */
   const CLASS_PERIOD_KEYS = ['k_p1', 'k_p2', 'k_p3', 'k_p4'];
-  const classHasLesson = (r) => CLASS_PERIOD_KEYS.some((k) => r.data?.[k] === '1') || r.data?.k_下午 === '1';
+  const LEGACY_CLASS_KEY = 'k_上课'; // 旧版单列「上课」勾选
+  const hasNewPeriod = (r) => CLASS_PERIOD_KEYS.some((k) => r.data?.[k] === '1') || r.data?.k_下午 === '1';
+  /* 旧数据只有「上课」一个总勾：没有任何新节次时，落到第1节展示与统计，
+     避免历史记录在新表里变空白；一旦用户逐节录入，旧总勾即作废。 */
+  const classPeriodOn = (r, key) => r.data?.[key] === '1'
+    || (key === 'k_p1' && !hasNewPeriod(r) && r.data?.[LEGACY_CLASS_KEY] === '1');
+  const classHasLesson = (r) => hasNewPeriod(r) || r.data?.[LEGACY_CLASS_KEY] === '1';
   const classExportColumns = [
     ...CLASS_PERIOD_KEYS.map((_, i) => ({ key: `__p${i + 1}`, label: `第${i + 1}节`, type: 'text', w: 62 })),
     { key: '__pm', label: '下午课时', type: 'text', w: 82 },
@@ -330,11 +336,11 @@ export async function renderAttendance(box, opts = {}) {
       teacher: r.teacher,
       subject: r.subject || '',
       data: {
-        __p1: r.data?.k_p1 === '1' ? '上课' : '—',
-        __p2: r.data?.k_p2 === '1' ? '上课' : '—',
-        __p3: r.data?.k_p3 === '1' ? '上课' : '—',
-        __p4: r.data?.k_p4 === '1' ? '上课' : '—',
-        __pm: r.data?.k_下午 === '1' ? '上课' : '—',
+        __p1: classPeriodOn(r, 'k_p1') ? '上课' : '—',
+        __p2: classPeriodOn(r, 'k_p2') ? '上课' : '—',
+        __p3: classPeriodOn(r, 'k_p3') ? '上课' : '—',
+        __p4: classPeriodOn(r, 'k_p4') ? '上课' : '—',
+        __pm: classPeriodOn(r, 'k_下午') ? '上课' : '—',
         __leave: rowLeaveText(r) || '—',
       },
     })),
@@ -411,8 +417,8 @@ export async function renderAttendance(box, opts = {}) {
         const ix = rowIndexOf(r);
         return `<tr><td class="aw-name">${esc(r.teacher || '')}${r.data?.__temp ? '<span class="aw-temp">临时</span>' : ''}</td>
           <td>${esc(r.subject || '—')}</td>
-          ${CLASS_PERIOD_KEYS.map((k) => `<td class="aw-class-cell"><button class="aw-mark aw-class-mark ${r.data?.[k] === '1' ? 'on' : ''}" data-class-mark data-row="${ix}" data-key="${k}">${r.data?.[k] === '1' ? '上课' : '—'}</button></td>`).join('')}
-          <td class="aw-class-cell"><button class="aw-mark aw-class-mark ${r.data?.k_下午 === '1' ? 'on' : ''}" data-class-mark data-row="${ix}" data-key="k_下午">${r.data?.k_下午 === '1' ? '上课' : '—'}</button></td>
+          ${CLASS_PERIOD_KEYS.map((k) => `<td class="aw-class-cell"><button class="aw-mark aw-class-mark ${classPeriodOn(r, k) ? 'on' : ''}" data-class-mark data-row="${ix}" data-key="${k}">${classPeriodOn(r, k) ? '上课' : '—'}</button></td>`).join('')}
+          <td class="aw-class-cell"><button class="aw-mark aw-class-mark ${classPeriodOn(r, 'k_下午') ? 'on' : ''}" data-class-mark data-row="${ix}" data-key="k_下午">${classPeriodOn(r, 'k_下午') ? '上课' : '—'}</button></td>
           <td>${leaveCell(r, ix)}</td>
           <td class="aw-edit-cell">${r.data?.__temp ? '<button class="aw-edit-btn" data-edit-row>编辑</button>' : ''}</td>
         </tr>`;
@@ -423,7 +429,7 @@ export async function renderAttendance(box, opts = {}) {
       const lt = rowLeaveText(r);
       return `<div class="aw-mobile-card">
         <div class="aw-mobile-person"><b>${esc(r.teacher || '')}</b>${r.subject ? `<span>${esc(r.subject)}</span>` : ''}${r.data?.__temp ? '<em>临时</em>' : ''}</div>
-        <div class="aw-mobile-periods">${CLASS_PERIOD_KEYS.map((k, i) => `<button class="aw-mark aw-class-mark ${r.data?.[k] === '1' ? 'on' : ''}" data-class-mark data-row="${ix}" data-key="${k}"><small>第${i + 1}节</small>${r.data?.[k] === '1' ? '上课' : '—'}</button>`).join('')}</div>
+        <div class="aw-mobile-periods">${CLASS_PERIOD_KEYS.map((k, i) => `<button class="aw-mark aw-class-mark ${classPeriodOn(r, k) ? 'on' : ''}" data-class-mark data-row="${ix}" data-key="${k}"><small>第${i + 1}节</small>${classPeriodOn(r, k) ? '上课' : '—'}</button>`).join('')}</div>
         <div class="aw-mobile-leave" data-leave-row="${ix}">${lt ? `请假：${esc(lt)}` : '请假：—'}</div>
         ${r.data?.__temp ? '<div class="aw-mobile-edit" data-edit-row>编辑临时老师</div>' : ''}
       </div>`;
@@ -630,7 +636,12 @@ export async function renderAttendance(box, opts = {}) {
       const row = detail?.rows?.[Number(b.dataset.row)];
       if (!row) return;
       const key = b.dataset.key;
-      row.data = { ...(row.data || {}), [key]: row.data?.[key] === '1' ? '' : '1' };
+      const wasOn = classPeriodOn(row, key);
+      const next = { ...(row.data || {}) };
+      // 用户开始逐节录入后，旧版「上课」总勾作废，避免它继续把第1节点亮
+      delete next[LEGACY_CLASS_KEY];
+      next[key] = wasOn ? '' : '1';
+      row.data = next;
       dirty = true;
       repaintKeepScroll();
     });
