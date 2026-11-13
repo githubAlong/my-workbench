@@ -1,0 +1,60 @@
+name: Mirror test branch to production
+
+# 测试仓 my-workbench 是唯一维护源。
+# 推送到 test 分支后，把整棵树同步到生产仓 mywork-master 的 master，
+# 由生产仓自己的 deploy-pages.yml 继续完成 GitHub Pages 发布。
+#
+# 需要的 Secret：MIRROR_TOKEN
+#   一个对 githubAlong/mywork-master 有 contents:write 的令牌
+#   （fine-grained PAT 或 classic PAT 均可），加在本仓库
+#   Settings → Secrets and variables → Actions 里。
+
+on:
+  push:
+    branches: [test]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-to-production
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout test branch
+        uses: actions/checkout@v4
+
+      - name: Checkout production repository
+        uses: actions/checkout@v4
+        with:
+          repository: githubAlong/mywork-master
+          ref: master
+          path: prod
+          token: ${{ secrets.MIRROR_TOKEN }}
+
+      - name: Sync files (keep production Pages workflow)
+        run: |
+          set -euo pipefail
+          rsync -a --delete \
+            --exclude '.git' \
+            --exclude 'prod' \
+            --exclude '.github/workflows/deploy-pages.yml' \
+            ./ prod/
+
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+          cd prod
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "no change, nothing to sync"
+            exit 0
+          fi
+          git config user.name "mywork-bot"
+          git config user.email "bot@local"
+          git add -A
+          git commit -m "chore(sync): mirror test branch to production (source ${GITHUB_SHA:0:7})"
+          git push origin HEAD:master
