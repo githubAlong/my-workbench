@@ -1,0 +1,39 @@
+# 依赖
+node_modules/
+package-lock.json.bak
+
+# 构建产物
+dist/
+.tmp-build/
+.wrangler/
+.trae-html-share-packages/
+.workbuddy/
+
+# 测试与报告产物
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+release-validation-*/
+*-snapshot/
+
+# 历史修复快照（完整项目副本）
+attendance-layout-fix/
+repair-status-fix/
+
+# 日志与临时文件
+*.log
+*.tmp
+.cache/
+
+# 环境变量与密钥
+.env
+.env.*
+!.env.example
+
+# 编辑器与系统
+.vscode/settings.json
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
