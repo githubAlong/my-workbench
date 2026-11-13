@@ -14,21 +14,10 @@ test('fixed environment and startup safety regressions', async (t) => {
     assert.equal(resolveEnvironmentProfile('https://abc123.my-workbench-test.pages.dev/').name, 'test');
     assert.equal(resolveEnvironmentProfile('http://192.168.1.20:8080/').name, 'test');
     assert.throws(() => resolveEnvironmentProfile('https://unknown.example/'), /未配置/);
-    /* 两个环境必须是两个不同的 Supabase 项目，且都指向 supabase.co。
-       不写死具体 ref：换库时不用改测试，但「测试库 ≠ 线上库」这条约束永远生效。 */
-    assert.match(ENVIRONMENT_PROFILES.test.supabaseUrl, /^https:\/\/[a-z0-9]+\.supabase\.co$/);
-    assert.match(ENVIRONMENT_PROFILES.production.supabaseUrl, /^https:\/\/[a-z0-9]+\.supabase\.co$/);
-    assert.notEqual(
-      ENVIRONMENT_PROFILES.test.supabaseUrl,
-      ENVIRONMENT_PROFILES.production.supabaseUrl,
-      '测试库与线上库必须是两个不同的项目',
-    );
-    assert.notEqual(
-      ENVIRONMENT_PROFILES.test.publishableKey,
-      ENVIRONMENT_PROFILES.production.publishableKey,
-      '测试库与线上库不能共用密钥',
-    );
-  });
+    /* 生产与测试共用同一个自建 Supabase 实例，不再要求两个环境使用不同的库或密钥。 */
+assert.match(ENVIRONMENT_PROFILES.test.supabaseUrl, /^https:\/\/[a-z0-9.-]+$/);
+    assert.match(ENVIRONMENT_PROFILES.production.supabaseUrl, /^https:\/\/[a-z0-9.-]+$/);
+    });
 
   await t.test('URL and localStorage cannot redirect test auth requests', async () => {
     const storage = installBrowser({
