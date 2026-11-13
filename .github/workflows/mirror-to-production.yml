@@ -42,7 +42,7 @@ jobs:
           rsync -a --delete \
             --exclude '.git' \
             --exclude 'prod' \
-            --exclude '.github/workflows/deploy-pages.yml' \
+            --exclude '.github/workflows' \
             ./ prod/
 
       - name: Commit and push if changed
