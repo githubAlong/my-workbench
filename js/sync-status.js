@@ -31,20 +31,28 @@ function openConflicts() {
     finally{button.disabled=false;}
   };
 }
+let autoResolvedSignature='';
+/* 2026-11-14：冲突也不再弹提示。出现冲突时自动保留「本机这一份」并继续同步，
+   云端旧副本会写进 wb_sync_resolution_backup 备份键，需要时可找回。 */
+async function autoResolveConflicts(){
+  const conflicts=getSyncConflicts();
+  if(!conflicts.length)return;
+  const signature=JSON.stringify(conflicts.map(item=>item.path));
+  if(signature===autoResolvedSignature)return;
+  autoResolvedSignature=signature;
+  const choices={};
+  conflicts.forEach(item=>{choices[JSON.stringify(item.path)]='local';});
+  try{await resolveAccountSyncConflicts(choices);}
+  catch(error){console.warn('[sync] 自动处理冲突失败，本机内容已保留',error);}
+}
 export function startSyncStatus() {
   let current=getAccountSyncStatus();
   const paint=()=>{
     let host=document.getElementById('wb-sync-status');
-    /* 2026-11-14：状态条只在「需要用户处理冲突」时出现，其余状态（等待/同步中/离线/失败）
-       全部后台静默处理，不再打扰用户。 */
-    if(!current?.uid||current.uid!==activeAccountId()||current.status!=='conflict'){host?.remove();return;}
-    if(!host){host=document.createElement('aside');host.id='wb-sync-status';host.setAttribute('aria-live','polite');document.body.appendChild(host);}
-    const messages={pending:'已保存到本机，等待同步',saving:'已保存到本机，正在同步',offline:'已保存到本机，联网后同步',conflict:'修改已保留，需要处理冲突',error:'同步未完成，请查看提示'};
-    host.dataset.state=current.status;
-    host.innerHTML='<span class="sync-status-copy">'+esc(current.message||messages[current.status]||'同步状态待确认')+'</span>'+(current.status==='conflict'?'<button type="button" data-sync-conflicts>处理冲突</button>':current.pending&&current.status!=='saving'?'<button type="button" data-sync-retry>重试同步</button>':'')+(current.pending||['error','conflict'].includes(current.status)?'<button type="button" data-sync-backup>导出本机备份</button>':'');
-    host.querySelector('[data-sync-conflicts]')?.addEventListener('click',openConflicts);
-    host.querySelector('[data-sync-backup]')?.addEventListener('click',downloadBackup);
-    host.querySelector('[data-sync-retry]')?.addEventListener('click',()=>{void retryAccountSync().catch(error=>toast(error.message,'err'));});
+    /* 2026-11-14：右下角状态条彻底不显示，所有状态（等待/同步中/离线/失败/冲突）都后台静默处理。 */
+    host?.remove();
+    if(current?.uid&&current.uid===activeAccountId()&&current.status==='conflict')void autoResolveConflicts();
+    return;
   };
   window.addEventListener('wb:sync-status',event=>{current=event.detail;paint();});
   window.addEventListener('wb:signout',()=>{current=null;paint();});
