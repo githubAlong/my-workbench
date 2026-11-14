@@ -3,7 +3,7 @@
 export const ENVIRONMENT_PROFILES = Object.freeze({
   production: Object.freeze({
     name: 'production',
-    supabaseUrl: 'https://phd-halo-protocols-names.trycloudflare.com',
+    supabaseUrl: 'https://placate-synapse-stylist.ngrok-free.dev',
     publishableKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzYzMDAwMDAwLCJleHAiOjIwNzAwMDAwMDB9.QYMaK-40p1luJ3Dc83JchGAH3h02dLSAIxk_ppGEJHA',
     autoSeedDemo: true,
     hosts: Object.freeze(['githubalong.github.io']),
@@ -11,7 +11,7 @@ export const ENVIRONMENT_PROFILES = Object.freeze({
   }),
   test: Object.freeze({
     name: 'test',
-    supabaseUrl: 'https://phd-halo-protocols-names.trycloudflare.com',
+    supabaseUrl: 'https://placate-synapse-stylist.ngrok-free.dev',
     publishableKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzYzMDAwMDAwLCJleHAiOjIwNzAwMDAwMDB9.QYMaK-40p1luJ3Dc83JchGAH3h02dLSAIxk_ppGEJHA',
     autoSeedDemo: false,
     hosts: Object.freeze(['localhost', '127.0.0.1', 'my-workbench-test.pages.dev']),
