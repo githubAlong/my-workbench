@@ -119,9 +119,19 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
   assert.match(seat[0][0],/共3人/);
   assert.match(seat[0][0],/未登记\d+人/);
   assert.deepEqual(new Set(namesOf(seat)),new Set(allNames));
-  /* 未登记的格子不能再是空白或「—」 */
+  /* 一次只能显示一个状态（11-15 裁决）：李老师上课优先于坐班，坐班/听课/教研留空 */
+  const liSeat = rowByName(seat,'李老师');
+  assert.equal(liSeat[6],'✓');
+  assert.ok([5,7,8].every(index => liSeat[index] === ''));
+  /* 王老师当天请假：四类状态都留空，只在请假列看明细 */
+  const wangSeat = rowByName(seat,'王老师');
+  assert.ok([5,6,7,8].every(index => wangSeat[index] === ''));
+  assert.match(wangSeat[9],/事假/);
+  /* 赵老师什么都没登记：只在坐班格写「未登记」，不再四列都是「未登记」 */
   const zhaoSeat = rowByName(seat,'赵老师');
-  assert.ok([5,6,7,8].every(index => zhaoSeat[index] !== '' && zhaoSeat[index] !== '—'));
+  assert.equal(zhaoSeat[5],'未登记');
+  assert.ok([6,7,8].every(index => zhaoSeat[index] === ''));
+  assert.match(seat[0][0],/未登记1人/);
 
   const classes = buildAttendanceExportGrid({...common,type:'class'});
   assert.equal(classes.length,5);
@@ -175,6 +185,12 @@ test('一场都没登记时，四个页签仍然输出全名单与明确状态�
     assert.deepEqual(grid.slice(2).map(row=>row[3]),['李老师','王老师','赵老师'],type+' 名单不全');
     assert.match(grid[0][0],/共3人/,type+' 抬头缺人数');
     for (const row of grid.slice(2)) {
+      if (type === 'seat') {
+        /* 一次只能一个状态（11-15 裁决）：全都没登记时只在坐班格写「未登记」，其余留空 */
+        assert.equal(row[5],'未登记',type+' 的 '+row[3]+' 坐班格应是未登记');
+        for (const index of [6,7,8]) assert.equal(row[index],'',type+' 的 '+row[3]+' 多余状态应留空');
+        continue;
+      }
       for (const index of statusCells[type]) {
         const value = String(row[index] ?? '');
         assert.ok(value && value !== '—',type+' 的 '+row[3]+' 状态格是空白');
@@ -197,10 +213,12 @@ test('全天录入的状态能原样导出（不会被判成未登记）', () =>
     classRows: [], researchRows: [], leaveRecords: [], resolvePeriodRange: () => ['00:00', '23:59'],
   });
   const rows = grid.slice(2);
-  assert.equal(rows[0][5], '未登记');
+  /* 一次只能一个状态：李老师勾了上课，坐班格留空而不是「未登记」 */
+  assert.equal(rows[0][5], '');
   assert.equal(rows[0][6], '✓');
+  /* 王老师勾了坐班，上课格留空 */
   assert.equal(rows[1][5], '✓');
-  assert.equal(rows[1][6], '未登记');
+  assert.equal(rows[1][6], '');
   assert.match(grid[0][0], /上课1/);
   assert.match(grid[0][0], /坐班1/);
   assert.match(grid[0][0], /未登记0人/);

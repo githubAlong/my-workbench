@@ -469,7 +469,11 @@ export function buildAttendanceExportGrid({
 
   if (type === 'seat' || type === 'roster') {
     const activeLeaves = activeLeavesFor(leaveRecords, date);
-    const rows = people.map((teacher, index) => {
+    /* 导出表里同一人一次只能有一个状态（用户 11-15 裁决）：
+       请假 > 上课 > 坐班 > 听课 > 教研，只给胜出的那一格打勾，其余留空。
+       四类都没登记时，只在「坐班」格写「未登记」，避免整行空白看不出是漏登。 */
+    const STATUS_PRIORITY = ['class', 'sit', 'listen', 'research'];
+    const entries = people.map((teacher, index) => {
       const states = periodNumbers.map(currentPeriod => deriveRosterState(teacher, {
         seatRows, classRows, researchRows, leaveRecords, date, period: currentPeriod,
       }));
@@ -491,16 +495,28 @@ export function buildAttendanceExportGrid({
         item.type || '请假', exportLeavePeriod(item), exportLeaveDuration(item),
       ].filter(Boolean).join(' ')).join('；') || '无';
       const meta = teacherMeta?.[String(teacher.id)] || {};
-      return [
-        index + 1, departmentOf(teacher), gradeOf(teacher), name, teacher.subject || '',
-        exportStatusLabel(aggregate('sit')), exportStatusLabel(aggregate('class')),
-        exportStatusLabel(aggregate('listen')), exportStatusLabel(aggregate('research')),
-        leaveText, meta.remark || teacher.remark || teacher.note || '',
-      ];
+      const onLeave = leaveText !== '无';
+      const statusOf = {
+        sit: aggregate('sit'), class: aggregate('class'),
+        listen: aggregate('listen'), research: aggregate('research'),
+      };
+      const winner = onLeave ? '' : STATUS_PRIORITY.find(key => statusOf[key] === 'y' || statusOf[key] === 'n') || '';
+      const cell = key => winner === key ? exportStatusLabel(statusOf[key]) : '';
+      return {
+        winner,
+        onLeave,
+        row: [
+          index + 1, departmentOf(teacher), gradeOf(teacher), name, teacher.subject || '',
+          winner || onLeave ? cell('sit') : '未登记',
+          cell('class'), cell('listen'), cell('research'),
+          leaveText, meta.remark || teacher.remark || teacher.note || '',
+        ],
+      };
     });
-    const count = key => rows.filter(row => row[{ class: 6, sit: 5, listen: 7, research: 8 }[key]] === '✓').length;
+    const rows = entries.map(entry => entry.row);
+    const count = key => entries.filter(entry => entry.winner === key && entry.row[{ class: 6, sit: 5, listen: 7, research: 8 }[key]] === '✓').length;
     const leaveCount = rows.filter(row => row[9] !== '无').length;
-    const unregistered = rows.filter(row => [5, 6, 7, 8].every(index => row[index] === '未登记') && row[9] === '无').length;
+    const unregistered = entries.filter(entry => !entry.winner && !entry.onLeave).length;
     const title = fileTitle + ' · 共' + people.length + '人 · 坐班' + count('sit')
       + ' · 上课' + count('class') + ' · 听课' + count('listen')
       + ' · 教研' + count('research') + ' · 请假' + leaveCount

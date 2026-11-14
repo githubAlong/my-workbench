@@ -471,17 +471,6 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   };
   const saveDraftButton = (type,label) => '<button '+(details[type]?'':'disabled')+' data-save-'+type+'>'+(details[type]?label:'生成后可保存修改')+'</button>';
   const rosterKey = (row) => String(row.name || '').trim().replace(/\s+/g,'').toLowerCase() + '\u0000' + String(row.subject || '').trim().replace(/\s+/g,'').toLowerCase();
-  const rosterGrid = (list) => buildAttendanceExportGrid({
-    type: TYPE[tab] ? tab : tab === 'leave' ? 'leave' : 'roster',
-    grade, date, period, teachers: list,
-    seatRows: tab === 'seat' ? getDraftRows('seat') : details.seat?.rows || [],
-    classRows: tab === 'class' ? getDraftRows('class') : details.class?.rows || [],
-    researchRows: tab === 'research' ? getDraftRows('research') : details.research?.rows || [],
-    leaveRecords: activeLeavesFor(leaveRecords, date),
-    teacherMeta: prefs.teacherMeta || {},
-    resolvePeriodRange,
-    includeUnlisted: true,
-  });
   const downloadRosterTemplate = () => {
     const grid=[['教师花名册导入模板'],['序号','归属部门','归属年级','姓名','学科'],['1','高中部',grade,'','']];
     saveBlob(makeXlsx({title:'花名册导入模板',grid}),'教师花名册导入模板.xlsx');
@@ -507,14 +496,15 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   };
   /* 把导出网格切成图片：常规年级（120 行以内）就是一张图，只有超大名单才分页，
      避免出现好几张长得一样的表让人误以为是重复导出。 */
-  const buildPngPages = (grid, fileBase, rowCount, watermark = '') => {
+  const buildPngPages = (grid, fileBase, rowCount, watermark = '', heading = {}) => {
+    const title=String(heading.title||fileBase),subtitle=String(heading.subtitle||'');
     const headers=grid[1], bodyRows=grid.slice(2);
     const widths=headers.map((header,index)=>{
       const max=Math.max(String(header).length,...bodyRows.map(row=>String(row[index]??'').length));
       return Math.max(90,Math.min(260,70+max*13));
     });
     const totalWidth=widths.reduce((sum,value)=>sum+value,0);
-    const rowH=42,titleH=76,footH=34,rowsPerPage=120;
+    const rowH=42,titleH=subtitle?92:76,footH=34,rowsPerPage=120;
     const pages=[];
     for(const page of paginateExportGrid(grid, rowsPerPage)){
       const slice=page.rows, pageCount=page.pageCount, pageIndex=page.index;
@@ -522,10 +512,15 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       canvas.width=totalWidth;
       canvas.height=titleH+(slice.length+1)*rowH+footH;
       ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+      /* 标题居中：第一行表名，第二行日期 · 节次 · 导出时间（用户 11-15 裁决）。 */
+      ctx.textAlign='center';
+      ctx.fillStyle='#172744';ctx.font='bold 22px "Microsoft YaHei",sans-serif';
+      ctx.fillText(title,canvas.width/2,36);
+      if(subtitle){
+        ctx.fillStyle='#667085';ctx.font='12px "Microsoft YaHei",sans-serif';
+        ctx.fillText(subtitle,canvas.width/2,60);
+      }
       ctx.textAlign='left';
-      ctx.fillStyle='#172744';ctx.font='bold 22px "Microsoft YaHei",sans-serif';ctx.fillText(fileBase,20,30);
-      ctx.fillStyle='#667085';ctx.font='12px "Microsoft YaHei",sans-serif';
-      ctx.fillText('导出时间：'+new Date().toLocaleString('zh-CN')+'　共 '+rowCount+' 条'+(pageCount>1?'　第 '+(pageIndex+1)+'/'+pageCount+' 页':''),20,53);
       let y=titleH,x=0;
       headers.forEach((label,index)=>{
         ctx.fillStyle='#eef3fa';ctx.fillRect(x,y,widths[index],rowH);
@@ -552,8 +547,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   const openPngPreview = (pages, fileBase, rowCount) => {
     const dialog=document.createElement('div');
     dialog.className='attendance-prd aprd-dialog aprd-png-dialog';
-    dialog.innerHTML='<section class="aprd-png-preview"><header><div><h3>'+esc(fileBase)+'</h3>'
-      +'<p>共 '+rowCount+' 条'+(pages.length>1?' · 分成 '+pages.length+' 张图片，可上下滑动查看':'')+'</p></div>'
+    dialog.innerHTML='<section class="aprd-png-preview"><header><div><h3>导出结果</h3>'
+      +'<p>'+esc(fileBase)+' · 共 '+rowCount+' 条'+(pages.length>1?' · 分成 '+pages.length+' 张图片，可上下滑动查看':'')+'</p></div>'
       +'<button type="button" data-png-close aria-label="关闭">×</button></header>'
       +'<div class="aprd-png-scroll">'+pages.map((src,index)=>'<figure><img src="'+src+'" alt="第 '+(index+1)+' 页">'+(pages.length>1?'<figcaption>第 '+(index+1)+' / '+pages.length+' 页</figcaption>':'')+'</figure>').join('')+'</div>'
       +'<footer><button type="button" data-png-close>关闭</button>'
@@ -583,7 +578,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const list=teachers.slice();
     const exportType = TYPE[tab] ? tab : tab === 'leave' ? 'leave' : 'roster';
     const typeLabel = ({roster:'花名册',seat:'坐班表',class:'上课表',research:'教研表',leave:'请假总表'})[exportType];
-    const fileBase=(grade||'教师')+typeLabel+'-'+date+'-'+(period===0?'全天':'第'+period+'节');
+    const periodText = period===0?'全天':'第'+period+'节';
+    const fileBase=(grade||'教师')+typeLabel+'-'+date+'-'+periodText;
     const watermarkBox=root.querySelector('#aprd-export-watermark');
     const watermarkInput=root.querySelector('#aprd-export-watermark-text');
     watermarkOn=!!watermarkBox?.checked;
@@ -619,7 +615,10 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     }else if(format==='png'){
       /* 默认一个年级就是一张图（120 行以内不分页），先给可滚动的预览，
          确认后再下载，内容和页面表格逐格一致。 */
-      const pages=buildPngPages(grid, fileBase, rowCount, watermark);
+      const pages=buildPngPages(grid, fileBase, rowCount, watermark, {
+        title:(grade||'全部年级')+typeLabel,
+        subtitle:date+' · '+periodText+' · 导出时间：'+new Date().toLocaleString('zh-CN'),
+      });
       toast('图片已生成'+(pages.length>1?'，共 '+pages.length+' 张':''),'ok');
       openPngPreview(pages, fileBase, rowCount);
     }
