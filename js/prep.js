@@ -126,45 +126,65 @@ export async function renderPreps(box) {
     const ordered = visibleRows();
     const rows = ordered.map((record) => {
       const id = esc(String(record.id));
-      const clipped = truncateTwoLines(record.process, 18);
+      const clipped = truncateTwoLines(record.process, 60);
       return '<tr>' +
-        '<td>' + esc(record.planDate || '—') + '</td>' +
+        '<td class="prep-col-date">' + esc(record.planDate || '—') + '</td>' +
         '<td>' + esc(record.subject || '—') + '</td>' +
         '<td>' + esc(record.grade || '—') + '</td>' +
-        '<td class="lp-topic-cell" title="' + esc(record.title) + '">' + esc(record.title || '—') + '</td>' +
-        '<td class="lp-process-cell" title="' + esc(record.process) + '"><div class="lp-clip-2">' + esc(clipped.text || '—') + '</div></td>' +
-        '<td class="lp-remark-cell" title="' + esc(record.remark) + '"><div class="lp-clip-1">' + esc(record.remark || '—') + '</div></td>' +
-        '<td><div class="lp-row-actions">' +
-          '<button class="btn ghost sm" type="button" data-edit="' + id + '">查看/编辑</button>' +
-          '<button class="btn ghost sm lp-delete-btn" type="button" data-delete="' + id + '">删除</button>' +
-        '</div></td></tr>';
+        '<td class="prep-topic" title="' + esc(record.title) + '">' + esc(record.title || '—') + '</td>' +
+        '<td class="prep-process" title="' + esc(record.process) + '"><div class="prep-clip">' + esc(clipped.text || '—') + '</div></td>' +
+        '<td class="prep-remark" title="' + esc(record.remark) + '"><div class="prep-clip">' + esc(record.remark || '—') + '</div></td>' +
+        '<td class="prep-actions">' +
+          '<button class="prep-act prep-act-preview" type="button" data-preview="' + id + '">预览</button>' +
+          '<button class="prep-act prep-act-edit" type="button" data-edit="' + id + '">编辑</button>' +
+          '<button class="prep-act prep-act-delete" type="button" data-delete="' + id + '">删除</button>' +
+        '</td></tr>';
     }).join('');
 
-    box.innerHTML = '<section class="lesson-plan-list">' +
-      '<div class="lp-bulk-bar">' +
-        '<button class="btn ghost" id="prep-import" type="button">批量导入</button>' +
-        '<button class="btn ghost" id="prep-export" type="button">批量导出</button>' +
-        '<input class="lp-hidden-file" id="prep-import-file" type="file" accept=".csv,text/csv">' +
-        '<span class="lp-bulk-hint">按当前筛选条件导入 / 导出（CSV，Excel 可直接打开）</span>' +
-      '</div>' +
-      '<div class="lp-list-toolbar"><div>' +
-        '<div class="lp-list-caption">备课</div>' +
-        '<div class="lp-filter-row">' +
-          '<label for="lp-filter-subject">学科</label><select class="input lp-filter-select" id="lp-filter-subject">' +
-            optionList([...SUBJECT_OPTIONS, ...records.map((r) => r.subject)], filters.subject, '全部学科') + '</select>' +
-          '<label for="lp-filter-grade">年级</label><select class="input lp-filter-select" id="lp-filter-grade">' +
-            optionList(records.map((r) => recordFields(r).grade), filters.grade, '全部年级') + '</select>' +
-          '<label for="lp-filter-from">备课时间</label>' +
-          '<input class="input lp-filter-date" id="lp-filter-from" type="date" value="' + esc(filters.from) + '">' +
-          '<span class="lp-date-sep">至</span>' +
-          '<input class="input lp-filter-date" id="lp-filter-to" type="date" value="' + esc(filters.to) + '">' +
-          '<input class="input lp-filter-keyword" id="lp-filter-keyword" type="search" placeholder="搜索标题 / 内容 / 备注" value="' + esc(filters.keyword) + '">' +
+    box.innerHTML = '<section class="prep-page">' +
+      '<div class="prep-card prep-head-card">' +
+        '<div class="prep-head-text">' +
+          '<h2>备课管理</h2>' +
+          '<p>记录每一次备课内容，支持筛选、批量导入导出、预览查看</p>' +
         '</div>' +
-      '</div><button class="btn primary" id="prep-add" type="button">＋ 新建备课</button></div>' +
-      '<div class="lp-table-wrap"><table class="lp-table" id="lp-record-table">' +
-      '<thead><tr><th>备课时间</th><th>学科</th><th>年级</th><th>标题</th><th>授课内容</th><th>备注</th><th>操作</th></tr></thead>' +
-      '<tbody>' + (rows || '<tr><td colspan="7" class="lp-empty">暂时还没有备课，点击「新建备课」开始填写。</td></tr>') + '</tbody>' +
-      '</table></div><div class="lp-record-count">共 ' + ordered.length + ' 条记录</div></section>';
+        '<div class="prep-head-actions">' +
+          '<label class="prep-search">' +
+            '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="9" cy="9" r="5.6"></circle><path d="M13.2 13.2 17 17" stroke-linecap="round"></path></svg>' +
+            '<input id="prep-search" type="search" placeholder="搜索标题 / 授课内容 / 备注" value="' + esc(filters.keyword) + '">' +
+          '</label>' +
+          '<button class="prep-primary" id="prep-add" type="button">＋ 新建备课</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="prep-card prep-filter-card">' +
+        '<div class="prep-filter-head">' +
+          '<b>筛选条件</b>' +
+          '<div class="prep-filter-tools">' +
+            '<button class="prep-mini" id="prep-import" type="button">批量导入</button>' +
+            '<button class="prep-mini" id="prep-export" type="button">批量导出</button>' +
+            '<span class="prep-hint">导出 CSV、Excel 可打开</span>' +
+            '<input class="lp-hidden-file" id="prep-import-file" type="file" accept=".csv,text/csv">' +
+          '</div>' +
+        '</div>' +
+        '<div class="prep-filter-row">' +
+          '<label for="lp-filter-subject">学科：<select id="lp-filter-subject">' +
+            optionList([...SUBJECT_OPTIONS, ...records.map((r) => r.subject)], filters.subject, '全部学科') + '</select></label>' +
+          '<label for="lp-filter-grade">年级：<select id="lp-filter-grade">' +
+            optionList(records.map((r) => recordFields(r).grade), filters.grade, '全部年级') + '</select></label>' +
+          '<label for="lp-filter-from">备课时间：' +
+            '<input id="lp-filter-from" type="date" value="' + esc(filters.from) + '">' +
+            '<span class="prep-date-sep">至</span>' +
+            '<input id="lp-filter-to" type="date" value="' + esc(filters.to) + '">' +
+          '</label>' +
+        '</div>' +
+      '</div>' +
+      '<div class="prep-card prep-table-card">' +
+        '<div class="prep-table-wrap"><table class="prep-table" id="lp-record-table">' +
+        '<thead><tr><th>备课时间</th><th>学科</th><th>年级</th><th>标题</th><th>授课内容</th><th>备注</th><th>操作</th></tr></thead>' +
+        '<tbody>' + (rows || '<tr><td colspan="7" class="prep-empty">暂时还没有备课，点击「新建备课」开始填写。</td></tr>') + '</tbody>' +
+        '</table></div>' +
+        '<div class="prep-count">共 ' + ordered.length + ' 条记录</div>' +
+      '</div>' +
+      '</section>';
 
     const bind = (selector, event, key) => {
       box.querySelector(selector).addEventListener(event, (target) => {
@@ -180,7 +200,7 @@ export async function renderPreps(box) {
     bind('#lp-filter-grade', 'change', 'grade');
     bind('#lp-filter-from', 'change', 'from');
     bind('#lp-filter-to', 'change', 'to');
-    bind('#lp-filter-keyword', 'input', 'keyword');
+    bind('#prep-search', 'input', 'keyword');
 
     box.querySelector('#prep-add').addEventListener('click', () => openEditor(null, reload));
     box.querySelector('#prep-export').addEventListener('click', () => {
@@ -221,6 +241,12 @@ export async function renderPreps(box) {
         toast(error?.message || '批量导入失败', 'err', 6000);
       } finally { event.target.value = ''; }
     });
+    box.querySelectorAll('[data-preview]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const row = ordered.find((item) => String(item.id) === button.dataset.preview);
+        if (row) openPreview(row);
+      });
+    });
     box.querySelectorAll('[data-edit]').forEach((button) => {
       button.addEventListener('click', () => {
         const row = ordered.find((item) => String(item.id) === button.dataset.edit);
@@ -256,6 +282,28 @@ function validateSimpleFields(root) {
     }
   }
   return true;
+}
+
+function openPreview(record) {
+  const multiLine = (value) => esc(value || '—').replace(/\n/g, '<br>');
+  const body = el(
+    '<div class="prep-preview">' +
+      '<div class="prep-preview-meta">' +
+        '<div><span>备课时间</span><b>' + esc(record.planDate || '—') + '</b></div>' +
+        '<div><span>学科</span><b>' + esc(record.subject || '—') + '</b></div>' +
+        '<div><span>年级</span><b>' + esc(record.grade || '—') + '</b></div>' +
+        '<div><span>标题</span><b>' + esc(record.title || '—') + '</b></div>' +
+      '</div>' +
+      '<section class="prep-preview-section"><h4>授课内容</h4><p>' + multiLine(record.process) + '</p></section>' +
+      '<section class="prep-preview-section"><h4>备注</h4><p>' + multiLine(record.remark) + '</p></section>' +
+    '</div>'
+  );
+  const footer = el(
+    '<div class="lp-footer"><div class="lp-actions-left"></div>' +
+    '<div class="lp-footer-actions"><button class="btn ghost" id="prep-preview-close" type="button">关闭</button></div></div>'
+  );
+  const dialog = sheet({ title: '预览备课', body, footer, wide: true, cls: 'lesson-plan-sheet' });
+  footer.querySelector('#prep-preview-close').addEventListener('click', () => dialog.close());
 }
 
 function openEditor(record, reload) {
