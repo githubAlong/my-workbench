@@ -68,6 +68,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   let teachers = [], allTeachers = [], tables = [], details = {}, leaveRecords = [], prefs = {};
   let timetableSettings = {}, timetableCourses = [], timetablePeriods = [], periodTimeEdits = {};
   let showAddTeacher = false;
+  let watermarkOn = false, watermarkText = '';
   const draftCache = new Map();
   const currentScheduleType = () => {
     try {
@@ -442,7 +443,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     await persistDraft(type,{reload:false});
     await load();
     tab=type;paint();
-    toast((existed?'已更新':'已生成')+({seat:'坐班表',class:'上课表',research:'教研表'}[type]),'ok');
+    const label={seat:'坐班表',class:'上课表',research:'教研表'}[type]||'表格';
+    toast(label+(existed?'已更新成功':'已生成成功')+'：'+grade+' · '+date+' · '+(period===0?'全天':'第'+period+'节'),'ok',4000);
   };
   const teacherSubjects = () => [...new Set([...teachers, ...(tab === 'leave' ? leaveRecords : [])].map(item=>String(item.subject||'').trim()).filter(Boolean))].sort();
   const teacherFiltersHtml = () => {
@@ -484,16 +486,35 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const grid=[['教师花名册导入模板'],['序号','归属部门','归属年级','姓名','学科'],['1','高中部',grade,'','']];
     saveBlob(makeXlsx({title:'花名册导入模板',grid}),'教师花名册导入模板.xlsx');
   };
-  /* 把导出网格切成多页 PNG：每页都带表头和页码，避免一张几千像素的长图
-     在手机上无法上下滑动。 */
-  const buildPngPages = (grid, fileBase, rowCount) => {
+  /* 水印：斜向平铺的浅色文字，压在最上层但不遮挡内容（透明度很低）。
+     只有导出时打开了「带水印」才会画。 */
+  const paintWatermark = (ctx, width, height, text) => {
+    const label = String(text || '').trim();
+    if (!label) return;
+    ctx.save();
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = '#172744';
+    ctx.font = 'bold 20px "Microsoft YaHei",sans-serif';
+    ctx.textAlign = 'center';
+    ctx.translate(width / 2, height / 2);
+    ctx.rotate(-Math.PI / 9);
+    const step = Math.max(200, label.length * 22 + 90);
+    const halfW = Math.max(width, height), halfH = halfW;
+    for (let y = -halfH; y <= halfH; y += 116) {
+      for (let x = -halfW; x <= halfW; x += step) ctx.fillText(label, x, y);
+    }
+    ctx.restore();
+  };
+  /* 把导出网格切成图片：常规年级（120 行以内）就是一张图，只有超大名单才分页，
+     避免出现好几张长得一样的表让人误以为是重复导出。 */
+  const buildPngPages = (grid, fileBase, rowCount, watermark = '') => {
     const headers=grid[1], bodyRows=grid.slice(2);
     const widths=headers.map((header,index)=>{
       const max=Math.max(String(header).length,...bodyRows.map(row=>String(row[index]??'').length));
       return Math.max(90,Math.min(260,70+max*13));
     });
     const totalWidth=widths.reduce((sum,value)=>sum+value,0);
-    const rowH=42,titleH=76,footH=34,rowsPerPage=18;
+    const rowH=42,titleH=76,footH=34,rowsPerPage=120;
     const pages=[];
     for(const page of paginateExportGrid(grid, rowsPerPage)){
       const slice=page.rows, pageCount=page.pageCount, pageIndex=page.index;
@@ -501,9 +522,10 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       canvas.width=totalWidth;
       canvas.height=titleH+(slice.length+1)*rowH+footH;
       ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.textAlign='left';
       ctx.fillStyle='#172744';ctx.font='bold 22px "Microsoft YaHei",sans-serif';ctx.fillText(fileBase,20,30);
       ctx.fillStyle='#667085';ctx.font='12px "Microsoft YaHei",sans-serif';
-      ctx.fillText('导出时间：'+new Date().toLocaleString('zh-CN')+'　共 '+rowCount+' 条　第 '+(pageIndex+1)+'/'+pageCount+' 页',20,53);
+      ctx.fillText('导出时间：'+new Date().toLocaleString('zh-CN')+'　共 '+rowCount+' 条'+(pageCount>1?'　第 '+(pageIndex+1)+'/'+pageCount+' 页':''),20,53);
       let y=titleH,x=0;
       headers.forEach((label,index)=>{
         ctx.fillStyle='#eef3fa';ctx.fillRect(x,y,widths[index],rowH);
@@ -521,7 +543,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         });
       });
       ctx.fillStyle='#8290a5';ctx.font='11px "Microsoft YaHei",sans-serif';
-      ctx.fillText('第 '+(pageIndex+1)+' / '+pageCount+' 页 · 共 '+rowCount+' 条',20,canvas.height-12);
+      ctx.fillText((pageCount>1?'第 '+(pageIndex+1)+' / '+pageCount+' 页 · ':'')+'共 '+rowCount+' 条',20,canvas.height-12);
+      paintWatermark(ctx,canvas.width,canvas.height,watermark);
       pages.push(canvas.toDataURL('image/png'));
     }
     return pages;
@@ -530,11 +553,11 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const dialog=document.createElement('div');
     dialog.className='attendance-prd aprd-dialog aprd-png-dialog';
     dialog.innerHTML='<section class="aprd-png-preview"><header><div><h3>'+esc(fileBase)+'</h3>'
-      +'<p>共 '+rowCount+' 条 · 分成 '+pages.length+' 张图片，可上下滑动查看</p></div>'
+      +'<p>共 '+rowCount+' 条'+(pages.length>1?' · 分成 '+pages.length+' 张图片，可上下滑动查看':'')+'</p></div>'
       +'<button type="button" data-png-close aria-label="关闭">×</button></header>'
-      +'<div class="aprd-png-scroll">'+pages.map((src,index)=>'<figure><img src="'+src+'" alt="第 '+(index+1)+' 页"><figcaption>第 '+(index+1)+' / '+pages.length+' 页</figcaption></figure>').join('')+'</div>'
+      +'<div class="aprd-png-scroll">'+pages.map((src,index)=>'<figure><img src="'+src+'" alt="第 '+(index+1)+' 页">'+(pages.length>1?'<figcaption>第 '+(index+1)+' / '+pages.length+' 页</figcaption>':'')+'</figure>').join('')+'</div>'
       +'<footer><button type="button" data-png-close>关闭</button>'
-      +'<button type="button" class="primary" data-png-download>下载全部图片（'+pages.length+' 张）</button></footer></section>';
+      +'<button type="button" class="primary" data-png-download>'+(pages.length>1?'下载全部图片（'+pages.length+' 张）':'保存图片')+'</button></footer></section>';
     document.body.append(dialog);
     const close=()=>{dialog.remove();document.removeEventListener('keydown',onKey);};
     const onKey=event=>{if(event.key==='Escape')close();};
@@ -547,49 +570,58 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       try{
         for(let index=0;index<pages.length;index+=1){
           const blob=await (await fetch(pages[index])).blob();
-          saveBlob(blob,fileBase+'（第'+(index+1)+'页）.png');
+          saveBlob(blob,fileBase+(pages.length>1?'（第'+(index+1)+'页）':'')+'.png');
           if(index<pages.length-1)await new Promise(resolve=>setTimeout(resolve,400));
         }
-        toast('已导出 '+pages.length+' 张图片','ok');
+        toast(pages.length>1?'已导出 '+pages.length+' 张图片':'图片已保存','ok');
       }catch(error){toast(error.message||'图片下载失败','err');}
       finally{button.disabled=false;}
     });
   };
   const exportRoster = (format) => {
-    const scope=root.querySelector('#aprd-export-scope')?.value || 'all';
-    const list=scope==='filtered'?visibleTeachers():teachers.slice();
+    /* 导出固定是「该年级全部在岗人员」，不再按搜索/学科筛选，也不提供复制名单。 */
+    const list=teachers.slice();
     const exportType = TYPE[tab] ? tab : tab === 'leave' ? 'leave' : 'roster';
-    const scopedLeaveRecords = activeLeavesFor(leaveRecords, date)
-      .filter(record => scope !== 'filtered' || list.some(teacher => teacher.name === (record.name || record.teacher)));
+    const typeLabel = ({roster:'花名册',seat:'坐班表',class:'上课表',research:'教研表',leave:'请假总表'})[exportType];
+    const fileBase=(grade||'教师')+typeLabel+'-'+date+'-'+(period===0?'全天':'第'+period+'节');
+    const watermarkBox=root.querySelector('#aprd-export-watermark');
+    const watermarkInput=root.querySelector('#aprd-export-watermark-text');
+    watermarkOn=!!watermarkBox?.checked;
+    watermarkText=String(watermarkInput?.value||'').trim();
+    const watermark=watermarkOn?(watermarkText||((grade||'')+typeLabel)):'';
     const grid=buildAttendanceExportGrid({
       type: exportType, grade, date, period, teachers: list,
       seatRows: tab === 'seat' ? getDraftRows('seat') : details.seat?.rows || [],
       classRows: tab === 'class' ? getDraftRows('class') : details.class?.rows || [],
       researchRows: tab === 'research' ? getDraftRows('research') : details.research?.rows || [],
-      leaveRecords: scopedLeaveRecords,
+      leaveRecords: activeLeavesFor(leaveRecords, date),
       teacherMeta: prefs.teacherMeta || {},
       resolvePeriodRange,
-      includeUnlisted: scope !== 'filtered',
+      includeUnlisted: true,
     });
     const rowCount = Math.max(0, grid.length - 2);
     if(!rowCount){toast('当前表格没有符合条件的记录','warn');return;}
-    const typeLabel = ({roster:'花名册',seat:'坐班表',class:'上课表',research:'教研表',leave:'请假总表'})[exportType];
-    const fileBase=(grade||'教师')+typeLabel+'-'+date+'-'+(period===0?'全天':'第'+period+'节');
     if(format==='xlsx'){
       saveBlob(makeXlsx({title:fileBase,grid}),fileBase+'.xlsx');
+      toast('已导出 '+fileBase+'.xlsx','ok');
     }else if(format==='csv'){
       const csv='\uFEFF'+grid.map(row=>row.map(value=>'"'+String(value??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
       saveBlob(new Blob([csv],{type:'text/csv;charset=utf-8'}),fileBase+'.csv');
+      toast('已导出 '+fileBase+'.csv','ok');
     }else if(format==='pdf'){
       const win=window.open('','_blank');
       if(!win){toast('浏览器拦截了打印窗口，请允许本站弹出窗口后重试','warn');return;}
       const body=grid.slice(2).map(row=>'<tr>'+row.map(cell=>'<td>'+esc(cell)+'</td>').join('')+'</tr>').join('');
-      win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>'+esc(fileBase)+'</title><style>body{font-family:Arial,"Microsoft YaHei",sans-serif;padding:24px;color:#1d2939}h1{font-size:20px}p{color:#667085;font-size:12px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d0d5dd;padding:8px;text-align:left}th{background:#f2f4f7}</style><h1>'+esc(fileBase)+'</h1><p>导出时间：'+esc(new Date().toLocaleString('zh-CN'))+'　共 '+rowCount+' 条</p><table><thead><tr>'+grid[1].map(cell=>'<th>'+esc(cell)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table><script>window.onload=function(){window.print()}<\\/script></html>');
+      const watermarkHtml=watermark?'<div class="aprd-print-watermark">'+esc(watermark)+'</div>':'';
+      win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>'+esc(fileBase)+'</title><style>body{font-family:Arial,"Microsoft YaHei",sans-serif;padding:24px;color:#1d2939}h1{font-size:20px}p{color:#667085;font-size:12px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d0d5dd;padding:8px;text-align:left}th{background:#f2f4f7}.aprd-print-watermark{position:fixed;inset:0;display:grid;place-items:center;font-size:64px;font-weight:800;color:rgba(23,39,68,.09);transform:rotate(-24deg);pointer-events:none;white-space:nowrap;z-index:99}</style>'+watermarkHtml+'<h1>'+esc(fileBase)+'</h1><p>导出时间：'+esc(new Date().toLocaleString('zh-CN'))+'　共 '+rowCount+' 条</p><table><thead><tr>'+grid[1].map(cell=>'<th>'+esc(cell)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table><script>window.onload=function(){window.print()}<\\/script></html>');
       win.document.close();
+      toast('已打开打印预览，可在弹窗里另存为 PDF','ok');
     }else if(format==='png'){
-      /* 整张长图在手机相册/预览器里没法上下滑动，改成分页（每页 18 行），
-         先给可滚动的预览，确认后再下载，内容和页面表格逐格一致。 */
-      openPngPreview(buildPngPages(grid, fileBase, rowCount), fileBase, rowCount);
+      /* 默认一个年级就是一张图（120 行以内不分页），先给可滚动的预览，
+         确认后再下载，内容和页面表格逐格一致。 */
+      const pages=buildPngPages(grid, fileBase, rowCount, watermark);
+      toast('图片已生成'+(pages.length>1?'，共 '+pages.length+' 张':''),'ok');
+      openPngPreview(pages, fileBase, rowCount);
     }
     const menu=root.querySelector('[data-roster-export-menu]');if(menu)menu.hidden=true;
   };
@@ -953,9 +985,11 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     }).join('');
     const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
       +'<button type="button" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button type="button" data-roster-export-toggle>批量导出 ▾</button>'
-      +'<div class="aprd-export-menu" data-roster-export-menu hidden><label>导出范围 <select id="aprd-export-scope"><option value="all">全部在岗人员</option><option value="filtered">当前筛选结果</option></select></label>'
+      +'<div class="aprd-export-menu" data-roster-export-menu hidden>'
+      +'<label class="aprd-export-opt"><input type="checkbox" id="aprd-export-watermark" '+(watermarkOn?'checked':'')+'> 导出带水印</label>'
+      +'<label>水印文案<input type="text" id="aprd-export-watermark-text" value="'+esc(watermarkText)+'" placeholder="留空默认：年级＋表名" '+(watermarkOn?'':'disabled')+'></label>'
       +'<button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button>'
-      +'<button type="button" data-copy>复制名单</button></div></div>'
+      +'</div></div>'
       +'<button type="button" data-subject-manager>学科管理</button>';
     const summaryContext = {
       leaveRecords,date,period,
@@ -1020,7 +1054,16 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     };
     root.querySelector('#aprd-start')?.addEventListener('change',rememberPeriodTime);
     root.querySelector('#aprd-end')?.addEventListener('change',rememberPeriodTime);
-    root.querySelector('[data-generate]').onclick=async()=>{const type=root.querySelector('#aprd-generate').value;try{await generateTable(type);}catch(e){toast(e.message||'生成失败','err');}};
+    root.querySelector('[data-generate]').onclick=async()=>{
+      const button=root.querySelector('[data-generate]');
+      if(button.disabled)return;
+      const type=root.querySelector('#aprd-generate').value;
+      const label=button.textContent;
+      button.disabled=true;button.textContent='生成中…';
+      try{await generateTable(type);}
+      catch(e){toast(e.message||'生成失败','err');}
+      finally{if(button.isConnected){button.disabled=false;button.textContent=label;}}
+    };
     root.querySelector('[data-workspace-voice]').onclick=()=>{
       const type=TYPE[tab]?tab:root.querySelector('#aprd-generate').value;
       const selectedPeriod=period,selectedDate=date,selectedGrade=grade;
@@ -1126,8 +1169,15 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       if(menu)menu.hidden=!menu.hidden;
     });
     root.querySelectorAll('[data-roster-export]').forEach(button=>button.addEventListener('click',()=>exportRoster(button.dataset.rosterExport)));
-
-    root.querySelector('[data-copy]')?.addEventListener('click',()=>{const names=visibleTeachers().map(t=>t.name).join('\n');navigator.clipboard?.writeText(names);toast('已复制当前名单','ok');});
+    const watermarkToggle=root.querySelector('#aprd-export-watermark');
+    const watermarkInput=root.querySelector('#aprd-export-watermark-text');
+    watermarkToggle?.addEventListener('change',()=>{
+      watermarkOn=watermarkToggle.checked;
+      if(!watermarkInput)return;
+      watermarkInput.disabled=!watermarkOn;
+      if(watermarkOn)watermarkInput.focus();
+    });
+    watermarkInput?.addEventListener('input',()=>{watermarkText=watermarkInput.value;});
     root.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
       const t=teachers.find(x=>String(x.id)===b.dataset.edit);
       openEditor('编辑教师',[{key:'name',label:'姓名',required:true},{key:'subject',label:'学科',required:true},{key:'grade',label:'归属年级',type:'combo',required:true,options:grades.map(value=>({value,label:value}))},{key:'department',label:'归属部门'},{key:'remark',label:'备注'}],{name:t.name,subject:t.subject,grade:t.grade||grade,department:deptOf(t),remark:noteOf(t)},async d=>{

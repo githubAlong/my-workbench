@@ -8,6 +8,9 @@
 .attendance-prd .aprd-export-menu button:hover{background:#f2f6fd}
 .attendance-prd .aprd-export-menu label{display:grid;gap:5px;padding:5px 8px;color:#66758d;font-size:11px}
 .attendance-prd .aprd-export-menu select{width:100%;border:1px solid #dce5f1;border-radius:7px;padding:7px;background:#fff;color:#263650}
+.attendance-prd .aprd-export-menu input[type="text"]{width:100%;border:1px solid #dce5f1;border-radius:7px;padding:7px;background:#fff;color:#263650;font-size:12px}
+.attendance-prd .aprd-export-menu input[type="text"]:disabled{background:#f4f6fa;color:#9aa7ba}
+.attendance-prd .aprd-export-opt{display:flex;align-items:center;gap:7px;cursor:pointer;white-space:nowrap}
 .attendance-prd .aprd-roster-dialog{z-index:1100}
 .attendance-prd .aprd-roster-import{width:min(1080px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;border-radius:16px;background:#fff;box-shadow:0 20px 70px rgba(15,35,70,.24)}
 .attendance-prd .aprd-roster-import>header{display:flex;align-items:center;justify-content:space-between;padding:17px 20px;border-bottom:1px solid #e8edf4}
