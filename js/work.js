@@ -132,7 +132,11 @@ registerView(async function work(main, { tab, third }) {
     }
   }
   if (t === 'lessons') { const m = await import('./class-records.js'); return m.renderClassRecords(body); }
-  if (t === 'prep') return renderPreps(body);
+  if (t === 'prep') {
+    /* 备课页自带「备课管理」标题卡片，外层页头移除，避免同一标题出现两次 */
+    headEl.remove();
+    return renderPreps(body);
+  }
   if (t === 'timetable') { headEl.remove(); return renderMyTimetable(body); }
   if (t === 'attendance') {
     /* 考勤管理两级入口：
