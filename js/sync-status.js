@@ -35,9 +35,9 @@ export function startSyncStatus() {
   let current=getAccountSyncStatus();
   const paint=()=>{
     let host=document.getElementById('wb-sync-status');
-    /* 2026-11-12：保存成功(saved)时不再显示右下角状态条，后台照常同步；
-       其余状态（等待/同步中/离线/冲突/失败）仍显示，并保留重试、导出备份、处理冲突入口。 */
-    if(!current?.uid||current.uid!==activeAccountId()||current.status==='saved'){host?.remove();return;}
+    /* 2026-11-14：状态条只在「需要用户处理冲突」时出现，其余状态（等待/同步中/离线/失败）
+       全部后台静默处理，不再打扰用户。 */
+    if(!current?.uid||current.uid!==activeAccountId()||current.status!=='conflict'){host?.remove();return;}
     if(!host){host=document.createElement('aside');host.id='wb-sync-status';host.setAttribute('aria-live','polite');document.body.appendChild(host);}
     const messages={pending:'已保存到本机，等待同步',saving:'已保存到本机，正在同步',offline:'已保存到本机，联网后同步',conflict:'修改已保留，需要处理冲突',error:'同步未完成，请查看提示'};
     host.dataset.state=current.status;
