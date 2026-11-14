@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import {durationMinutes,studyView,studySummary,studyPayload,validateStudy,studyCsv,parseStudyCsv,prepareStudyImport} from '../js/study-records-domain.mjs';
 import {installBrowser} from './test-browser.mjs';
 const base={date:'2026-11-10',title:'Llama本地部署',goal:'配置环境',planned_duration:'2小时',actual_duration:'90分钟',status:'doing',content:'第一行\n第二行,"引号"',remark:'周末继续'};
@@ -9,6 +10,17 @@ test('duration units and precise totals, no invalid or negative duration is sile
  for(const value of ['-1小时','abc','Infinity','1:90','2天','1小时xx'])assert.throws(()=>durationMinutes(value));
  const rows=[studyPayload(base),studyPayload({...base,status:'done',actual_duration:'30分钟',date:'2026-10-01'}),{...base,deleted_at:'now'},{...base,source:'running'}];
  assert.deepEqual(studySummary(rows),{count:2,doing:1,done:1,minutes:120});
+});
+test('顶部统计跟随当前月份，本月没有记录时不显示时长',async()=>{
+ const source=await readFile(new URL('../js/study-records.js',import.meta.url),'utf8');
+ assert.match(source,/const summary=studySummary\(rows\)/);
+ assert.doesNotMatch(source,/studySummary\(all\)/);
+ assert.match(source,/本月学习条目/);
+ assert.match(source,/本月学习时长/);
+ const november=[studyPayload(base)],october=[studyPayload({...base,date:'2026-10-01'})];
+ assert.deepEqual(studySummary(november.filter(row=>row.date.startsWith('2026-12'))),{count:0,doing:0,done:0,minutes:0});
+ assert.equal(studySummary(november).minutes,90);
+ assert.equal(studySummary(october).count,1);
 });
 test('legacy rows retain content, minutes and category without mutating storage',()=>{
  const row={id:3,date:'2026-11-01',title:'历史学习',minutes:45,content:'旧笔记',category_id:8,source:'manual'};
