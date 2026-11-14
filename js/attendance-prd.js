@@ -538,19 +538,25 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       let y=titleH,x=0;
       headers.forEach((label,index)=>{
         ctx.fillStyle='#eef3fa';ctx.fillRect(x,y,widths[index],rowH);
-        ctx.strokeStyle='#d8e1ed';ctx.strokeRect(x,y,widths[index],rowH);
+        ctx.strokeStyle='#b7c6db';ctx.lineWidth=1.4;
+        ctx.strokeRect(x+0.7,y+0.7,widths[index]-1.4,rowH-1.4);
         ctx.fillStyle='#34445d';ctx.font='bold 12px "Microsoft YaHei",sans-serif';
-        ctx.fillText(String(label),x+8,y+26);x+=widths[index];
+        ctx.textAlign='center';
+        ctx.fillText(String(label),x+widths[index]/2,y+26);x+=widths[index];
       });
       slice.forEach((row,rowIndex)=>{
         y+=rowH;x=0;
         row.forEach((value,index)=>{
           ctx.fillStyle=rowIndex%2?'#f9fbfe':'#fff';ctx.fillRect(x,y,widths[index],rowH);
-          ctx.strokeStyle='#e3eaf3';ctx.strokeRect(x,y,widths[index],rowH);
+          ctx.strokeStyle='#cbd7e7';ctx.lineWidth=1.2;
+          ctx.strokeRect(x+0.6,y+0.6,widths[index]-1.2,rowH-1.2);
           ctx.fillStyle='#34445d';ctx.font='12px "Microsoft YaHei",sans-serif';
-          ctx.fillText(String(value??'').slice(0,32),x+8,y+26);x+=widths[index];
+          ctx.textAlign='center';
+          ctx.fillText(String(value??'').slice(0,32),x+widths[index]/2,y+26);x+=widths[index];
         });
       });
+      ctx.strokeStyle='#9fb1ca';ctx.lineWidth=2;
+      ctx.strokeRect(1,titleH+1,Math.min(totalWidth,canvas.width)-2,(slice.length+1)*rowH-2);
       ctx.fillStyle='#8290a5';ctx.font='11px "Microsoft YaHei",sans-serif';ctx.textAlign='left';
       ctx.fillText((pageCount>1?'第 '+(pageIndex+1)+' / '+pageCount+' 页 · ':'')+'共 '+rowCount+' 条',20,canvas.height-16);
       if(exportTime){
@@ -698,9 +704,9 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         +'h1::after{content:"";display:block;width:116px;height:2.5px;background:#2a6bf2;margin:9px auto 0}'
         +'.aprd-print-sub{color:#1f3550;font-size:13.5px;font-weight:600;text-align:center;margin:0 0 6px}'
         +'.aprd-print-stats{color:#40536e;font-size:12.5px;text-align:center;margin:0 0 14px;padding-top:2px;border-top:0}'
-        +'table{width:100%;border-collapse:collapse;font-size:12px}'
-        +'th,td{border:1px solid #d0d5dd;padding:7px 8px;text-align:left}'
-        +'th{background:#f2f4f7;color:#344054}'
+        +'table{width:100%;border-collapse:collapse;font-size:12px;border:2px solid #9fb1ca}'
+        +'th,td{border:1px solid #b7c6db;padding:7px 8px;text-align:center}'
+        +'th{background:#f2f4f7;color:#344054;border-color:#a9bad2}'
         +'.aprd-print-foot{margin-top:14px;text-align:right;color:#667085;font-size:11.5px}'
         +'.aprd-print-watermark{position:fixed;inset:0;display:grid;place-items:center;font-size:64px;font-weight:800;color:rgba(23,39,68,.09);transform:rotate(-24deg);pointer-events:none;white-space:nowrap;z-index:99}'
         +'@media print{body{padding:0}}</style>'+watermarkHtml
