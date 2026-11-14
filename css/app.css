@@ -599,14 +599,6 @@ html[data-theme="dark"] .quick textarea, html[data-theme="dark"] .quick { color:
 .task-sub .chip { height: 19px; font-size: 10.5px; }
 .task-time { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; flex: 0 0 auto;
   white-space: nowrap; }
-@media (min-width: 900px) {
-  /* 宽屏够宽，时间回到行尾右对齐，副标题只留标签和备注。
-     注意：.task-time 在 .task-sub 里面，flex order 只能在那一行内部起作用，
-     想让它跑到整行最右边必须靠绝对定位。 */
-  .task-row { position: relative; padding-right: 52px; }
-  .task-time { position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
-    margin: 0; font-size: 12.5px; }
-}
 .course-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .course-row:last-child { border-bottom: 0; }
 
