@@ -455,7 +455,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       +'<input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'"></label>'
       +'<select id="aprd-subject"><option value="">全部学科</option>'
       +subjects.map(item=>'<option value="'+esc(item)+'" '+(subject===item?'selected':'')+'>'+esc(item)+'</option>').join('')
-      +'</select>';
+      +'</select><i class="aprd-divider" aria-hidden="true"></i>';
   };
   const teacherAddCardHtml = () => {
     if(!showAddTeacher)return '';
@@ -1008,8 +1008,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       };
       const listen = shown.listenStatus || (shown.listen === true || shown.listen === 'y' ? 'y' : 'u');
       const research = shown.researchStatus || (shown.research === true || shown.research === 'y' ? 'y' : 'u');
-      const leave = editable ? '<select class="aprd-leave-select '+(state.leave?'on':'')+'" data-grid-person="'+esc(teacher.id)+'" data-grid-key="leave" aria-label="'+esc(teacher.name+' 请假')+'">'
-        +['',...new Set([...LEAVE_TYPES,state.leave].filter(Boolean))].map(value=>'<option value="'+esc(value)+'" '+(state.leave===value?'selected':'')+'>'+esc(value||'无')+'</option>').join('')+'</select>'
+      const leave = editable ? '<span class="aprd-leave-wrap'+(state.leave?' on':'')+'"><select class="aprd-leave-select '+(state.leave?'on':'')+'" data-grid-person="'+esc(teacher.id)+'" data-grid-key="leave" aria-label="'+esc(teacher.name+' 请假')+'">'
+        +['',...new Set([...LEAVE_TYPES,state.leave].filter(Boolean))].map(value=>'<option value="'+esc(value)+'" '+(state.leave===value?'selected':'')+'>'+esc(value||'无')+'</option>').join('')+'</select><i class="aprd-caret" aria-hidden="true"></i></span>'
         : (state.leave?'<span class="aprd-mark leave">'+esc(state.leave)+'</span>':'<span class="aprd-mark ap-placeholder">—</span>');
       /* 备注列按设计稿改成「查看备注」入口，点开弹层查看和修改，行内保持干净。 */
       const remark = editable
@@ -1022,7 +1022,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         +'<td>'+actionsOf(teacher)+'</td></tr>';
     }).join('');
     const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
-      +'<button type="button" class="aprd-op" data-subject-manager>学科管理</button>'
+      +'<button type="button" class="aprd-op" data-subject-manager>学科管理</button><i class="aprd-divider" aria-hidden="true"></i>'
       +'<button type="button" class="aprd-op" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button type="button" class="aprd-op" data-roster-export-toggle>批量导出 ▾</button>'
       +'<div class="aprd-export-menu" data-roster-export-menu hidden>'
       +'<label class="aprd-export-opt"><input type="checkbox" id="aprd-export-watermark" '+(watermarkOn?'checked':'')+'> 导出带水印</label>'

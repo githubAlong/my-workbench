@@ -337,3 +337,39 @@
 .attendance-prd .aprd-filter-actions .aprd-export-menu button{display:block;width:100%;height:auto;padding:8px 10px;border:0;border-radius:7px;background:#fff;color:#3f526d;font-size:12px;font-weight:400;text-align:left}
 .attendance-prd .aprd-filter-actions .aprd-export-menu button:hover{background:#f2f6fd;color:#165dff}
 .attendance-prd .aprd-filter-actions .aprd-export-menu button.on{color:#165dff;font-weight:650;background:#f2f6fd}
+
+/* ============================================================
+   2026-11-15 二次对齐设计稿：
+   统计条改成六张独立浅色卡片（不再是一条竖线分隔的框），
+   工具栏按「筛选｜新增维护｜批量操作」加分组竖线，
+   状态下拉统一中性配色（只有「√」为绿色），箭头改 chevron，
+   请假选中后文字和箭头一起变橙。
+   ============================================================ */
+.attendance-prd .aprd-kpis.aprd-grid-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin:0 0 16px;border:0;border-radius:0;background:transparent;overflow:visible}
+.attendance-prd .aprd-kpis.aprd-grid-summary .aprd-kpi{border:0;border-right:0;border-radius:8px;background:#f7f9fc;padding:12px 16px}
+.attendance-prd .aprd-grid-summary .aprd-kpi b{font-size:21px;font-weight:700;color:#172744}
+.attendance-prd .aprd-grid-summary .aprd-kpi span{font-size:12px;color:#8492a6}
+.attendance-prd .aprd-grid-summary .aprd-kpi.leave b{color:#ef8b00}
+
+.attendance-prd .aprd-toolbar-main .aprd-divider{flex:none;width:1px;height:18px;margin:0 4px;background:#e4ebf5}
+
+.attendance-prd .aprd-select{min-width:66px;height:28px;padding:0 8px 0 10px;gap:8px;border-color:#dfe6f0;border-radius:6px;color:#3b475c;font-size:12px}
+.attendance-prd .aprd-select span{flex:1;text-align:left}
+.attendance-prd .aprd-select.y,.attendance-prd .aprd-select.y:hover{color:#1a9b52;border-color:#dfe6f0}
+.attendance-prd .aprd-select.n,.attendance-prd .aprd-select.n:hover{color:#3b475c;border-color:#dfe6f0}
+.attendance-prd .aprd-select.u{color:#3b475c}
+.attendance-prd .aprd-caret{width:6px;height:6px;border:0;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;background:none;border-radius:0;transform:rotate(45deg);opacity:.75;margin:-3px 1px 0 0}
+.attendance-prd .aprd-filter-actions .aprd-generate-btn .aprd-caret{width:0;height:0;border:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent;border-top:4.5px solid currentColor;border-radius:0;transform:none;margin:1px 0 0;opacity:.65}
+
+.attendance-prd .aprd-leave-wrap{position:relative;display:inline-flex;align-items:center}
+.attendance-prd .aprd-table-wrap select.aprd-leave-select{width:82px;min-width:82px;max-width:82px;height:28px;padding:0 24px 0 10px;border:1px solid #dfe6f0;border-radius:6px;background:#fff;color:#3b475c;font-size:12px;text-align:left;text-align-last:left;-webkit-appearance:none;appearance:none;cursor:pointer}
+.attendance-prd .aprd-leave-wrap .aprd-caret{position:absolute;right:10px;top:50%;margin:-5px 0 0;color:#7a899e;pointer-events:none}
+.attendance-prd .aprd-leave-wrap.on select.aprd-leave-select{color:#e2820a;border-color:#f0dcbd}
+.attendance-prd .aprd-leave-wrap.on .aprd-caret{color:#e2820a}
+
+.attendance-prd .aprd-grade button{height:30px;padding:0 16px;border-radius:6px;font-size:12.5px}
+.attendance-prd .aprd-filter{padding:10px 14px;border-radius:10px}
+.attendance-prd .aprd-filter input,.attendance-prd .aprd-filter select{height:30px;border-radius:6px;font-size:12px}
+.attendance-prd .aprd-filter-actions button,.attendance-prd .aprd-filter-actions .aprd-generate-btn{height:30px;padding:0 14px;border-radius:6px;font-size:12.5px}
+
+.attendance-prd .aprd-card .aprd-table-wrap{border:0;border-radius:0}
