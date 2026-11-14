@@ -166,6 +166,15 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
   assert.equal(rowByName(leave,'李老师')[10],'未请假');
   assert.deepEqual(new Set(namesOf(leave)),new Set(allNames));
   assert.match(leave[2][0],/未请假 2 人/);
+
+  /* 汇总统计表同样三级标题：表名 / 日期星期·节次时段 / 人数统计 */
+  const summary = buildAttendanceExportGrid({...common,type:'summary'});
+  assert.equal(summary.length,7);
+  assert.match(summary[0][0],/汇总统计表/);
+  assert.match(summary[1][0],/2026-11-11 .*第1节（08:00—08:45）/);
+  assert.match(summary[2][0],/应到 3 人/);
+  assert.deepEqual(summary[3],['序号','姓名','学科','坐班','上课','听课','教研','请假时长','综合状态']);
+  assert.equal(summary[4][1],'李老师');
 });
 
 test('一场都没登记时，四个页签仍然输出全名单与明确状态，不留白', () => {

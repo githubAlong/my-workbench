@@ -479,7 +479,7 @@ export function buildAttendanceExportGrid({
     ? [0, ...Array.from({ length: 9 }, (_, index) => index + 1)]
     : [Number(period)];
   const baseTitle = type === 'roster' ? '花名册' : ({
-    seat: '坐班表', class: '上课表', research: '教研表', leave: '请假总表',
+    seat: '坐班表', class: '上课表', research: '教研表', leave: '请假总表', summary: '汇总统计表',
   }[type] || '考勤表');
   /* 导出抬头要能独立看懂：谁的哪张表、哪一天星期几、哪一节、几点到几点（用户 11-15 要求）。 */
   const weekdayText = (() => {
@@ -757,6 +757,20 @@ export function buildAttendanceExportGrid({
     const statsLine = '应到 ' + people.length + ' 人 · 请假 ' + entries.length
       + ' 人 · 未请假 ' + noLeavePeople + ' 人';
     return [...heading(statsLine), EXPORT_HEADERS.leave, ...numbered];
+  }
+
+  if (type === 'summary') {
+    /* 汇总统计表按「一天」的口径统计，与页面上的汇总页签一致；
+       三级标题写应到、坐班次数、上课次数、听课人次和请假人数。 */
+    const summary = calculateDailySummary({ teachers: people, seatRows, classRows, researchRows, leaveRecords, date });
+    const rows = summary.rows.map((row, index) => [
+      index + 1, row.name, row.subject, row.seatPresent, row.classes, row.listens,
+      row.research, formatLeaveDuration({ days: row.leaveDays, hours: row.leaveHours }), row.overall,
+    ]);
+    const statsLine = '应到 ' + summary.expectedTeachers + ' 人 · 坐班 ' + summary.seatPresent
+      + ' 次 · 上课 ' + summary.classes + ' 次 · 听课 ' + summary.listens
+      + ' 人次 · 请假 ' + summary.leavePeople + ' 人';
+    return [...heading(statsLine), ATTENDANCE_COLUMNS.summary, ...rows];
   }
 
   throw new Error('不支持的考勤导出类型：' + type);

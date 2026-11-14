@@ -591,8 +591,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   const exportRoster = (format) => {
     /* 导出固定是「该年级全部在岗人员」，不再按搜索/学科筛选，也不提供复制名单。 */
     const list=teachers.slice();
-    const exportType = TYPE[tab] ? tab : tab === 'leave' ? 'leave' : 'roster';
-    const typeLabel = ({roster:'花名册',seat:'坐班表',class:'上课表',research:'教研表',leave:'请假总表'})[exportType];
+    const exportType = currentExportType();
+    const typeLabel = ({roster:'花名册',seat:'坐班表',class:'上课表',research:'教研表',leave:'请假总表',summary:'汇总统计表'})[exportType];
     const periodText = period===0?'全天':'第'+period+'节';
     const fileBase=(grade||'教师')+typeLabel+'-'+date+'-'+periodText;
     const watermarkBox=root.querySelector('#aprd-export-watermark');
@@ -1023,6 +1023,39 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     periods[String(period)]=cur; d.__periods=periods; row.data=d;
     await persistAndReload('seat',t.rows);
   };
+  /* 六张表共用同一个批量导出面板，避免各页签样式、水印状态不一致。 */
+  const exportMenuHtml = (count) => '<div class="aprd-export-wrap"><button type="button" class="aprd-op aprd-export-toggle" data-roster-export-toggle>批量导出<i class="aprd-caret" aria-hidden="true"></i></button>'
+    + '<div class="aprd-export-menu aprd-export-sheet" data-roster-export-menu hidden>'
+    + '<div class="aprd-export-sheet-head"><b>导出当前工作表</b><span>' + esc(grade || '全部年级') + ' · 共 ' + count + ' 人</span></div>'
+    + '<div class="aprd-export-formats">'
+    + '<button type="button" data-roster-export="xlsx"><i class="aprd-export-ico xlsx">X</i><span><b>Excel 表格</b><small>.xlsx 可编辑</small></span></button>'
+    + '<button type="button" data-roster-export="csv"><i class="aprd-export-ico csv">C</i><span><b>CSV 文件</b><small>.csv 通用格式</small></span></button>'
+    + '<button type="button" data-roster-export="pdf"><i class="aprd-export-ico pdf">P</i><span><b>PDF 文档</b><small>打印另存 PDF</small></span></button>'
+    + '<button type="button" data-roster-export="png"><i class="aprd-export-ico png">图</i><span><b>PNG 图片</b><small>先预览再保存</small></span></button>'
+    + '</div><div class="aprd-export-divider"></div>'
+    + '<div class="aprd-export-sheet-foot">'
+    + '<label class="aprd-export-switch"><input type="checkbox" id="aprd-export-watermark" ' + (watermarkOn ? 'checked' : '') + '><span>导出带水印</span></label>'
+    + '<label class="aprd-export-field"><span>水印文案</span><input type="text" id="aprd-export-watermark-text" value="' + esc(watermarkText) + '" placeholder="留空默认：年级＋表名" ' + (watermarkOn ? '' : 'disabled') + '></label>'
+    + '</div></div></div>';
+  /* 页面上的表格也按导出同款三级标题展示（用户 11-15 要求）：
+     直接复用导出网格生成抬头，保证页面看到的和导出的一字不差。 */
+  const currentExportType = () => ['seat', 'class', 'research', 'leave', 'summary'].includes(tab) ? tab : 'roster';
+  const sheetHeadHtml = () => {
+    const grid = buildAttendanceExportGrid({
+      type: currentExportType(), grade, date, period, teachers,
+      seatRows: tab === 'seat' ? getDraftRows('seat') : details.seat?.rows || [],
+      classRows: tab === 'class' ? getDraftRows('class') : details.class?.rows || [],
+      researchRows: tab === 'research' ? getDraftRows('research') : details.research?.rows || [],
+      leaveRecords: activeLeavesFor(leaveRecords, date),
+      teacherMeta: prefs.teacherMeta || {},
+      resolvePeriodRange,
+      includeUnlisted: true,
+    });
+    const headings = splitAttendanceExportGrid(grid).headings;
+    return '<div class="aprd-sheet-head"><h3>' + esc(headings[0] || '') + '</h3>'
+      + '<p class="aprd-sheet-sub">' + esc(headings[1] || '') + '</p>'
+      + '<p class="aprd-sheet-stats">' + esc(headings[2] || '') + '</p></div>';
+  };
   const rosterHtml = (type = 'roster') => {
     const editable = type !== 'roster', list = visibleTeachers();
     const draftRows = editable ? getDraftRows(type) : [];
@@ -1075,19 +1108,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
       +'<button type="button" class="aprd-op" data-subject-manager>学科管理</button><i class="aprd-divider" aria-hidden="true"></i>'
       +'<button type="button" class="aprd-op" data-roster-import>批量导入</button>'
-      +'<div class="aprd-export-wrap"><button type="button" class="aprd-op aprd-export-toggle" data-roster-export-toggle>批量导出<i class="aprd-caret" aria-hidden="true"></i></button>'
-      +'<div class="aprd-export-menu aprd-export-sheet" data-roster-export-menu hidden>'
-      +'<div class="aprd-export-sheet-head"><b>导出当前工作表</b><span>'+esc(grade||'全部年级')+' · 共 '+list.length+' 人</span></div>'
-      +'<div class="aprd-export-formats">'
-      +'<button type="button" data-roster-export="xlsx"><i class="aprd-export-ico xlsx">X</i><span><b>Excel 表格</b><small>.xlsx 可编辑</small></span></button>'
-      +'<button type="button" data-roster-export="csv"><i class="aprd-export-ico csv">C</i><span><b>CSV 文件</b><small>.csv 通用格式</small></span></button>'
-      +'<button type="button" data-roster-export="pdf"><i class="aprd-export-ico pdf">P</i><span><b>PDF 文档</b><small>打印另存 PDF</small></span></button>'
-      +'<button type="button" data-roster-export="png"><i class="aprd-export-ico png">图</i><span><b>PNG 图片</b><small>先预览再保存</small></span></button>'
-      +'</div><div class="aprd-export-divider"></div>'
-      +'<div class="aprd-export-sheet-foot">'
-      +'<label class="aprd-export-switch"><input type="checkbox" id="aprd-export-watermark" '+(watermarkOn?'checked':'')+'><span>导出带水印</span></label>'
-      +'<label class="aprd-export-field"><span>水印文案</span><input type="text" id="aprd-export-watermark-text" value="'+esc(watermarkText)+'" placeholder="留空默认：年级＋表名" '+(watermarkOn?'':'disabled')+'></label>'
-      +'</div></div></div>';
+      +exportMenuHtml(teachers.length);
     const summaryContext = {
       leaveRecords,date,period,
       seatRows:type==='seat'?draftRows:(details.seat?.rows||[]),
@@ -1110,19 +1131,24 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       : '';
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+tools+'</div>'
       +'<span class="aprd-filter-count">当前筛：'+esc(subject||'全部')+' · '+list.length+'人</span></div>'+teacherAddCardHtml()+summaryStrip
+      +sheetHeadHtml()
       +'<div class="aprd-table-wrap"><table><thead><tr>'+columns.map(column=>'<th>'+column+'</th>').join('')
       +'</tr></thead><tbody>'+(rows||'<tr><td colspan="'+columns.length+'" class="aprd-empty">当前筛选下暂无在岗教师</td></tr>')+'</tbody></table></div>';
   };
   const leaveHtml = () => {
     const shown=leaveRecords.filter(x=>(!search||(x.name+' '+x.subject).includes(search))&&(!subject||x.subject===subject));
-    return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'<button class="primary" data-add-leave>新增请假</button></div></div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><span class="aprd-status '+(x.status==='已批'?'approved':'pending')+'">'+esc(x.status)+'</span></td><td>'+esc(x.remark||'')+'</td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
+    return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'<button class="primary" data-add-leave>新增请假</button>'+exportMenuHtml(teachers.length)+'</div></div>'
+      +sheetHeadHtml()
+      +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><span class="aprd-status '+(x.status==='已批'?'approved':'pending')+'">'+esc(x.status)+'</span></td><td>'+esc(x.remark||'')+'</td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
   };
   const summaryHtml = () => {
     const filteredTeachers=visibleTeachers();
     const filteredLeaves=leaveRecords.filter(item=>(!subject||item.subject===subject)&&(!search||((item.name||item.teacher||'')+' '+(item.subject||'')).toLowerCase().includes(search.toLowerCase())));
     const s=calculateDailySummary({teachers:filteredTeachers,seatRows:details.seat?.rows||[],classRows:details.class?.rows||[],researchRows:details.research?.rows||[],leaveRecords:filteredLeaves,date});
     const kpis=[['应到教师',s.expectedTeachers+'人'],['坐班次数',s.seatPresent],['上课次数',s.classes],['听课人次',s.listens],['请假人数',s.leavePeople+'人']];
-    return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'</div></div><div class="aprd-kpis">'+kpis.map(([a,b],i)=>'<div class="aprd-kpi"><span>'+a+'</span><b style="'+''+'">'+b+'</b></div>').join('')+'</div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.summary.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+s.rows.map(r=>'<tr><td>'+r.serial+'</td><td>'+esc(r.name)+'</td><td>'+esc(r.subject)+'</td><td>'+r.seatPresent+'</td><td>'+r.classes+'</td><td>'+r.listens+'</td><td>'+r.research+'</td><td>'+esc(formatLeaveDuration({days:r.leaveDays,hours:r.leaveHours}))+'</td><td>'+esc(r.overall)+'</td></tr>').join('')+'</tbody></table></div>';
+    return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+exportMenuHtml(teachers.length)+'</div></div><div class="aprd-kpis">'+kpis.map(([a,b],i)=>'<div class="aprd-kpi"><span>'+a+'</span><b style="'+''+'">'+b+'</b></div>').join('')+'</div>'
+      +sheetHeadHtml()
+      +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.summary.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+s.rows.map(r=>'<tr><td>'+r.serial+'</td><td>'+esc(r.name)+'</td><td>'+esc(r.subject)+'</td><td>'+r.seatPresent+'</td><td>'+r.classes+'</td><td>'+r.listens+'</td><td>'+r.research+'</td><td>'+esc(formatLeaveDuration({days:r.leaveDays,hours:r.leaveHours}))+'</td><td>'+esc(r.overall)+'</td></tr>').join('')+'</tbody></table></div>';
   };
   const renderPage = () => {
     const content = ['roster','seat','class','research'].includes(tab)?rosterHtml(tab):tab==='leave'?leaveHtml():summaryHtml();
