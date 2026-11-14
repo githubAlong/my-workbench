@@ -16,7 +16,6 @@ const TABS = [
   ['research','教研表'],['leave','请假'],['summary','汇总统计表'],
 ];
 const TYPE = { seat:'seat', class:'class', research:'research' };
-const CHECK_LABEL = (v) => v === 'y' ? '✓' : v === 'n' ? '✗' : '—';
 const TODAY = () => new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'});
 const rowData = (r) => r?.data && typeof r.data === 'object' ? r.data : {};
 const objectValue = (value) => {
@@ -928,30 +927,36 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const shown = state.leave
         ? {...state, class:'u', sit:'u', listen:'u', research:'u', listenStatus:'u', researchStatus:'u'}
         : state;
+      /* 状态格：绿色正常 / 黄色待确认 / 红色异常，未登记时由调用方显示占位符。
+         花名册是只读汇总视图，未登记一律显示「—」占位。 */
       const mark = (key,value) => {
         value = value === 'y' || value === 'n' ? value : 'u';
+        const label = value === 'y' ? '正常' : value === 'n' ? '异常' : '待确认';
+        const showLabel = editable || value !== 'u';
         const tag = editable ? 'button' : 'span';
         const attrs = editable ? 'type="button" data-grid-person="'+esc(teacher.id)+'" data-grid-key="'+key+'"' : 'aria-disabled="true"';
-        return '<'+tag+' class="aprd-mark '+value+'" '+attrs+' aria-label="'+esc(teacher.name+' '+({class:'上课',sit:'坐班',listen:'听课',research:'教研'}[key])+'：'+CHECK_LABEL(value))+'">'+CHECK_LABEL(value)+'</'+tag+'>';
+        return '<'+tag+' class="aprd-mark '+value+(showLabel?'':' ap-placeholder')+'" '+attrs+' aria-label="'+esc(teacher.name+' '+({class:'上课',sit:'坐班',listen:'听课',research:'教研'}[key])+'：'+label)+'">'+(showLabel?'<i></i>'+label:'—')+'</'+tag+'>';
       };
       const listen = shown.listenStatus || (shown.listen === true || shown.listen === 'y' ? 'y' : 'u');
       const research = shown.researchStatus || (shown.research === true || shown.research === 'y' ? 'y' : 'u');
-      const leave = editable ? '<select data-grid-person="'+esc(teacher.id)+'" data-grid-key="leave" aria-label="'+esc(teacher.name+' 请假')+'">'
+      const leave = editable ? '<select class="aprd-leave-select '+(state.leave?'on':'')+'" data-grid-person="'+esc(teacher.id)+'" data-grid-key="leave" aria-label="'+esc(teacher.name+' 请假')+'">'
         +['',...new Set([...LEAVE_TYPES,state.leave].filter(Boolean))].map(value=>'<option value="'+esc(value)+'" '+(state.leave===value?'selected':'')+'>'+esc(value||'无')+'</option>').join('')+'</select>'
-        : '<span class="aprd-mark '+(state.leave?'y':'u')+'">'+esc(state.leave||'无')+'</span>';
-      const remark = editable ? '<input data-grid-person="'+esc(teacher.id)+'" data-grid-key="remark" value="'+esc(state.remark||'')+'" aria-label="'+esc(teacher.name+' 备注')+'">' : esc(noteOf(teacher));
+        : (state.leave?'<span class="aprd-mark leave"><i></i>'+esc(state.leave)+'</span>':'<span class="aprd-mark ap-placeholder">—</span>');
+      const remark = editable ? '<input data-grid-person="'+esc(teacher.id)+'" data-grid-key="remark" value="'+esc(state.remark||'')+'" aria-label="'+esc(teacher.name+' 备注')+'">'
+        : '<span class="aprd-remark" title="'+escAttr(noteOf(teacher))+'">'+esc(noteOf(teacher)||'—')+'</span>';
       return '<tr><td>'+(index+1)+'</td><td>'+esc(deptOf(teacher))+'</td><td>'+esc(teacher.grade||grade)+'</td>'
         +'<td><b>'+esc(teacher.name)+'</b></td><td>'+esc(teacher.subject||'')+'</td>'
         +'<td>'+mark('class',shown.class)+'</td><td>'+mark('sit',shown.sit)+'</td>'
         +'<td>'+mark('listen',listen)+'</td><td>'+mark('research',research)+'</td><td>'+leave+'</td><td>'+remark+'</td>'
-        +'<td><div class="aprd-actions"><button type="button" data-edit="'+esc(teacher.id)+'">编辑教师</button>'
-        +(!editable?'<button type="button" data-disable="'+esc(teacher.id)+'">删除</button>':'')+'</div></td></tr>';
+        +'<td><div class="aprd-actions"><button type="button" class="aprd-link" data-edit="'+esc(teacher.id)+'">'+icon('edit',13)+'编辑教师</button>'
+        +(!editable?'<button type="button" class="aprd-link danger" data-disable="'+esc(teacher.id)+'">'+icon('trash',13)+'删除</button>':'')+'</div></td></tr>';
     }).join('');
-    const tools = '<button class="primary" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
-      +'<button type="button" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button data-roster-export-toggle>批量导出 ▾</button>'
+    const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
+      +'<button type="button" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button type="button" data-roster-export-toggle>批量导出 ▾</button>'
       +'<div class="aprd-export-menu" data-roster-export-menu hidden><label>导出范围 <select id="aprd-export-scope"><option value="all">全部在岗人员</option><option value="filtered">当前筛选结果</option></select></label>'
-      +'<button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button></div></div>'
-      +'<button data-copy>复制名单</button><button data-subject-manager>学科管理</button>';
+      +'<button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button>'
+      +'<button type="button" data-copy>复制名单</button></div></div>'
+      +'<button type="button" data-subject-manager>学科管理</button>';
     const summaryContext = {
       leaveRecords,date,period,
       seatRows:type==='seat'?draftRows:(details.seat?.rows||[]),
@@ -970,27 +975,38 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const summaryStrip = editable
       ? '<div class="aprd-kpis aprd-grid-summary">'+summaryItems.map(([label,value])=>'<div class="aprd-kpi"><span>'+label+'</span><b>'+value+'</b></div>').join('')+'</div>'
       : '';
-    return '<div class="aprd-toolbar">'+teacherFiltersHtml()+tools+'<span>当前筛：'+esc(subject||'全部')+' · '+list.length+' 人</span>'
-      +'</div>'+teacherAddCardHtml()+summaryStrip
+    return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+tools+'</div>'
+      +'<span class="aprd-filter-count">当前筛：'+esc(subject||'全部')+' · '+list.length+' 人</span></div>'+teacherAddCardHtml()+summaryStrip
       +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS[type].map(column=>'<th>'+column+'</th>').join('')
       +'</tr></thead><tbody>'+(rows||'<tr><td colspan="12" class="aprd-empty">当前筛选下暂无在岗教师</td></tr>')+'</tbody></table></div>'
       +'<p class="aprd-note">'+(editable?'本表独立登记、独立保存；花名册汇总已保存的三张表。切换页签保留本表草稿。':'花名册考勤状态仅供查看，汇总当前日期和节次已保存的三张表；请在工作表中登记。')+'</p>';
   };
   const leaveHtml = () => {
     const shown=leaveRecords.filter(x=>(!search||(x.name+' '+x.subject).includes(search))&&(!subject||x.subject===subject));
-    return '<div class="aprd-toolbar">'+teacherFiltersHtml()+'<button class="primary" data-add-leave>新增请假</button></div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><span class="aprd-status '+(x.status==='已批'?'approved':'pending')+'">'+esc(x.status)+'</span></td><td>'+esc(x.remark||'')+'</td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
+    return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'<button class="primary" data-add-leave>新增请假</button></div></div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><span class="aprd-status '+(x.status==='已批'?'approved':'pending')+'">'+esc(x.status)+'</span></td><td>'+esc(x.remark||'')+'</td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
   };
   const summaryHtml = () => {
     const filteredTeachers=visibleTeachers();
     const filteredLeaves=leaveRecords.filter(item=>(!subject||item.subject===subject)&&(!search||((item.name||item.teacher||'')+' '+(item.subject||'')).toLowerCase().includes(search.toLowerCase())));
     const s=calculateDailySummary({teachers:filteredTeachers,seatRows:details.seat?.rows||[],classRows:details.class?.rows||[],researchRows:details.research?.rows||[],leaveRecords:filteredLeaves,date});
     const kpis=[['应到教师',s.expectedTeachers+'人'],['坐班次数',s.seatPresent],['上课次数',s.classes],['听课人次',s.listens],['请假人数',s.leavePeople+'人']];
-    return '<div class="aprd-toolbar">'+teacherFiltersHtml()+'</div><div class="aprd-kpis">'+kpis.map(([a,b],i)=>'<div class="aprd-kpi"><span>'+a+'</span><b style="'+''+'">'+b+'</b></div>').join('')+'</div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.summary.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+s.rows.map(r=>'<tr><td>'+r.serial+'</td><td>'+esc(r.name)+'</td><td>'+esc(r.subject)+'</td><td>'+r.seatPresent+'</td><td>'+r.classes+'</td><td>'+r.listens+'</td><td>'+r.research+'</td><td>'+esc(formatLeaveDuration({days:r.leaveDays,hours:r.leaveHours}))+'</td><td>'+esc(r.overall)+'</td></tr>').join('')+'</tbody></table></div>';
+    return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'</div></div><div class="aprd-kpis">'+kpis.map(([a,b],i)=>'<div class="aprd-kpi"><span>'+a+'</span><b style="'+''+'">'+b+'</b></div>').join('')+'</div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.summary.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+s.rows.map(r=>'<tr><td>'+r.serial+'</td><td>'+esc(r.name)+'</td><td>'+esc(r.subject)+'</td><td>'+r.seatPresent+'</td><td>'+r.classes+'</td><td>'+r.listens+'</td><td>'+r.research+'</td><td>'+esc(formatLeaveDuration({days:r.leaveDays,hours:r.leaveHours}))+'</td><td>'+esc(r.overall)+'</td></tr>').join('')+'</tbody></table></div>';
   };
   const paint = () => {
     const content = ['roster','seat','class','research'].includes(tab)?rosterHtml(tab):tab==='leave'?leaveHtml():summaryHtml();
     const periodRange = resolvePeriodRange(period);
-    root.innerHTML='<div class="attendance-prd"><div class="aprd-head"><h2>考勤工作台</h2><div class="aprd-grade">'+grades.map(g=>'<button data-grade-tab="'+esc(g)+'" class="'+(g===grade?'on':'')+'">'+esc(g)+'</button>').join('')+'</div><span style="margin-left:auto;color:#168448;font-size:12px">数据已加载</span></div><div class="aprd-meta"><label>日期 <input type="date" id="aprd-date" value="'+date+'"></label><label>节次 <select id="aprd-period"><option value="0" '+(period===0?'selected':'')+'>全天</option>'+DEFAULT_PERIODS.map(p=>'<option value="'+p.no+'" '+(p.no===period?'selected':'')+'>'+p.label+'</option>').join('')+'</select></label><label>时段 <input type="time" id="aprd-start" value="'+periodRange[0]+'">—<input type="time" id="aprd-end" value="'+periodRange[1]+'"></label></div><nav class="aprd-tabs">'+TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(tab===id?'on':'')+'">'+label+'</button>').join('')+'<div class="aprd-tab-actions"><select id="aprd-generate"><option value="seat">生成坐班表</option><option value="class">生成上课表</option><option value="research">生成教研表</option></select><button class="primary" data-generate>确认生成</button><button data-workspace-voice>语音登记</button></div></nav><section class="aprd-panel">'+content+'</section></div>';
+    root.innerHTML='<div class="attendance-prd">'
+      +'<header class="aprd-head"><div class="aprd-head-title"><h2>考勤管理</h2><p>按年级独立管理坐班、教研与上课记录；完成后人工确认生效</p></div>'
+      +'<span class="aprd-live"><i></i>实时</span></header>'
+      +'<div class="aprd-grade">'+grades.map(g=>'<button data-grade-tab="'+esc(g)+'" class="'+(g===grade?'on':'')+'">'+esc(g)+'</button>').join('')+'</div>'
+      +'<div class="aprd-filter"><div class="aprd-filter-fields">'
+      +'<label>日期 <input type="date" id="aprd-date" value="'+date+'"></label>'
+      +'<label>节次 <select id="aprd-period"><option value="0" '+(period===0?'selected':'')+'>全天</option>'+DEFAULT_PERIODS.map(p=>'<option value="'+p.no+'" '+(p.no===period?'selected':'')+'>'+p.label+'</option>').join('')+'</select></label>'
+      +'<label>时段 <span class="aprd-time-range"><input type="time" id="aprd-start" value="'+periodRange[0]+'"><span class="aprd-time-sep">—</span><input type="time" id="aprd-end" value="'+periodRange[1]+'"></span></label>'
+      +'</div><div class="aprd-filter-actions"><select id="aprd-generate" class="aprd-generate" aria-label="选择要生成的表"><option value="seat">生成坐班表</option><option value="class">生成上课表</option><option value="research">生成教研表</option></select>'
+      +'<button class="primary" data-generate>确认生成</button><button type="button" class="aprd-voice" data-workspace-voice>'+icon('speak',15)+'语音登记</button></div></div>'
+      +'<nav class="aprd-tabs">'+TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(tab===id?'on':'')+'">'+label+'</button>').join('')+'</nav>'
+      +'<section class="aprd-panel">'+content+'</section></div>';
     if(TYPE[tab]) root.querySelector('#aprd-generate').value=tab;
     root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();tab=b.dataset.tab;search='';subject='';paint();});
     root.querySelectorAll('[data-grade-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();grade=b.dataset.gradeTab;await load();});

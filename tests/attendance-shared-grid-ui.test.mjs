@@ -136,14 +136,14 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   assert.equal(saved.class.rows.length,0);
   assert.equal(saved.research.rows.length,0);
   await root.querySelector('[data-tab="class"]').click();
-  assert.match(control(root,'sit').attributes['aria-label'],/—/);
+  assert.match(control(root,'sit').attributes['aria-label'],/待确认/);
   assert.equal(control(root,'remark').value,'');
   await root.querySelector('[data-tab="seat"]').click();
-  assert.match(control(root,'sit').attributes['aria-label'],/✓/);
+  assert.match(control(root,'sit').attributes['aria-label'],/正常/);
   assert.equal(control(root,'remark').value,'本表的备注');
   await root.querySelector('[data-tab="roster"]').click();
   const mark=root.querySelectorAll('[aria-disabled]').find(element=>element.attributes['aria-label']?.includes('李老师 坐班'));
-  assert.match(mark.attributes['aria-label'],/✓/);
+  assert.match(mark.attributes['aria-label'],/正常/);
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
 });
 
@@ -188,13 +188,13 @@ test('切换节次和日期不串草稿；搜索后四页签共用同一花名�
   await root.querySelector('[data-tab="research"]').click();
   await control(root,'research').click();
   await root.querySelector('#aprd-period').change('2');
-  assert.match(control(root,'research').attributes['aria-label'],/—/);
+  assert.match(control(root,'research').attributes['aria-label'],/待确认/);
   await root.querySelector('#aprd-period').change('1');
-  assert.match(control(root,'research').attributes['aria-label'],/✓/);
+  assert.match(control(root,'research').attributes['aria-label'],/正常/);
   /* 真实环境按日期分表，换日期就是另一张空表；这里清空桩数据来模拟 */
   Object.values(saved).forEach(table=>{table.rows=[];});
   await root.querySelector('#aprd-date').change('2026-10-01');
-  assert.match(control(root,'research').attributes['aria-label'],/—/);
+  assert.match(control(root,'research').attributes['aria-label'],/待确认/);
   await root.querySelector('#aprd-search').input('王老师');
   assert.equal(root.querySelectorAll('[data-grid-person]').length,6);
   assert.equal(control(root,'research','1'),undefined);

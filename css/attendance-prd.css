@@ -145,3 +145,119 @@
 .attendance-prd .aprd-png-preview>footer button.primary{background:#165dff;border-color:#165dff;color:#fff}
 .attendance-prd .aprd-png-preview>footer button:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:760px){.attendance-prd .aprd-png-scroll{padding:10px}.attendance-prd .aprd-png-preview>header,.attendance-prd .aprd-png-preview>footer{padding:12px 14px}}
+
+
+/* ============================================================
+   考勤工作台 UI 优化：只调整布局与视觉，字段、交互流程与数据口径不变。
+   结构顺序：标题 → 年级切换 → 筛选行 → 子页签 → 面板（工具栏 + 表格）。
+   ============================================================ */
+.attendance-prd{color:#1f2d43}
+
+/* 标题区 */
+.attendance-prd .aprd-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.attendance-prd .aprd-head-title h2{margin:0;font-size:20px;line-height:1.3;color:#172744;letter-spacing:.4px}
+.attendance-prd .aprd-head-title p{margin:6px 0 0;color:#8290a5;font-size:12px;line-height:1.5}
+.attendance-prd .aprd-live{display:inline-flex;align-items:center;gap:6px;flex:none;height:26px;padding:0 10px;border-radius:999px;background:#eef8f0;color:#1a8a45;font-size:12px}
+.attendance-prd .aprd-live i{width:7px;height:7px;border-radius:50%;background:#28a745;box-shadow:0 0 0 3px rgba(40,167,69,.15)}
+
+/* 年级切换标签 */
+.attendance-prd .aprd-grade{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.attendance-prd .aprd-grade button{height:34px;padding:0 18px;border:1px solid #dce5f1;border-radius:8px;background:#fff;color:#42536e;font-size:13px;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.attendance-prd .aprd-grade button:hover{color:#165dff;border-color:#b9d2ff}
+.attendance-prd .aprd-grade button.on{background:#165dff;border-color:#165dff;color:#fff;font-weight:650;box-shadow:0 4px 12px rgba(22,93,255,.22)}
+
+/* 筛选行：日期 / 节次 / 时段 + 右侧操作 */
+.attendance-prd .aprd-filter{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 12px;margin-bottom:4px;background:#fff;border:1px solid #dce5f1;border-radius:12px}
+.attendance-prd .aprd-filter-fields{display:flex;align-items:center;gap:16px;flex-wrap:wrap;min-width:0}
+.attendance-prd .aprd-filter label{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#687891;white-space:nowrap}
+.attendance-prd .aprd-filter input,.attendance-prd .aprd-filter select{height:32px;border:1px solid #dce5f1;border-radius:8px;padding:0 9px;background:#fff;color:#263650;font:inherit;font-size:12px}
+.attendance-prd .aprd-filter input:focus,.attendance-prd .aprd-filter select:focus{outline:none;border-color:#6b9cff;box-shadow:0 0 0 3px rgba(22,93,255,.09)}
+.attendance-prd .aprd-filter input[type=date]{width:132px}
+.attendance-prd .aprd-filter input[type=time]{width:96px}
+.attendance-prd .aprd-time-range{display:inline-flex;align-items:center;gap:6px}
+.attendance-prd .aprd-time-sep{color:#98a6ba}
+.attendance-prd .aprd-filter-actions{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto}
+.attendance-prd .aprd-filter-actions select.aprd-generate{height:32px;border:1px solid #dce5f1;border-radius:8px;padding:0 8px;background:#f7f9fd;color:#5c6b83;font-size:12px;cursor:pointer}
+.attendance-prd .aprd-filter-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 16px;border:1px solid #dce5f1;border-radius:8px;background:#fff;color:#354965;font-size:13px;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+.attendance-prd .aprd-filter-actions button.primary{background:#165dff;border-color:#165dff;color:#fff;font-weight:600}
+.attendance-prd .aprd-filter-actions button.primary:hover{background:#0e4fe0}
+.attendance-prd .aprd-filter-actions button.aprd-voice:hover{color:#165dff;border-color:#b9d2ff;background:#f7faff}
+
+/* 子页签独立一行，选中下划线高亮 */
+.attendance-prd .aprd-tabs{display:flex;gap:26px;overflow-x:auto;margin:6px 0 12px;padding:0;border-bottom:1px solid #e4ebf5;scrollbar-width:none}
+.attendance-prd .aprd-tabs::-webkit-scrollbar{display:none}
+.attendance-prd .aprd-tabs button{position:relative;flex:none;border:0;border-radius:0;background:transparent;padding:11px 1px;color:#5c6b83;font-size:13px;cursor:pointer}
+.attendance-prd .aprd-tabs button:hover{color:#165dff}
+.attendance-prd .aprd-tabs button.on{background:transparent;color:#165dff;font-weight:650}
+.attendance-prd .aprd-tabs button.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px;background:#165dff}
+
+/* 面板与工具栏：搜索 → 学科 → 新增教师 → 批量操作 → 右对齐筛选统计 */
+.attendance-prd .aprd-panel{padding:14px 16px;box-shadow:0 1px 2px rgba(23,39,68,.03)}
+.attendance-prd .aprd-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.attendance-prd .aprd-toolbar-main{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.attendance-prd .aprd-toolbar-main input[type=search]{width:200px;height:34px;border:1px solid #dce5f1;border-radius:8px;padding:0 11px;background:#fff;color:#263650;font-size:12px}
+.attendance-prd .aprd-toolbar-main input[type=search]:focus{outline:none;border-color:#6b9cff;box-shadow:0 0 0 3px rgba(22,93,255,.09)}
+.attendance-prd .aprd-toolbar-main select{height:34px;border:1px solid #dce5f1;border-radius:8px;padding:0 9px;background:#fff;color:#3f526d;font-size:12px}
+.attendance-prd .aprd-toolbar-main button{height:34px;padding:0 13px;border:1px solid #dce5f1;border-radius:8px;background:#fff;color:#3f526d;font-size:12px;cursor:pointer}
+.attendance-prd .aprd-toolbar-main button:hover{border-color:#b9d2ff;color:#165dff}
+.attendance-prd .aprd-toolbar-main button.primary{border-color:#165dff;background:#165dff;color:#fff;font-weight:600}
+.attendance-prd .aprd-toolbar-main button.primary:hover{background:#0e4fe0}
+.attendance-prd .aprd-filter-count{flex:none;margin-left:auto;color:#7a899e;font-size:12px;white-space:nowrap}
+
+/* 表格：表头固定、隔行变色、悬浮高亮 */
+.attendance-prd .aprd-table-wrap{max-height:min(70vh,720px);overflow:auto;background:#fff;border:1px solid #e6ecf5;border-radius:10px}
+.attendance-prd .aprd-table-wrap table{min-width:900px;font-size:12.5px}
+.attendance-prd .aprd-table-wrap thead th{position:sticky;top:0;z-index:3;background:#f3f6fb;color:#5a6982;font-weight:650;padding:11px 10px;border-bottom:1px solid #e1e8f2}
+.attendance-prd .aprd-table-wrap tbody td{padding:9px 10px;border-bottom:1px solid #eef2f8;color:#2c3b53}
+.attendance-prd .aprd-table-wrap tbody tr:nth-child(even){background:#fafcff}
+.attendance-prd .aprd-table-wrap tbody tr:hover{background:#f2f7ff}
+.attendance-prd .aprd-table-wrap tbody tr:last-child td{border-bottom:0}
+
+/* 备注列：超长省略，hover 由 title 显示全文 */
+.attendance-prd span.aprd-remark{display:inline-block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;color:#5c6b83}
+
+/* 考勤状态标签：绿=正常、黄=待确认、红=异常/请假 */
+.attendance-prd .aprd-mark{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:64px;height:24px;padding:0 9px;border:1px solid transparent;border-radius:6px;background:#f2f5fa;color:#7a899e;font-size:11.5px;line-height:1;cursor:pointer;transition:box-shadow .15s}
+.attendance-prd .aprd-mark i{flex:none;width:5px;height:5px;border-radius:50%;background:currentColor}
+.attendance-prd .aprd-mark.y{background:#e9f8ef;border-color:#c7ecd5;color:#15803d}
+.attendance-prd .aprd-mark.n{background:#fdecec;border-color:#f5cdcd;color:#cf3b3b}
+.attendance-prd .aprd-mark.u{background:#fff6e5;border-color:#f4e0b8;color:#b7791f}
+.attendance-prd .aprd-mark.leave{background:#fdecec;border-color:#f5cdcd;color:#cf3b3b;cursor:default}
+.attendance-prd .aprd-mark.ap-placeholder{min-width:0;padding:0;border-color:transparent;background:transparent;color:#b6c2d2;cursor:default}
+.attendance-prd button.aprd-mark:hover{box-shadow:0 0 0 3px rgba(22,93,255,.08)}
+.attendance-prd span.aprd-mark{display:inline-flex;align-items:center;justify-content:center;cursor:default}
+
+/* 请假下拉：选中后呈现红色标签观感 */
+.attendance-prd .aprd-leave-select{height:26px;max-width:110px;padding:0 6px;border:1px solid #dce5f1;border-radius:6px;background:#f7f9fd;color:#5c6b83;font-size:11.5px;cursor:pointer}
+.attendance-prd .aprd-leave-select.on{border-color:#f5cdcd;background:#fdecec;color:#cf3b3b}
+
+/* 操作列 */
+.attendance-prd .aprd-actions{display:flex;align-items:center;gap:12px}
+.attendance-prd .aprd-link{display:inline-flex;align-items:center;gap:4px;padding:0;border:0;background:transparent;color:#165dff;font-size:12px;cursor:pointer}
+.attendance-prd .aprd-link:hover{text-decoration:underline}
+.attendance-prd .aprd-link.danger{color:#d64545}
+
+/* 三张工作表顶部的统计条稍微收紧 */
+.attendance-prd .aprd-grid-summary{gap:8px;margin-bottom:12px}
+.attendance-prd .aprd-grid-summary .aprd-kpi{padding:10px 12px;background:#f8fafd;border-radius:9px}
+.attendance-prd .aprd-grid-summary .aprd-kpi b{font-size:18px}
+
+@media(max-width:900px){
+ .attendance-prd .aprd-filter{align-items:stretch;flex-direction:column}
+ .attendance-prd .aprd-filter-actions{margin-left:0;justify-content:flex-end}
+ .attendance-prd .aprd-filter-actions button{flex:1}
+ .attendance-prd .aprd-toolbar-main{width:100%}
+ .attendance-prd .aprd-filter-count{width:100%;margin-left:0;text-align:right}
+}
+@media(max-width:600px){
+ .attendance-prd .aprd-head-title h2{font-size:18px}
+ .attendance-prd .aprd-filter-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+ .attendance-prd .aprd-filter input[type=date],.attendance-prd .aprd-filter input[type=time]{width:100%}
+ .attendance-prd .aprd-time-range{width:100%}
+ .attendance-prd .aprd-time-range input{flex:1;min-width:0}
+ .attendance-prd .aprd-filter-actions{flex-wrap:wrap}
+ .attendance-prd .aprd-filter-actions select.aprd-generate{flex:1 1 100%}
+ .attendance-prd .aprd-tabs{gap:18px}
+ .attendance-prd .aprd-panel{padding:10px}
+ .attendance-prd .aprd-toolbar-main input[type=search]{width:100%}
+}
