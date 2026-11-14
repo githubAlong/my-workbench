@@ -100,7 +100,6 @@ test("loading and error states remain while the empty schedule panel is removed"
 test("high-two 2026 autumn timetable keeps source row numbers, lunch span and title", () => {
   for (const marker of [
     "2026年秋季信息课表",
-    "colspan=\"8\"",
     "period_no: 1, class_name: \"11班\"",
     "period_no: 3, class_name: \"5班\"",
     "period_no: 5, class_name: \"7班\"",
@@ -113,6 +112,16 @@ test("high-two 2026 autumn timetable keeps source row numbers, lunch span and ti
   assert.match(source, /Object\.entries\(times\)\.map/);
   assert.match(source, /period_no:Number\(no\)/);
   assert.match(source, /await api\.patch\("\/courses\/" \+ target\.id, data\)/);
+  // 午休行跨列数随「显示星期」变化，不再是写死的 8
+  assert.match(source, /colspan="' \+ \(shownDays\.length \+ 2\) \+ '"/);
+});
+
+test("作息设置支持勾选周一到周日的显示与隐藏", () => {
+  assert.match(source, /function normalizeShownDays/);
+  assert.match(source, /shownDays = normalizeShownDays\(timetable\.visibleDays\)/);
+  assert.match(source, /class="tt-day-toggle"/);
+  assert.match(source, /visibleDays: pickedDays/);
+  assert.match(source, /至少要保留一天显示/);
 });
 
 

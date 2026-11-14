@@ -95,6 +95,16 @@
 .tt-period-editor-row .input{min-width:0;width:100%}
 @media(max-width:720px){.tt-period-editor-row{grid-template-columns:1fr 1fr;}.tt-period-editor-row input:first-child{grid-column:1/-1}}
 
+/* 作息设置里的「显示星期」勾选组：勾中为主色胶囊，未勾为描边胶囊 */
+.tt-day-picker{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:0 0 12px;padding:10px;border:1px solid var(--line);border-radius:9px;background:var(--bg-sunken)}
+.tt-day-picker-label{font-size:12px;font-weight:600;color:var(--text-2);margin-right:2px}
+.tt-day-picker-list{display:flex;flex-wrap:wrap;gap:6px}
+.tt-day-toggle{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid var(--line-2);border-radius:999px;background:var(--card);color:var(--text-2);font-size:12px;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s}
+.tt-day-toggle input{width:13px;height:13px;margin:0;accent-color:var(--primary);cursor:pointer}
+.tt-day-toggle:has(input:checked){border-color:var(--primary);background:var(--primary-weak);color:var(--primary);font-weight:600}
+.tt-day-note{flex-basis:100%;font-size:11px;color:var(--text-3)}
+@media(max-width:720px){.tt-day-picker{gap:6px}.tt-day-toggle{padding:4px 8px}}
+
 .tt-grid-title{padding:12px 10px;text-align:center;border:1px solid var(--line);border-bottom:0;border-radius:9px 9px 0 0;background:var(--card);color:#7b4aa6;font-size:22px;font-weight:600;letter-spacing:2px}
 .tt-grid-title+.tt-grid-scroll{border-top-left-radius:0;border-top-right-radius:0}
 .tt-lunch-row .tt-period-cell{font-weight:700}

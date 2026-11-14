@@ -184,6 +184,12 @@ function loadViewPreference() {
 function saveViewPreference(type, grade) {
   try { localStorage.setItem(VIEW_KEY, JSON.stringify({ type, grade })); } catch { }
 }
+/* 星期显示设置：只接受 0~6，顺序固定周一到周日；没存过或全部非法时回退为七天全显示。 */
+function normalizeShownDays(value) {
+  const list = Array.isArray(value) ? value.map(Number) : [];
+  const picked = DAYS.filter((day) => list.includes(day));
+  return picked.length ? picked : [...DAYS];
+}
 /* 课表标题：本机先读，登录后用「我的设置」里的云端值覆盖，保证多端一致。 */
 function readLocalTitle() {
   try { return String(localStorage.getItem(TITLE_KEY) || '').trim() || DEFAULT_TITLE; } catch { return DEFAULT_TITLE; }
@@ -204,6 +210,8 @@ export async function renderTimetable(box) {
   let appliedType = loadViewPreference().type;
   let appliedGrade = loadViewPreference().grade;
   let titleText = readLocalTitle();
+  /* 课表显示哪几天：在「作息设置」里勾选，存进「我的设置」，默认七天全显示。 */
+  let shownDays = [...DAYS];
   let clockTimer = null;
   let lastDate = ymd();
   let loading = false;
@@ -240,6 +248,7 @@ export async function renderTimetable(box) {
       courseTypes = parseJson(timetable.courseTypes, {});
       periodTimes = parseJson(timetable.periodTimes, {});
       periodDefinitions = parseJson(timetable.periodDefinitions, {});
+      shownDays = normalizeShownDays(timetable.visibleDays);
       const periodOptions = { periodTimes, scheduleType: appliedType };
       const rawCourses = Array.isArray(results[0]) ? results[0] : [];
       allCourses = rawCourses.map((course) => {
@@ -398,8 +407,8 @@ export async function renderTimetable(box) {
       const rowCourses = courses.filter((course) => getCanonicalPeriodNumber(course) === pNo);
       const firstCourse = rowCourses.find((course) => course.start_time || course.end_time) || {};
       const time = courseTime({ ...firstCourse, period_no:pNo }, period, periodTimes, appliedType);
-      if (pNo === 5.5 || String(period.name || '').includes('午休')) return '<tr class="tt-lunch-row"><td class="tt-period-cell"><strong>午休</strong></td><td class="tt-lunch-cell" colspan="8"><div class="tt-lunch-content">' + icon('clock', 23) + '<span>午休</span><strong>' + esc(time === '时间待设置' ? '12:20–14:10' : time) + '</strong></div></td></tr>';
-      const cells = DAYS.map((day) => {
+      if (pNo === 5.5 || String(period.name || '').includes('午休')) return '<tr class="tt-lunch-row"><td class="tt-period-cell"><strong>午休</strong></td><td class="tt-lunch-cell" colspan="' + (shownDays.length + 2) + '"><div class="tt-lunch-content">' + icon('clock', 23) + '<span>午休</span><strong>' + esc(time === '时间待设置' ? '12:20–14:10' : time) + '</strong></div></td></tr>';
+      const cells = shownDays.map((day) => {
         const list = rowCourses.filter((course) => Number(course.weekday) === day);
         return '<td class="tt-slot ' + (list.length ? 'has-course' : 'is-empty') + (day === new Date().getDay() ? ' is-today' : '') + '" data-slot="1" data-day="' + day + '" data-period="' + pNo + '">' + (list.length ? list.map((course) => renderCourse(course, period)).join('') : '<button class="tt-empty-add" type="button" aria-label="新增课程">＋</button>') + '</td>';
       }).join('');
@@ -410,7 +419,7 @@ export async function renderTimetable(box) {
       '<strong id="tt-grid-title-text">' + esc(titleText) + '</strong>' +
       '<button class="tt-title-edit" type="button" id="tt-title-edit" aria-label="修改课表标题" title="修改课表标题">' + icon('edit', 14) + '</button>' +
       '<span class="tt-grid-title-note">每周课程安排</span></div>';
-    return title + '<div class="tt-grid-scroll"><table class="tt-grid-table tt-week-grid" aria-label="周课表"><colgroup><col class="tt-col-period"><col class="tt-col-time">' + DAYS.map(() => '<col class="tt-col-day">').join('') + '</colgroup><thead><tr><th class="tt-grid-corner">节次</th><th class="tt-grid-corner">时间</th>' + DAYS.map((day) => '<th class="tt-weekday-head ' + (day === new Date().getDay() ? 'is-today' : '') + '">' + DAY_NAMES[DAYS.indexOf(day)] + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    return title + '<div class="tt-grid-scroll"><table class="tt-grid-table tt-week-grid" aria-label="周课表"><colgroup><col class="tt-col-period"><col class="tt-col-time">' + shownDays.map(() => '<col class="tt-col-day">').join('') + '</colgroup><thead><tr><th class="tt-grid-corner">节次</th><th class="tt-grid-corner">时间</th>' + shownDays.map((day) => '<th class="tt-weekday-head ' + (day === new Date().getDay() ? 'is-today' : '') + '">' + DAY_NAMES[DAYS.indexOf(day)] + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
   function paint() {
@@ -503,7 +512,10 @@ export async function renderTimetable(box) {
       start_time: p.start_time || "", end_time: p.end_time || "", order: index,
     }));
     let rows = base.map((p, index) => ({ ...p, order: index }));
-    const body = el('<div class="sheet-body"><p class="small muted">当前设置：' + esc(appliedType + " · " + appliedGrade) + '。可新增、修改、删除和调整节次顺序。存在课程的节次不能删除。</p><div id="tt-period-rows"></div><div class="confirm-actions"><button class="btn ghost" id="tt-period-add">新增时间段</button><button class="btn ghost" id="tt-period-cancel">取消</button><button class="btn primary" id="tt-period-save">保存作息</button></div></div>');
+    const dayPicker = '<div class="tt-day-picker"><span class="tt-day-picker-label">显示星期</span><div class="tt-day-picker-list">' +
+      DAYS.map((day) => '<label class="tt-day-toggle"><input type="checkbox" value="' + day + '"' + (shownDays.includes(day) ? ' checked' : '') + '><span>' + DAY_NAMES[DAYS.indexOf(day)] + '</span></label>').join('') +
+      '</div><span class="tt-day-note">取消勾选的星期不会显示在课表里，原有课程仍然保留，重新勾选即可看到。</span></div>';
+    const body = el('<div class="sheet-body"><p class="small muted">当前设置：' + esc(appliedType + " · " + appliedGrade) + '。可新增、修改、删除和调整节次顺序。存在课程的节次不能删除。</p>' + dayPicker + '<div id="tt-period-rows"></div><div class="confirm-actions"><button class="btn ghost" id="tt-period-add">新增时间段</button><button class="btn ghost" id="tt-period-cancel">取消</button><button class="btn primary" id="tt-period-save">保存作息</button></div></div>');
     const modal = sheet({ title: "作息时间管理", body, wide: true });
     const list = body.querySelector("#tt-period-rows");
     const draw = () => {
@@ -541,11 +553,13 @@ export async function renderTimetable(box) {
     body.querySelector("#tt-period-cancel").onclick = modal.close;
     saving(body.querySelector("#tt-period-save"), async () => {
       rows = rows.map((p, i) => ({ ...p, order: i, period_no: Number(p.period_no) }));
+      const pickedDays = DAYS.filter((day) => body.querySelector('.tt-day-toggle input[value="' + day + '"]')?.checked);
+      if (!pickedDays.length) throw new Error("至少要保留一天显示");
       // 与导入共用一套校验/规范化，避免两处口径不一致
       const defs = buildDefinitions(rows);
       const nextDefs = withScheduleDefinitions(periodDefinitions, appliedType, defs);
       const nextTimes = withScheduleTimes(periodTimes, appliedType, defs);
-      await saveTimetablePrefs({ periodDefinitions: nextDefs, periodTimes: nextTimes });
+      await saveTimetablePrefs({ periodDefinitions: nextDefs, periodTimes: nextTimes, visibleDays: pickedDays });
       modal.close(); toast("作息时间已保存"); await loadData(false);
     });
   }
