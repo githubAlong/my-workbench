@@ -141,7 +141,9 @@
 .attendance-prd .aprd-png-preview header button{width:32px;height:32px;border:0;border-radius:8px;background:#f2f5fa;color:#53627a;font-size:22px;cursor:pointer;line-height:1}
 .attendance-prd .aprd-png-scroll{padding:14px 20px;overflow:auto;-webkit-overflow-scrolling:touch;display:grid;gap:14px;background:#f6f8fc;flex:1 1 auto;min-height:0}
 .attendance-prd .aprd-png-scroll figure{margin:0;display:grid;gap:6px}
-.attendance-prd .aprd-png-scroll img{width:100%;height:auto;display:block;border:1px solid #e1e8f2;border-radius:10px;background:#fff}
+.attendance-prd .aprd-png-scroll.is-zoomed{cursor:grab}
+.attendance-prd .aprd-png-scroll.is-panning{cursor:grabbing;user-select:none}
+.attendance-prd .aprd-png-scroll img{width:calc(100% * var(--png-zoom,1));height:auto;display:block;border:1px solid #e1e8f2;border-radius:10px;background:#fff}
 .attendance-prd .aprd-png-scroll figcaption{font-size:11px;color:#8290a5;text-align:center}
 .attendance-prd .aprd-png-preview>footer{display:flex;justify-content:flex-end;gap:8px;padding:13px 20px;border-top:1px solid #e8edf4}
 .attendance-prd .aprd-png-preview>footer button{border:1px solid #dce5f1;background:#fff;border-radius:8px;padding:8px 14px;cursor:pointer;color:#354965;font:inherit}
@@ -478,18 +480,15 @@
 .attendance-prd .aprd-import-foot-note{color:#98a5b8;font-size:11px}
 .attendance-prd .aprd-import-foot-actions{display:flex;gap:9px}
 
-/* ---------- 页面表格三级标题（与导出抬头同源） ---------- */
-.attendance-prd .aprd-sheet-head{padding:16px 14px 12px;border:1px solid #e6ecf5;border-bottom:0;border-radius:11px 11px 0 0;background:linear-gradient(180deg,#fbfdff,#f7f9fc);text-align:center}
-.attendance-prd .aprd-sheet-head h3{margin:0;color:#172744;font-size:19px;font-weight:700;letter-spacing:.5px}
-.attendance-prd .aprd-sheet-head .aprd-sheet-sub{margin:6px 0 0;color:#22304a;font-size:13px;font-weight:600}
-.attendance-prd .aprd-sheet-head .aprd-sheet-stats{margin:5px 0 0;color:#34445d;font-size:12.5px;font-weight:600}
-.attendance-prd .aprd-sheet-head+.aprd-table-wrap{border-top:0;border-radius:0 0 11px 11px}
-
 /* ---------- PNG 导出预览 ---------- */
 .attendance-prd .aprd-png-head{display:flex;align-items:center;gap:11px;min-width:0}
 .attendance-prd .aprd-png-badge{flex:none;padding:5px 10px;border-radius:999px;background:#eef0ff;color:#5b4bd6;font-size:11px;font-weight:700;letter-spacing:.6px}
 .attendance-prd .aprd-png-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:11px 20px;border-bottom:1px solid #edf1f7;background:#fbfcff}
 .attendance-prd .aprd-png-hint{margin-left:auto;color:#98a5b8;font-size:11px}
+.attendance-prd .aprd-png-zoom{display:flex;align-items:center;gap:6px;margin-left:10px}
+.attendance-prd .aprd-png-zoom button{width:26px;height:26px;padding:0;border:1px solid #dce5f1;border-radius:7px;background:#fff;color:#354965;font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.attendance-prd .aprd-png-zoom button:disabled{opacity:.4;cursor:not-allowed}
+.attendance-prd .aprd-png-zoom span{min-width:52px;text-align:center;color:#42536e;font-size:11.5px}
 
 @media(max-width:760px){
  .attendance-prd .aprd-export-menu.aprd-export-sheet{width:min(308px,calc(100vw - 28px));left:auto;right:0}
@@ -501,7 +500,4 @@
  .attendance-prd .aprd-import-foot-actions{width:100%}
  .attendance-prd .aprd-import-foot-actions button{flex:1}
  .attendance-prd .aprd-png-hint{display:none}
- .attendance-prd .aprd-sheet-head{padding:13px 10px 10px}
- .attendance-prd .aprd-sheet-head h3{font-size:16px}
- .attendance-prd .aprd-sheet-head .aprd-sheet-sub,.attendance-prd .aprd-sheet-head .aprd-sheet-stats{font-size:11.5px}
 }

@@ -564,14 +564,56 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       +'<header><div class="aprd-png-head"><span class="aprd-png-badge">PNG</span>'
       +'<div><h3>导出预览</h3><p>'+esc(fileBase)+'</p></div></div>'
       +'<button type="button" data-png-close aria-label="关闭">×</button></header>'
-      +'<div class="aprd-png-meta">'+chips+'<span class="aprd-png-hint">滑动查看，确认无误后保存图片</span></div>'
-      +'<div class="aprd-png-scroll">'+pages.map((src,index)=>'<figure><img src="'+src+'" alt="第 '+(index+1)+' 页">'+(pages.length>1?'<figcaption>第 '+(index+1)+' / '+pages.length+' 页</figcaption>':'')+'</figure>').join('')+'</div>'
+      +'<div class="aprd-png-meta">'+chips
+      +'<span class="aprd-png-hint">滑动查看，确认无误后保存图片</span>'
+      +'<div class="aprd-png-zoom"><button type="button" data-png-zoom="-1" aria-label="缩小">−</button>'
+      +'<span data-png-zoom-label>适应宽度</span>'
+      +'<button type="button" data-png-zoom="1" aria-label="放大">＋</button></div></div>'
+      +'<div class="aprd-png-scroll">'+pages.map((src,index)=>'<figure><img src="'+src+'" alt="第 '+(index+1)+' 页" draggable="false">'+(pages.length>1?'<figcaption>第 '+(index+1)+' / '+pages.length+' 页</figcaption>':'')+'</figure>').join('')+'</div>'
       +'<footer><button type="button" data-png-close>关闭</button>'
       +'<button type="button" class="primary" data-png-download>'+(pages.length>1?'下载全部图片（'+pages.length+' 张）':'保存图片')+'</button></footer></section>';
     document.body.append(dialog);
     const close=()=>{dialog.remove();document.removeEventListener('keydown',onKey);};
     const onKey=event=>{if(event.key==='Escape')close();};
     document.addEventListener('keydown',onKey);
+    /* 放大后要能逐格核对数据：缩放只作用于图片本身，
+       容器负责横向/纵向滚动，按住图片可直接拖动平移，便于查看某一行的具体状态。 */
+    const scroll=dialog.querySelector('.aprd-png-scroll');
+    const zoomLabel=dialog.querySelector('[data-png-zoom-label]');
+    const zoomOutButton=dialog.querySelector('[data-png-zoom="-1"]');
+    const zoomInButton=dialog.querySelector('[data-png-zoom="1"]');
+    const zoomSteps=[1,1.5,2,2.5,3];
+    let zoom=1;
+    const syncZoom=()=>{
+      scroll.style.setProperty('--png-zoom',String(zoom));
+      zoomLabel.textContent=zoom===1?'适应宽度':Math.round(zoom*100)+'%';
+      zoomOutButton.disabled=zoom===1;
+      zoomInButton.disabled=zoom===zoomSteps[zoomSteps.length-1];
+      scroll.classList.toggle('is-zoomed',zoom>1);
+    };
+    const stepZoom=direction=>{
+      const index=zoomSteps.indexOf(zoom);
+      zoom=zoomSteps[Math.max(0,Math.min(zoomSteps.length-1,index+direction))];
+      syncZoom();
+    };
+    zoomOutButton.addEventListener('click',()=>stepZoom(-1));
+    zoomInButton.addEventListener('click',()=>stepZoom(1));
+    syncZoom();
+    let panning=null;
+    scroll.addEventListener('pointerdown',event=>{
+      if(zoom===1||event.button!==0)return;
+      panning={x:event.clientX,y:event.clientY,left:scroll.scrollLeft,top:scroll.scrollTop};
+      scroll.classList.add('is-panning');
+      scroll.setPointerCapture(event.pointerId);
+    });
+    scroll.addEventListener('pointermove',event=>{
+      if(!panning)return;
+      scroll.scrollLeft=panning.left-(event.clientX-panning.x);
+      scroll.scrollTop=panning.top-(event.clientY-panning.y);
+    });
+    const endPan=()=>{panning=null;scroll.classList.remove('is-panning');};
+    scroll.addEventListener('pointerup',endPan);
+    scroll.addEventListener('pointercancel',endPan);
     dialog.querySelectorAll('[data-png-close]').forEach(button=>button.addEventListener('click',close));
     dialog.addEventListener('click',event=>{if(event.target===dialog)close();});
     dialog.querySelector('[data-png-download]').addEventListener('click',async()=>{
@@ -1037,25 +1079,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     + '<label class="aprd-export-switch"><input type="checkbox" id="aprd-export-watermark" ' + (watermarkOn ? 'checked' : '') + '><span>导出带水印</span></label>'
     + '<label class="aprd-export-field"><span>水印文案</span><input type="text" id="aprd-export-watermark-text" value="' + esc(watermarkText) + '" placeholder="留空默认：年级＋表名" ' + (watermarkOn ? '' : 'disabled') + '></label>'
     + '</div></div></div>';
-  /* 页面上的表格也按导出同款三级标题展示（用户 11-15 要求）：
-     直接复用导出网格生成抬头，保证页面看到的和导出的一字不差。 */
   const currentExportType = () => ['seat', 'class', 'research', 'leave', 'summary'].includes(tab) ? tab : 'roster';
-  const sheetHeadHtml = () => {
-    const grid = buildAttendanceExportGrid({
-      type: currentExportType(), grade, date, period, teachers,
-      seatRows: tab === 'seat' ? getDraftRows('seat') : details.seat?.rows || [],
-      classRows: tab === 'class' ? getDraftRows('class') : details.class?.rows || [],
-      researchRows: tab === 'research' ? getDraftRows('research') : details.research?.rows || [],
-      leaveRecords: activeLeavesFor(leaveRecords, date),
-      teacherMeta: prefs.teacherMeta || {},
-      resolvePeriodRange,
-      includeUnlisted: true,
-    });
-    const headings = splitAttendanceExportGrid(grid).headings;
-    return '<div class="aprd-sheet-head"><h3>' + esc(headings[0] || '') + '</h3>'
-      + '<p class="aprd-sheet-sub">' + esc(headings[1] || '') + '</p>'
-      + '<p class="aprd-sheet-stats">' + esc(headings[2] || '') + '</p></div>';
-  };
   const rosterHtml = (type = 'roster') => {
     const editable = type !== 'roster', list = visibleTeachers();
     const draftRows = editable ? getDraftRows(type) : [];
@@ -1131,14 +1155,12 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       : '';
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+tools+'</div>'
       +'<span class="aprd-filter-count">当前筛：'+esc(subject||'全部')+' · '+list.length+'人</span></div>'+teacherAddCardHtml()+summaryStrip
-      +sheetHeadHtml()
       +'<div class="aprd-table-wrap"><table><thead><tr>'+columns.map(column=>'<th>'+column+'</th>').join('')
       +'</tr></thead><tbody>'+(rows||'<tr><td colspan="'+columns.length+'" class="aprd-empty">当前筛选下暂无在岗教师</td></tr>')+'</tbody></table></div>';
   };
   const leaveHtml = () => {
     const shown=leaveRecords.filter(x=>(!search||(x.name+' '+x.subject).includes(search))&&(!subject||x.subject===subject));
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'<button class="primary" data-add-leave>新增请假</button>'+exportMenuHtml(teachers.length)+'</div></div>'
-      +sheetHeadHtml()
       +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><span class="aprd-status '+(x.status==='已批'?'approved':'pending')+'">'+esc(x.status)+'</span></td><td>'+esc(x.remark||'')+'</td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
   };
   const summaryHtml = () => {
@@ -1147,7 +1169,6 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const s=calculateDailySummary({teachers:filteredTeachers,seatRows:details.seat?.rows||[],classRows:details.class?.rows||[],researchRows:details.research?.rows||[],leaveRecords:filteredLeaves,date});
     const kpis=[['应到教师',s.expectedTeachers+'人'],['坐班次数',s.seatPresent],['上课次数',s.classes],['听课人次',s.listens],['请假人数',s.leavePeople+'人']];
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+exportMenuHtml(teachers.length)+'</div></div><div class="aprd-kpis">'+kpis.map(([a,b],i)=>'<div class="aprd-kpi"><span>'+a+'</span><b style="'+''+'">'+b+'</b></div>').join('')+'</div>'
-      +sheetHeadHtml()
       +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.summary.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+s.rows.map(r=>'<tr><td>'+r.serial+'</td><td>'+esc(r.name)+'</td><td>'+esc(r.subject)+'</td><td>'+r.seatPresent+'</td><td>'+r.classes+'</td><td>'+r.listens+'</td><td>'+r.research+'</td><td>'+esc(formatLeaveDuration({days:r.leaveDays,hours:r.leaveHours}))+'</td><td>'+esc(r.overall)+'</td></tr>').join('')+'</tbody></table></div>';
   };
   const renderPage = () => {
