@@ -509,8 +509,12 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       return Math.max(90,Math.min(260,70+max*13));
     });
     const totalWidth=widths.reduce((sum,value)=>sum+value,0);
-    const headingLines=[title,subtitle,stats].filter(Boolean);
-    const rowH=42,titleH=26+headingLines.length*26,footH=44,rowsPerPage=120;
+    const headingBlocks=[];
+    if(title)headingBlocks.push({text:title,font:'bold 24px "Microsoft YaHei",sans-serif',color:'#10203a',gap:28,rule:true});
+    if(subtitle)headingBlocks.push({text:subtitle,font:'600 14px "Microsoft YaHei",sans-serif',color:'#1f3550',gap:26});
+    if(stats)headingBlocks.push({text:stats,font:'12.5px "Microsoft YaHei",sans-serif',color:'#40536e',gap:26});
+    /* 抬头区高度按实际标题行数算：标题 46 起步，行距 28/26/26，底部留 6 */
+    const rowH=42,titleH=headingBlocks.length?46+headingBlocks.reduce((sum,block)=>sum+block.gap,0)+6:26,footH=44,rowsPerPage=120;
     const pages=[];
     for(const page of paginateExportGrid(grid, rowsPerPage)){
       const slice=page.rows, pageCount=page.pageCount, pageIndex=page.index;
@@ -519,10 +523,17 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       canvas.height=titleH+(slice.length+1)*rowH+footH;
       ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
       ctx.textAlign='center';
-      let lineY=38;
-      if(title){ctx.fillStyle='#172744';ctx.font='bold 22px "Microsoft YaHei",sans-serif';ctx.fillText(title,canvas.width/2,lineY);lineY+=26;}
-      if(subtitle){ctx.fillStyle='#22304a';ctx.font='600 13px "Microsoft YaHei",sans-serif';ctx.fillText(subtitle,canvas.width/2,lineY);lineY+=26;}
-      if(stats){ctx.fillStyle='#34445d';ctx.font='bold 12.5px "Microsoft YaHei",sans-serif';ctx.fillText(stats,canvas.width/2,lineY);}
+      let lineY=46;
+      headingBlocks.forEach(block=>{
+        ctx.fillStyle=block.color;ctx.font=block.font;
+        ctx.fillText(block.text,canvas.width/2,lineY);
+        if(block.rule){ctx.fillStyle='#2a6bf2';ctx.fillRect(canvas.width/2-58,lineY+13,116,2.5);}
+        lineY+=block.gap;
+      });
+      if(headingBlocks.length){
+        ctx.strokeStyle='#dfe7f2';ctx.lineWidth=1;
+        ctx.beginPath();ctx.moveTo(0,titleH-1.5);ctx.lineTo(canvas.width,titleH-1.5);ctx.stroke();
+      }
       ctx.textAlign='left';
       let y=titleH,x=0;
       headers.forEach((label,index)=>{
@@ -683,9 +694,10 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const watermarkHtml=watermark?'<div class="aprd-print-watermark">'+esc(watermark)+'</div>':'';
       win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>'+esc(fileBase)+'</title><style>'
         +'body{font-family:"Microsoft YaHei",Arial,sans-serif;padding:26px 28px;color:#1d2939}'
-        +'h1{font-size:20px;text-align:center;margin:0 0 8px;letter-spacing:.5px}'
-        +'.aprd-print-sub{color:#22304a;font-size:13px;font-weight:600;text-align:center;margin:0 0 6px}'
-        +'.aprd-print-stats{color:#1d2939;font-size:12.5px;font-weight:600;text-align:center;margin:0 0 16px}'
+        +'h1{font-size:22px;text-align:center;margin:0 0 10px;letter-spacing:.5px;color:#10203a}'
+        +'h1::after{content:"";display:block;width:116px;height:2.5px;background:#2a6bf2;margin:9px auto 0}'
+        +'.aprd-print-sub{color:#1f3550;font-size:13.5px;font-weight:600;text-align:center;margin:0 0 6px}'
+        +'.aprd-print-stats{color:#40536e;font-size:12.5px;text-align:center;margin:0 0 14px;padding-top:2px;border-top:0}'
         +'table{width:100%;border-collapse:collapse;font-size:12px}'
         +'th,td{border:1px solid #d0d5dd;padding:7px 8px;text-align:left}'
         +'th{background:#f2f4f7;color:#344054}'
