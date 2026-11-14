@@ -4249,6 +4249,11 @@ export async function handle(method, path, query = {}, body = undefined) {
       if (!isCloudSchemaUnavailable(e)) {
         return { ok: false, error: '云端：' + (e.message || e), code: 502, cloud: true };
       }
+      /* 【诊断留痕】云端写入失败后静默退回本机会骗人：界面提示"已新增成功"，
+         刷新后列表读的是云端，仍然是空的（2026-11-14 class_records 缺
+         grade/teacher 列，POST 报 PGRST204 就是这么表现的）。
+         写操作退回本机一律留一条警告，下次排查不用再猜。 */
+      if (method !== 'GET') console.warn('[cloud] 云端写入失败，已退回本机数据：', method, clean, e);
       data = null;
     }
     /* null = 这个接口还没上云（统计 / 原件照片），继续往下走本地实现。
