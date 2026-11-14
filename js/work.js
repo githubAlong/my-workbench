@@ -153,7 +153,11 @@ registerView(async function work(main, { tab, third }) {
     const m = await import('./repairs.js');
     return m.renderRepairsBody(body);
   }
-  if (t === 'notes') return renderNotes(body);
+  if (t === 'notes') {
+    /* 笔记页自带「知识库」标题卡片，外层页头移除，避免同一标题出现两次 */
+    headEl.remove();
+    return renderNotes(body);
+  }
   return renderLessons(body);
 });
 
@@ -3063,97 +3067,211 @@ async function materialEditor(m, catId, reload) {
 
 /* 备课模块由 js/prep.js 独立维护。 */
 
-/* ================= 笔记（知识库） ================= */
+/* ================= 笔记（知识库） =================
+   按设计稿：头部卡片（标题 + 搜索 + 新增）、筛选卡片（分类 / 标签）、
+   表格卡片（创建时间 / 分类 / 标题 / 标签 / 内容摘要 / 操作）。 */
 async function renderNotes(box) {
-  let cat = 0; let editing = null; let all = [];
-  const relDate = (s) => {
-    const d = parseDT(s); if (!d) return '';
-    const diff = (Date.now() - d) / 60000;
-    if (diff < 60) return Math.max(1, Math.round(diff)) + ' 分钟前';
-    if (diff < 1440) return Math.round(diff / 60) + ' 小时前';
-    return `${d.getMonth() + 1}/${d.getDate()}`;
+  let cats = [], notes = [];
+  let keyword = '', catId = '', tag = '';
+
+  /* 历史数据里 tags 可能是数组、JSON 字符串或「备课，前调」，统一读成字符串数组。 */
+  const readTags = (note) => {
+    const raw = note?.tags;
+    let list = [];
+    if (Array.isArray(raw)) list = raw;
+    else if (typeof raw === 'string' && raw.trim()) {
+      try { const parsed = JSON.parse(raw); list = Array.isArray(parsed) ? parsed : raw.split(/[,，;；、\s]+/); }
+      catch { list = raw.split(/[,，;；、\s]+/); }
+    }
+    return [...new Set(list.map((item) => String(item || '').trim()).filter(Boolean))];
   };
-  const load = async () => {
-    const [cats, notes] = await Promise.all([api.get('/categories', { scope: 'note' }), api.get('/notes')]);
-    all = notes;
-    const list = cat ? notes.filter((n) => Number(n.category_id) === cat) : notes;
-    box.innerHTML = `<div class="doc-grid">
-      <div class="card card-pad">
-        <button class="btn primary sm block" id="new-note" style="margin-bottom:10px">${icon('plus', 15)} 新建笔记</button>
-        <div class="cat-list">
-          <button class="cat-item ${cat === 0 ? 'active' : ''}" data-cat="0">${icon('folder',15)} 全部笔记</button>
-          ${cats.map((c) => `<button class="cat-item ${cat === c.id ? 'active' : ''}" data-cat="${c.id}">${icon('folder',15)} ${esc(c.name)}</button>`).join('')}
-        </div>
-        <button class="btn ghost sm block" id="new-cat" style="margin-top:8px">＋ 新建分类</button>
-      </div>
-      <div class="col">
-        <div class="card card-pad" id="note-list"></div>
-        <div class="card card-pad" id="note-editor" hidden></div>
-      </div>
-    </div>`;
-    box.querySelectorAll('[data-cat]').forEach((b) => { b.onclick = () => { cat = Number(b.dataset.cat); load(); }; });
-    box.querySelector('#new-cat').onclick = async () => {
-      const n = await promptDialog({ title: '新建分类', label: '分类名称', placeholder: '如：课文解读' });
-      if (n) { await api.post('/categories', { scope: 'note', name: n }); load(); }
-    };
-    box.querySelector('#new-note').onclick = () => { cat = cat; openEditor(null, cats); };
-    const holder = box.querySelector('#note-list');
-    holder.innerHTML = `<div class="row" style="margin-bottom:8px"><div class="card-title">笔记列表 <span class="chip">${list.length}</span></div></div>`
-      + (list.length ? '' : '<div class="empty">还没有笔记，点左侧「新建笔记」</div>');
-    list.forEach((n) => {
-      const it = el(`<div class="doc-item" style="cursor:pointer">
-        <div class="doc-ico">${icon(n.pinned ? 'pin' : 'file', 20)}</div>
-        <div style="flex:1;min-width:0"><div class="bold small">${esc(n.title)}</div>
-          <div class="tiny muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((n.content || '').replace(/[#*>`\n-]/g, ' ').slice(0, 60))}</div></div>
-        <span class="tiny muted">${relDate(n.updated_at)}</span></div>`);
-      it.onclick = () => openEditor(n, cats);
-      holder.appendChild(it);
+  const catName = (id) => cats.find((c) => String(c.id) === String(id))?.name || '';
+  const dateText = (note) => String(note?.created_at || note?.updated_at || '').slice(0, 10) || '—';
+  const summaryOf = (note) => String(note?.content || '').replace(/[#*>`\n-]/g, ' ').replace(/\s+/g, ' ').trim();
+  const allTags = () => [...new Set(notes.flatMap(readTags))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  const visibleNotes = () => notes.filter((note) => {
+    if (catId && String(note.category_id || '') !== catId) return false;
+    const tags = readTags(note);
+    if (tag && !tags.includes(tag)) return false;
+    const word = keyword.trim().toLowerCase();
+    if (!word) return true;
+    return [note.title, note.content, catName(note.category_id), ...tags]
+      .some((value) => String(value || '').toLowerCase().includes(word));
+  });
+
+  const paint = () => {
+    const list = visibleNotes();
+    const rows = list.map((note) => {
+      const tags = readTags(note);
+      const id = esc(String(note.id));
+      const summary = summaryOf(note);
+      return '<tr>' +
+        '<td class="kb-date">' + esc(dateText(note)) + '</td>' +
+        '<td>' + esc(catName(note.category_id) || '—') + '</td>' +
+        '<td class="kb-title" title="' + esc(note.title) + '">' + esc(note.title || '未命名笔记') + '</td>' +
+        '<td class="kb-tags">' + (tags.length
+          ? tags.map((item, index) => '<span class="kb-tag kb-tag-' + (index % 4 + 1) + '">' + esc(item) + '</span>').join('')
+          : '<span class="kb-muted">—</span>') + '</td>' +
+        '<td class="kb-summary" title="' + esc(summary) + '"><div class="kb-clip">' + esc(summary || '—') + '</div></td>' +
+        '<td class="kb-row-acts">' +
+          '<button class="kb-act kb-act-preview" type="button" data-note-preview="' + id + '">预览</button>' +
+          '<button class="kb-act kb-act-edit" type="button" data-note-edit="' + id + '">编辑</button>' +
+          '<button class="kb-act kb-act-delete" type="button" data-note-delete="' + id + '">删除</button>' +
+        '</td></tr>';
+    }).join('');
+
+    box.innerHTML = '<section class="kb-page">' +
+      '<div class="kb-card kb-head">' +
+        '<div class="kb-head-text"><h2>知识库</h2><p>随手记录、分类归档、快速检索，简答留存信息</p></div>' +
+        '<div class="kb-head-actions">' +
+          '<label class="kb-search">' +
+            '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="9" cy="9" r="5.6"></circle><path d="M13.2 13.2 17 17" stroke-linecap="round"></path></svg>' +
+            '<input id="kb-search" type="search" placeholder="搜索标题 / 笔记内容" value="' + esc(keyword) + '">' +
+          '</label>' +
+          '<button class="kb-primary" id="kb-add" type="button">＋ 新增笔记</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="kb-card kb-filter">' +
+        '<label for="kb-filter-cat">分类：<select id="kb-filter-cat">' +
+          '<option value="">筛选分类</option>' +
+          cats.map((c) => '<option value="' + esc(String(c.id)) + '"' + (catId === String(c.id) ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') +
+        '</select></label>' +
+        '<label for="kb-filter-tag">标签：<select id="kb-filter-tag">' +
+          '<option value="">筛选标签</option>' +
+          allTags().map((item) => '<option value="' + esc(item) + '"' + (tag === item ? ' selected' : '') + '>' + esc(item) + '</option>').join('') +
+        '</select></label>' +
+      '</div>' +
+      '<div class="kb-card kb-table-card">' +
+        '<div class="kb-table-wrap"><table class="kb-table">' +
+          '<thead><tr><th>创建时间</th><th>分类</th><th>标题</th><th>标签</th><th>内容摘要</th><th>操作</th></tr></thead>' +
+          '<tbody>' + (rows || '<tr><td colspan="6" class="kb-empty">还没有笔记，点击「新增笔记」开始记录。</td></tr>') + '</tbody>' +
+        '</table></div>' +
+        '<div class="kb-count">共 ' + list.length + ' 条记录</div>' +
+      '</div>' +
+      '</section>';
+
+    const search = box.querySelector('#kb-search');
+    search.addEventListener('input', () => {
+      keyword = search.value;
+      paint();
+      /* 重绘会换掉输入框，重新聚焦并把光标放回末尾，不然打字只能一个字一个字点。 */
+      const next = box.querySelector('#kb-search');
+      if (next) { next.focus(); next.setSelectionRange(keyword.length, keyword.length); }
     });
-    if (editing) {
-      const cur = all.find((x) => x.id === editing);
-      if (cur) openEditor(cur, cats);
+    box.querySelector('#kb-filter-cat').addEventListener('change', (event) => {
+      catId = event.target.value;
+      paint();
+    });
+    box.querySelector('#kb-filter-tag').addEventListener('change', (event) => {
+      tag = event.target.value;
+      paint();
+    });
+    box.querySelector('#kb-add').addEventListener('click', () => openEditor(null));
+    box.querySelectorAll('[data-note-preview]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const note = list.find((item) => String(item.id) === button.dataset.notePreview);
+        if (note) openPreview(note);
+      });
+    });
+    box.querySelectorAll('[data-note-edit]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const note = list.find((item) => String(item.id) === button.dataset.noteEdit);
+        if (note) openEditor(note);
+      });
+    });
+    box.querySelectorAll('[data-note-delete]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const note = list.find((item) => String(item.id) === button.dataset.noteDelete);
+        if (note) removeNote(note);
+      });
+    });
+  };
+
+  const removeNote = async (note) => {
+    if (!(await confirmDialog('删除这篇笔记？可在回收站找回。'))) return;
+    try {
+      await api.del('/notes/' + note.id);
+      toast('笔记已删除');
+      await reload();
+    } catch (error) {
+      toast(error?.message || '删除失败，请重试', 'err');
     }
   };
-  function openEditor(n, cats) {
-    const isNew = !n;
-    const ed = box.querySelector('#note-editor');
-    ed.hidden = false;
-    ed.innerHTML = `
-      <div class="row" style="margin-bottom:10px">
-        <input class="input" id="n-title" value="${esc(n?.title || '')}" style="font-weight:650;flex:1">
-        <select class="input" id="n-cat" style="max-width:150px">${cats.map((c) => `<option value="${c.id}" ${Number(n?.category_id) === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
-      </div>
-      <div class="seg" style="margin-bottom:8px"><button class="on" data-mv="edit">编辑</button><button data-mv="preview">预览</button></div>
-      <textarea class="input" id="n-body" rows="16" placeholder="支持 Markdown：# 标题、## 小标题、- 列表、**加粗**">${esc(n?.content || '')}</textarea>
-      <div id="n-preview" hidden style="background:var(--bg-sunken);border-radius:12px;padding:14px;min-height:200px;line-height:1.75"></div>
-      <div class="row" style="margin-top:10px">
-        <label class="row small" style="gap:6px"><input type="checkbox" id="n-pin" ${n?.pinned ? 'checked' : ''}> 置顶</label>
-        <span style="flex:1"></span>
-        ${isNew ? '' : '<button class="btn ghost sm" id="n-del" style="color:var(--red)">删除</button>'}
-        <button class="btn ghost sm" id="n-cancel">关闭</button>
-        <button class="btn primary sm" id="n-save">保存</button>
-      </div>`;
-    ed.querySelectorAll('[data-mv]').forEach((b) => {
-      b.onclick = () => {
-        ed.querySelectorAll('[data-mv]').forEach((x) => x.classList.toggle('on', x === b));
-        const pv = b.dataset.mv === 'preview';
-        ed.querySelector('#n-body').hidden = pv;
-        ed.querySelector('#n-preview').hidden = !pv;
-        if (pv) ed.querySelector('#n-preview').innerHTML = mdToHtml(ed.querySelector('#n-body').value);
-      };
+
+  function openPreview(note) {
+    const tags = readTags(note);
+    sheet({
+      title: '预览笔记',
+      wide: true,
+      body: '<div class="kb-preview">' +
+        '<h3 class="kb-preview-title">' + esc(note.title || '未命名笔记') + '</h3>' +
+        '<div class="kb-preview-meta">' +
+          '<span class="kb-preview-cat">' + esc(catName(note.category_id) || '未分类') + '</span>' +
+          tags.map((item, index) => '<span class="kb-tag kb-tag-' + (index % 4 + 1) + '">' + esc(item) + '</span>').join('') +
+          '<span class="kb-muted">' + esc(dateText(note)) + '</span>' +
+        '</div>' +
+        '<div class="kb-preview-body">' + (mdToHtml(note.content) || '<span class="kb-muted">这篇笔记还没有内容</span>') + '</div>' +
+        '</div>',
     });
-    ed.querySelector('#n-cancel').onclick = () => { ed.hidden = true; editing = null; };
-    ed.querySelector('#n-del')?.addEventListener('click', async () => {
-      if (await confirmDialog('删除这篇笔记？可在回收站找回。')) { await api.del('/notes/' + n.id); editing = null; load(); }
-    });
-    ed.querySelector('#n-save').onclick = async () => {
-      const payload = { title: ed.querySelector('#n-title').value.trim() || '未命名笔记', content: ed.querySelector('#n-body').value,
-        category_id: Number(ed.querySelector('#n-cat').value) || null, pinned: ed.querySelector('#n-pin').checked ? 1 : 0 };
-      if (isNew) { const r = await api.post('/notes', payload); editing = r.id; } else { await api.patch('/notes/' + n.id, payload); editing = n.id; }
-      toast('已保存'); load();
-    };
   }
-  await load();
+
+  function openEditor(note) {
+    const isNew = !note;
+    const body = '<div class="kb-form">' +
+      '<label class="kb-field"><span>标题</span><input class="input" id="note-title" value="' + esc(note?.title || '') + '" placeholder="给这篇笔记起个标题"></label>' +
+      '<label class="kb-field"><span>分类</span><select class="input" id="note-cat">' +
+        '<option value="">未分类</option>' +
+        cats.map((c) => '<option value="' + esc(String(c.id)) + '"' + (String(note?.category_id || '') === String(c.id) ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') +
+        '<option value="__new">＋ 新建分类…</option>' +
+      '</select></label>' +
+      '<label class="kb-field"><span>标签</span><input class="input" id="kb-tags" value="' + esc(readTags(note).join('，')) + '" placeholder="多个标签用逗号分隔，如：备课，前调"></label>' +
+      '<label class="kb-field"><span>内容</span><textarea class="input" id="note-body" rows="14" placeholder="支持 Markdown：# 标题、- 列表、**加粗**">' + esc(note?.content || '') + '</textarea></label>' +
+      '<label class="kb-pin"><input type="checkbox" id="kb-pin" ' + (note?.pinned ? 'checked' : '') + '> 置顶</label>' +
+      '</div>';
+    const footer = '<div class="kb-form-foot"><button class="btn ghost sm" data-note-cancel>取消</button>' +
+      '<button class="btn primary sm" data-note-save>保存</button></div>';
+    const s = sheet({ title: isNew ? '新增笔记' : '编辑笔记', body, footer, wide: true });
+    s.wrap.querySelector('[data-note-cancel]').onclick = () => s.close();
+    saving(s.wrap.querySelector('[data-note-save]'), async () => {
+      let categoryId = s.wrap.querySelector('#note-cat').value;
+      if (categoryId === '__new') {
+        const name = await promptDialog({ title: '新建分类', label: '分类名称', placeholder: '如：课文解读' });
+        if (!name) return;
+        const created = await api.post('/categories', { scope: 'note', name });
+        cats = await api.get('/categories', { scope: 'note' }) || cats;
+        categoryId = String(created?.id || cats.find((c) => c.name === name)?.id || '');
+      }
+      const payload = {
+        title: s.wrap.querySelector('#note-title').value.trim() || '未命名笔记',
+        content: s.wrap.querySelector('#note-body').value,
+        category_id: Number(categoryId) || null,
+        tags: readTags({ tags: s.wrap.querySelector('#kb-tags').value }),
+        pinned: s.wrap.querySelector('#kb-pin').checked ? 1 : 0,
+      };
+      if (isNew) await api.post('/notes', payload);
+      else await api.patch('/notes/' + note.id, payload);
+      toast('已保存');
+      s.close();
+      await reload();
+    });
+  }
+
+  const reload = async () => {
+    try {
+      const [categoryRows, noteRows] = await Promise.all([
+        api.get('/categories', { scope: 'note' }),
+        api.get('/notes'),
+      ]);
+      cats = categoryRows || [];
+      notes = noteRows || [];
+      paint();
+    } catch (error) {
+      console.error('读取笔记失败', error);
+      box.innerHTML = '<section class="kb-page"><div class="kb-card kb-load-error">读取笔记失败：'
+        + esc(error?.message || '请检查网络或工作台数据状态') + '</div></section>';
+    }
+  };
+  await reload();
 }
 
 function mdToHtml(md) {
