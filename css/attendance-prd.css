@@ -217,8 +217,9 @@
 .attendance-prd span.aprd-remark{display:inline-block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;color:#5c6b83}
 
 /* 考勤状态标签：绿=正常、黄=待确认、红=异常/请假 */
-.attendance-prd .aprd-mark{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:64px;height:24px;padding:0 9px;border:1px solid transparent;border-radius:6px;background:#f2f5fa;color:#7a899e;font-size:11.5px;line-height:1;cursor:pointer;transition:box-shadow .15s}
-.attendance-prd .aprd-mark i{flex:none;width:5px;height:5px;border-radius:50%;background:currentColor}
+.attendance-prd .aprd-mark{display:inline-flex;align-items:center;justify-content:center;min-width:64px;height:24px;padding:0 9px;border:1px solid transparent;border-radius:6px;background:#f2f5fa;color:#7a899e;font-size:12.5px;line-height:1;cursor:pointer;transition:box-shadow .15s}
+/* 2026-11-14：状态格只显示 √ / × / 空白，不再带前面的圆点 */
+.attendance-prd .aprd-mark i{display:none}
 .attendance-prd .aprd-mark.y{background:#e9f8ef;border-color:#c7ecd5;color:#15803d}
 .attendance-prd .aprd-mark.n{background:#fdecec;border-color:#f5cdcd;color:#cf3b3b}
 .attendance-prd .aprd-mark.u{background:#fff6e5;border-color:#f4e0b8;color:#b7791f}
@@ -231,7 +232,7 @@
 .attendance-prd span.aprd-mark{display:inline-flex;align-items:center;justify-content:center;cursor:default}
 
 /* 请假下拉：选中后呈现红色标签观感 */
-.attendance-prd .aprd-leave-select{height:26px;max-width:110px;padding:0 6px;border:1px solid #dce5f1;border-radius:6px;background:#f7f9fd;color:#5c6b83;font-size:11.5px;cursor:pointer}
+.attendance-prd .aprd-table-wrap select.aprd-leave-select{height:26px;width:86px;max-width:86px;min-width:86px;padding:0 2px;border:1px solid #dce5f1;border-radius:6px;background:#f7f9fd;color:#5c6b83;font-size:11.5px;text-align:center;text-align-last:center;cursor:pointer}
 .attendance-prd .aprd-leave-select.on{border-color:#f5cdcd;background:#fdecec;color:#cf3b3b}
 
 /* 操作列 */

@@ -935,13 +935,13 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         const stateText = value === 'y' ? '正常' : value === 'n' ? '异常' : '未登记';
         const tag = editable ? 'button' : 'span';
         const attrs = editable ? 'type="button" data-grid-person="'+esc(teacher.id)+'" data-grid-key="'+key+'"' : 'aria-disabled="true"';
-        return '<'+tag+' class="aprd-mark '+value+(label?'':' ap-placeholder')+'" '+attrs+' aria-label="'+esc(teacher.name+' '+({class:'上课',sit:'坐班',listen:'听课',research:'教研'}[key])+'：'+stateText)+'">'+(label?'<i></i>'+label:'—')+'</'+tag+'>';
+        return '<'+tag+' class="aprd-mark '+value+(label?'':' ap-placeholder')+'" '+attrs+' aria-label="'+esc(teacher.name+' '+({class:'上课',sit:'坐班',listen:'听课',research:'教研'}[key])+'：'+stateText)+'">'+(label||'—')+'</'+tag+'>';
       };
       const listen = shown.listenStatus || (shown.listen === true || shown.listen === 'y' ? 'y' : 'u');
       const research = shown.researchStatus || (shown.research === true || shown.research === 'y' ? 'y' : 'u');
       const leave = editable ? '<select class="aprd-leave-select '+(state.leave?'on':'')+'" data-grid-person="'+esc(teacher.id)+'" data-grid-key="leave" aria-label="'+esc(teacher.name+' 请假')+'">'
         +['',...new Set([...LEAVE_TYPES,state.leave].filter(Boolean))].map(value=>'<option value="'+esc(value)+'" '+(state.leave===value?'selected':'')+'>'+esc(value||'无')+'</option>').join('')+'</select>'
-        : (state.leave?'<span class="aprd-mark leave"><i></i>'+esc(state.leave)+'</span>':'<span class="aprd-mark ap-placeholder">—</span>');
+        : (state.leave?'<span class="aprd-mark leave">'+esc(state.leave)+'</span>':'<span class="aprd-mark ap-placeholder">—</span>');
       const remark = editable ? '<input data-grid-person="'+esc(teacher.id)+'" data-grid-key="remark" value="'+esc(state.remark||'')+'" aria-label="'+esc(teacher.name+' 备注')+'">'
         : '<span class="aprd-remark" title="'+escAttr(noteOf(teacher))+'">'+esc(noteOf(teacher)||'—')+'</span>';
       return '<tr><td>'+(index+1)+'</td><td>'+esc(deptOf(teacher))+'</td><td>'+esc(teacher.grade||grade)+'</td>'
