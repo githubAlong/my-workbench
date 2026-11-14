@@ -280,10 +280,13 @@ test('坐班表行内填写的请假和备注原样进入导出（11-15 反馈�
   assert.ok([5, 6, 7, 8].every(index => rows[0][index] === ''), '请假后四类状态应留空');
   assert.equal(rows[1][9], '病假');
   assert.ok([5, 6, 7, 8].every(index => rows[1][index] === ''), '请假后四类状态应留空');
-  assert.equal(rows[2][9], '无');
+  assert.equal(rows[2][9], '');
   assert.equal(rows[2][5], '未登记');
   assert.match(grid[0][0], /请假2/);
   assert.match(grid[0][0], /未登记1人/);
+  assert.match(grid[0][0], /高一教师坐班表/);
+  assert.match(grid[0][0], /2026-11-15 星期日/);
+  assert.match(grid[0][0], /08:00—08:45/);
 });
 
 test('导出的请假和备注优先取坐班表行内填写，其次才是请假页记录和教师备注', () => {

@@ -263,8 +263,77 @@
  .attendance-prd .aprd-time-range{width:100%}
  .attendance-prd .aprd-time-range input{flex:1;min-width:0}
  .attendance-prd .aprd-filter-actions{flex-wrap:wrap}
- .attendance-prd .aprd-filter-actions select.aprd-generate{flex:1 1 100%}
+ .attendance-prd .aprd-filter-actions .aprd-export-wrap{flex:1 1 100%}
+ .attendance-prd .aprd-filter-actions .aprd-generate-btn{width:100%;justify-content:space-between}
  .attendance-prd .aprd-tabs{gap:18px}
+ .attendance-prd .aprd-card{padding:0 12px 12px}
+ .attendance-prd .aprd-card .aprd-tabs{margin:0 -12px 12px;padding:0 12px}
  .attendance-prd .aprd-panel{padding:10px}
  .attendance-prd .aprd-toolbar-main input[type=search]{width:100%}
 }
+
+/* ============================================================
+   2026-11-15 按设计稿重排考勤工作台（视觉层，数据口径与交互不变）：
+   页签和表格收进同一张白卡；统计条改成整条分隔式；
+   状态格做成带箭头的下拉外观；备注改为「查看备注」入口；
+   操作列改为描边小按钮。
+   ============================================================ */
+.attendance-prd .aprd-card{background:#fff;border:1px solid #e4ebf5;border-radius:12px;padding:0 16px 16px;box-shadow:0 1px 2px rgba(23,39,68,.03);margin-top:12px}
+.attendance-prd .aprd-card .aprd-tabs{margin:0 -16px 14px;padding:0 16px}
+.attendance-prd .aprd-card .aprd-panel{padding:0;background:transparent;border:0;box-shadow:none}
+.attendance-prd .aprd-filter{margin-bottom:0}
+.attendance-prd .aprd-card .aprd-toolbar{margin-bottom:14px}
+
+/* 搜索框：放大镜放在输入框内 */
+.attendance-prd .aprd-toolbar-main .aprd-search{position:relative;display:inline-flex;align-items:center}
+.attendance-prd .aprd-toolbar-main .aprd-search svg{position:absolute;left:10px;color:#9aa8bc;pointer-events:none}
+.attendance-prd .aprd-toolbar-main .aprd-search input[type=search]{width:180px;padding-left:30px}
+.attendance-prd .aprd-toolbar-main .aprd-search input[type=search]::-webkit-search-cancel-button{display:none}
+
+/* 统计条：一个圆角边框，六格竖线分隔，数字在上、文字在下 */
+.attendance-prd .aprd-kpis.aprd-grid-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;margin:0 0 14px;border:1px solid #e6ecf5;border-radius:10px;background:#fff;overflow:hidden}
+.attendance-prd .aprd-grid-summary .aprd-kpi{display:flex;flex-direction:column;gap:3px;padding:12px 16px;border:0;border-right:1px solid #eef2f8;border-radius:0;background:#fff}
+.attendance-prd .aprd-grid-summary .aprd-kpi:last-child{border-right:0}
+.attendance-prd .aprd-grid-summary .aprd-kpi b{font-size:20px;line-height:1.2;font-weight:650;color:#172744}
+.attendance-prd .aprd-grid-summary .aprd-kpi span{font-size:11px;color:#8492a6}
+.attendance-prd .aprd-grid-summary .aprd-kpi.leave b{color:#ef8b00}
+@media(max-width:760px){
+ .attendance-prd .aprd-kpis.aprd-grid-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .attendance-prd .aprd-grid-summary .aprd-kpi{border-bottom:1px solid #eef2f8}
+ .attendance-prd .aprd-grid-summary .aprd-kpi:nth-child(2n){border-right:0}
+ .attendance-prd .aprd-grid-summary .aprd-kpi:nth-last-child(-n+2){border-bottom:0}
+}
+
+/* 状态格：下拉外观（空白 / √ / ×），点击仍按三态循环 */
+.attendance-prd .aprd-select{display:inline-flex;align-items:center;justify-content:space-between;gap:5px;min-width:68px;height:27px;padding:0 7px 0 10px;border:1px solid #dce5f1;border-radius:6px;background:#fff;color:#8b98ab;font-size:12px;line-height:1;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.attendance-prd .aprd-select:hover{border-color:#b9d2ff;box-shadow:0 0 0 3px rgba(22,93,255,.06)}
+.attendance-prd .aprd-select.y{color:#1a9b52;border-color:#cbe9d7}
+.attendance-prd .aprd-select.n{color:#df5a5a;border-color:#f2d0d0}
+.attendance-prd .aprd-select.u{color:#8b98ab}
+.attendance-prd .aprd-caret{width:0;height:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent;border-top:4.5px solid currentColor;opacity:.55}
+
+/* 请假下拉：白底，选了类型后用橙色文字提示 */
+.attendance-prd .aprd-table-wrap select.aprd-leave-select{width:84px;min-width:84px;max-width:84px;height:27px;padding:0 4px;border:1px solid #dce5f1;border-radius:6px;background:#fff;color:#8b98ab;font-size:12px;text-align:center;text-align-last:center}
+.attendance-prd .aprd-table-wrap select.aprd-leave-select.on{border-color:#f3ddb9;background:#fff;color:#e2820a;font-weight:600}
+
+/* 操作列：描边小按钮，删除为红色描边 */
+.attendance-prd .aprd-actions{display:flex;align-items:center;gap:8px}
+.attendance-prd .aprd-actions .aprd-op{height:26px;padding:0 10px;border:1px solid #dce5f1;border-radius:6px;background:#fff;color:#42536e;font-size:12px;line-height:1;cursor:pointer}
+.attendance-prd .aprd-actions .aprd-op:hover{border-color:#b9d2ff;color:#165dff}
+.attendance-prd .aprd-actions .aprd-op.danger{color:#d64545;border-color:#f0c9c9}
+.attendance-prd .aprd-actions .aprd-op.danger:hover{background:#fff5f5;border-color:#e9a8a8;color:#d64545}
+
+/* 表格：浅灰表头、纯白行身 */
+.attendance-prd .aprd-table-wrap thead th{background:#f7f9fc;color:#74839a;font-weight:600;font-size:12px;padding:12px 10px;border-bottom:1px solid #e6ecf5;white-space:nowrap}
+.attendance-prd .aprd-table-wrap tbody td{padding:10px}
+.attendance-prd .aprd-table-wrap tbody tr:nth-child(even){background:#fff}
+.attendance-prd .aprd-table-wrap tbody td:first-child{color:#94a1b4}
+
+/* 生成班表：下拉按钮，选项里标出当前选择 */
+.attendance-prd .aprd-filter-actions .aprd-generate-btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:1px solid #dce5f1;border-radius:8px;background:#fff;color:#354965;font-size:13px;cursor:pointer}
+.attendance-prd .aprd-filter-actions .aprd-generate-btn:hover{border-color:#b9d2ff;color:#165dff}
+.attendance-prd .aprd-filter-actions .aprd-voice{color:#165dff;border-color:#cfe0ff;background:#f7faff}
+.attendance-prd .aprd-filter-actions .aprd-export-menu{left:0;right:auto;min-width:150px}
+.attendance-prd .aprd-filter-actions .aprd-export-menu button{display:block;width:100%;height:auto;padding:8px 10px;border:0;border-radius:7px;background:#fff;color:#3f526d;font-size:12px;font-weight:400;text-align:left}
+.attendance-prd .aprd-filter-actions .aprd-export-menu button:hover{background:#f2f6fd;color:#165dff}
+.attendance-prd .aprd-filter-actions .aprd-export-menu button.on{color:#165dff;font-weight:650;background:#f2f6fd}

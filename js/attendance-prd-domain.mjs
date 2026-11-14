@@ -465,7 +465,18 @@ export function buildAttendanceExportGrid({
   const baseTitle = type === 'roster' ? '花名册' : ({
     seat: '坐班表', class: '上课表', research: '教研表', leave: '请假总表',
   }[type] || '考勤表');
-  const fileTitle = baseTitle + ' · ' + (grade || '全部年级') + ' · ' + date + ' · ' + periodLabel(period);
+  /* 导出抬头要能独立看懂：谁的哪张表、哪一天星期几、哪一节、几点到几点（用户 11-15 要求）。 */
+  const weekdayText = (() => {
+    const matched = String(date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!matched) return '';
+    const day = new Date(Number(matched[1]), Number(matched[2]) - 1, Number(matched[3])).getDay();
+    return ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][day] || '';
+  })();
+  const titleHead = type === 'seat'
+    ? (grade || '全部年级') + '教师' + baseTitle
+    : baseTitle + ' · ' + (grade || '全部年级');
+  const fileTitle = titleHead + ' · ' + date + (weekdayText ? ' ' + weekdayText : '')
+    + ' · ' + periodLabel(period) + '（' + rangeText(period) + '）';
 
   if (type === 'seat' || type === 'roster') {
     const activeLeaves = activeLeavesFor(leaveRecords, date);
@@ -519,10 +530,11 @@ export function buildAttendanceExportGrid({
       const gridLeave = gridCell(teacher, 'leave');
       const gridRemark = gridCell(teacher, 'remark');
       const meta = teacherMeta?.[String(teacher.id)] || {};
-      /* 行内填写的请假类型优先；没填过才回退到请假页记录。 */
-      const leaveValue = gridLeave.value || (gridLeave.touched ? '' : leaveText) || '无';
+      /* 行内填写的请假类型优先；没填过才回退到请假页记录。
+         没填就留空，不再写「无」（用户 11-15 裁决：空白代表没有请假）。 */
+      const leaveValue = gridLeave.value || (gridLeave.touched ? '' : leaveText);
       const remarkValue = gridRemark.value || meta.remark || teacher.remark || teacher.note || '';
-      const onLeave = leaveValue !== '无';
+      const onLeave = !!leaveValue;
       const statusOf = {
         sit: aggregate('sit'), class: aggregate('class'),
         listen: aggregate('listen'), research: aggregate('research'),
@@ -542,7 +554,7 @@ export function buildAttendanceExportGrid({
     });
     const rows = entries.map(entry => entry.row);
     const count = key => entries.filter(entry => entry.winner === key && entry.row[{ class: 6, sit: 5, listen: 7, research: 8 }[key]] === '✓').length;
-    const leaveCount = rows.filter(row => row[9] !== '无').length;
+    const leaveCount = rows.filter(row => row[9] !== '').length;
     const unregistered = entries.filter(entry => !entry.winner && !entry.onLeave).length;
     const title = fileTitle + ' · 共' + people.length + '人 · 坐班' + count('sit')
       + ' · 上课' + count('class') + ' · 听课' + count('listen')

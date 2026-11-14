@@ -68,6 +68,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   let teachers = [], allTeachers = [], tables = [], details = {}, leaveRecords = [], prefs = {};
   let timetableSettings = {}, timetableCourses = [], timetablePeriods = [], periodTimeEdits = {};
   let showAddTeacher = false;
+  /* 「生成班表」下拉里选中的表类型：确认生成时用它，不再用原生 select。 */
+  let generateType = 'seat';
   let watermarkOn = false, watermarkText = '';
   const draftCache = new Map();
   const currentScheduleType = () => {
@@ -449,7 +451,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   const teacherSubjects = () => [...new Set([...teachers, ...(tab === 'leave' ? leaveRecords : [])].map(item=>String(item.subject||'').trim()).filter(Boolean))].sort();
   const teacherFiltersHtml = () => {
     const subjects=teacherSubjects();
-    return '<input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'">'
+    return '<label class="aprd-search">'+icon('search',14)
+      +'<input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'"></label>'
       +'<select id="aprd-subject"><option value="">全部学科</option>'
       +subjects.map(item=>'<option value="'+esc(item)+'" '+(subject===item?'selected':'')+'>'+esc(item)+'</option>').join('')
       +'</select>';
@@ -497,14 +500,14 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   /* 把导出网格切成图片：常规年级（120 行以内）就是一张图，只有超大名单才分页，
      避免出现好几张长得一样的表让人误以为是重复导出。 */
   const buildPngPages = (grid, fileBase, rowCount, watermark = '', heading = {}) => {
-    const title=String(heading.title||fileBase),subtitle=String(heading.subtitle||'');
+    const title=String(heading.title||fileBase),subtitle=String(heading.subtitle||''),stats=String(heading.stats||'');
     const headers=grid[1], bodyRows=grid.slice(2);
     const widths=headers.map((header,index)=>{
       const max=Math.max(String(header).length,...bodyRows.map(row=>String(row[index]??'').length));
       return Math.max(90,Math.min(260,70+max*13));
     });
     const totalWidth=widths.reduce((sum,value)=>sum+value,0);
-    const rowH=42,titleH=subtitle?92:76,footH=34,rowsPerPage=120;
+    const rowH=42,titleH=subtitle?(stats?118:92):76,footH=34,rowsPerPage=120;
     const pages=[];
     for(const page of paginateExportGrid(grid, rowsPerPage)){
       const slice=page.rows, pageCount=page.pageCount, pageIndex=page.index;
@@ -519,6 +522,10 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       if(subtitle){
         ctx.fillStyle='#667085';ctx.font='12px "Microsoft YaHei",sans-serif';
         ctx.fillText(subtitle,canvas.width/2,60);
+      }
+      if(stats){
+        ctx.fillStyle='#34445d';ctx.font='bold 12px "Microsoft YaHei",sans-serif';
+        ctx.fillText(stats,canvas.width/2,84);
       }
       ctx.textAlign='left';
       let y=titleH,x=0;
@@ -544,11 +551,11 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     }
     return pages;
   };
-  const openPngPreview = (pages, fileBase, rowCount) => {
+  const openPngPreview = (pages, fileBase, rowCount, stats = '') => {
     const dialog=document.createElement('div');
     dialog.className='attendance-prd aprd-dialog aprd-png-dialog';
     dialog.innerHTML='<section class="aprd-png-preview"><header><div><h3>导出结果</h3>'
-      +'<p>'+esc(fileBase)+' · 共 '+rowCount+' 条'+(pages.length>1?' · 分成 '+pages.length+' 张图片，可上下滑动查看':'')+'</p></div>'
+      +'<p>'+esc(fileBase)+(stats?' · '+esc(stats):' · 共 '+rowCount+' 条')+(pages.length>1?' · 分成 '+pages.length+' 张图片，可上下滑动查看':'')+'</p></div>'
       +'<button type="button" data-png-close aria-label="关闭">×</button></header>'
       +'<div class="aprd-png-scroll">'+pages.map((src,index)=>'<figure><img src="'+src+'" alt="第 '+(index+1)+' 页">'+(pages.length>1?'<figcaption>第 '+(index+1)+' / '+pages.length+' 页</figcaption>':'')+'</figure>').join('')+'</div>'
       +'<footer><button type="button" data-png-close>关闭</button>'
@@ -597,6 +604,25 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     });
     const rowCount = Math.max(0, grid.length - 2);
     if(!rowCount){toast('当前表格没有符合条件的记录','warn');return;}
+    /* 导出抬头：表名（年级＋教师＋表别）、日期星期、节次时段、导出时间；
+       坐班表再带一行人数统计，让拿到图片的人一眼看出几个人请假/上课/听课（用户 11-15 要求）。 */
+    const nowText=new Date().toLocaleString('zh-CN');
+    const weekdayText=(()=>{
+      const matched=String(date||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if(!matched)return '';
+      const day=new Date(Number(matched[1]),Number(matched[2])-1,Number(matched[3])).getDay();
+      return ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'][day]||'';
+    })();
+    const rangeText=(resolvePeriodRange(period)||[]).filter(Boolean).join('—')||'—';
+    const headingTitle=(grade||'全部年级')+'教师'+typeLabel;
+    const headingSubtitle=date+(weekdayText?' '+weekdayText:'')+' · '+periodText+'（'+rangeText+'） · 导出时间：'+nowText;
+    const statRows=grid.slice(2);
+    const statCount=index=>statRows.filter(row=>row[index]==='✓').length;
+    const statsText=exportType==='seat'
+      ? '共 '+statRows.length+' 人 · 坐班 '+statCount(5)+' · 上课 '+statCount(6)+' · 听课 '+statCount(7)
+        +' · 教研 '+statCount(8)+' · 请假 '+statRows.filter(row=>row[9]).length
+        +' · 未登记 '+statRows.filter(row=>row[5]==='未登记').length
+      : '';
     if(format==='xlsx'){
       saveBlob(makeXlsx({title:fileBase,grid}),fileBase+'.xlsx');
       toast('已导出 '+fileBase+'.xlsx','ok');
@@ -609,18 +635,19 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       if(!win){toast('浏览器拦截了打印窗口，请允许本站弹出窗口后重试','warn');return;}
       const body=grid.slice(2).map(row=>'<tr>'+row.map(cell=>'<td>'+esc(cell)+'</td>').join('')+'</tr>').join('');
       const watermarkHtml=watermark?'<div class="aprd-print-watermark">'+esc(watermark)+'</div>':'';
-      win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>'+esc(fileBase)+'</title><style>body{font-family:Arial,"Microsoft YaHei",sans-serif;padding:24px;color:#1d2939}h1{font-size:20px}p{color:#667085;font-size:12px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d0d5dd;padding:8px;text-align:left}th{background:#f2f4f7}.aprd-print-watermark{position:fixed;inset:0;display:grid;place-items:center;font-size:64px;font-weight:800;color:rgba(23,39,68,.09);transform:rotate(-24deg);pointer-events:none;white-space:nowrap;z-index:99}</style>'+watermarkHtml+'<h1>'+esc(fileBase)+'</h1><p>导出时间：'+esc(new Date().toLocaleString('zh-CN'))+'　共 '+rowCount+' 条</p><table><thead><tr>'+grid[1].map(cell=>'<th>'+esc(cell)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table><script>window.onload=function(){window.print()}<\\/script></html>');
+      win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>'+esc(fileBase)+'</title><style>body{font-family:Arial,"Microsoft YaHei",sans-serif;padding:24px;color:#1d2939}h1{font-size:20px;text-align:center;margin:0 0 6px}p{color:#667085;font-size:12px;text-align:center;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d0d5dd;padding:8px;text-align:left}th{background:#f2f4f7}.aprd-print-watermark{position:fixed;inset:0;display:grid;place-items:center;font-size:64px;font-weight:800;color:rgba(23,39,68,.09);transform:rotate(-24deg);pointer-events:none;white-space:nowrap;z-index:99}</style>'+watermarkHtml+'<h1>'+esc(headingTitle)+'</h1><p>'+esc(headingSubtitle)+(statsText?'<br>'+esc(statsText):'')+'</p><table><thead><tr>'+grid[1].map(cell=>'<th>'+esc(cell)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table><script>window.onload=function(){window.print()}<\\/script></html>');
       win.document.close();
       toast('已打开打印预览，可在弹窗里另存为 PDF','ok');
     }else if(format==='png'){
       /* 默认一个年级就是一张图（120 行以内不分页），先给可滚动的预览，
          确认后再下载，内容和页面表格逐格一致。 */
       const pages=buildPngPages(grid, fileBase, rowCount, watermark, {
-        title:(grade||'全部年级')+typeLabel,
-        subtitle:date+' · '+periodText+' · 导出时间：'+new Date().toLocaleString('zh-CN'),
+        title:headingTitle,
+        subtitle:headingSubtitle,
+        stats:statsText,
       });
       toast('图片已生成'+(pages.length>1?'，共 '+pages.length+' 张':''),'ok');
-      openPngPreview(pages, fileBase, rowCount);
+      openPngPreview(pages, fileBase, rowCount, statsText);
     }
     const menu=root.querySelector('[data-roster-export-menu]');if(menu)menu.hidden=true;
   };
@@ -949,7 +976,17 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const editable = type !== 'roster', list = visibleTeachers();
     const draftRows = editable ? getDraftRows(type) : [];
     const context = {leaveRecords,date,period};
+    /* 花名册只维护教师名单：考勤相关的坐班/上课/听课/教研/请假/备注一律不展示（用户 11-15 裁决）。 */
+    const columns = type === 'roster'
+      ? ['序号','归属部门','归属年级','姓名','学科','操作']
+      : ATTENDANCE_COLUMNS[type];
+    const actionsOf = teacher => '<div class="aprd-actions"><button type="button" class="aprd-op" data-edit="'+esc(teacher.id)+'">编辑</button>'
+      +'<button type="button" class="aprd-op danger" data-disable="'+esc(teacher.id)+'">删除</button></div>';
     const rows = list.map((teacher,index) => {
+      if (type === 'roster') {
+        return '<tr><td>'+(index+1)+'</td><td>'+esc(deptOf(teacher))+'</td><td>'+esc(teacher.grade||grade)+'</td>'
+          +'<td><b>'+esc(teacher.name)+'</b></td><td>'+esc(teacher.subject||'')+'</td><td>'+actionsOf(teacher)+'</td></tr>';
+      }
       const state = editable ? deriveTableGridState(teacher,type,draftRows,context)
         : deriveRosterState(teacher,{...context,seatRows:details.seat?.rows||[],
           classRows:details.class?.rows||[],researchRows:details.research?.rows||[]});
@@ -958,38 +995,40 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const shown = state.leave
         ? {...state, class:'u', sit:'u', listen:'u', research:'u', listenStatus:'u', researchStatus:'u'}
         : state;
-      /* 状态格三态：√ 正常 / × 异常 / 空白 未登记（默认空白）。
-         可编辑时是按钮，点击按 空白→√→×→空白 循环；花名册只读，未登记显示「—」。 */
+      /* 状态格做成下拉样式（设计稿）：点一下按 空白→√→×→空白 循环。
+         未登记统一写「空白」，可编辑时右侧带一个小箭头。 */
       const mark = (key,value) => {
         value = value === 'y' || value === 'n' ? value : 'u';
-        const label = value === 'y' ? '√' : value === 'n' ? '×' : '';
+        const label = value === 'y' ? '√' : value === 'n' ? '×' : '空白';
         const stateText = value === 'y' ? '正常' : value === 'n' ? '异常' : '未登记';
-        const tag = editable ? 'button' : 'span';
-        const attrs = editable ? 'type="button" data-grid-person="'+esc(teacher.id)+'" data-grid-key="'+key+'"' : 'aria-disabled="true"';
-        return '<'+tag+' class="aprd-mark '+value+(label?'':' ap-placeholder')+'" '+attrs+' aria-label="'+esc(teacher.name+' '+({class:'上课',sit:'坐班',listen:'听课',research:'教研'}[key])+'：'+stateText)+'">'+(label||'—')+'</'+tag+'>';
+        const aria = 'aria-label="'+esc(teacher.name+' '+({class:'上课',sit:'坐班',listen:'听课',research:'教研'}[key])+'：'+stateText)+'"';
+        if (!editable) return '<span class="aprd-mark '+value+(value==='u'?' ap-placeholder':'')+'" '+aria+'>'+(value==='u'?'—':label)+'</span>';
+        return '<button type="button" class="aprd-select '+value+'" data-grid-person="'+esc(teacher.id)+'" data-grid-key="'+key+'" '+aria
+          +'><span>'+label+'</span><i class="aprd-caret"></i></button>';
       };
       const listen = shown.listenStatus || (shown.listen === true || shown.listen === 'y' ? 'y' : 'u');
       const research = shown.researchStatus || (shown.research === true || shown.research === 'y' ? 'y' : 'u');
       const leave = editable ? '<select class="aprd-leave-select '+(state.leave?'on':'')+'" data-grid-person="'+esc(teacher.id)+'" data-grid-key="leave" aria-label="'+esc(teacher.name+' 请假')+'">'
         +['',...new Set([...LEAVE_TYPES,state.leave].filter(Boolean))].map(value=>'<option value="'+esc(value)+'" '+(state.leave===value?'selected':'')+'>'+esc(value||'无')+'</option>').join('')+'</select>'
         : (state.leave?'<span class="aprd-mark leave">'+esc(state.leave)+'</span>':'<span class="aprd-mark ap-placeholder">—</span>');
-      const remark = editable ? '<input data-grid-person="'+esc(teacher.id)+'" data-grid-key="remark" value="'+esc(state.remark||'')+'" aria-label="'+esc(teacher.name+' 备注')+'">'
+      /* 备注列按设计稿改成「查看备注」入口，点开弹层查看和修改，行内保持干净。 */
+      const remark = editable
+        ? '<button type="button" class="aprd-link" data-grid-person="'+esc(teacher.id)+'" data-grid-key="remark" title="'+escAttr(state.remark||'')+'">查看备注</button>'
         : '<span class="aprd-remark" title="'+escAttr(noteOf(teacher))+'">'+esc(noteOf(teacher)||'—')+'</span>';
       return '<tr><td>'+(index+1)+'</td><td>'+esc(deptOf(teacher))+'</td><td>'+esc(teacher.grade||grade)+'</td>'
         +'<td><b>'+esc(teacher.name)+'</b></td><td>'+esc(teacher.subject||'')+'</td>'
         +'<td>'+mark('sit',shown.sit)+'</td><td>'+mark('class',shown.class)+'</td>'
         +'<td>'+mark('listen',listen)+'</td><td>'+mark('research',research)+'</td><td>'+leave+'</td><td>'+remark+'</td>'
-        +'<td><div class="aprd-actions"><button type="button" class="aprd-link" data-edit="'+esc(teacher.id)+'">'+icon('edit',13)+'编辑教师</button>'
-        +(!editable?'<button type="button" class="aprd-link danger" data-disable="'+esc(teacher.id)+'">'+icon('trash',13)+'删除</button>':'')+'</div></td></tr>';
+        +'<td>'+actionsOf(teacher)+'</td></tr>';
     }).join('');
     const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
-      +'<button type="button" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button type="button" data-roster-export-toggle>批量导出 ▾</button>'
+      +'<button type="button" class="aprd-op" data-subject-manager>学科管理</button>'
+      +'<button type="button" class="aprd-op" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button type="button" class="aprd-op" data-roster-export-toggle>批量导出 ▾</button>'
       +'<div class="aprd-export-menu" data-roster-export-menu hidden>'
       +'<label class="aprd-export-opt"><input type="checkbox" id="aprd-export-watermark" '+(watermarkOn?'checked':'')+'> 导出带水印</label>'
       +'<label>水印文案<input type="text" id="aprd-export-watermark-text" value="'+esc(watermarkText)+'" placeholder="留空默认：年级＋表名" '+(watermarkOn?'':'disabled')+'></label>'
       +'<button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button>'
-      +'</div></div>'
-      +'<button type="button" data-subject-manager>学科管理</button>';
+      +'</div></div>';
     const summaryContext = {
       leaveRecords,date,period,
       seatRows:type==='seat'?draftRows:(details.seat?.rows||[]),
@@ -997,22 +1036,23 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       researchRows:type==='research'?draftRows:(details.research?.rows||[]),
     };
     const currentStates = editable ? list.map(teacher=>deriveRosterState(teacher,summaryContext)) : [];
+    /* 设计稿的统计条：数字在上、文字在下，整条一个圆角边框，格子之间用竖线分隔。 */
     const summaryItems = [
-      ['当前筛选教师',list.length+'人'],
-      ['正在坐班',currentStates.filter(state=>state.sit==='y').length+'人'],
-      ['正在上课',currentStates.filter(state=>state.class==='y').length+'人'],
-      ['听课教师',currentStates.filter(state=>!!state.listen).length+'人'],
-      ['教研教师',currentStates.filter(state=>!!state.research).length+'人'],
-      ['请假教师',currentStates.filter(state=>!!state.leave).length+'人'],
+      ['当前筛选教师',list.length],
+      ['正在坐班',currentStates.filter(state=>state.sit==='y').length],
+      ['正在上课',currentStates.filter(state=>state.class==='y').length],
+      ['听课教师',currentStates.filter(state=>!!state.listen).length],
+      ['教研教师',currentStates.filter(state=>!!state.research).length],
+      ['请假教师',currentStates.filter(state=>!!state.leave).length],
     ];
     const summaryStrip = editable
-      ? '<div class="aprd-kpis aprd-grid-summary">'+summaryItems.map(([label,value])=>'<div class="aprd-kpi"><span>'+label+'</span><b>'+value+'</b></div>').join('')+'</div>'
+      ? '<div class="aprd-kpis aprd-grid-summary">'+summaryItems.map(([label,value])=>
+        '<div class="aprd-kpi'+(label==='请假教师'?' leave':'')+'"><b>'+value+'</b><span>'+label+'</span></div>').join('')+'</div>'
       : '';
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+tools+'</div>'
-      +'<span class="aprd-filter-count">当前筛：'+esc(subject||'全部')+' · '+list.length+' 人</span></div>'+teacherAddCardHtml()+summaryStrip
-      +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS[type].map(column=>'<th>'+column+'</th>').join('')
-      +'</tr></thead><tbody>'+(rows||'<tr><td colspan="12" class="aprd-empty">当前筛选下暂无在岗教师</td></tr>')+'</tbody></table></div>'
-      +'<p class="aprd-note">'+(editable?'本表独立登记、独立保存；花名册汇总已保存的三张表。切换页签保留本表草稿。':'花名册考勤状态仅供查看，汇总当前日期和节次已保存的三张表；请在工作表中登记。')+'</p>';
+      +'<span class="aprd-filter-count">当前筛：'+esc(subject||'全部')+' · '+list.length+'人</span></div>'+teacherAddCardHtml()+summaryStrip
+      +'<div class="aprd-table-wrap"><table><thead><tr>'+columns.map(column=>'<th>'+column+'</th>').join('')
+      +'</tr></thead><tbody>'+(rows||'<tr><td colspan="'+columns.length+'" class="aprd-empty">当前筛选下暂无在岗教师</td></tr>')+'</tbody></table></div>';
   };
   const leaveHtml = () => {
     const shown=leaveRecords.filter(x=>(!search||(x.name+' '+x.subject).includes(search))&&(!subject||x.subject===subject));
@@ -1034,13 +1074,26 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       +'<div class="aprd-grade">'+grades.map(g=>'<button data-grade-tab="'+esc(g)+'" class="'+(g===grade?'on':'')+'">'+esc(g)+'</button>').join('')+'</div>'
       +'<div class="aprd-filter"><div class="aprd-filter-fields">'
       +'<label>日期 <input type="date" id="aprd-date" value="'+date+'"></label>'
-      +'<label>节次 <select id="aprd-period"><option value="0" '+(period===0?'selected':'')+'>全天</option>'+DEFAULT_PERIODS.map(p=>'<option value="'+p.no+'" '+(p.no===period?'selected':'')+'>'+p.label+'</option>').join('')+'</select></label>'
+      +'<label>节次 <select id="aprd-period"><option value="0" '+(period===0?'selected':'')+'>全部</option>'+DEFAULT_PERIODS.map(p=>'<option value="'+p.no+'" '+(p.no===period?'selected':'')+'>'+p.label+'</option>').join('')+'</select></label>'
       +'<label>时段 <span class="aprd-time-range"><input type="time" id="aprd-start" value="'+periodRange[0]+'"><span class="aprd-time-sep">—</span><input type="time" id="aprd-end" value="'+periodRange[1]+'"></span></label>'
-      +'</div><div class="aprd-filter-actions"><select id="aprd-generate" class="aprd-generate" aria-label="选择要生成的表"><option value="seat">生成坐班表</option><option value="class">生成上课表</option><option value="research">生成教研表</option></select>'
+      +'</div><div class="aprd-filter-actions">'
+      +'<div class="aprd-export-wrap"><button type="button" class="aprd-generate-btn" data-generate-toggle>生成班表<i class="aprd-caret"></i></button>'
+      +'<div class="aprd-export-menu aprd-generate-menu" data-generate-menu hidden>'
+      +['seat','class','research'].map(t=>'<button type="button" data-generate-type="'+t+'" class="'+(generateType===t?'on':'')+'">生成'+({seat:'坐班表',class:'上课表',research:'教研表'}[t])+'</button>').join('')
+      +'</div></div>'
       +'<button class="primary" data-generate>确认生成</button><button type="button" class="aprd-voice" data-workspace-voice>'+icon('speak',15)+'语音登记</button></div></div>'
-      +'<nav class="aprd-tabs">'+TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(tab===id?'on':'')+'">'+label+'</button>').join('')+'</nav>'
-      +'<section class="aprd-panel">'+content+'</section></div>';
-    if(TYPE[tab]) root.querySelector('#aprd-generate').value=tab;
+      +'<section class="aprd-card"><nav class="aprd-tabs">'+TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(tab===id?'on':'')+'">'+label+'</button>').join('')+'</nav>'
+      +'<div class="aprd-panel">'+content+'</div></section></div>';
+    const generateToggle = root.querySelector('[data-generate-toggle]');
+    const generateMenu = root.querySelector('[data-generate-menu]');
+    generateToggle.onclick = () => { generateMenu.hidden = !generateMenu.hidden; };
+    root.querySelectorAll('[data-generate-type]').forEach(button => button.onclick = () => {
+      generateType = button.dataset.generateType;
+      generateMenu.hidden = true;
+      root.querySelectorAll('[data-generate-type]').forEach(item => {
+        if (item.classList) item.classList.toggle('on', item === button);
+      });
+    });
     root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();tab=b.dataset.tab;search='';subject='';paint();});
     root.querySelectorAll('[data-grade-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();grade=b.dataset.gradeTab;await load();});
     root.querySelector('#aprd-date').onchange=async e=>{await flushAutoSave();date=e.target.value;await load();};
@@ -1056,7 +1109,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     root.querySelector('[data-generate]').onclick=async()=>{
       const button=root.querySelector('[data-generate]');
       if(button.disabled)return;
-      const type=root.querySelector('#aprd-generate').value;
+      const type=generateType;
       const label=button.textContent;
       button.disabled=true;button.textContent='生成中…';
       try{await generateTable(type);}
@@ -1064,7 +1117,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       finally{if(button.isConnected){button.disabled=false;button.textContent=label;}}
     };
     root.querySelector('[data-workspace-voice]').onclick=()=>{
-      const type=TYPE[tab]?tab:root.querySelector('#aprd-generate').value;
+      const type=TYPE[tab]?tab:generateType;
       const selectedPeriod=period,selectedDate=date,selectedGrade=grade;
       const cols=[{key:'class',label:'上课',type:'check'},{key:'sit',label:'坐班',type:'check'},{key:'listen',label:'听课',type:'check'},{key:'research',label:'教研',type:'check'}];
       voiceSheet({rows:teachers.map(t=>({teacher:t.name,subject:t.subject})),cols,onApply:items=>{
@@ -1110,7 +1163,14 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         const state = deriveTableGridState(teacher,tab,getDraftRows(tab),{leaveRecords,date,period});
         update(nextTriState(state[key])); paint(); scheduleAutoSave(tab);
       };
-      else control.addEventListener(key === 'remark' ? 'input' : 'change',() => {update(control.value);scheduleAutoSave(tab);});
+      /* 备注以「查看备注」入口打开弹层编辑，保存后写回本表的 __teacherGrid。 */
+      else if (key === 'remark') control.onclick = () => {
+        const state = deriveTableGridState(teacher,tab,getDraftRows(tab),{leaveRecords,date,period});
+        openEditor('备注 · '+teacher.name,[{key:'remark',label:'备注内容',type:'textarea'}],{remark:state.remark||''},async data=>{
+          update(String(data.remark??'').trim()); paint(); scheduleAutoSave(tab);
+        });
+      };
+      else control.addEventListener('change',() => {update(control.value);scheduleAutoSave(tab);});
     });
     root.querySelectorAll('[data-person]').forEach(b=>b.onclick=async()=>{
       const teacher=teachers.find(x=>String(x.id)===b.dataset.person);

@@ -111,13 +111,19 @@ test('实际四页签展示相同名单和列，花名册无考勤编辑入口�
   const {root}=await setup();
   const headers=()=>[...root.innerHTML.matchAll(/<th>(.*?)<\/th>/g)].map(match=>match[1]);
   const names=()=>[...root.innerHTML.matchAll(/<td><b>(.*?)<\/b><\/td>/g)].map(match=>match[1]);
-  const expectedHeaders=headers(),expectedNames=names();
+  const rosterHeaders=headers(),expectedNames=names();
+  /* 用户 11-15 裁决：花名册只维护教师名单，考勤状态列全部隐藏 */
+  assert.deepEqual(rosterHeaders,['序号','归属部门','归属年级','姓名','学科','操作']);
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
   assert.equal(root.querySelectorAll('[data-person]').length,0);
+  let workHeaders=null;
   for(const type of ['seat','class','research']) {
     await root.querySelector('[data-tab="'+type+'"]').click();
-    assert.deepEqual(headers(),expectedHeaders);
+    const current=headers();
+    if(workHeaders===null) workHeaders=current;
+    assert.deepEqual(current,workHeaders);
     assert.deepEqual(names(),expectedNames);
+    assert.equal(workHeaders.includes('坐班')&&workHeaders.includes('请假'),true);
     assert.equal(root.querySelectorAll('[data-grid-person]').length,12);
     /* 用户 11-12 裁决：去掉「保存本表」，改为点一下即自动保存 */
     assert.equal(root.querySelector('[data-grid-save]'),null);
@@ -125,11 +131,12 @@ test('实际四页签展示相同名单和列，花名册无考勤编辑入口�
   }
 });
 
-test('真实操作链：草稿跨页签保留，自动保存仅写本表，重新打开与花名册汇总一致',async()=>{
+test('真实操作链：草稿跨页签保留，自动保存仅写本表，重新打开与花名册一致',async()=>{
   const {root,saved,calls}=await setup();
   await root.querySelector('[data-tab="seat"]').click();
   await control(root,'sit').click();
-  await control(root,'remark').input('本表的备注');
+  /* 备注改成「查看备注」弹层入口（11-15 设计稿）；写入值由领域层导出单测覆盖 */
+  assert.equal(control(root,'remark').tag,'button');
   /* 不再需要点「保存本表」：点击后自动落盘（350ms 防抖），这里等它执行完 */
   await new Promise(resolve=>setTimeout(resolve,450));
   assert.deepEqual(calls,['seat']);
@@ -137,14 +144,13 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   assert.equal(saved.research.rows.length,0);
   await root.querySelector('[data-tab="class"]').click();
   assert.match(control(root,'sit').attributes['aria-label'],/未登记/);
-  assert.equal(control(root,'remark').value,'');
+  assert.equal(control(root,'remark').tag,'button');
   await root.querySelector('[data-tab="seat"]').click();
   assert.match(control(root,'sit').attributes['aria-label'],/正常/);
-  assert.equal(control(root,'remark').value,'本表的备注');
   await root.querySelector('[data-tab="roster"]').click();
-  const mark=root.querySelectorAll('[aria-disabled]').find(element=>element.attributes['aria-label']?.includes('李老师 坐班'));
-  assert.match(mark.attributes['aria-label'],/正常/);
+  /* 花名册只保留名单与操作，不再展示任何考勤状态格 */
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
+  assert.equal(root.querySelectorAll('[aria-disabled]').length,0);
 });
 
 test('换节次后连续自动保存，不会把自己的上一次写入判成「另一台设备修改」',async()=>{
@@ -219,13 +225,13 @@ test('教师搜索支持中文输入法组合输入，组合期间不重绘，�
 test('工作表导出和生成操作针对当前页签，导出的列及勾选与页面一致',async()=>{
   const {root,exportedGrids}=await setup();
   await root.querySelector('[data-tab="class"]').click();
-  assert.equal(root.querySelector('#aprd-generate').value,'class');
+  /* 「生成班表」改下拉菜单（11-15 设计稿）：先选上课表，确认生成按它走 */
+  assert.equal(root.querySelector('[data-generate-menu]').attributes.hidden,'');
+  await root.querySelector('[data-generate-type="class"]').click();
   await control(root,'class').click();
-  await control(root,'remark').input('上课表备注');
   await root.querySelector('[data-roster-export="xlsx"]').click();
   const grid=exportedGrids[0];
   assert.deepEqual(grid[1],['序号','归属部门','归属年级','姓名','学科','班级','节次','上课时间','上课状态','听课教师','备注']);
   assert.equal(grid[2][3],'李老师');
   assert.equal(grid[2][8],'已上课');
-  assert.equal(grid[2][10],'上课表备注');
 });
