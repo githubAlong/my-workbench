@@ -407,7 +407,7 @@ export async function renderTimetable(box) {
       const rowCourses = courses.filter((course) => getCanonicalPeriodNumber(course) === pNo);
       const firstCourse = rowCourses.find((course) => course.start_time || course.end_time) || {};
       const time = courseTime({ ...firstCourse, period_no:pNo }, period, periodTimes, appliedType);
-      if (pNo === 5.5 || String(period.name || '').includes('午休')) return '<tr class="tt-lunch-row"><td class="tt-period-cell"><strong>午休</strong></td><td class="tt-lunch-cell" colspan="' + (shownDays.length + 2) + '"><div class="tt-lunch-content">' + icon('clock', 23) + '<span>午休</span><strong>' + esc(time === '时间待设置' ? '12:20–14:10' : time) + '</strong></div></td></tr>';
+      if (pNo === 5.5 || String(period.name || '').includes('午休')) return '<tr class="tt-lunch-row"><td class="tt-period-cell"><strong>午休</strong></td><td class="tt-lunch-cell" colspan="' + (shownDays.length + 1) + '"><div class="tt-lunch-content">' + icon('clock', 23) + '<span>午休</span><strong>' + esc(time === '时间待设置' ? '12:20–14:10' : time) + '</strong></div></td></tr>';
       const cells = shownDays.map((day) => {
         const list = rowCourses.filter((course) => Number(course.weekday) === day);
         return '<td class="tt-slot ' + (list.length ? 'has-course' : 'is-empty') + (day === new Date().getDay() ? ' is-today' : '') + '" data-slot="1" data-day="' + day + '" data-period="' + pNo + '">' + (list.length ? list.map((course) => renderCourse(course, period)).join('') : '<button class="tt-empty-add" type="button" aria-label="新增课程">＋</button>') + '</td>';

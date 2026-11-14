@@ -112,8 +112,8 @@ test("high-two 2026 autumn timetable keeps source row numbers, lunch span and ti
   assert.match(source, /Object\.entries\(times\)\.map/);
   assert.match(source, /period_no:Number\(no\)/);
   assert.match(source, /await api\.patch\("\/courses\/" \+ target\.id, data\)/);
-  // 午休行跨列数随「显示星期」变化，不再是写死的 8
-  assert.match(source, /colspan="' \+ \(shownDays\.length \+ 2\) \+ '"/);
+  // 午休行跨列数随「显示星期」变化：1 个节次格 + (可见天数 + 1)，不再写死 8
+  assert.match(source, /colspan="' \+ \(shownDays\.length \+ 1\) \+ '"/);
 });
 
 test("作息设置支持勾选周一到周日的显示与隐藏", () => {
