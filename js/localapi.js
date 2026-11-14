@@ -23,6 +23,7 @@ import {
   randomCode, nowISO, pad2, ymd, hydrate,
 } from './localdb.js';
 import { accountIdentifierFromPhone } from './auth-identifier.mjs';
+import { resolveEnvironmentProfile } from './environment-config.mjs';
 import { reconcileTaskLinks } from './todo-item-sync.mjs';
 import { reconcileTaskMessages } from './task-messages.mjs';
 import { attRowState } from './att-parse.js';
@@ -1117,9 +1118,21 @@ const PUNISH = [
   ['英语自我介绍', '30 秒英文自我介绍', 'heavy'],
 ];
 
+/* 测试环境不灌示例数据：用户要自己导入真实数据或自己添加测试数据。
+   环境按 hostname 固定分流，URL 参数/localStorage 改不了。
+   识别失败（例如非浏览器环境）时保持原行为。 */
+function demoSeedAllowed() {
+  try {
+    return resolveEnvironmentProfile(globalThis.location)?.autoSeedDemo !== false;
+  } catch {
+    return true;
+  }
+}
+
 export function seedIfEmpty() {
   const db = load();
   if (db.meta.seeded) return false;
+  if (!demoSeedAllowed()) { db.meta.seeded = true; save(); return false; }
   /* 判断「是不是空库」要看得宽一点：
      早先只探 periods/courses/students/categories 四张表，
      于是从搬家链接导入一份只有笔记/事项的数据后，这四张表仍然为空，

@@ -1,7 +1,8 @@
 name: Mirror test branch to production
 
-# 测试仓 my-workbench 是唯一维护源。
-# 推送到 test 分支后，把整棵树同步到生产仓 mywork-master 的 master，
+# 测试仓 my-workbench 的 test 分支是唯一维护源。
+# 发布流程：先推送 test → 等 Cloudflare Pages 构建 → 在测试站验证通过后，
+# 手动触发本工作流（workflow_dispatch），把整棵树同步到生产仓 mywork-master 的 master，
 # 由生产仓自己的 deploy-pages.yml 继续完成 GitHub Pages 发布。
 #
 # 需要的 Secret：MIRROR_TOKEN
@@ -10,8 +11,6 @@ name: Mirror test branch to production
 #   Settings → Secrets and variables → Actions 里。
 
 on:
-  push:
-    branches: [test]
   workflow_dispatch:
 
 permissions:
