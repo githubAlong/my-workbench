@@ -4,6 +4,8 @@ import { installBrowser } from './test-browser.mjs';
 
 installBrowser({ href: 'http://localhost/' });
 const { handle } = await import('../js/localapi.js?attendance-localapi=1');
+/* 必须与 localapi 使用同一个模块实例，否则切号只改了另一份内存状态 */
+const { setActiveAccount } = await import('../js/localdb.js');
 
 async function call(method, path, query = {}, body = undefined) {
   const response = await handle(method, path, query, body);
@@ -189,4 +191,40 @@ test('attendance V1 local API regression', async (t) => {
     assert.equal(stale.code, 409);
     assert.match(stale.error, /WB_ATTENDANCE_CONFLICT/);
   });
+});
+
+test('考勤数据按账号隔离：切换账号不显示上一个账号的数据', async () => {
+  const loginAs = async (uid, account) => {
+    const response = await handle('POST', '/auth/login-cloud', {}, { uid, account });
+    assert.equal(response.ok, true, response.error);
+    setActiveAccount(uid);
+  };
+
+  await loginAs('acct-attendance-a', '13900000001');
+  await call('POST', '/grades', {}, { name: '高二年级' });
+  await call('POST', '/teachers', {}, {
+    grade: '高二年级',
+    items: [{ name: '甲老师', subject: '语文' }],
+  });
+  const sheet = await call('POST', '/attendance', {}, {
+    grade: '高二年级', sheet_date: '2026-11-14', weekday: '六', month: '2026-11',
+    sheet_type: 'seat', periods: '1', name: '高二坐班表',
+  });
+  await call('POST', `/attendance/${sheet.id}/rows`, {}, {
+    rows: [{ teacher: '甲老师', subject: '语文', data: { 1: 'y' } }],
+    dirty: true,
+  });
+  await call('PATCH', '/me', {}, {
+    settings: { attendanceWorkspace: { leaves: [{ name: '甲老师', start_date: '2026-11-14' }] } },
+  });
+
+  await loginAs('acct-attendance-b', '13900000002');
+  const teachers = await call('GET', '/teachers', { grade: '高二年级', active: 'all' });
+  const grades = await call('GET', '/grades');
+  const tables = await call('GET', '/attendance', { grade: '高二年级', sheet_date: '2026-11-14' });
+  const me = await call('GET', '/me');
+  assert.equal(teachers.list.length, 0, '账号 B 不应看到账号 A 的教师');
+  assert.deepEqual(grades.grades, [], '账号 B 不应看到账号 A 的年级');
+  assert.equal((tables || []).length, 0, '账号 B 不应看到账号 A 的考勤表');
+  assert.deepEqual(me.user?.settings || me.settings || {}, {}, '账号 B 不应继承账号 A 的考勤偏好');
 });

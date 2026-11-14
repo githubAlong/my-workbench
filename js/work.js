@@ -143,7 +143,8 @@ registerView(async function work(main, { tab, third }) {
       headEl.remove();
       return renderAttendance(body);
     }
-    headEl.innerHTML = pageHead('考勤管理', '按年级独立管理坐班、教研与上课记录；完成后人工确认生效');
+    /* 工作台自己渲染标题、说明与实时状态，外层页头必须移除，否则同一标题会出现两次 */
+    headEl.remove();
     return renderAttendancePRD(body, { grade });
   }
   if (t === 'invigilation') return renderInvigilation(body);
