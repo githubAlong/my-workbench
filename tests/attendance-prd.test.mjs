@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   ATTENDANCE_COLUMNS, nextTriState, leaveCoversDate, activeLeavesFor,
   deriveRosterState, calculateDailySummary, parseLeaveDuration, formatLeaveDuration, buildAttendanceExportGrid,
@@ -244,4 +245,14 @@ test('导出 PNG 按页切分，每页都带表头，方便上下滑动查看', 
     assert.equal(page.pageCount, 3);
   });
   assert.equal(paginateExportGrid([['标题'], ['表头']], 18).length, 1);
+});
+
+test('勾选单元格后重绘保留表格滚动位置，不跳回顶部', async () => {
+  const source = await readFile(new URL('../js/attendance-prd.js', import.meta.url), 'utf8');
+  /* 重绘函数改名 renderPage，外层 paint 负责记住/还原滚动位置 */
+  assert.match(source, /const renderPage = \(\) => \{/);
+  assert.match(source, /const paint = \(\) => \{\s*const table = root\.querySelector\('\.aprd-table-wrap'\);/);
+  assert.match(source, /nextTable\.scrollTop = tableTop;/);
+  assert.match(source, /window\.scrollTo\(0, winTop\);/);
+  assert.match(source, /if \(typeof window !== 'undefined'\) winTop = window\.scrollY/);
 });

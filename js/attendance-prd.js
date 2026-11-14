@@ -1026,7 +1026,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const kpis=[['应到教师',s.expectedTeachers+'人'],['坐班次数',s.seatPresent],['上课次数',s.classes],['听课人次',s.listens],['请假人数',s.leavePeople+'人']];
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'</div></div><div class="aprd-kpis">'+kpis.map(([a,b],i)=>'<div class="aprd-kpi"><span>'+a+'</span><b style="'+''+'">'+b+'</b></div>').join('')+'</div><div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.summary.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+s.rows.map(r=>'<tr><td>'+r.serial+'</td><td>'+esc(r.name)+'</td><td>'+esc(r.subject)+'</td><td>'+r.seatPresent+'</td><td>'+r.classes+'</td><td>'+r.listens+'</td><td>'+r.research+'</td><td>'+esc(formatLeaveDuration({days:r.leaveDays,hours:r.leaveHours}))+'</td><td>'+esc(r.overall)+'</td></tr>').join('')+'</tbody></table></div>';
   };
-  const paint = () => {
+  const renderPage = () => {
     const content = ['roster','seat','class','research'].includes(tab)?rosterHtml(tab):tab==='leave'?leaveHtml():summaryHtml();
     const periodRange = resolvePeriodRange(period);
     root.innerHTML='<div class="attendance-prd">'
@@ -1331,6 +1331,19 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     root.querySelector('[data-save-research]')?.addEventListener('click',async()=>{try{await persistDraft('research');toast('教研表修改已保存','ok');}catch(error){toast(attendanceErrorText(error),'err');}});
 
     root.querySelector('[data-subject-manager]')?.addEventListener('click',()=>toast('学科管理请在名册管理入口维护','warn'));
+  };
+  /* 勾选/编辑后是整块重绘（root.innerHTML 全换），浏览器会把滚动位置归零：
+     勾第 12 行就跳回表格顶部，没法连续登记。这里在重绘前后记住窗口和表格的
+     滚动位置再还原，勾在哪里就还停在哪个位置。 */
+  const paint = () => {
+    const table = root.querySelector('.aprd-table-wrap');
+    const tableTop = table ? table.scrollTop : 0;
+    let winTop = 0;
+    if (typeof window !== 'undefined') winTop = window.scrollY || document.documentElement.scrollTop || 0;
+    renderPage();
+    const nextTable = root.querySelector('.aprd-table-wrap');
+    if (nextTable && tableTop) nextTable.scrollTop = tableTop;
+    if (winTop) window.scrollTo(0, winTop);
   };
   await load();
 }

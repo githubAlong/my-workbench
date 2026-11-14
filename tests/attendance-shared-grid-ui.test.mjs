@@ -47,7 +47,7 @@ class Root {
   get innerHTML() {return this.html;}
   querySelectorAll(selector) {
     if(selector.includes(',')) return [...new Set(selector.split(',').flatMap(part=>this.querySelectorAll(part)))];
-    return this.elements.filter(element=>{
+    return (this.elements||[]).filter(element=>{
       if(selector.startsWith('#')) return element.attributes.id===selector.slice(1);
       const attr=selector.match(/^\[([\w-]+)(?:="([^"]*)")?\]$/);
       return attr ? attr[1] in element.attributes && (attr[2]===undefined||element.attributes[attr[1]]===attr[2])
