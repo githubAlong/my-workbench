@@ -38,6 +38,24 @@ export function resolveEnvironmentProfile(input = globalThis.location) {
   throw new Error(`未配置当前访问环境：${hostname || 'unknown host'}`);
 }
 
+/* ngrok 免费版会拦截「浏览器 UA」的请求，返回一张 HTML 警告页（text/html 且没有 CORS 头），
+   浏览器里改不了 UA，只能带这个头跳过，否则页面所有云端 GET 都会以 CORS 失败告终。
+   参考 ngrok 文档 ERR_NGROK_6024。 */
+export const NGROK_SKIP_HEADER = 'ngrok-skip-browser-warning';
+const NGROK_HOST_PATTERN = /\.ngrok-free\.(?:dev|app)\//;
+
+if (typeof window !== 'undefined' && typeof window.fetch === 'function' && !window.__wbNgrokFetchPatched) {
+  window.__wbNgrokFetchPatched = true;
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : String(input?.url || '');
+    if (!NGROK_HOST_PATTERN.test(url)) return nativeFetch(input, init);
+    const request = new Request(input, init);
+    if (!request.headers.has(NGROK_SKIP_HEADER)) request.headers.set(NGROK_SKIP_HEADER, '1');
+    return nativeFetch(request);
+  };
+}
+
 export function assertTrustedSupabaseConfig(profile, url, publishableKey) {
   let parsed;
   try {
