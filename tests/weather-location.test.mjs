@@ -16,41 +16,47 @@ test('successful primary query skips the fallback and supplies a bounded request
   let calls = 0;
   const result = await resolvePlace(30, 120, { fetcher: async (url, options) => {
     calls++;
-    assert.match(url, /bigdatacloud/);
+    assert.match(url, /photon\.komoot\.io/);
     assert.ok(options.signal);
     assert.equal(options.credentials, 'omit');
-    return ok(primary);
+    return ok(backup);
   } });
   assert.equal(calls, 1);
   assert.equal(result.locationResolved, true);
+  assert.equal(result.locationProvider, 'photon');
+  assert.doesNotMatch(result.fullName, /商店/);
 });
 
-test('HTTP 400 rejection uses Photon and never labels a POI as the district', async () => {
+test('Photon 不把村级地名当地级市', () => {
+  const place = parsePlace({ features: [{ properties: { state: '湖北省', city: '垭口田', county: '咸丰县' } }] }, 'photon');
+  assert.equal(place.fullName, '湖北省 · 咸丰县');
+});
+
+test('HTTP 400 rejection from Photon falls back to BigDataCloud', async () => {
   const urls = [];
   const result = await resolvePlace(30.01, 120, { fetcher: async url => {
     urls.push(url);
-    return urls.length === 1 ? { ok: false, status: 400 } : ok(backup);
+    return urls.length === 1 ? { ok: false, status: 400 } : ok(primary);
   } });
   assert.equal(urls.length, 2);
-  assert.match(urls[1], /photon\.komoot\.io\/reverse/);
-  assert.equal(result.locationProvider, 'photon');
+  assert.match(urls[1], /bigdatacloud/);
+  assert.equal(result.locationProvider, 'bigdatacloud');
   assert.equal(result.fullName, '浙江省 · 杭州市 · 西湖区');
-  assert.doesNotMatch(result.fullName, /商店/);
 });
 
 test('primary timeout still permits a successful fallback', async () => {
   let calls = 0;
   const result = await resolvePlace(30.02, 120, { fetcher: async () => {
     if (++calls === 1) throw Object.assign(new Error('timeout'), { name: 'TimeoutError' });
-    return ok(backup);
+    return ok(primary);
   } });
-  assert.equal(result.locationProvider, 'photon');
+  assert.equal(result.locationProvider, 'bigdatacloud');
 });
 
 test('empty primary response and broken JSON both trigger fallback', async () => {
   for (const [i, response] of [ok({}), { ok: true, json: async () => { throw new SyntaxError(); } }].entries()) {
     let calls = 0;
-    assert.equal((await resolvePlace(31 + i, 120, { fetcher: async () => ++calls === 1 ? response : ok(backup) })).locationResolved, true);
+    assert.equal((await resolvePlace(31 + i, 120, { fetcher: async () => ++calls === 1 ? response : ok(primary) })).locationResolved, true);
   }
 });
 
@@ -77,7 +83,7 @@ test('moving to a different location or using stale saved names requires a new l
   const previous = { ...parsePlace(primary, 'bigdatacloud'), lat: 30.05, lon: 120, locationResolvedAt: 100000 };
   let calls = 0;
   for (const lat of [30.06, 30.05]) {
-    await resolvePlace(lat, 120, { previous, now: 100000 + 86400001, fetcher: async () => { calls++; return ok(primary); } });
+    await resolvePlace(lat, 120, { previous, now: 100000 + 86400001, fetcher: async () => { calls++; return ok(backup); } });
   }
   assert.equal(calls, 2);
 });
