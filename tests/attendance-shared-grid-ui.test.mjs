@@ -231,7 +231,14 @@ test('工作表导出和生成操作针对当前页签，导出的列及勾选�
   await control(root,'class').click();
   await root.querySelector('[data-roster-export="xlsx"]').click();
   const grid=exportedGrids[0];
-  assert.deepEqual(grid[1],['序号','归属部门','归属年级','姓名','学科','班级','节次','上课时间','上课状态','听课教师','备注']);
-  assert.equal(grid[2][3],'李老师');
-  assert.equal(grid[2][8],'已上课');
+  /* 三级标题（表名 / 日期节次时段 / 人数统计）占前 3 行，表头在第 4 行 */
+  assert.match(grid[0][0],/上课表/);
+  assert.match(grid[1][0],/星期/);
+  assert.match(grid[2][0],/应到/);
+  assert.deepEqual(grid[3],['序号','归属部门','归属年级','姓名','学科','班级','节次','上课时间','上课状态','听课教师','备注']);
+  assert.equal(grid[4][3],'李老师');
+  assert.equal(grid[4][8],'已上课');
+  /* 右下角导出时间写在最后一行的最右列 */
+  const last=grid.at(-1);
+  assert.match(last.at(-1),/^导出时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
 });

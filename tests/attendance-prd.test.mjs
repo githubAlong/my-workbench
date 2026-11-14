@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import {
   ATTENDANCE_COLUMNS, nextTriState, leaveCoversDate, activeLeavesFor,
   deriveRosterState, calculateDailySummary, parseLeaveDuration, formatLeaveDuration, buildAttendanceExportGrid,
-  deriveTableGridState, paginateExportGrid,
+  deriveTableGridState, paginateExportGrid, splitAttendanceExportGrid,
 } from '../js/attendance-prd-domain.mjs';
 
 test('PRD 固定六页签字段顺序', () => {
@@ -106,18 +106,21 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
     {name:'赵老师',grade:'高一',subject:'英语',type:'病假',start_date:'2026-11-10',end_date:'2026-11-10',days:1,duration:1,duration_unit:'day',status:'已批'},
   ];
   const common = {grade:'高一',date:'2026-11-11',period:1,teachers,seatRows,classRows,researchRows,leaveRecords,resolvePeriodRange:()=>['08:00','08:45']};
-  const namesOf = grid => grid.slice(2).map(row => row[3]);
-  const rowByName = (grid, name) => grid.slice(2).find(row => row[3] === name);
+  const namesOf = grid => splitAttendanceExportGrid(grid).rows.map(row => row[3]);
+  const rowByName = (grid, name) => splitAttendanceExportGrid(grid).rows.find(row => row[3] === name);
   const allNames = ['李老师','王老师','赵老师'];
 
   const seat = buildAttendanceExportGrid({...common,type:'seat'});
-  assert.equal(seat.length,5);
-  assert.deepEqual(seat[1],['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注']);
-  assert.equal(seat[2][3],'李老师');
-  assert.equal(seat[3][3],'王老师');
-  assert.match(seat[3][9],/0.5天/);
-  assert.match(seat[0][0],/共3人/);
-  assert.match(seat[0][0],/未登记\d+人/);
+  /* 三级标题各占一行，再是表头，最后才是名单（用户 11-15 要求） */
+  assert.equal(seat.length,7);
+  assert.match(seat[0][0],/高一教师坐班表/);
+  assert.match(seat[1][0],/2026-11-11 .*星期.*第1节（08:00—08:45）/);
+  assert.deepEqual(seat[3],['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注']);
+  assert.equal(seat[4][3],'李老师');
+  assert.equal(seat[5][3],'王老师');
+  assert.match(seat[5][9],/0.5天/);
+  assert.match(seat[2][0],/应到 3 人/);
+  assert.match(seat[2][0],/未登记 1 人/);
   assert.deepEqual(new Set(namesOf(seat)),new Set(allNames));
   /* 一次只能显示一个状态（11-15 裁决）：李老师上课优先于坐班，坐班/听课/教研留空 */
   const liSeat = rowByName(seat,'李老师');
@@ -131,30 +134,30 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
   const zhaoSeat = rowByName(seat,'赵老师');
   assert.equal(zhaoSeat[5],'未登记');
   assert.ok([6,7,8].every(index => zhaoSeat[index] === ''));
-  assert.match(seat[0][0],/未登记1人/);
+  assert.match(seat[2][0],/未登记 1 人/);
 
   const classes = buildAttendanceExportGrid({...common,type:'class'});
-  assert.equal(classes.length,5);
+  assert.equal(classes.length,7);
   assert.equal(rowByName(classes,'李老师')[5],'高一(1)班');
   assert.equal(rowByName(classes,'李老师')[8],'已上课');
   assert.equal(rowByName(classes,'王老师')[8],'未登记');
   assert.equal(rowByName(classes,'赵老师')[8],'未登记');
   assert.deepEqual(new Set(namesOf(classes)),new Set(allNames));
-  assert.match(classes[0][0],/共3人/);
-  assert.match(classes[0][0],/未登记2人/);
+  assert.match(classes[2][0],/应到 3 人/);
+  assert.match(classes[2][0],/未登记 2 人/);
 
   const research = buildAttendanceExportGrid({...common,type:'research'});
-  assert.equal(research.length,5);
+  assert.equal(research.length,7);
   assert.equal(rowByName(research,'李老师')[5],'第1节');
   assert.equal(rowByName(research,'李老师')[6],'会议室');
   assert.equal(rowByName(research,'李老师')[8],'已签到');
   assert.equal(rowByName(research,'王老师')[8],'未登记');
   assert.equal(rowByName(research,'赵老师')[8],'未登记');
   assert.deepEqual(new Set(namesOf(research)),new Set(allNames));
-  assert.match(research[0][0],/未登记2人/);
+  assert.match(research[2][0],/未登记 2 人/);
 
   const leave = buildAttendanceExportGrid({...common,type:'leave'});
-  assert.equal(leave.length,5);
+  assert.equal(leave.length,7);
   assert.match(rowByName(leave,'王老师')[9],/0.5天/);
   assert.equal(rowByName(leave,'王老师')[10],'已批');
   /* 赵老师那张病假是 11-10 单天，11-11 已失效，所以本场按「未请假」出名单 */
@@ -162,7 +165,7 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
   assert.equal(rowByName(leave,'赵老师')[10],'未请假');
   assert.equal(rowByName(leave,'李老师')[10],'未请假');
   assert.deepEqual(new Set(namesOf(leave)),new Set(allNames));
-  assert.match(leave[0][0],/未请假2人/);
+  assert.match(leave[2][0],/未请假 2 人/);
 });
 
 test('一场都没登记时，四个页签仍然输出全名单与明确状态，不留白', () => {
@@ -181,10 +184,11 @@ test('一场都没登记时，四个页签仍然输出全名单与明确状态�
   };
   for (const type of ['seat','class','research','leave']) {
     const grid = buildAttendanceExportGrid({...common,type});
-    assert.equal(grid.length,5,type+' 应是 2 行表头 + 3 行名单');
-    assert.deepEqual(grid.slice(2).map(row=>row[3]),['李老师','王老师','赵老师'],type+' 名单不全');
-    assert.match(grid[0][0],/共3人/,type+' 抬头缺人数');
-    for (const row of grid.slice(2)) {
+    const {rows} = splitAttendanceExportGrid(grid);
+    assert.equal(grid.length,7,type+' 应是 3 行标题 + 表头 + 3 行名单');
+    assert.deepEqual(rows.map(row=>row[3]),['李老师','王老师','赵老师'],type+' 名单不全');
+    assert.match(grid[2][0],/应到 3 人/,type+' 标题缺应到人数');
+    for (const row of rows) {
       if (type === 'seat') {
         /* 一次只能一个状态（11-15 裁决）：全都没登记时只在坐班格写「未登记」，其余留空 */
         assert.equal(row[5],'未登记',type+' 的 '+row[3]+' 坐班格应是未登记');
@@ -196,7 +200,7 @@ test('一场都没登记时，四个页签仍然输出全名单与明确状态�
         assert.ok(value && value !== '—',type+' 的 '+row[3]+' 状态格是空白');
       }
     }
-    assert.ok(/未登记|未请假/.test(grid[0][0]),type+' 抬头缺未登记统计');
+    assert.ok(/未登记|未请假/.test(grid[2][0]),type+' 标题缺未登记统计');
   }
 });
 
@@ -212,16 +216,16 @@ test('全天录入的状态能原样导出（不会被判成未登记）', () =>
     type: 'seat', grade: '高一', date: '2026-11-12', period: 0, teachers, seatRows,
     classRows: [], researchRows: [], leaveRecords: [], resolvePeriodRange: () => ['00:00', '23:59'],
   });
-  const rows = grid.slice(2);
+  const rows = splitAttendanceExportGrid(grid).rows;
   /* 一次只能一个状态：李老师勾了上课，坐班格留空而不是「未登记」 */
   assert.equal(rows[0][5], '');
   assert.equal(rows[0][6], '✓');
   /* 王老师勾了坐班，上课格留空 */
   assert.equal(rows[1][5], '✓');
   assert.equal(rows[1][6], '');
-  assert.match(grid[0][0], /上课1/);
-  assert.match(grid[0][0], /坐班1/);
-  assert.match(grid[0][0], /未登记0人/);
+  assert.match(grid[2][0], /上课 1 人/);
+  assert.match(grid[2][0], /坐班 1 人/);
+  assert.match(grid[2][0], /未登记 0 人/);
 });
 
 test('五种状态互斥：同一人只显示一个状态，按 请假>上课>坐班>听课>教研 裁决', () => {
@@ -274,7 +278,7 @@ test('坐班表行内填写的请假和备注原样进入导出（11-15 反馈�
     type: 'seat', grade: '高一', date: '2026-11-15', period: 1, teachers, seatRows,
     classRows: [], researchRows: [], leaveRecords, resolvePeriodRange: () => ['08:00', '08:45'],
   });
-  const rows = grid.slice(2);
+  const rows = splitAttendanceExportGrid(grid).rows;
   assert.equal(rows[0][9], '公出');
   assert.equal(rows[0][10], '外出培训');
   assert.ok([5, 6, 7, 8].every(index => rows[0][index] === ''), '请假后四类状态应留空');
@@ -282,11 +286,11 @@ test('坐班表行内填写的请假和备注原样进入导出（11-15 反馈�
   assert.ok([5, 6, 7, 8].every(index => rows[1][index] === ''), '请假后四类状态应留空');
   assert.equal(rows[2][9], '');
   assert.equal(rows[2][5], '未登记');
-  assert.match(grid[0][0], /请假2/);
-  assert.match(grid[0][0], /未登记1人/);
+  assert.match(grid[2][0], /请假 2 人/);
+  assert.match(grid[2][0], /未登记 1 人/);
   assert.match(grid[0][0], /高一教师坐班表/);
-  assert.match(grid[0][0], /2026-11-15 星期日/);
-  assert.match(grid[0][0], /08:00—08:45/);
+  assert.match(grid[1][0], /2026-11-15 星期日/);
+  assert.match(grid[1][0], /08:00—08:45/);
 });
 
 test('导出的请假和备注优先取坐班表行内填写，其次才是请假页记录和教师备注', () => {
@@ -297,11 +301,11 @@ test('导出的请假和备注优先取坐班表行内填写，其次才是请�
   ];
   const base = { type: 'seat', grade: '高一', date: '2026-11-15', period: 0, teachers, leaveRecords,
     classRows: [], researchRows: [], teacherMeta: { 1: { remark: '教师档案备注' } } };
-  const recorded = buildAttendanceExportGrid({ ...base, seatRows: [] }).slice(2)[0];
+  const recorded = splitAttendanceExportGrid(buildAttendanceExportGrid({ ...base, seatRows: [] })).rows[0];
   assert.match(recorded[9], /事假/);
   assert.equal(recorded[10], '教师档案备注');
-  const filled = buildAttendanceExportGrid({ ...base, seatRows: [{ teacher: '李老师', subject: '语文',
-    data: { __teacherId: 1, __teacherGrid: { 0: { class: 'u', sit: 'u', listen: 'u', research: 'u', leave: '调休', remark: '家里有事' } } } }] }).slice(2)[0];
+  const filled = splitAttendanceExportGrid(buildAttendanceExportGrid({ ...base, seatRows: [{ teacher: '李老师', subject: '语文',
+    data: { __teacherId: 1, __teacherGrid: { 0: { class: 'u', sit: 'u', listen: 'u', research: 'u', leave: '调休', remark: '家里有事' } } } }] })).rows[0];
   assert.equal(filled[9], '调休');
   assert.equal(filled[10], '家里有事');
 });

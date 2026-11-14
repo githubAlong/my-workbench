@@ -394,12 +394,28 @@ export function formatLeaveDuration(record) {
 }
 
 /**
+ * 导出网格由「三级标题 + 表头 + 数据」组成（用户 11-15 要求）：
+ * 第一行一级标题（谁的哪张表），第二行日期星期 · 节次（起—止时段），
+ * 第三行应到/坐班/上课/听课/教研/请假/未登记人数，之后才是表头与数据。
+ * 表头是第一条多列的行，标题行都只有一格，据此定位，避免把标题当数据切走。
+ */
+export function splitAttendanceExportGrid(grid = []) {
+  const rows = Array.isArray(grid) ? grid.filter(row => Array.isArray(row)) : [];
+  const headerIndex = rows.findIndex(row => row.length > 1);
+  const safeIndex = headerIndex < 0 ? Math.max(0, rows.length - 1) : headerIndex;
+  return {
+    headings: rows.slice(0, safeIndex).map(row => String(row[0] ?? '')),
+    headers: rows[safeIndex] || [],
+    rows: rows.slice(safeIndex + 1),
+  };
+}
+
+/**
  * 导出网格分页：PNG 一张长图在手机/预览器里没法上下滑动，按固定行数切页，
  * 每页都带同一份表头，导出后逐页查看或打印。
  */
 export function paginateExportGrid(grid, rowsPerPage = 18) {
-  const headers = Array.isArray(grid?.[1]) ? grid[1] : [];
-  const body = Array.isArray(grid) ? grid.slice(2) : [];
+  const { headers, rows: body } = splitAttendanceExportGrid(grid);
   const size = Math.max(1, Number(rowsPerPage) || 18);
   const pageCount = Math.max(1, Math.ceil(body.length / size));
   return Array.from({ length: pageCount }, (_, index) => ({
@@ -472,11 +488,16 @@ export function buildAttendanceExportGrid({
     const day = new Date(Number(matched[1]), Number(matched[2]) - 1, Number(matched[3])).getDay();
     return ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][day] || '';
   })();
-  const titleHead = type === 'seat'
+  /* 三级标题（用户 11-15 要求）：
+     一级 = 谁的哪张表；二级 = 日期星期 · 节次（起—止时段）；
+     三级 = 应到/坐班/上课/听课/教研/请假/未登记人数。
+     导出时间不写进标题，由各导出通道画在右下角。 */
+  const titleHead = type === 'seat' || type === 'roster'
     ? (grade || '全部年级') + '教师' + baseTitle
     : baseTitle + ' · ' + (grade || '全部年级');
-  const fileTitle = titleHead + ' · ' + date + (weekdayText ? ' ' + weekdayText : '')
+  const subtitle = date + (weekdayText ? ' ' + weekdayText : '')
     + ' · ' + periodLabel(period) + '（' + rangeText(period) + '）';
+  const heading = statsLine => [[titleHead], [subtitle], [statsLine]];
 
   if (type === 'seat' || type === 'roster') {
     const activeLeaves = activeLeavesFor(leaveRecords, date);
@@ -556,11 +577,10 @@ export function buildAttendanceExportGrid({
     const count = key => entries.filter(entry => entry.winner === key && entry.row[{ class: 6, sit: 5, listen: 7, research: 8 }[key]] === '✓').length;
     const leaveCount = rows.filter(row => row[9] !== '').length;
     const unregistered = entries.filter(entry => !entry.winner && !entry.onLeave).length;
-    const title = fileTitle + ' · 共' + people.length + '人 · 坐班' + count('sit')
-      + ' · 上课' + count('class') + ' · 听课' + count('listen')
-      + ' · 教研' + count('research') + ' · 请假' + leaveCount
-      + ' · 未登记' + unregistered + '人';
-    return [[title], EXPORT_HEADERS[type], ...rows];
+    const statsLine = '应到 ' + people.length + ' 人 · 坐班 ' + count('sit') + ' 人 · 上课 ' + count('class')
+      + ' 人 · 听课 ' + count('listen') + ' 人 · 教研 ' + count('research') + ' 人'
+      + ' · 请假 ' + leaveCount + ' 人 · 未登记 ' + unregistered + ' 人';
+    return [...heading(statsLine), EXPORT_HEADERS[type], ...rows];
   }
 
   if (type === 'class') {
@@ -630,9 +650,9 @@ export function buildAttendanceExportGrid({
     }
     entries.sort((a, b) => a.period - b.period || a.name.localeCompare(b.name, 'zh-CN') || a.className.localeCompare(b.className, 'zh-CN'));
     const rows = entries.map((entry, index) => [index + 1, ...entry.row.slice(1)]);
-    const title = fileTitle + ' · 共' + people.length + '人 · '
-      + (rows.length - unregisteredPeople) + '条上课记录 · 未登记' + unregisteredPeople + '人';
-    return [[title], EXPORT_HEADERS.class, ...rows];
+    const statsLine = '应到 ' + people.length + ' 人 · 上课记录 ' + (rows.length - unregisteredPeople)
+      + ' 条 · 未登记 ' + unregisteredPeople + ' 人';
+    return [...heading(statsLine), EXPORT_HEADERS.class, ...rows];
   }
 
   if (type === 'research') {
@@ -695,9 +715,9 @@ export function buildAttendanceExportGrid({
     }
     rows.sort((a, b) => String(a[5]).localeCompare(String(b[5]), 'zh-CN') || String(a[3]).localeCompare(String(b[3]), 'zh-CN'));
     const numbered = rows.map((row, index) => [index + 1, ...row.slice(1)]);
-    const title = fileTitle + ' · 共' + people.length + '人 · '
-      + (numbered.length - unregisteredPeople) + '条教研签到 · 未登记' + unregisteredPeople + '人';
-    return [[title], EXPORT_HEADERS.research, ...numbered];
+    const statsLine = '应到 ' + people.length + ' 人 · 教研签到 ' + (numbered.length - unregisteredPeople)
+      + ' 条 · 未登记 ' + unregisteredPeople + ' 人';
+    return [...heading(statsLine), EXPORT_HEADERS.research, ...numbered];
   }
 
   if (type === 'leave') {
@@ -734,9 +754,9 @@ export function buildAttendanceExportGrid({
       noLeavePeople += 1;
     }
     const numbered = rows.map((row, index) => [index + 1, ...row.slice(1)]);
-    const title = fileTitle + ' · 共' + people.length + '人 · '
-      + (numbered.length - noLeavePeople) + '条请假记录 · 未请假' + noLeavePeople + '人';
-    return [[title], EXPORT_HEADERS.leave, ...numbered];
+    const statsLine = '应到 ' + people.length + ' 人 · 请假 ' + entries.length
+      + ' 人 · 未请假 ' + noLeavePeople + ' 人';
+    return [...heading(statsLine), EXPORT_HEADERS.leave, ...numbered];
   }
 
   throw new Error('不支持的考勤导出类型：' + type);

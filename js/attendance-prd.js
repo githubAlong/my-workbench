@@ -9,6 +9,7 @@ import {
   DEFAULT_PERIODS, LEAVE_TYPES, ATTENDANCE_COLUMNS, buildAttendanceExportGrid, parseLeaveDuration, formatLeaveDuration,
   nextTriState, activeLeavesFor, deriveRosterState, calculateDailySummary,
   matchesAttendancePeriod, deriveTableGridState, updateTeacherGrid, mergeTeacherGridRows, paginateExportGrid,
+  splitAttendanceExportGrid,
 } from './attendance-prd-domain.mjs';
 
 const TABS = [
@@ -497,36 +498,31 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     }
     ctx.restore();
   };
-  /* 把导出网格切成图片：常规年级（120 行以内）就是一张图，只有超大名单才分页，
-     避免出现好几张长得一样的表让人误以为是重复导出。 */
-  const buildPngPages = (grid, fileBase, rowCount, watermark = '', heading = {}) => {
-    const title=String(heading.title||fileBase),subtitle=String(heading.subtitle||''),stats=String(heading.stats||'');
-    const headers=grid[1], bodyRows=grid.slice(2);
+  /* 把导出网格切成图片：三级标题居中（表名 / 日期节次时段 / 人数统计），
+     底部左侧写条数和页码、右下角写导出时间（用户 11-15 要求）。
+     常规年级（120 行以内）就是一张图，只有超大名单才分页。 */
+  const buildPngPages = (grid, fileBase, rowCount, watermark = '', exportTime = '') => {
+    const {headings, headers, rows: bodyRows} = splitAttendanceExportGrid(grid);
+    const title=String(headings[0]||fileBase),subtitle=String(headings[1]||''),stats=String(headings[2]||'');
     const widths=headers.map((header,index)=>{
       const max=Math.max(String(header).length,...bodyRows.map(row=>String(row[index]??'').length));
       return Math.max(90,Math.min(260,70+max*13));
     });
     const totalWidth=widths.reduce((sum,value)=>sum+value,0);
-    const rowH=42,titleH=subtitle?(stats?118:92):76,footH=34,rowsPerPage=120;
+    const headingLines=[title,subtitle,stats].filter(Boolean);
+    const rowH=42,titleH=26+headingLines.length*26,footH=44,rowsPerPage=120;
     const pages=[];
     for(const page of paginateExportGrid(grid, rowsPerPage)){
       const slice=page.rows, pageCount=page.pageCount, pageIndex=page.index;
       const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
-      canvas.width=totalWidth;
+      canvas.width=Math.max(totalWidth,520);
       canvas.height=titleH+(slice.length+1)*rowH+footH;
       ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
-      /* 标题居中：第一行表名，第二行日期 · 节次 · 导出时间（用户 11-15 裁决）。 */
       ctx.textAlign='center';
-      ctx.fillStyle='#172744';ctx.font='bold 22px "Microsoft YaHei",sans-serif';
-      ctx.fillText(title,canvas.width/2,36);
-      if(subtitle){
-        ctx.fillStyle='#667085';ctx.font='12px "Microsoft YaHei",sans-serif';
-        ctx.fillText(subtitle,canvas.width/2,60);
-      }
-      if(stats){
-        ctx.fillStyle='#34445d';ctx.font='bold 12px "Microsoft YaHei",sans-serif';
-        ctx.fillText(stats,canvas.width/2,84);
-      }
+      let lineY=38;
+      if(title){ctx.fillStyle='#172744';ctx.font='bold 22px "Microsoft YaHei",sans-serif';ctx.fillText(title,canvas.width/2,lineY);lineY+=26;}
+      if(subtitle){ctx.fillStyle='#667085';ctx.font='12.5px "Microsoft YaHei",sans-serif';ctx.fillText(subtitle,canvas.width/2,lineY);lineY+=26;}
+      if(stats){ctx.fillStyle='#34445d';ctx.font='bold 12.5px "Microsoft YaHei",sans-serif';ctx.fillText(stats,canvas.width/2,lineY);}
       ctx.textAlign='left';
       let y=titleH,x=0;
       headers.forEach((label,index)=>{
@@ -544,19 +540,31 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
           ctx.fillText(String(value??'').slice(0,32),x+8,y+26);x+=widths[index];
         });
       });
-      ctx.fillStyle='#8290a5';ctx.font='11px "Microsoft YaHei",sans-serif';
-      ctx.fillText((pageCount>1?'第 '+(pageIndex+1)+' / '+pageCount+' 页 · ':'')+'共 '+rowCount+' 条',20,canvas.height-12);
+      ctx.fillStyle='#8290a5';ctx.font='11px "Microsoft YaHei",sans-serif';ctx.textAlign='left';
+      ctx.fillText((pageCount>1?'第 '+(pageIndex+1)+' / '+pageCount+' 页 · ':'')+'共 '+rowCount+' 条',20,canvas.height-16);
+      if(exportTime){
+        ctx.textAlign='right';
+        ctx.fillText('导出时间：'+exportTime,canvas.width-20,canvas.height-16);
+      }
       paintWatermark(ctx,canvas.width,canvas.height,watermark);
       pages.push(canvas.toDataURL('image/png'));
     }
     return pages;
   };
-  const openPngPreview = (pages, fileBase, rowCount, stats = '') => {
+  const openPngPreview = (pages, fileBase, rowCount, stats = '', exportTime = '') => {
     const dialog=document.createElement('div');
     dialog.className='attendance-prd aprd-dialog aprd-png-dialog';
-    dialog.innerHTML='<section class="aprd-png-preview"><header><div><h3>导出结果</h3>'
-      +'<p>'+esc(fileBase)+(stats?' · '+esc(stats):' · 共 '+rowCount+' 条')+(pages.length>1?' · 分成 '+pages.length+' 张图片，可上下滑动查看':'')+'</p></div>'
+    const chips=[
+      '<span class="aprd-chip"><b>'+rowCount+'</b> 条记录</span>',
+      stats?'<span class="aprd-chip">'+esc(stats)+'</span>':'',
+      exportTime?'<span class="aprd-chip muted">导出时间 '+esc(exportTime)+'</span>':'',
+      pages.length>1?'<span class="aprd-chip">共 '+pages.length+' 张图片</span>':'',
+    ].filter(Boolean).join('');
+    dialog.innerHTML='<section class="aprd-png-preview">'
+      +'<header><div class="aprd-png-head"><span class="aprd-png-badge">PNG</span>'
+      +'<div><h3>导出预览</h3><p>'+esc(fileBase)+'</p></div></div>'
       +'<button type="button" data-png-close aria-label="关闭">×</button></header>'
+      +'<div class="aprd-png-meta">'+chips+'<span class="aprd-png-hint">滑动查看，确认无误后保存图片</span></div>'
       +'<div class="aprd-png-scroll">'+pages.map((src,index)=>'<figure><img src="'+src+'" alt="第 '+(index+1)+' 页">'+(pages.length>1?'<figcaption>第 '+(index+1)+' / '+pages.length+' 页</figcaption>':'')+'</figure>').join('')+'</div>'
       +'<footer><button type="button" data-png-close>关闭</button>'
       +'<button type="button" class="primary" data-png-download>'+(pages.length>1?'下载全部图片（'+pages.length+' 张）':'保存图片')+'</button></footer></section>';
@@ -602,58 +610,93 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       resolvePeriodRange,
       includeUnlisted: true,
     });
-    const rowCount = Math.max(0, grid.length - 2);
+    const {headings, headers, rows} = splitAttendanceExportGrid(grid);
+    const rowCount = rows.length;
     if(!rowCount){toast('当前表格没有符合条件的记录','warn');return;}
-    /* 导出抬头：表名（年级＋教师＋表别）、日期星期、节次时段、导出时间；
-       坐班表再带一行人数统计，让拿到图片的人一眼看出几个人请假/上课/听课（用户 11-15 要求）。 */
-    const nowText=new Date().toLocaleString('zh-CN');
-    const weekdayText=(()=>{
-      const matched=String(date||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if(!matched)return '';
-      const day=new Date(Number(matched[1]),Number(matched[2])-1,Number(matched[3])).getDay();
-      return ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'][day]||'';
-    })();
-    const rangeText=(resolvePeriodRange(period)||[]).filter(Boolean).join('—')||'—';
-    const headingTitle=(grade||'全部年级')+'教师'+typeLabel;
-    const headingSubtitle=date+(weekdayText?' '+weekdayText:'')+' · '+periodText+'（'+rangeText+'） · 导出时间：'+nowText;
-    const statRows=grid.slice(2);
-    const statCount=index=>statRows.filter(row=>row[index]==='✓').length;
-    const statsText=exportType==='seat'
-      ? '共 '+statRows.length+' 人 · 坐班 '+statCount(5)+' · 上课 '+statCount(6)+' · 听课 '+statCount(7)
-        +' · 教研 '+statCount(8)+' · 请假 '+statRows.filter(row=>row[9]).length
-        +' · 未登记 '+statRows.filter(row=>row[5]==='未登记').length
-      : '';
+    /* 导出时间放右下角（用户 11-15 要求）：
+       Excel/CSV 追加一行写在最右列，PNG 画在图片右下角，PDF 放在表格末尾右对齐。 */
+    const now=new Date(),pad=value=>String(value).padStart(2,'0');
+    const exportTime=now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate())
+      +' '+pad(now.getHours())+':'+pad(now.getMinutes())+':'+pad(now.getSeconds());
+    const timeText='导出时间：'+exportTime;
+    const withFooter=()=>{
+      const footer=Array.from({length:Math.max(1,headers.length)},()=>'');
+      footer[footer.length-1]=timeText;
+      return [...grid,footer];
+    };
     if(format==='xlsx'){
-      saveBlob(makeXlsx({title:fileBase,grid}),fileBase+'.xlsx');
+      saveBlob(makeXlsx({title:fileBase,grid:withFooter()}),fileBase+'.xlsx');
       toast('已导出 '+fileBase+'.xlsx','ok');
     }else if(format==='csv'){
-      const csv='\uFEFF'+grid.map(row=>row.map(value=>'"'+String(value??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+      const csv='\uFEFF'+withFooter().map(row=>row.map(value=>'"'+String(value??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
       saveBlob(new Blob([csv],{type:'text/csv;charset=utf-8'}),fileBase+'.csv');
       toast('已导出 '+fileBase+'.csv','ok');
     }else if(format==='pdf'){
       const win=window.open('','_blank');
       if(!win){toast('浏览器拦截了打印窗口，请允许本站弹出窗口后重试','warn');return;}
-      const body=grid.slice(2).map(row=>'<tr>'+row.map(cell=>'<td>'+esc(cell)+'</td>').join('')+'</tr>').join('');
+      const headingHtml='<h1>'+esc(headings[0]||fileBase)+'</h1>'
+        +(headings[1]?'<p class="aprd-print-sub">'+esc(headings[1])+'</p>':'')
+        +(headings[2]?'<p class="aprd-print-stats">'+esc(headings[2])+'</p>':'');
+      const body=rows.map(row=>'<tr>'+row.map(cell=>'<td>'+esc(cell)+'</td>').join('')+'</tr>').join('');
       const watermarkHtml=watermark?'<div class="aprd-print-watermark">'+esc(watermark)+'</div>':'';
-      win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>'+esc(fileBase)+'</title><style>body{font-family:Arial,"Microsoft YaHei",sans-serif;padding:24px;color:#1d2939}h1{font-size:20px;text-align:center;margin:0 0 6px}p{color:#667085;font-size:12px;text-align:center;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d0d5dd;padding:8px;text-align:left}th{background:#f2f4f7}.aprd-print-watermark{position:fixed;inset:0;display:grid;place-items:center;font-size:64px;font-weight:800;color:rgba(23,39,68,.09);transform:rotate(-24deg);pointer-events:none;white-space:nowrap;z-index:99}</style>'+watermarkHtml+'<h1>'+esc(headingTitle)+'</h1><p>'+esc(headingSubtitle)+(statsText?'<br>'+esc(statsText):'')+'</p><table><thead><tr>'+grid[1].map(cell=>'<th>'+esc(cell)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table><script>window.onload=function(){window.print()}<\\/script></html>');
+      win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>'+esc(fileBase)+'</title><style>'
+        +'body{font-family:"Microsoft YaHei",Arial,sans-serif;padding:26px 28px;color:#1d2939}'
+        +'h1{font-size:20px;text-align:center;margin:0 0 8px;letter-spacing:.5px}'
+        +'.aprd-print-sub{color:#475467;font-size:12.5px;text-align:center;margin:0 0 6px}'
+        +'.aprd-print-stats{color:#1d2939;font-size:12.5px;font-weight:600;text-align:center;margin:0 0 16px}'
+        +'table{width:100%;border-collapse:collapse;font-size:12px}'
+        +'th,td{border:1px solid #d0d5dd;padding:7px 8px;text-align:left}'
+        +'th{background:#f2f4f7;color:#344054}'
+        +'.aprd-print-foot{margin-top:14px;text-align:right;color:#667085;font-size:11.5px}'
+        +'.aprd-print-watermark{position:fixed;inset:0;display:grid;place-items:center;font-size:64px;font-weight:800;color:rgba(23,39,68,.09);transform:rotate(-24deg);pointer-events:none;white-space:nowrap;z-index:99}'
+        +'@media print{body{padding:0}}</style>'+watermarkHtml
+        +headingHtml+'<table><thead><tr>'+headers.map(cell=>'<th>'+esc(cell)+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table>'
+        +'<div class="aprd-print-foot">'+esc(timeText)+'</div>'
+        +'<script>window.onload=function(){window.print()}<\\/script></html>');
       win.document.close();
       toast('已打开打印预览，可在弹窗里另存为 PDF','ok');
     }else if(format==='png'){
       /* 默认一个年级就是一张图（120 行以内不分页），先给可滚动的预览，
          确认后再下载，内容和页面表格逐格一致。 */
-      const pages=buildPngPages(grid, fileBase, rowCount, watermark, {
-        title:headingTitle,
-        subtitle:headingSubtitle,
-        stats:statsText,
-      });
+      const pages=buildPngPages(grid, fileBase, rowCount, watermark, exportTime);
       toast('图片已生成'+(pages.length>1?'，共 '+pages.length+' 张':''),'ok');
-      openPngPreview(pages, fileBase, rowCount, statsText);
+      openPngPreview(pages, fileBase, rowCount, headings[2]||'', exportTime);
     }
     const menu=root.querySelector('[data-roster-export-menu]');if(menu)menu.hidden=true;
   };
   const openRosterImport = () => {
     const dialog=document.createElement('div');dialog.className='attendance-prd aprd-dialog aprd-roster-dialog';
-    dialog.innerHTML='<section class="aprd-roster-import"><header><div><h3>批量导入教师名单</h3><p>导入目标年级：'+esc(grade)+' · 原有考勤记录不会被覆盖</p></div><button type="button" data-import-close aria-label="关闭">×</button></header><div class="aprd-import-body"><div class="aprd-upload-zone"><input id="aprd-import-file" type="file" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp"><span class="aprd-upload-icon">↑</span><b>上传教师名单文件</b><small>支持 XLSX / XLS / CSV / PDF / JPG / PNG / WebP</small><button type="button" data-import-browse>选择文件</button></div><div class="aprd-import-paste"><label for="aprd-import-text">或者直接粘贴 Excel 表格</label><textarea id="aprd-import-text" rows="4" placeholder="复制 Excel 中的姓名、学科等列，然后粘贴到这里…"></textarea><button type="button" data-import-paste>解析粘贴内容</button><button type="button" data-import-template>下载 Excel 模板</button></div><div class="aprd-import-status" id="aprd-import-status" role="status">上传后会先识别并显示预览，只有点击“确认导入”才会写入花名册。</div><div class="aprd-import-warnings" id="aprd-import-warnings" hidden></div><div class="aprd-import-preview" id="aprd-import-preview" hidden><div class="aprd-import-summary" id="aprd-import-summary"></div><div class="aprd-import-table-wrap"><table><thead><tr><th>序号</th><th>姓名</th><th>学科</th><th>归属部门</th><th>来源年级</th><th>处理方式</th></tr></thead><tbody id="aprd-import-rows"></tbody></table></div></div></div><footer><button type="button" data-import-close>取消</button><button type="button" class="primary" data-import-confirm disabled>确认导入</button></footer></section>';
+    dialog.innerHTML='<section class="aprd-roster-import">'
+      +'<header><div class="aprd-import-head"><span class="aprd-import-badge">批量导入</span>'
+      +'<div><h3>导入教师名单</h3><p>目标年级 <b>'+esc(grade)+'</b> · 先识别预览，确认后才写入花名册，原有考勤记录不会被覆盖</p></div></div>'
+      +'<button type="button" data-import-close aria-label="关闭">×</button></header>'
+      +'<div class="aprd-import-body">'
+      +'<ol class="aprd-import-steps"><li class="on"><i>1</i>选择名单</li><li><i>2</i>核对预览</li><li><i>3</i>确认导入</li></ol>'
+      +'<div class="aprd-import-sources">'
+      +'<section class="aprd-import-card aprd-upload-zone">'
+      +'<div class="aprd-import-card-head"><span class="aprd-import-num">1</span><div><b>上传名单文件</b><small>XLSX / XLS / CSV / PDF / JPG / PNG / WebP</small></div></div>'
+      +'<input id="aprd-import-file" type="file" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp">'
+      +'<span class="aprd-upload-icon">↑</span>'
+      +'<p class="aprd-upload-title">把文件拖到这里，或点击选择文件</p>'
+      +'<button type="button" data-import-browse>选择文件</button>'
+      +'<small class="aprd-upload-note">上传后自动识别姓名、学科等列，识别结果可逐项修改</small>'
+      +'</section>'
+      +'<section class="aprd-import-card aprd-import-paste">'
+      +'<div class="aprd-import-card-head"><span class="aprd-import-num">2</span><div><b>粘贴 Excel 表格</b><small>从表格里直接复制姓名、学科等列</small></div></div>'
+      +'<label class="aprd-visually-hidden" for="aprd-import-text">粘贴 Excel 表格内容</label>'
+      +'<textarea id="aprd-import-text" rows="4" placeholder="复制 Excel 中的姓名、学科等列，然后粘贴到这里…"></textarea>'
+      +'<div class="aprd-import-paste-actions"><button type="button" data-import-template>下载 Excel 模板</button><button type="button" class="primary" data-import-paste>解析粘贴内容</button></div>'
+      +'</section></div>'
+      +'<div class="aprd-import-status" id="aprd-import-status" role="status">上传后会先识别并显示预览，只有点击「确认导入」才会写入花名册。</div>'
+      +'<div class="aprd-import-warnings" id="aprd-import-warnings" hidden></div>'
+      +'<div class="aprd-import-preview" id="aprd-import-preview" hidden>'
+      +'<div class="aprd-import-preview-head"><b>名单预览</b><span>核对姓名、学科与处理方式后确认导入</span></div>'
+      +'<div class="aprd-import-summary" id="aprd-import-summary"></div>'
+      +'<div class="aprd-import-table-wrap"><table><thead><tr><th>序号</th><th>姓名</th><th>学科</th><th>归属部门</th><th>来源年级</th><th>处理方式</th></tr></thead><tbody id="aprd-import-rows"></tbody></table></div>'
+      +'</div></div>'
+      +'<footer><span class="aprd-import-foot-note">导入后可在花名册继续维护</span>'
+      +'<div class="aprd-import-foot-actions"><button type="button" data-import-close>取消</button><button type="button" class="primary" data-import-confirm disabled>确认导入</button></div></footer>'
+      +'</section>';
     document.body.append(dialog);
     let importRows=[];
     const $=(selector)=>dialog.querySelector(selector);
@@ -690,7 +733,13 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const additions=importRows.filter(row=>row.action==='add'&&completeRow(row)).length;
       const updates=importRows.filter(row=>row.action==='update'&&completeRow(row)).length;
       const skipped=importRows.filter(row=>row.action==='skip').length;
-      $('#aprd-import-summary').innerHTML='<b>识别 '+importRows.length+' 条</b><span>新增 '+additions+' 条</span><span>更新 '+updates+' 条</span><span>跳过 '+skipped+' 条</span>'+(incomplete?'<strong>有 '+incomplete+' 条未完整识别；空白行默认跳过，可补全后改为新增</strong>':'');
+      $('#aprd-import-summary').innerHTML='<span class="aprd-chip total">识别 <b>'+importRows.length+'</b> 条</span>'
+        +'<span class="aprd-chip add">新增 <b>'+additions+'</b></span>'
+        +'<span class="aprd-chip update">更新 <b>'+updates+'</b></span>'
+        +'<span class="aprd-chip skip">跳过 <b>'+skipped+'</b></span>'
+        +(incomplete?'<span class="aprd-chip warn">'+incomplete+' 条待补全</span>':'');
+      const steps=dialog.querySelectorAll('.aprd-import-steps li');
+      if(steps[1])steps[1].classList.add('on');
       $('#aprd-import-warnings').hidden=!importWarnings.length;
       $('#aprd-import-warnings').textContent=importWarnings.join('；');
       $('#aprd-import-rows').innerHTML=importRows.map((row,index)=>{
@@ -754,6 +803,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       try{
         $('[data-import-confirm]').disabled=true;
         updateStatus('正在写入教师名单…');
+        const steps=dialog.querySelectorAll('.aprd-import-steps li');
+        if(steps[2])steps[2].classList.add('on');
         let addedIds=[];
         if(additions.length){
           const result=await api.post('/teachers',{grade,items:additions.map(row=>({name:row.name,subject:row.subject}))});
@@ -1023,12 +1074,20 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     }).join('');
     const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
       +'<button type="button" class="aprd-op" data-subject-manager>学科管理</button><i class="aprd-divider" aria-hidden="true"></i>'
-      +'<button type="button" class="aprd-op" data-roster-import>批量导入</button><div class="aprd-export-wrap"><button type="button" class="aprd-op" data-roster-export-toggle>批量导出 ▾</button>'
-      +'<div class="aprd-export-menu" data-roster-export-menu hidden>'
-      +'<label class="aprd-export-opt"><input type="checkbox" id="aprd-export-watermark" '+(watermarkOn?'checked':'')+'> 导出带水印</label>'
-      +'<label>水印文案<input type="text" id="aprd-export-watermark-text" value="'+esc(watermarkText)+'" placeholder="留空默认：年级＋表名" '+(watermarkOn?'':'disabled')+'></label>'
-      +'<button data-roster-export="xlsx">Excel 表格</button><button data-roster-export="csv">CSV 文件</button><button data-roster-export="pdf">PDF 文档</button><button data-roster-export="png">PNG 图片</button>'
-      +'</div></div>';
+      +'<button type="button" class="aprd-op" data-roster-import>批量导入</button>'
+      +'<div class="aprd-export-wrap"><button type="button" class="aprd-op aprd-export-toggle" data-roster-export-toggle>批量导出<i class="aprd-caret" aria-hidden="true"></i></button>'
+      +'<div class="aprd-export-menu aprd-export-sheet" data-roster-export-menu hidden>'
+      +'<div class="aprd-export-sheet-head"><b>导出当前工作表</b><span>'+esc(grade||'全部年级')+' · 共 '+list.length+' 人</span></div>'
+      +'<div class="aprd-export-formats">'
+      +'<button type="button" data-roster-export="xlsx"><i class="aprd-export-ico xlsx">X</i><span><b>Excel 表格</b><small>.xlsx 可编辑</small></span></button>'
+      +'<button type="button" data-roster-export="csv"><i class="aprd-export-ico csv">C</i><span><b>CSV 文件</b><small>.csv 通用格式</small></span></button>'
+      +'<button type="button" data-roster-export="pdf"><i class="aprd-export-ico pdf">P</i><span><b>PDF 文档</b><small>打印另存 PDF</small></span></button>'
+      +'<button type="button" data-roster-export="png"><i class="aprd-export-ico png">图</i><span><b>PNG 图片</b><small>先预览再保存</small></span></button>'
+      +'</div><div class="aprd-export-divider"></div>'
+      +'<div class="aprd-export-sheet-foot">'
+      +'<label class="aprd-export-switch"><input type="checkbox" id="aprd-export-watermark" '+(watermarkOn?'checked':'')+'><span>导出带水印</span></label>'
+      +'<label class="aprd-export-field"><span>水印文案</span><input type="text" id="aprd-export-watermark-text" value="'+esc(watermarkText)+'" placeholder="留空默认：年级＋表名" '+(watermarkOn?'':'disabled')+'></label>'
+      +'</div></div></div>';
     const summaryContext = {
       leaveRecords,date,period,
       seatRows:type==='seat'?draftRows:(details.seat?.rows||[]),
