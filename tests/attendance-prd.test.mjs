@@ -7,7 +7,7 @@ import {
 } from '../js/attendance-prd-domain.mjs';
 
 test('PRD 固定六页签字段顺序', () => {
-  assert.deepEqual(ATTENDANCE_COLUMNS.roster, ['序号','归属部门','归属年级','姓名','学科','上课','坐班','听课','教研','请假','备注','操作']);
+  assert.deepEqual(ATTENDANCE_COLUMNS.roster, ['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注','操作']);
   for (const type of ['seat','class','research']) {
     assert.deepEqual(ATTENDANCE_COLUMNS[type], ATTENDANCE_COLUMNS.roster);
   }
@@ -111,7 +111,7 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
 
   const seat = buildAttendanceExportGrid({...common,type:'seat'});
   assert.equal(seat.length,5);
-  assert.deepEqual(seat[1],['序号','归属部门','归属年级','姓名','学科','上课','坐班','听课','教研','请假','备注']);
+  assert.deepEqual(seat[1],['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注']);
   assert.equal(seat[2][3],'李老师');
   assert.equal(seat[3][3],'王老师');
   assert.match(seat[3][9],/0.5天/);
@@ -196,10 +196,10 @@ test('全天录入的状态能原样导出（不会被判成未登记）', () =>
     classRows: [], researchRows: [], leaveRecords: [], resolvePeriodRange: () => ['00:00', '23:59'],
   });
   const rows = grid.slice(2);
-  assert.equal(rows[0][5], '✓');
-  assert.equal(rows[0][6], '未登记');
-  assert.equal(rows[1][6], '✓');
-  assert.equal(rows[1][5], '未登记');
+  assert.equal(rows[0][5], '未登记');
+  assert.equal(rows[0][6], '✓');
+  assert.equal(rows[1][5], '✓');
+  assert.equal(rows[1][6], '未登记');
   assert.match(grid[0][0], /上课1/);
   assert.match(grid[0][0], /坐班1/);
   assert.match(grid[0][0], /未登记0人/);

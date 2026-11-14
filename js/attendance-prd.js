@@ -927,15 +927,15 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const shown = state.leave
         ? {...state, class:'u', sit:'u', listen:'u', research:'u', listenStatus:'u', researchStatus:'u'}
         : state;
-      /* 状态格：绿色正常 / 黄色待确认 / 红色异常，未登记时由调用方显示占位符。
-         花名册是只读汇总视图，未登记一律显示「—」占位。 */
+      /* 状态格三态：√ 正常 / × 异常 / 空白 未登记（默认空白）。
+         可编辑时是按钮，点击按 空白→√→×→空白 循环；花名册只读，未登记显示「—」。 */
       const mark = (key,value) => {
         value = value === 'y' || value === 'n' ? value : 'u';
-        const label = value === 'y' ? '正常' : value === 'n' ? '异常' : '待确认';
-        const showLabel = editable || value !== 'u';
+        const label = value === 'y' ? '√' : value === 'n' ? '×' : '';
+        const stateText = value === 'y' ? '正常' : value === 'n' ? '异常' : '未登记';
         const tag = editable ? 'button' : 'span';
         const attrs = editable ? 'type="button" data-grid-person="'+esc(teacher.id)+'" data-grid-key="'+key+'"' : 'aria-disabled="true"';
-        return '<'+tag+' class="aprd-mark '+value+(showLabel?'':' ap-placeholder')+'" '+attrs+' aria-label="'+esc(teacher.name+' '+({class:'上课',sit:'坐班',listen:'听课',research:'教研'}[key])+'：'+label)+'">'+(showLabel?'<i></i>'+label:'—')+'</'+tag+'>';
+        return '<'+tag+' class="aprd-mark '+value+(label?'':' ap-placeholder')+'" '+attrs+' aria-label="'+esc(teacher.name+' '+({class:'上课',sit:'坐班',listen:'听课',research:'教研'}[key])+'：'+stateText)+'">'+(label?'<i></i>'+label:'—')+'</'+tag+'>';
       };
       const listen = shown.listenStatus || (shown.listen === true || shown.listen === 'y' ? 'y' : 'u');
       const research = shown.researchStatus || (shown.research === true || shown.research === 'y' ? 'y' : 'u');
@@ -946,7 +946,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         : '<span class="aprd-remark" title="'+escAttr(noteOf(teacher))+'">'+esc(noteOf(teacher)||'—')+'</span>';
       return '<tr><td>'+(index+1)+'</td><td>'+esc(deptOf(teacher))+'</td><td>'+esc(teacher.grade||grade)+'</td>'
         +'<td><b>'+esc(teacher.name)+'</b></td><td>'+esc(teacher.subject||'')+'</td>'
-        +'<td>'+mark('class',shown.class)+'</td><td>'+mark('sit',shown.sit)+'</td>'
+        +'<td>'+mark('sit',shown.sit)+'</td><td>'+mark('class',shown.class)+'</td>'
         +'<td>'+mark('listen',listen)+'</td><td>'+mark('research',research)+'</td><td>'+leave+'</td><td>'+remark+'</td>'
         +'<td><div class="aprd-actions"><button type="button" class="aprd-link" data-edit="'+esc(teacher.id)+'">'+icon('edit',13)+'编辑教师</button>'
         +(!editable?'<button type="button" class="aprd-link danger" data-disable="'+esc(teacher.id)+'">'+icon('trash',13)+'删除</button>':'')+'</div></td></tr>';

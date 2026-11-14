@@ -39,7 +39,7 @@ test('考勤：四页签同名单同列，各表独立保存，花名册只读�
   const table=page.locator('.attendance-prd .aprd-table-wrap table');
   await expect(table.locator('tbody tr')).toHaveCount(2);
   const headers=await table.locator('th').allTextContents();
-  expect(headers).toEqual(['序号','归属部门','归属年级','姓名','学科','上课','坐班','听课','教研','请假','备注','操作']);
+  expect(headers).toEqual(['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注','操作']);
   await expect(page.locator('[data-grid-person]')).toHaveCount(0);
   for(const type of ['seat','class','research']) {
     await page.locator('[data-tab="'+type+'"]').click();

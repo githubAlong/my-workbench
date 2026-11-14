@@ -12,7 +12,8 @@ export const DEFAULT_PERIODS = [
 
 export const LEAVE_TYPES = ['事假', '病假', '婚假', '丧假', '产假', '公假', '调休', '公出'];
 
-const TEACHER_COLUMNS = Object.freeze(['序号', '归属部门', '归属年级', '姓名', '学科', '上课', '坐班', '听课', '教研', '请假', '备注', '操作']);
+/* 2026-11-14：列顺序按用户要求改为 坐班 / 上课 / 听课 / 教研 / 请假。 */
+const TEACHER_COLUMNS = Object.freeze(['序号', '归属部门', '归属年级', '姓名', '学科', '坐班', '上课', '听课', '教研', '请假', '备注', '操作']);
 export const ATTENDANCE_COLUMNS = {
   roster: TEACHER_COLUMNS,
   seat: TEACHER_COLUMNS,
@@ -410,8 +411,8 @@ export function paginateExportGrid(grid, rowsPerPage = 18) {
 }
 
 const EXPORT_HEADERS = Object.freeze({
-  roster: ['序号','归属部门','归属年级','姓名','学科','上课','坐班','听课','教研','请假','备注'],
-  seat: ['序号','归属部门','归属年级','姓名','学科','上课','坐班','听课','教研','请假','备注'],
+  roster: ['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注'],
+  seat: ['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注'],
   class: ['序号','归属部门','归属年级','姓名','学科','班级','节次','上课时间','上课状态','听课教师','备注'],
   research: ['序号','归属部门','归属年级','姓名','学科','教研时间','地点','主持人','签到状态','备注'],
   leave: ['序号','归属部门','归属年级','姓名','学科','请假类型','开始日期','结束日期','时段','请假时长','状态','备注'],
@@ -492,16 +493,16 @@ export function buildAttendanceExportGrid({
       const meta = teacherMeta?.[String(teacher.id)] || {};
       return [
         index + 1, departmentOf(teacher), gradeOf(teacher), name, teacher.subject || '',
-        exportStatusLabel(aggregate('class')), exportStatusLabel(aggregate('sit')),
+        exportStatusLabel(aggregate('sit')), exportStatusLabel(aggregate('class')),
         exportStatusLabel(aggregate('listen')), exportStatusLabel(aggregate('research')),
         leaveText, meta.remark || teacher.remark || teacher.note || '',
       ];
     });
-    const count = key => rows.filter(row => row[{ class: 5, sit: 6, listen: 7, research: 8 }[key]] === '✓').length;
+    const count = key => rows.filter(row => row[{ class: 6, sit: 5, listen: 7, research: 8 }[key]] === '✓').length;
     const leaveCount = rows.filter(row => row[9] !== '无').length;
     const unregistered = rows.filter(row => [5, 6, 7, 8].every(index => row[index] === '未登记') && row[9] === '无').length;
-    const title = fileTitle + ' · 共' + people.length + '人 · 上课' + count('class')
-      + ' · 坐班' + count('sit') + ' · 听课' + count('listen')
+    const title = fileTitle + ' · 共' + people.length + '人 · 坐班' + count('sit')
+      + ' · 上课' + count('class') + ' · 听课' + count('listen')
       + ' · 教研' + count('research') + ' · 请假' + leaveCount
       + ' · 未登记' + unregistered + '人';
     return [[title], EXPORT_HEADERS[type], ...rows];

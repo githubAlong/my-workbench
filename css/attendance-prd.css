@@ -224,6 +224,9 @@
 .attendance-prd .aprd-mark.u{background:#fff6e5;border-color:#f4e0b8;color:#b7791f}
 .attendance-prd .aprd-mark.leave{background:#fdecec;border-color:#f5cdcd;color:#cf3b3b;cursor:default}
 .attendance-prd .aprd-mark.ap-placeholder{min-width:0;padding:0;border-color:transparent;background:transparent;color:#b6c2d2;cursor:default}
+/* 2026-11-14：未登记格仍是可点击按钮，光标要给出手势提示 */
+.attendance-prd button.aprd-mark.ap-placeholder{min-width:56px;height:24px;cursor:pointer;color:#c3cddb}
+.attendance-prd button.aprd-mark.ap-placeholder:hover{color:#7a899e}
 .attendance-prd button.aprd-mark:hover{box-shadow:0 0 0 3px rgba(22,93,255,.08)}
 .attendance-prd span.aprd-mark{display:inline-flex;align-items:center;justify-content:center;cursor:default}
 
