@@ -1,7 +1,10 @@
+import { resolvePlace, locationWarning } from './weather-location.mjs';
+import { DEFAULT_PLACE, lookupLocalPlaces, placeNames, todayMetrics, hoursForDate, weekRows } from './weather-view.mjs';
 import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_CN, WD_SHORT, fmtTime, fmtDateTime, relDay, parseDT, countdown, speak, stopSpeak, colorOf, ls, exportUrl, download, addToSystemCalendar } from './core.js';
 import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
 import { syncDay, DAY_SYNC } from './homelayout.js';
 import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud, setTemporaryHeight as setGridTemporaryHeight } from './homegrid.js';
+import { cleanPeriodTime, getCanonicalPeriodNumber } from './timetable-periods.mjs';
 
 /* ================= 欢迎语 =================
    【第 5 条：按时段问候 + 头像上移】
@@ -43,6 +46,95 @@ function greetIcon() {
   if (h >= 18 && h < 20) return '🌇';
   if (h >= 20 && h < 23) return '🌙';
   return '🌛';
+}
+
+function parseHomeObject(value) {
+  if (value && typeof value === 'object') return value;
+  try {
+    const parsed = JSON.parse(String(value || ''));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/* 首页课程提醒与我的课表共用同一节次归一化规则。
+   /home 返回的是某一天的课程实例，id 是实例 id，course_id 才是原始周课表课程 id；
+   必须用 course_id 读取 courseTypes，才能与 timetable.js 的 typeOfCourse() 一致。 */
+function homeTimetablePeriodSettings() {
+  const userSettings = parseHomeObject(state.user?.settings);
+  const timetable = parseHomeObject(userSettings.timetable);
+  return {
+    courseTypes: parseHomeObject(timetable.courseTypes),
+    periodTimes: parseHomeObject(timetable.periodTimes),
+    periodDefinitions: parseHomeObject(timetable.periodDefinitions),
+  };
+}
+
+/* 首页提醒必须与「我的课表」使用同一组查看条件。
+   timetable.js 将课表类型、所属年级保存在同一个浏览器键中；
+   这里读取同一份设置，不再把所有课表类型/年级的课程混在首页。 */
+const HOME_TIMETABLE_VIEW_KEY = 'wb_timetable_view_v1';
+function homeTimetableViewPreference() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HOME_TIMETABLE_VIEW_KEY) || '{}');
+    return {
+      type: saved.type === '冬令时课表' ? '冬令时课表' : '夏令时课表',
+      grade: ['全部', '高一', '高二', '高三'].includes(saved.grade) ? saved.grade : '全部',
+    };
+  } catch {
+    return { type: '夏令时课表', grade: '全部' };
+  }
+}
+
+/* 将 /home 或 /calendar/day 返回的当天课程实例，与「我的课表」原始课程行关联。
+   只保留当前课表类型和年级；节次、时间按 timetable.js 相同优先级计算。
+   课程实例仍负责日期范围和停课/调课例外，原始课程行负责课表归属及课程设置。 */
+function getHomeTimetableCourses(instances, date) {
+  if (!Array.isArray(homeCourseRows)) return [];
+  const { courseTypes, periodTimes, periodDefinitions } = homeTimetablePeriodSettings();
+  const view = homeTimetableViewPreference();
+  const sourceById = new Map(homeCourseRows.map((course) => [String(course.id), course]));
+  const configuredPeriods = Array.isArray(periodDefinitions[view.type + '|' + view.grade])
+    ? periodDefinitions[view.type + '|' + view.grade]
+    : [];
+
+  return (Array.isArray(instances) ? instances : [])
+    .filter((instance) => String(instance.date || '') === String(date || ''))
+    .map((instance) => {
+      const source = sourceById.get(String(instance.course_id));
+      if (!source) return null;
+      const scheduleType = courseTypes[String(source.id)] || '夏令时课表';
+      if (scheduleType !== view.type) return null;
+      if (view.grade !== '全部') {
+        const grade = String(source.grade || '').trim();
+        if (grade !== view.grade && grade !== '全部' && grade !== '全体') return null;
+      }
+
+      const periodNo = getCanonicalPeriodNumber(source, { periodTimes, scheduleType });
+      const number = periodNo == null ? Number(instance.period_no) : periodNo;
+      const period = configuredPeriods.find((item) => Number(item.period_no) === Number(number));
+      const override = periodTimes?.[scheduleType]?.[String(number)] || {};
+      const startTime = instance.rescheduled
+        ? (cleanPeriodTime(instance.start_time) || cleanPeriodTime(override.start_time) || cleanPeriodTime(source.start_time) || cleanPeriodTime(period?.start_time))
+        : (cleanPeriodTime(override.start_time) || cleanPeriodTime(source.start_time) || cleanPeriodTime(period?.start_time) || cleanPeriodTime(instance.start_time));
+      const endTime = instance.rescheduled
+        ? (cleanPeriodTime(instance.end_time) || cleanPeriodTime(override.end_time) || cleanPeriodTime(source.end_time) || cleanPeriodTime(period?.end_time))
+        : (cleanPeriodTime(override.end_time) || cleanPeriodTime(source.end_time) || cleanPeriodTime(period?.end_time) || cleanPeriodTime(instance.end_time));
+
+      return {
+        ...instance,
+        period_no: number,
+        start_time: startTime || instance.start_time || '',
+        end_time: endTime || instance.end_time || '',
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) =>
+      String(a.start_time || '').localeCompare(String(b.start_time || '')) ||
+      Number(a.period_no) - Number(b.period_no) ||
+      String(a.class_name || '').localeCompare(String(b.class_name || ''))
+    );
 }
 
 const nowHM = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
@@ -95,7 +187,7 @@ function outfitFor(t, code, wind, rain) {
 let weatherTimer = null;
 let weatherRequestSeq = 0;
 async function loadWeather(force = false) {
-  const city = { ...(state.city || { name: '北京', lat: 39.9042, lon: 116.4074 }) };
+  const city = { ...(state.city || { ...DEFAULT_PLACE }) };
   const requestId = ++weatherRequestSeq;
   const cache = ls.get('weather', null);
   const matchesCity = (item) => {
@@ -134,55 +226,52 @@ async function loadWeather(force = false) {
   ls.set('weather', w);
   return w;
 }
-/* 最近的 5 个城市。
-   原来是 48 个写死的「常用城市」，问题是：你人在荆州，列表里全是北上广深，
-   对你一点用没有，还占满一屏。真正的常用城市就是你自己去过的那几个。
-   所以改成记录用户实际切换/定位过的城市，最新的排最前，最多 5 个。 */
+/* 城市位置名称：优先显示完整行政区划，兼容旧版只保存 name 的记录。 */
+function cityFullName(city = state.city || {}) {
+  return String(city?.fullName || city?.admin || city?.name || '当前位置').trim() || '当前位置';
+}
+
+/* 最近使用的 5 个地区。保留完整行政区划，县级地区不会只剩一个简称。 */
 const RECENT_MAX = 5;
 function recentCities() {
-  const a = ls.get('recentCities', []);
-  return Array.isArray(a) ? a.filter((c) => c && c.name && c.lat != null).slice(0, RECENT_MAX) : [];
+  const rows = ls.get('recentCities', []);
+  return Array.isArray(rows)
+    ? rows.filter((c) => c && c.name && c.lat != null && c.lon != null)
+      .slice(0, RECENT_MAX)
+      .map((c) => ({ ...c, fullName: cityFullName(c) }))
+    : [];
 }
 function pushRecentCity(c) {
-  // 同名去重后插到队首：切回老城市会把它顶到最前面，而不是留个重复项
-  const rest = recentCities().filter((x) => x.name !== c.name);
-  const next = [{ name: c.name, lat: c.lat, lon: c.lon }, ...rest].slice(0, RECENT_MAX);
+  const item = {
+    name: String(c.name || '当前位置'),
+    fullName: cityFullName(c),
+    lat: Number(c.lat),
+    lon: Number(c.lon),
+    source: c.source || 'manual',
+    province: c.province || '',
+    prefecture: c.prefecture || '',
+    district: c.district || '',
+    locationResolved: c.locationResolved !== false,
+  };
+  const rest = recentCities().filter((x) => {
+    const sameCoords = Math.abs(Number(x.lat) - item.lat) < 0.01
+      && Math.abs(Number(x.lon) - item.lon) < 0.01;
+    return !sameCoords && cityFullName(x) !== item.fullName;
+  });
+  const next = [item, ...rest].slice(0, RECENT_MAX);
   ls.set('recentCities', next);
   return next;
 }
-/* 把经纬度反查成真实地名。
-   原来这段是假的：拿经纬度去问天气接口，再从 timezone 里截最后一段——
-   Asia/Shanghai → "Shanghai"。整个中国大陆同属一个时区，所以不管人
-   在北京还是成都，定位完都显示 Shanghai。看着像定位成功了，其实城市名从来没对过。
 
-   现在改用 BigDataCloud 的免费反查接口（无需 key，支持中文）。
-   它有 city / principalSubdivision 两级，直辖市 city 就等于省，去重一下。
-   反查失败不阻塞定位：坐标本身是准的，退成「当前位置」照样能查天气。 */
+/* 把实时 GPS 坐标反查为省、市、区县；不再只取 city 一个字段。 */
 async function reverseGeocode(lat, lon) {
-  try {
-    const r = await fetch(
-      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=zh`,
-      { signal: AbortSignal.timeout(7000) },
-    ).then((x) => (x.ok ? x.json() : null));
-
-    // 「上海市」→「上海」，"北京市" → "北京"
-    const trim = (s) => String(s || '').replace(/市$/, '').trim();
-    const city = trim(r?.city);
-    if (city) return city;
-
-    // 有的地方 city 为空，退到省/州一级
-    const prov = trim(r?.principalSubdivision);
-    if (prov) return prov;
-
-    // 连行政区都没查到时，别把「39.90, 116.41」这种坐标串当成城市名存进设置：
-    // 首页标题会显示成一串数字，而且会被当成「用户选的城市」长期留着。
-    return '';
-  } catch {
-    return '';
-  }
+  return resolvePlace(lat, lon, { previous: state.city });
 }
 let geoRequestSeq = 0;
 let cityChoiceSeq = 0;
+/* 本次会话内用户手动选过城市时，不再被后台自动定位覆盖。
+   不写进 localStorage：刷新/下次打开仍按「当前位置在哪就显示哪」重新定位。 */
+let manualLockSession = false;
 function setGeoMode(mode) {
   state.geoMode = mode;
   ls.set('geoMode', mode);
@@ -199,9 +288,14 @@ async function locate({ silent = false } = {}) {
     navigator.geolocation.getCurrentPosition(async (pos) => {
       if (requestId !== geoRequestSeq || choiceId !== cityChoiceSeq) return resolve(null);
       const { latitude, longitude } = pos.coords;
-      const name = (await reverseGeocode(latitude, longitude)) || '当前位置';
+      const resolved = await reverseGeocode(latitude, longitude);
       if (requestId !== geoRequestSeq || choiceId !== cityChoiceSeq) return resolve(null);
-      const city = { name, lat: latitude, lon: longitude };
+      const city = {
+        ...resolved,
+        lat: latitude,
+        lon: longitude,
+        source: 'geo',
+      };
       cityChoiceSeq += 1;
       geoRequestSeq += 1;
       state.city = city;
@@ -223,7 +317,6 @@ async function locate({ silent = false } = {}) {
     }, { timeout: 12000, maximumAge: 600000, enableHighAccuracy: false });
   });
 }
-
 
 /* 按城市名查坐标。
    全国几百个地级市，写死一张表必然覆盖不全（原来就只列了 48 个），
@@ -296,213 +389,398 @@ const SEED_CITIES = CITY_SEED.map(([name, lat, lon]) => ({ name, lat, lon }));
 async function geocodeCity(kw) {
   const kw2 = String(kw || '').trim();
   if (!kw2) return [];
-  const q = (s) => `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(s)}&count=10&language=zh&format=json`;
 
-  const grab = async (s) => {
+  /* 简称和完整行政区名称都查：例如「咸丰」会同时尝试「咸丰县」。 */
+  const terms = new Set([kw2]);
+  const suffix = kw2.match(/(特别行政区|自治州|自治县|地区|县|区|市|州|盟|旗)$/);
+  if (suffix) {
+    const base = kw2.slice(0, -suffix[0].length).trim();
+    if (base.length >= 2) terms.add(base);
+  } else {
+    [kw2 + '县', kw2 + '区', kw2 + '市'].forEach((term) => terms.add(term));
+  }
+
+  const grab = async (term) => {
     try {
-      const r = await fetch(q(s), { signal: AbortSignal.timeout(8000) })
-        .then((x) => (x.ok ? x.json() : null));
-      return r?.results || [];
-    } catch { return []; }
+      const url = 'https://geocoding-api.open-meteo.com/v1/search?name='
+        + encodeURIComponent(term) + '&count=20&language=zh&format=json';
+      const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return Array.isArray(data?.results) ? data.results : [];
+    } catch {
+      return [];
+    }
   };
 
-  // 「荆州」→ 再试一次「荆州市」；已经带「市」就不重复加
-  let rows = await grab(kw2);
-  if (!/市$/.test(kw2)) rows = rows.concat(await grab(kw2 + '市'));
+  let rows = (await Promise.all([...terms].map(grab))).flat();
 
-  /* 本地城市表兜底：在线库查不到（断网 / 接口挂了 / 生僻写法）时，
-     从内置表里按包含关系找。命中的排在最前面，弱化「没找到」的死路。 */
-  const seedHit = SEED_CITIES.filter((c) => c.name.includes(kw2) || kw2.includes(c.name))
+  /* 在线地名库查不到中国县级行政区（实测「咸丰县」「咸丰」都是 0 条），
+     用户只能选到地级市「恩施」，天气就差了 100 多公里。
+     本地这份带完整行政区划，命中后排在在线结果前面。 */
+  const localHit = lookupLocalPlaces(kw2).map((c) => ({
+    name: c.name,
+    latitude: c.lat,
+    longitude: c.lon,
+    admin1: c.province,
+    admin2: c.prefecture,
+    admin3: c.district,
+    feature_code: 'ADM3',
+    population: 9e9,
+    _local: true,
+  }));
+  if (localHit.length) rows = localHit.concat(rows);
+
+  /* 在线地名库不可用时，保留原有常用地级市兜底；不伪造县级地区坐标。 */
+  const seedHit = SEED_CITIES
+    .filter((c) => c.name.includes(kw2) || kw2.includes(c.name))
     .slice(0, 4)
-    .map((c) => ({ name: c.name, latitude: c.lat, longitude: c.lon, feature_code: 'PPLA2', admin1: '本地常用', population: 9e9 }));
+    .map((c) => ({
+      name: c.name,
+      latitude: c.lat,
+      longitude: c.lon,
+      feature_code: 'PPLA2',
+      population: 9e9,
+      _seed: true,
+    }));
   if (seedHit.length) rows = seedHit.concat(rows);
 
-  const BAD = new Set(['AIRP', 'ADM1', 'ADM2', 'ADM3', 'ADM4', 'PPLX', 'HSP', 'STM']);
-  const rank = (r) => {
-    const f = r.feature_code || '';
-    if (f === 'PPLC') return 0;        // 首都
-    if (f === 'PPLA') return 1;        // 省会 / 直辖市
-    if (f === 'PPLA2') return 2;       // 地级市驻地
-    if (f === 'PPLA3' || f === 'PPLA4') return 3;
-    if (f === 'PPL') return 4;         // 普通城镇/村
-    return 5;
-  };
+  /* ADM1–ADM4 是真实行政区划，必须保留；只过滤机场、设施和非居住点。 */
+  const BAD = new Set(['AIRP', 'PPLX', 'HSP', 'STM']);
+  const normalizeName = (value) => String(value || '').trim()
+    .replace(/(特别行政区|自治州|自治县|地区|市|县|区|州|盟|旗|省)$/, '')
+    .toLocaleLowerCase();
+  const featureRank = (feature) => ({
+    PPLC: 0,
+    PPLA: 1,
+    ADM1: 1,
+    PPLA2: 2,
+    ADM2: 2,
+    ADM3: 2,
+    PPLA3: 3,
+    ADM4: 3,
+    PPLA4: 4,
+    PPL: 5,
+  }[feature] ?? 6);
 
   const seen = new Set();
   return rows
-    .filter((r) => r && r.latitude != null && !BAD.has(r.feature_code))
+    .filter((r) => r && r.name && r.latitude != null && r.longitude != null && !BAD.has(r.feature_code))
     .sort((a, b) => {
-      const d = rank(a) - rank(b);
-      if (d) return d;
+      const aExact = normalizeName(a.name) === normalizeName(kw2) ? 0 : 1;
+      const bExact = normalizeName(b.name) === normalizeName(kw2) ? 0 : 1;
+      if (aExact !== bExact) return aExact - bExact;
+      const rankDiff = featureRank(a.feature_code) - featureRank(b.feature_code);
+      if (rankDiff) return rankDiff;
       return (b.population || 0) - (a.population || 0);
     })
-    .map((r) => ({
-      // 「荆州市」显示成「荆州」更好看，重复的后缀去掉一层
-      name: String(r.name || '').replace(/市$/, '') || kw2,
-      lat: r.latitude,
-      lon: r.longitude,
-      admin: [r.admin1, r.country].filter(Boolean).join(' · '),
-    }))
-    .filter((r) => {
-      // 同名同省只留一个（带「市」和不带「市」会查出同一个地方）
-      const k = `${r.name}|${r.admin}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
+    .map((r) => {
+      const name = String(r.name || kw2).trim().replace(/市$/, '') || kw2;
+      const adminParts = [r.admin1, r.admin2, r.admin3, r.admin4]
+        .map((value) => String(value || '').trim())
+        .filter((value, index, all) => value && all.indexOf(value) === index);
+      const district = [...adminParts].reverse()
+        .find((value) => /(县|区|旗|自治县)$/.test(value)) || '';
+      const displayName = /(县|区|旗|自治县)$/.test(name) ? name : (district || name);
+      const fullParts = [...adminParts, displayName]
+        .filter((value, index, all) => value && all.indexOf(value) === index);
+      const fullName = fullParts.join(' · ') || displayName;
+      const key = [
+        displayName,
+        fullName,
+        Number(r.latitude).toFixed(4),
+        Number(r.longitude).toFixed(4),
+      ].join('|');
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return {
+        name: displayName,
+        fullName,
+        admin: fullName,
+        province: r.admin1 || '',
+        prefecture: r.admin2 || '',
+        district: district || r.admin3 || r.admin4 || '',
+        lat: Number(r.latitude),
+        lon: Number(r.longitude),
+        source: 'manual',
+        locationResolved: true,
+      };
     })
-    .slice(0, 6);
+    .filter(Boolean)
+    .slice(0, 8);
 }
 
 function pickCity() {
-  /* 城市选择面板。只有三样东西：搜索框、最近去过的城市、定位按钮。
-     写死的 48 个城市和「手动输入经纬度」都删了——
-     前者对「人在荆州」的人毫无用处，后者根本没人知道自己脚下的坐标。 */
-  const cur = state.city?.name || '';
-  const body = el(`<div class="sheet-body">
-    <div class="field" style="margin-bottom:12px">
-      <input class="input" id="city-kw" placeholder="输入城市名，如 荆州、周口、鞍山" autocomplete="off">
-      <div class="small muted" id="city-tip" style="margin-top:6px">直接输入城市名即可，不用管经纬度</div>
-    </div>
-    <div class="row wrap" id="city-result" style="gap:8px"></div>
-    <div id="city-recent-wrap">
-      <div class="field-label" style="margin:4px 0 8px">最近使用</div>
-      <div class="row wrap" id="city-recent" style="gap:8px"></div>
-    </div>
-    <hr class="hr">
-    <div class="row" style="margin-bottom:2px">
-      <button class="btn soft sm" id="use-geo">${icon('loc', 15)} 用当前位置定位</button>
-      <span class="small muted">需要允许浏览器的定位权限</span>
-    </div>
-  </div>`);
+  const current = state.city || {};
+  const currentLabel = cityFullName(current);
+  const body = el(
+    '<div class="weather-city-content">' +
+      '<div class="weather-city-current">' +
+        '<span class="weather-city-current-icon">' + icon('loc', 15) + '</span>' +
+        '<div class="weather-city-current-copy">' +
+          '<span>当前天气位置</span>' +
+          '<strong title="' + esc(currentLabel) + '">' + esc(currentLabel) + '</strong>' +
+        '</div>' +
+      '</div>' +
+      '<div class="weather-city-search-wrap">' +
+        '<input class="input weather-city-input" id="city-kw" placeholder="输入城市、区县名称，如 咸丰 / 咸丰县" autocomplete="off">' +
+      '</div>' +
+      '<div class="weather-city-tip" id="city-tip">支持省、市、区、县、县级市；输入简称也能匹配</div>' +
+      '<div class="weather-city-results" id="city-result" hidden></div>' +
+      '<div class="weather-city-recent-wrap" id="city-recent-wrap">' +
+        '<div class="weather-city-section-label">最近使用</div>' +
+        '<div class="weather-city-recent" id="city-recent"></div>' +
+      '</div>' +
+      '<div class="weather-city-locate-row">' +
+        '<button class="weather-city-locate" id="use-geo" type="button">' + icon('loc', 15) + '<span>使用当前位置定位</span></button>' +
+        '<span class="weather-city-locate-hint">需要允许浏览器的定位权限</span>' +
+      '</div>' +
+    '</div>'
+  );
 
-  const s = sheet({ title: '选择所在城市', body });
+  const s = sheet({ title: '选择所在城市', body, cls: 'weather-city-sheet' });
+  const dialog = s.wrap.querySelector('.sheet');
+  if (dialog) {
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+  }
 
-  /* 【第 8 条：切换城市后天气没跟着变】
-     真因不是天气接口坏，是 refreshHome() 只重新拉了 /home 的业务数据，
-     根本没再调 loadWeather()——页面于是拿「上一个城市」缓存的天气重画了一遍，
-     城市名换成了新的，温度还是老的。看起来像「只改了名字」。
-     正确做法：切城市 → 强制重拉这一座城市的天气 → 只重绘天气那块。
-     不整页 refreshHome()，是因为整页重绘会把展开的天气预报折叠回去。 */
-  const commit = (c) => {
-    // 手动选城立即锁定手动模式，并取消尚未完成的自动定位请求。
+  const recentBox = s.body.querySelector('#city-recent');
+  const recentWrap = s.body.querySelector('#city-recent-wrap');
+  const resBox = s.body.querySelector('#city-result');
+  const kw = s.body.querySelector('#city-kw');
+  const tip = s.body.querySelector('#city-tip');
+  const geoButton = s.body.querySelector('#use-geo');
+
+  const commit = (candidate) => {
+    if (!candidate || !Number.isFinite(Number(candidate.lat)) || !Number.isFinite(Number(candidate.lon))) {
+      toast('这个地区暂时没有可用的天气坐标，请换一个搜索结果', 'warn');
+      return;
+    }
     cityChoiceSeq += 1;
     geoRequestSeq += 1;
-    state.city = { name: c.name, lat: c.lat, lon: c.lon };
+    manualLockSession = true;
+    const city = {
+      name: candidate.name,
+      fullName: cityFullName(candidate),
+      admin: cityFullName(candidate),
+      province: candidate.province || '',
+      prefecture: candidate.prefecture || '',
+      district: candidate.district || '',
+      lat: Number(candidate.lat),
+      lon: Number(candidate.lon),
+      source: 'manual',
+      locationResolved: true,
+    };
+    state.city = city;
     setGeoMode('manual');
     state.weather = null;
-    ls.set('city', state.city);
-    pushRecentCity(state.city);
+    ls.set('city', city);
+    pushRecentCity(city);
     s.close();
-    toast('已切换到 ' + c.name);
+    toast('已切换到 ' + cityFullName(city));
     applyCityWeather();
   };
 
-  const recentBox = body.querySelector('#city-recent');
-  const recentWrap = body.querySelector('#city-recent-wrap');
-  const resBox = body.querySelector('#city-result');
-  const kw = body.querySelector('#city-kw');
-  const tip = body.querySelector('#city-tip');
-
-  // 一条记录都没有时把整块藏掉，别留个空标题在那儿
   const renderRecent = () => {
     const rows = recentCities();
     recentWrap.hidden = rows.length === 0;
-    recentBox.innerHTML = rows.map((c, i) => `
-      <button class="chip-btn${c.name === cur ? ' on' : ''}" data-r="${i}">${esc(c.name)}</button>`).join('');
-    recentBox.querySelectorAll('[data-r]').forEach((b) => {
-      b.onclick = () => commit(recentCities()[Number(b.dataset.r)]);
+    recentBox.innerHTML = rows.map((city, index) => (
+      '<button class="weather-city-chip' + (cityFullName(city) === currentLabel ? ' on' : '') + '" data-r="' + index + '" title="' + esc(cityFullName(city)) + '">' +
+        '<strong>' + esc(city.name) + '</strong>' +
+        '<small>' + esc(cityFullName(city)) + '</small>' +
+      '</button>'
+    )).join('');
+    recentBox.querySelectorAll('[data-r]').forEach((button) => {
+      button.onclick = () => commit(recentCities()[Number(button.dataset.r)]);
     });
   };
   renderRecent();
 
-  /* 输入即搜。防抖 350ms，避免每敲一个字就打一次接口；
-     seq 用来丢弃过期响应——打字快的时候先发的请求可能后回来，
-     不判断就会出现「输入荆州、列表显示上周口」这种错乱。 */
-  let timer = 0; let seq = 0;
-  const runSearch = async () => {
-    const q = kw.value.trim();
-    const my = ++seq;
-    if (!q) {
-      resBox.innerHTML = ''; recentWrap.hidden = recentCities().length === 0;
-      tip.textContent = '直接输入城市名即可，不用管经纬度'; tip.style.color = '';
-      return;
-    }
-    tip.textContent = '正在查找…';
-    const rows = await geocodeCity(q);
-    if (my !== seq) return;
-    recentWrap.hidden = true;
-    if (!rows.length) {
-      resBox.innerHTML = '';
-      tip.textContent = `没找到「${q}」，换个写法试试（例如加上「市」）`;
-      return;
-    }
-    tip.textContent = `找到 ${rows.length} 个，点一下即可切换`;
-    resBox.innerHTML = rows.map((r, i) => `
-      <button class="chip-btn${r.name === cur ? ' on' : ''}" data-i="${i}">
-        ${esc(r.name)}${r.admin ? `<span class="small muted" style="margin-left:6px">${esc(r.admin)}</span>` : ''}
-      </button>`).join('');
-    resBox.querySelectorAll('[data-i]').forEach((b) => {
-      b.onclick = () => commit(rows[Number(b.dataset.i)]);
+  const renderResults = (rows) => {
+    resBox.hidden = !rows.length;
+    resBox.innerHTML = rows.map((city, index) => (
+      '<button class="weather-city-result" data-i="' + index + '" type="button">' +
+        '<span class="weather-city-result-icon">' + icon('loc', 15) + '</span>' +
+        '<span class="weather-city-result-copy">' +
+          '<strong>' + esc(city.name) + '</strong>' +
+          '<small>' + esc(cityFullName(city)) + '</small>' +
+        '</span>' +
+        '<span class="weather-city-result-arrow">' + icon('right', 13) + '</span>' +
+      '</button>'
+    )).join('');
+    resBox.querySelectorAll('[data-i]').forEach((button) => {
+      button.onclick = () => commit(rows[Number(button.dataset.i)]);
     });
   };
 
-  kw.oninput = () => { clearTimeout(timer); timer = setTimeout(runSearch, 350); };
-  // 回车直接取第一条：输入「荆州」回车就切过去，不用再去点
-  kw.onkeydown = async (e) => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault(); clearTimeout(timer);
-    await runSearch();
-    const first = resBox.querySelector('[data-i="0"]');
-    if (first) first.click();
+  let timer = 0;
+  let seq = 0;
+  const runSearch = async () => {
+    const query = kw.value.trim();
+    const requestId = ++seq;
+    if (!query) {
+      resBox.innerHTML = '';
+      resBox.hidden = true;
+      recentWrap.hidden = recentCities().length === 0;
+      tip.textContent = '支持省、市、区、县、县级市；输入简称也能匹配';
+      tip.classList.remove('is-warn');
+      return [];
+    }
+
+    tip.textContent = '正在搜索城市和区县…';
+    tip.classList.remove('is-warn');
+    recentWrap.hidden = true;
+    resBox.hidden = true;
+    const rows = await geocodeCity(query);
+    if (requestId !== seq) return [];
+
+    if (!rows.length) {
+      resBox.innerHTML = '';
+      tip.textContent = '没有找到「' + query + '」，可以尝试补充“县 / 市 / 区”后缀';
+      tip.classList.add('is-warn');
+      return [];
+    }
+
+    tip.textContent = '找到 ' + rows.length + ' 个匹配地区，选择后立即更新天气';
+    renderResults(rows);
+    return rows;
   };
 
-  body.querySelector('#use-geo').onclick = async () => {
-    const c = await locate();
-    if (c) { s.close(); toast('已定位：' + c.name); applyCityWeather(); }
+  kw.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(runSearch, 300);
   };
+  kw.onkeydown = async (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    clearTimeout(timer);
+    const rows = await runSearch();
+    if (rows.length) commit(rows[0]);
+  };
+
+  geoButton.onclick = async () => {
+    if (geoButton.disabled) return;
+    const original = geoButton.innerHTML;
+    geoButton.disabled = true;
+    geoButton.innerHTML = icon('loc', 15) + '<span>正在定位…</span>';
+    try {
+      const city = await locate();
+      if (!city) return;
+      s.close();
+      if (city.locationResolved) {
+        toast('已定位：' + cityFullName(city));
+      } else {
+        toast(locationWarning(city), 'warn', 8000);
+      }
+      applyCityWeather();
+    } finally {
+      if (geoButton.isConnected) {
+        geoButton.disabled = false;
+        geoButton.innerHTML = original;
+      }
+    }
+  };
+
+  setTimeout(() => kw.focus(), 80);
 }
 
 /* 顶栏用的「简要天气」：只留一眼要看的——温度、天气、穿搭。
    湿度/风速/日出日落、小时预报、7 天预报都折进「详细天气」里 */
+/* 天气卡片中的位置行：明确显示完整地区，并标注位置来源。 */
+function weatherCityLineHTML(city) {
+  /* 2026-11-12：位置行改成「区县级短名 + 完整行政路径」。
+     自动定位回来的 fullName 是「湖北省 · 恩施土家族苗族自治州 · 咸丰县」，
+     整串当主标题既太长、也看不出自己到底在哪；用户要的是「咸丰县」。 */
+  const names = placeNames(city);
+  const sourceLabel = city?.source === 'geo'
+    ? '当前定位'
+    : city?.source === 'manual'
+      ? '手动选择'
+      : city?.source === 'default'
+        ? '默认城市'
+        : '当前天气位置';
+  const detail = names.full === names.short ? sourceLabel : sourceLabel + ' · ' + names.full;
+  return '<div class="wxb-city">' +
+    '<span class="wxb-location-pin">' + icon('loc', 13) + '</span>' +
+    '<span class="wxb-location-copy">' +
+      '<strong class="wxb-location-name" title="' + esc(names.full) + '">' + esc(names.short) + '</strong>' +
+      '<small class="wxb-location-source" title="' + esc(names.full) + '">' + esc(detail) +
+        (city?.locationResolved === false ? ' · 地名暂不可用' : '') + '</small>' + weatherLocationCredit(city) +
+    '</span>' +
+    '<span style="flex:1"></span>' +
+    '<button class="icon-btn sm" data-wx-refresh title="刷新天气">' + icon('refresh', 14) + '</button>' +
+  '</div>';
+}
+
+/* 顶栏简要天气：位置、温度、天气和穿搭。 */
+function weatherLocationCredit(city) {
+  return city?.locationProvider === 'photon'
+    ? '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" style="font-size:10px;color:var(--muted)">地名 © OpenStreetMap</a>'
+    : '';
+}
+
 function weatherBriefHTML() {
   const w = state.weather?.raw;
-  const c = state.city;
-  /* 降级分支也必须带「选城市」和「刷新」。
-     早先这里只输出城市名，一旦天气拉不到（断网 / 接口被墙），
-     整个天气卡就只剩一行字，连切城市和重试的按钮都没有 ——
-     用户就被卡死在「北京 天气加载中」，怎么点都没用（第 8 条）。 */
-  if (!w) return `<div class="wxb-city">${icon('loc', 12)} ${esc(c.name)}
-      
-      <span style="flex:1"></span>
-      <button class="icon-btn sm" data-wx-refresh title="重新加载天气">${icon('refresh', 14)}</button>
-    </div>
-    <div class="wxb-main"><div class="wxb-temp">--<span class="deg">°</span></div>
-      <div class="wxb-side"><div class="wxb-desc">天气没加载出来</div>
-        <div class="wxb-range">点右上角刷新，或换个城市试试</div></div></div>`;
-  const cur = w.current; const [emo, desc] = wxInfo(cur.weather_code);
+  const c = state.city || { ...DEFAULT_PLACE };
+  if (!w) {
+    return weatherCityLineHTML(c) +
+      '<div class="wxb-main"><div class="wxb-temp">--<span class="deg">°</span></div>' +
+        '<div class="wxb-side"><div class="wxb-desc">天气没加载出来</div>' +
+          '<div class="wxb-range">点右上角刷新，或换个城市试试</div></div></div>';
+  }
+  const cur = w.current;
+  const [emo, desc] = wxInfo(cur.weather_code);
   const day = w.daily;
   const rainToday = (day.precipitation_probability_max?.[0] || 0) > 40 || cur.precipitation > 0;
-  return `<div class="wxb-city">${icon('loc', 12)} ${esc(c.name)}
-      
-      <span style="flex:1"></span>
-      <button class="icon-btn sm" data-wx-refresh title="刷新天气">${icon('refresh', 14)}</button>
-    </div>
-    <div class="wxb-main">
-      <button class="wxb-emoji-btn" type="button" data-wx-forecast title="点击查看未来一周天气" aria-label="查看未来一周天气"><span class="wxb-emoji">${emo}</span></button>
-      <span class="wxb-temp">${Math.round(cur.temperature_2m)}<span class="deg">°</span></span>
-      <div class="wxb-side">
-        <div class="wxb-desc">${desc}</div>
-        <div class="wxb-range">${Math.round(day.temperature_2m_min[0])}° ~ ${Math.round(day.temperature_2m_max[0])}° · 体感 ${Math.round(cur.apparent_temperature)}°</div>
-      </div>
-    </div>
-    <div class="wxb-outfit">${esc(outfitFor(cur.temperature_2m, cur.weather_code, cur.wind_speed_10m, rainToday))}</div>`;
+  return weatherCityLineHTML(c) +
+    '<div class="wxb-main">' +
+      '<button class="wxb-emoji-btn" type="button" data-wx-forecast title="点击查看未来一周天气" aria-label="查看未来一周天气"><span class="wxb-emoji">' + emo + '</span></button>' +
+      '<span class="wxb-temp">' + Math.round(cur.temperature_2m) + '<span class="deg">°</span></span>' +
+      '<div class="wxb-side">' +
+        '<div class="wxb-desc">' + desc + '</div>' +
+        '<div class="wxb-range">' + Math.round(day.temperature_2m_min[0]) + '° ~ ' + Math.round(day.temperature_2m_max[0]) + '° · 体感 ' + Math.round(cur.apparent_temperature) + '°</div>' +
+      '</div>' +
+    '</div>' +
+    wxTodayDetailHTML(w) +
+    '<div class="wxb-outfit">' + esc(outfitFor(cur.temperature_2m, cur.weather_code, cur.wind_speed_10m, rainToday)) + '</div>';
+}
+
+/* 当天详情：逐时 + 今日指标。原来卡片中间是一整块空白、
+   一周预报和指标全挤在抽屉里；现在卡片只讲「今天」，抽屉只讲「一周」。 */
+function wxTodayDetailHTML(w) {
+  const m = todayMetrics(w);
+  const today = w.daily?.time?.[0];
+  const hours = hoursForDate(w, today);
+  const metric = (ico, label, value) => '<div class="wx-metric"><span class="k">' + icon(ico, 11) + ' ' + label + '</span><span class="v">' + value + '</span></div>';
+  const hoursHTML = hours.map((r) => {
+    const [e] = wxInfo(r.code);
+    const pop = (r.pop != null && r.pop >= 30) ? '<i class="wxb-pop">' + Math.round(r.pop) + '%</i>' : '';
+    return '<div class="wx-hour' + (r.isNow ? ' now' : '') + '">' +
+      '<span class="tiny muted" style="color:inherit">' + (r.isNow ? '现在' : r.label.slice(0, 2) + '时') + '</span>' +
+      '<span class="e">' + e + '</span>' +
+      '<span class="t">' + (r.temp == null ? '--' : Math.round(r.temp) + '°') + '</span>' + pop + '</div>';
+  }).join('');
+  const dateLabel = today ? String(today).slice(5).replace('-', ' / ') : '';
+  return '<div class="wxb-today">' +
+    '<div class="wxb-today-h"><span>今天 · 逐时</span><span>' + dateLabel + '</span></div>' +
+    '<div class="wx-hours">' + hoursHTML + '</div>' +
+    '<div class="wx-metrics wxb-metrics">' +
+      metric('drop', '湿度', m.humidity == null ? '--' : Math.round(m.humidity) + '%') +
+      metric('wind', '风速', m.wind == null ? '--' : Math.round(m.wind) + ' km/h') +
+      metric('rain', '降水', m.rainProb == null ? '--' : Math.round(m.rainProb) + '%') +
+      metric('uv', '紫外线', m.uv == null ? '--' : Math.round(m.uv)) +
+      metric('sunrise', '日出', m.sunrise || '--') +
+      metric('sunset', '日落', m.sunset || '--') +
+    '</div>' +
+  '</div>';
 }
 
 function weatherHTML() {
   const w = state.weather?.raw;
   const c = state.city;
   if (!w) return `<div class="wx-top"><div style="flex:1">
-      <div class="wx-city">${esc(c.name)} <button class="loc-btn" data-pick-city title="选择所在城市">${icon('loc', 11)} 选城市</button></div>
+      <div class="wx-city">${esc(cityFullName(c))} <button class="loc-btn" data-pick-city title="选择所在城市">${icon('loc', 11)} 选城市</button></div>
       <div class="wx-desc" style="margin-top:6px">天气没加载出来，点右上角刷新或换个城市</div></div>
       <span style="flex:1"></span>
       <button class="icon-btn" data-wx-refresh title="重新加载天气">${icon('refresh', 15)}</button></div>`;
@@ -510,7 +788,7 @@ function weatherHTML() {
   const day = w.daily;
   return `
     <div class="wx-top">
-      <div class="wx-city">${icon('loc', 13)} ${esc(c.name)}
+      <div class="wx-city">${icon('loc', 13)} ${esc(cityFullName(c))}
         <button class="loc-btn" data-pick-city title="选择所在城市">${icon('loc', 10)} 选城市</button></div>
       <span style="flex:1"></span>
       <button class="icon-btn" data-wx-refresh title="刷新天气">${icon('refresh', 15)}</button>
@@ -576,6 +854,7 @@ function wxForecastHTML() {
 
 /* ================= 首页渲染 ================= */
 let homeData = null;
+let homeCourseRows = null;
 let clockTimer = null;
 let clockAlign = null;
 let lastGreetKey = '';
@@ -596,11 +875,23 @@ registerView(async function home(main) {
   try { await loadWeather(); } catch (e) { /* 离线降级 */ }
   // 必须显式带上浏览器本地日期：服务器可能跑在 UTC，跨零点时按它自己算
   // 会把今天算成昨天，刚记的便签就变成「存进去却看不见」。
-  homeData = await api.get('/home', { date: ymd() });
+  const [homeResult, courseRows] = await Promise.all([
+    api.get('/home', { date: ymd() }),
+    api.get('/courses').catch((error) => {
+      console.warn('[home] 读取课表原始课程失败', error);
+      return null;
+    }),
+  ]);
+  homeData = homeResult;
+  homeCourseRows = Array.isArray(courseRows) ? courseRows : null;
   renderHome();
-  if (state.geoMode === 'auto') {
+  /* 2026-11-12：当前位置在哪就显示哪。以前只要手动选过一次城市，
+     geoMode 被永久设成 manual，之后再也不会自动定位，天气一直停在旧城市。
+     现在每次进入首页都尝试设备定位（浏览器首次会弹授权框），
+     只有「本次会话内手动选过」才跳过；没授权就保持默认武汉或手动城市。 */
+  if (!manualLockSession) {
     locate({ silent: true }).then((city) => {
-      if (city) applyCityWeather({ silent: true });
+      if (city && !manualLockSession) applyCityWeather({ silent: true });
     });
   }
   /* 拉一次云端布局：另一台设备排过的话，这里自动换成那一套。
@@ -628,7 +919,15 @@ async function refreshHome() {
   const selectedDate = calState.selected;
   const calendarView = calState.view;
   const dayOpen = calState.dayOpen;
-  homeData = await api.get('/home', { date: ymd() }).catch(() => homeData);
+  const [homeResult, courseRows] = await Promise.all([
+    api.get('/home', { date: ymd() }).catch(() => homeData),
+    api.get('/courses').catch((error) => {
+      console.warn('[home] 刷新课表原始课程失败', error);
+      return null;
+    }),
+  ]);
+  homeData = homeResult;
+  if (Array.isArray(courseRows)) homeCourseRows = courseRows;
   renderHome();
   if (selectedDate) {
     await loadCal(selectedDate, { openDay: dayOpen });
@@ -638,16 +937,28 @@ async function refreshHome() {
 }
 
 function profileDetailsHTML(user = state.user || {}) {
-  const fields = [
+  const schoolFields = [
     { key: 'school', label: '学校', value: user.school },
     { key: 'grade_group', label: '年级组', value: user.grade_group },
+  ].filter((field) => field.value != null && String(field.value).trim());
+  const roleFields = [
     { key: 'subject', label: '科目', value: user.subject },
     { key: 'title', label: '职务', value: user.title },
   ].filter((field) => field.value != null && String(field.value).trim());
-  return fields.map((field, index) => `
+  const renderFields = (fields) => fields.map((field, index) => `
     ${index ? '<span class="home-profile-separator" aria-hidden="true">·</span>' : ''}
     <span class="home-profile-detail-item" data-profile-field="${field.key}" aria-label="${field.label}">${esc(String(field.value).trim())}</span>
   `).join('');
+  return `
+    ${schoolFields.length ? `<div class="home-profile-details-school">${renderFields(schoolFields)}</div>` : ''}
+    ${roleFields.length ? `
+      <div class="home-profile-details-role">
+        <span class="home-profile-role-line" aria-hidden="true"></span>
+        <span class="home-profile-role-pill">${renderFields(roleFields)}</span>
+        <span class="home-profile-role-line" aria-hidden="true"></span>
+      </div>
+    ` : ''}
+  `;
 }
 
 function renderHome() {
@@ -662,7 +973,7 @@ function renderHome() {
   const [defaultG1, defaultG2] = greetFor(name);
   const g1 = defaultG1;
   const g2 = defaultG2;
-  const todayCourses = d.courses.filter((c) => c.date === d.date);
+  const todayCourses = getHomeTimetableCourses(d.courses, d.date);
 
   main.classList.add('home-redesign');
   main.innerHTML = `
@@ -801,7 +1112,7 @@ function renderHome() {
       <section class="card wx-card home-weather-card" id="wx-card">
         <div class="home-card-head">
           <div class="home-card-title">${icon('sun',20)}<span>今日天气</span></div>
-          <button class="loc-btn" id="wx-city-pick" data-pick-city type="button" title="自动定位或手动切换城市">${icon('loc',13)} 城市 / 定位</button>
+          <button class="loc-btn" id="wx-city-pick" data-pick-city type="button" title="自动定位或手动切换城市">${icon('loc',13)} 切换城市</button>
         </div>
         <div class="wx-body">
           <div id="wx-brief">${weatherBriefHTML()}</div>
@@ -957,16 +1268,16 @@ async function loadHomeExtras(){
  weekStart.setDate(anchor.getDate()-offset);const weekEnd=new Date(weekStart);weekEnd.setDate(weekStart.getDate()+6);
  const dk=d=>d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()),mk=d=>d.getFullYear()+'-'+pad2(d.getMonth()+1),from=dk(weekStart),to=dk(weekEnd),months=[...new Set([mk(weekStart),mk(weekEnd)])];
  const [bundles,preps,notes,items]=await Promise.all([
-  Promise.all(months.map(async month=>{const [calendar,lessons,invig]=await Promise.all([month===String(homeData?.date||'').slice(0,7)?Promise.resolve({courses:homeData?.courses_month||[]}):api.get('/calendar',{month}).catch(()=>({courses:[]})),api.get('/lessons?month='+month).catch(()=>[]),api.get('/invig/summary?month='+month).catch(()=>({rows:[]}))]);return{courses:calendar?.courses||[],lessons:Array.isArray(lessons)?lessons:[],invigilations:invig?.rows||[]};})),
+  Promise.all(months.map(async month=>{const [calendar,lessons,invig]=await Promise.all([month===String(homeData?.date||'').slice(0,7)?Promise.resolve({courses:homeData?.courses_month||[]}):api.get('/calendar',{month}).catch(()=>({courses:[]})),api.get('/class_records?class_month='+month).catch(()=>[]),api.get('/invig/summary?month='+month).catch(()=>({rows:[]}))]);return{courses:calendar?.courses||[],lessons:Array.isArray(lessons)?lessons:[],invigilations:invig?.rows||[]};})),
   api.get('/preps').catch(()=>[]),api.get('/notes').catch(()=>[]),api.get('/items').catch(()=>[])
  ]);
  if(seq!==homeExtraSeq||!document.getElementById('home-week-lessons'))return;
- const inWeek=v=>{const d=String(v||'').slice(0,10);return d>=from&&d<=to;},courses=bundles.flatMap(x=>x.courses).filter(x=>inWeek(x.date)),lessons=bundles.flatMap(x=>x.lessons).filter(x=>inWeek(x.date)),invigs=bundles.flatMap(x=>x.invigilations).filter(x=>inWeek(x.date));
+ const inWeek=v=>{const d=String(v||'').slice(0,10);return d>=from&&d<=to;},courses=bundles.flatMap(x=>x.courses).filter(x=>inWeek(x.date)),lessons=bundles.flatMap(x=>x.lessons).filter(x=>{const m=String(x.class_time||'').match(/(20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2})/);return m&&inWeek(m[1].replace(/[/.年]/g,'-').replace('月','-').replace('日',''));}),invigs=bundles.flatMap(x=>x.invigilations).filter(x=>inWeek(x.date));
  const done=lessons.length,planned=courses.length,left=Math.max(0,planned-done),pct=planned?Math.min(100,Math.round(done/planned*100)):0,week=document.getElementById('home-week-lessons');
  if(week)week.innerHTML=planned?'<div class="mini-number-row"><span>已上 <b>'+done+'</b> 节</span><span>剩余 <b>'+left+'</b> 节</span></div><div class="mini-progress"><i style="width:'+pct+'%"></i></div><div class="mini-foot">周课时进度 '+pct+'% · 计划 '+planned+' 节</div>':'<div class="mini-empty">本周暂无课表安排</div>';
  const inv=document.getElementById('home-invig-summary');if(inv){const next=[...invigs].sort((a,b)=>String(a.date+a.start_time).localeCompare(String(b.date+b.start_time)))[0];inv.innerHTML='<div class="mini-number-row"><span>本周 <b>'+invigs.length+'</b> 场</span></div><div class="mini-foot">'+(next?'下一场：'+esc(String(next.date||'').slice(5))+' '+esc(next.start_time||'')+' '+esc(next.exam_name||next.subject||'监考'):'本周暂无监考安排')+'</div>';}
  const now=Date.now(),deadlines=(Array.isArray(items)?items:[]).filter(x=>x.status!=='done'&&/备课|课件|教案|提交/.test(String(x.title||'')+' '+String(x.kind||''))).map(item=>({item,at:item.due_at||item.end_at||item.start_at})).filter(x=>x.at&&Number.isFinite(new Date(x.at).getTime())&&new Date(x.at).getTime()>=now).sort((a,b)=>new Date(a.at)-new Date(b.at));
- const prep=document.getElementById('home-prep-deadline');if(prep){if(deadlines.length){const item=deadlines[0].item;prep.innerHTML='<div class="mini-primary-line">'+esc(item.title)+'</div><div class="mini-foot">截止时间：'+esc(fmtDateTime(deadlines[0].at))+'</div>';}else{const next=(Array.isArray(preps)?preps:[]).filter(p=>(p.status||'doing')!=='done'&&String(p.date||'')>=from).sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')))[0];prep.innerHTML=next?'<div class="mini-primary-line">'+esc(next.topic||'备课记录')+'</div><div class="mini-foot">最近备课：'+esc(next.date||'日期未定')+' · 尚无单独截止时间</div>':'<div class="mini-empty">暂无待提交课件</div>';}}
+ const prep=document.getElementById('home-prep-deadline');if(prep){if(deadlines.length){const item=deadlines[0].item;prep.innerHTML='<div class="mini-primary-line">'+esc(item.title)+'</div><div class="mini-foot">截止时间：'+esc(fmtDateTime(deadlines[0].at))+'</div>';}else{const next=(Array.isArray(preps)?preps:[]).filter(p=>(p.status||'doing')!=='done'&&String(p.date||'')>=from).sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')))[0];prep.innerHTML=next?'<div class="mini-primary-line">'+esc(next.topic||'备课')+'</div><div class="mini-foot">最近备课：'+esc(next.date||'日期未定')+' · 尚无单独截止时间</div>':'<div class="mini-empty">暂无待提交课件</div>';}}
  const recent=document.getElementById('home-recent-notes');if(recent){const list=(Array.isArray(notes)?notes:[]).sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||''))).slice(0,2);recent.innerHTML=list.length?list.map(n=>'<button class="recent-note-row" type="button" data-open-recent-notes><span>•</span><b>'+esc(n.title||'未命名笔记')+'</b></button>').join(''):'<div class="mini-empty">还没有笔记，写下第一条灵感吧</div>';recent.querySelectorAll('[data-open-recent-notes]').forEach(b=>{b.onclick=()=>go('work/notes');});}
 }
 
@@ -1019,26 +1330,33 @@ function renderTodayItems(rowsOverride = null, dateOverride = '') {
         <div class="task-title ${done ? 'done' : ''}">${esc(it.title)}</div>
         <div class="task-sub">${it.kind !== '事项' ? `<span class="chip" style="height:19px;font-size:10.5px">${esc(it.kind)}</span>` : ''}${it.detail ? esc(it.detail) : ''}${it.source === '便签' ? '<span class="chip amber" style="height:19px;font-size:10.5px">来自便签</span>' : ''}${t ? `<span class="task-time">${t}</span>` : ''}</div>
       </div>
+      <select class="home-task-status" data-home-status="${esc(it.id)}" aria-label="${esc(it.title)}的状态">${[['todo', '待完成'], ['doing', '进行中'], ['done', '已完成']].map(([value, label]) => `<option value="${value}" ${it.status === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
     </div>`;
   }).join('');
-  box.querySelectorAll('[data-check]').forEach((button) => {
-    button.onclick = async () => {
-      const nextStatus = button.dataset.status === 'done' ? 'todo' : 'done';
+  const setItemStatus = async (id, nextStatus) => {
+      const controls = box.querySelectorAll('[data-check="' + id + '"], [data-home-status="' + id + '"]');
+      controls.forEach(control => { control.disabled = true; });
       try {
-        await api.patch('/items/' + button.dataset.check, { status: nextStatus });
-        const item = rows.find((row) => String(row.id) === button.dataset.check);
+        await api.patch('/items/' + id, { status: nextStatus });
+        const item = rows.find((row) => String(row.id) === id);
         if (item) item.status = nextStatus;
         if (date === homeData.date) {
-          const todayItem = (homeData.items || []).find((row) => String(row.id) === button.dataset.check);
+          const todayItem = (homeData.items || []).find((row) => String(row.id) === id);
           if (todayItem) todayItem.status = nextStatus;
         }
         if (nextStatus === 'done') toast('已完成');
+        renderTodayItems(rows, date);
+        await refreshUnread();
         if (calState.dayOpen && calState.selected === date) await loadDay(date);
       } catch (error) {
         toast(error.message || '更新事项失败', 'err');
+        renderTodayItems(rows, date);
       }
-    };
+  };
+  box.querySelectorAll('[data-check]').forEach((button) => {
+    button.onclick = () => setItemStatus(button.dataset.check, button.dataset.status === 'done' ? 'todo' : 'done');
   });
+  box.querySelectorAll('[data-home-status]').forEach(select => { select.onchange = () => setItemStatus(select.dataset.homeStatus, select.value); });
   box.querySelectorAll('[data-edit-item]').forEach((button) => {
     button.onclick = () => {
       const item = rows.find((row) => String(row.id) === button.dataset.editItem);
@@ -1078,7 +1396,12 @@ function renderTodayCourses(coursesOverride = null, lessonsOverride = null, date
   if (!box || !homeData) return;
   const date = dateOverride || homeData.date;
   const allCourses = Array.isArray(coursesOverride) ? coursesOverride : (homeData.courses || []);
-  const list = allCourses.filter((course) => !course.date || course.date === date);
+  if (!Array.isArray(homeCourseRows)) {
+    updateHomeDayHeadings(date, null, []);
+    box.innerHTML = '<div class="empty" style="padding:20px">课表数据暂时无法读取，请刷新首页重试</div>';
+    return;
+  }
+  const list = getHomeTimetableCourses(allCourses, date);
   const lessonRows = Array.isArray(lessonsOverride) ? lessonsOverride : (homeData.lessons || []);
   updateHomeDayHeadings(date, null, list);
   if (!list.length) {
@@ -1871,7 +2194,7 @@ function bindHome() {
       qi.value = ''; quickAt = '';
       if (qh) { qh.textContent = ''; qh.classList.remove('on'); }
       if (qtBtn) qtBtn.classList.remove('on');
-      toast('已记一笔，进「今日事项」和「日常」便签');
+      toast('已记一笔，可在「今日事项」和「便签」查看');
       await refreshHome();
       // 刷新后焦点回到输入框，方便连着记第二笔
       const ni = document.getElementById('quick-input');
@@ -1991,22 +2314,86 @@ function renderWeatherOnly() {
   if (drawer) drawer.innerHTML = wxDrawerHTML();
 }
 
-/* 抽屉里那块内容：当前指标 + 逐时 + 未来一周 */
-function wxDrawerHTML() {
-  if (!state.weather?.raw) {
-    return `<div class="small muted" style="padding:10px 0;line-height:1.7">
-      天气还没加载出来。回到首页点天气卡右上角的刷新，或换一个城市再试。</div>`;
+/* 详细天气：最近一周为主，点某一天展开当天的逐时与指标。
+   跟手机天气 App 一致：首屏讲今天，往下翻才是一周。
+   renderWeatherOnly() 里换城市/刷新后也会调 wxDrawerHTML() 重绘。 */
+function wxWeekHTML(selected = 0) {
+  const w = state.weather?.raw;
+  if (!w) {
+    return '<div class="small muted" style="padding:10px 0;line-height:1.7">' +
+      '天气还没加载出来。回到首页点天气卡右上角的刷新，或换一个城市再试。</div>';
   }
-  return `${wxMetricsHTML()}
-    <div class="wxd-title">未来一周</div>
-    ${wxForecastHTML()}`;
+  const rows = weekRows(w);
+  if (!rows.length) return '<div class="small muted">暂时没有一周预报数据</div>';
+  const gMin = Math.min(...rows.map((r) => (r.lo == null ? 0 : r.lo)));
+  const gMax = Math.max(...rows.map((r) => (r.hi == null ? 0 : r.hi)));
+  const span = Math.max(1, gMax - gMin);
+  const idx = Math.min(Math.max(0, Number(selected) || 0), rows.length - 1);
+  const cur = rows[idx];
+  const [emo, desc] = wxInfo(cur.code);
+  const list = rows.map((r) => {
+    const [e, t] = wxInfo(r.code);
+    const lo = r.lo == null ? gMin : r.lo;
+    const hi = r.hi == null ? gMin : r.hi;
+    const left = Math.max(0, Math.min(100, ((lo - gMin) / span) * 100));
+    const width = Math.max(12, Math.min(100 - left, ((hi - lo) / span) * 100));
+    const pop = r.pop == null ? '' : '<span class="wxd-pop">降水 ' + Math.round(r.pop) + '%</span>';
+    return '<button class="wxd-row' + (r.index === idx ? ' on' : '') + '" type="button" data-wxday="' + r.index + '">' +
+      '<span class="wxd-d"><b>' + r.label + '</b><small>' + r.shortDate + '</small></span>' +
+      '<span class="wxd-e">' + e + '</span>' +
+      '<span class="wxd-t">' + t + pop + '</span>' +
+      '<span class="wxd-lo">' + (r.lo == null ? '--' : Math.round(r.lo) + '°') + '</span>' +
+      '<span class="wx-bar"><i style="left:' + left.toFixed(1) + '%;width:' + width.toFixed(1) + '%"></i></span>' +
+      '<span class="wxd-hi">' + (r.hi == null ? '--' : Math.round(r.hi) + '°') + '</span>' +
+    '</button>';
+  }).join('');
+  const detailHours = hoursForDate(w, cur.date, { step: 3 }).slice(0, 9);
+  const hoursHTML = detailHours.map((h) => {
+    const [e] = wxInfo(h.code);
+    return '<div class="wx-hour' + (h.isNow ? ' now' : '') + '">' +
+      '<span class="tiny muted" style="color:inherit">' + (h.isNow ? '现在' : h.label.slice(0, 2) + '时') + '</span>' +
+      '<span class="e">' + e + '</span>' +
+      '<span class="t">' + (h.temp == null ? '--' : Math.round(h.temp) + '°') + '</span></div>';
+  }).join('');
+  const chip = (label, value) => '<span class="wxd-chip"><i>' + label + '</i><b>' + value + '</b></span>';
+  return '<div class="wxd-week">' + list + '</div>' +
+    '<div class="wxd-day" id="wxd-day">' +
+      '<div class="wxd-day-h"><b>' + cur.label + ' · ' + cur.shortDate + '</b>' +
+        '<span>' + emo + ' ' + desc + '</span></div>' +
+      '<div class="wxd-chips">' +
+        chip('最高', cur.hi == null ? '--' : Math.round(cur.hi) + '°') +
+        chip('最低', cur.lo == null ? '--' : Math.round(cur.lo) + '°') +
+        chip('降水', cur.pop == null ? '--' : Math.round(cur.pop) + '%') +
+        chip('风速', cur.wind == null ? '--' : Math.round(cur.wind) + ' km/h') +
+        chip('紫外线', cur.uv == null ? '--' : Math.round(cur.uv)) +
+        chip('日出/日落', (cur.sunrise || '--') + ' / ' + (cur.sunset || '--')) +
+      '</div>' +
+      '<div class="wxd-day-label">当天逐时</div>' +
+      '<div class="wx-hours">' + hoursHTML + '</div>' +
+    '</div>';
 }
 
-/* 天气详情抽屉：默认不显示，点「详细信息」才打开 */
+function wxDrawerHTML(selected = 0) {
+  return wxWeekHTML(selected);
+}
+
 function openWeatherSheet() {
-  const body = el(`<div class="wx-drawer" id="wxd-body">${wxDrawerHTML()}</div>`);
-  sheet({ title: `${state.city?.name || '天气'} · 未来一周天气`, body, wide: true });
+  const names = placeNames(state.city);
+  const s = sheet({
+    title: names.short + ' · 最近一周天气',
+    body: el('<div class="wx-drawer" id="wxd-body">' + wxWeekHTML(0) + '</div>'),
+    wide: true,
+  });
+  /* 事件委托挂在 sheet-body 上：点某一天只替换内部内容，弹层不用重开。 */
+  s.body.addEventListener('click', (e) => {
+    const row = e.target.closest?.('[data-wxday]');
+    if (!row) return;
+    const body = document.getElementById('wxd-body');
+    if (body) body.innerHTML = wxWeekHTML(Number(row.dataset.wxday));
+  });
 }
 
 /* 清理计时器（切换页面时） */
 window.addEventListener('hashchange', () => { clearInterval(cdTimer); clearInterval(clockTimer); });
+
+

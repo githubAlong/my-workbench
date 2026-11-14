@@ -7,6 +7,7 @@ import { makeShareLink } from './cloudsync.js';
 import { loginSheet, cloudOn } from './auth.js';
 import * as cloud from './cloud.js';
 import { load as loadLocalDB, save as saveLocalDB } from './localdb.js';
+import { hasDemoData, openCleanDemoSheet } from './clean-demo-data.js';
 
 const ADMIN_PHONE = '+8613071825243';
 
@@ -63,6 +64,8 @@ async function renderMe(main) {
     u.bindings?.workbuddy ? '<span class="chip purple">WorkBuddy已绑定</span>' : '',
     needProfile ? '<span class="chip amber">资料待完善</span>' : '<span class="chip green">资料已完善</span>'
   ].filter(Boolean).join('');
+  /* 只有确实检测到系统灌入的示例数据时才显示清理入口，清完自动消失 */
+  const showDemoClean = hasDemoData();
 
   main.innerHTML = `
     <header class="me-home-head">
@@ -70,7 +73,7 @@ async function renderMe(main) {
       <p>管理个人资料、工作台配置与消息通知</p></div>
     </header>
 
-    <section class="me-identity-card" id="me-identity-card">
+    <section class="me-identity-card is-collapsed" id="me-identity-card">
       <div class="me-identity-main">
         <button type="button" class="me-identity-avatar" id="avatar-btn" title="更换头像">
           ${avatarHTML(u, 58, 'me-avatar-lg', true)}
@@ -86,7 +89,7 @@ async function renderMe(main) {
       </div>
       <span class="me-identity-compact" id="me-identity-compact">${esc(u.nickname || '未设置昵称')} · ${esc(meta)}</span>
       <button type="button" class="me-identity-toggle" id="me-identity-toggle"
-        aria-expanded="true" aria-controls="me-identity-card">收起</button>
+        aria-expanded="false" aria-controls="me-identity-card">展开</button>
     </section>
 
     <div class="me-home-accordions" id="me-home-accordions">
@@ -173,6 +176,20 @@ async function renderMe(main) {
         </div>
       </details>
 
+      ${showDemoClean ? `<details class="me-accordion" data-me-accordion="demo-data">
+        <summary class="me-accordion-head">
+          <span class="me-accordion-icon">${icon('trash', 19)}</span>
+          <span class="me-accordion-copy"><strong>数据管理</strong><small>清理系统预置的示例数据，保留自己录入的记录</small></span>
+          <span class="me-accordion-chevron">${icon('down', 17)}</span>
+        </summary>
+        <div class="me-accordion-panel">
+          <div class="me-inline-setting">
+            <div><strong>清理示例数据</strong><p>只删除系统自动灌入、且从未修改过的演示课表与示例记录；你自己录入的数据全部保留。执行前会先下载一份完整备份。</p></div>
+            <button type="button" class="btn ghost" id="me-clean-demo">查看并清理…</button>
+          </div>
+        </div>
+      </details>` : ''}
+
       <details class="me-accordion" data-me-accordion="logout">
         <summary class="me-accordion-head">
           <span class="me-accordion-icon danger">${icon('logout', 19)}</span>
@@ -246,6 +263,9 @@ async function renderMe(main) {
       toast('重置首页布局失败：' + (e.message || e), 'err');
     }
   };
+
+  const cleanDemoButton = main.querySelector('#me-clean-demo');
+  if (cleanDemoButton) cleanDemoButton.onclick = () => openCleanDemoSheet();
 
   const logoutButton = main.querySelector('#me-logout');
   if (logoutButton) logoutButton.onclick = async () => {
@@ -587,7 +607,11 @@ async function renderWorkbenchSettings(main, { inline = false } = {}) {
         const img = new Image();
         img.onload = () => {
           try {
-            const maxSide = 640;
+            /* 【流量】这张图会以 base64 存在账号快照里，而快照每保存一次就要
+               整包上传一次。640px/q0.82 压出来约 60KB，等于每次保存多传 60KB。
+               左上角图标实际最大显示 40px，@3x 也就 120px，256px 完全够用。
+               压到 256px / q0.75 后一般 10~20KB，单次保存体积直接少一半。 */
+            const maxSide = 256;
             const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
             const canvas = document.createElement('canvas');
             canvas.width = Math.max(1, Math.round(img.width * scale));
@@ -601,7 +625,7 @@ async function renderWorkbenchSettings(main, { inline = false } = {}) {
               reader.onload = () => resolve(reader.result);
               reader.onerror = () => reject(new Error('图片读取失败'));
               reader.readAsDataURL(blob);
-            }, 'image/jpeg', 0.82);
+            }, 'image/jpeg', 0.75);
           } catch (err) { URL.revokeObjectURL(url); reject(err); }
         };
         img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('无法读取这张图片')); };
@@ -1367,14 +1391,30 @@ async function renderMessages(main, { inline = false } = {}) {
     }
     const counts = r.counts || {};
     const rows = r.rows || [];
+    state.unread = Number(r.unread) || 0;
+    paintUnread();
     main.innerHTML = (inline ? '' : meMessagesHeader(r.unread ? `${r.unread} 条未读` : '都看完了',
       `<button class="btn ghost sm" id="read-all" ${r.unread ? '' : 'disabled'}>全部已读</button>`)) + `
+      ${inline ? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn ghost sm" id="read-all" ${r.unread ? '' : 'disabled'}>全部已读</button></div>` : ''}
       <div class="seg msg-seg" style="margin-bottom:14px">
         ${TYPES.map(([v, l]) => `<button class="${type === v ? 'on' : ''}" data-t="${v}">${l}${counts[v] ? `<b class="seg-dot">${counts[v]}</b>` : ''}</button>`).join('')}
       </div>
       <div class="card">${rows.length ? rows.map((m) => msgItem(m)).join('') : '<div class="empty">这里还没有消息<br><span class="tiny">事项到期、系统变更时会出现</span></div>'}</div>
       ${rows.length ? '<button class="btn ghost block" id="clear-read" style="margin-top:12px">清空已读消息</button>' : ''}`;
     if (!inline) bindMeBackButton(main);
+
+    main.querySelectorAll('[data-message-status]').forEach(select => {
+      select.onclick = event => event.stopPropagation();
+      select.onchange = async () => {
+        const message = rows.find(row => String(row.id) === select.dataset.messageStatus);
+        if (!message) return;
+        select.disabled = true;
+        try {
+          await api.patch('/' + message.ref_type + '/' + message.ref_id, { status: select.value });
+          await load();
+        } catch (error) { toast(error.message || '状态保存失败', 'err'); await load(); }
+      };
+    });
 
     main.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { type = b.dataset.t; load(); }; });
     const ra = main.querySelector('#read-all');
@@ -1431,7 +1471,8 @@ function msgItem(m) {
       <div class="msg-time">${fmtDateTime(m.created_at)}${m.link ? ' · 点开查看' : ''}</div>
     </div>
     <div class="msg-acts">
-      ${m.read ? '' : `<button class="icon-btn sm" data-read="${m.id}" title="标为已读">${icon('check', 14)}</button>`}
+      ${m.task_status ? `<select class="msg-task-status" data-message-status="${m.id}" aria-label="${esc(m.title)}的状态">${[['todo', '待完成'], ['doing', '进行中'], ['done', '已完成']].map(([value, label]) => `<option value="${value}" ${m.task_status === value ? 'selected' : ''}>${label}</option>`).join('')}</select>` : ''}
+      ${m.read ? '' : `<button class="btn ghost sm" data-read="${m.id}" title="标为已读">已读</button>`}
       <button class="icon-btn sm" data-del="${m.id}" title="删除">${icon('close', 13)}</button>
     </div>
   </div>`;
