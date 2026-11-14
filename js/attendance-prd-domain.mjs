@@ -469,6 +469,28 @@ export function buildAttendanceExportGrid({
 
   if (type === 'seat' || type === 'roster') {
     const activeLeaves = activeLeavesFor(leaveRecords, date);
+    /* 坐班表的「请假」「备注」是行内直接填写的，写进 __teacherGrid，
+       不经过请假页的 leaveRecords / teacherMeta。导出必须优先取这些填写值，
+       否则页面填了「公出」，导出却显示「无」（用户 11-15 反馈）。
+       touched 记录该字段是否被显式填写过：填过后又清空，按「无」处理，
+       不再回退到请假记录，保证导出与页面看到的一致。 */
+    const gridCell = (teacher, key) => {
+      let touched = false;
+      for (const list of [seatRows, classRows, researchRows]) {
+        const row = (Array.isArray(list) ? list : []).find(item =>
+          !rowData(item).__deleted && matchesGridTeacher(item, teacher));
+        if (!row) continue;
+        const grid = rowData(row).__teacherGrid || {};
+        for (const no of periodNumbers) {
+          const record = grid[String(no)];
+          if (!record || !Object.prototype.hasOwnProperty.call(record, key)) continue;
+          touched = true;
+          const value = String(record[key] ?? '').trim();
+          if (value) return { touched: true, value };
+        }
+      }
+      return { touched, value: '' };
+    };
     /* 导出表里同一人一次只能有一个状态（用户 11-15 裁决）：
        请假 > 上课 > 坐班 > 听课 > 教研，只给胜出的那一格打勾，其余留空。
        四类都没登记时，只在「坐班」格写「未登记」，避免整行空白看不出是漏登。 */
@@ -493,9 +515,14 @@ export function buildAttendanceExportGrid({
       });
       const leaveText = leaves.map(item => [
         item.type || '请假', exportLeavePeriod(item), exportLeaveDuration(item),
-      ].filter(Boolean).join(' ')).join('；') || '无';
+      ].filter(Boolean).join(' ')).join('；');
+      const gridLeave = gridCell(teacher, 'leave');
+      const gridRemark = gridCell(teacher, 'remark');
       const meta = teacherMeta?.[String(teacher.id)] || {};
-      const onLeave = leaveText !== '无';
+      /* 行内填写的请假类型优先；没填过才回退到请假页记录。 */
+      const leaveValue = gridLeave.value || (gridLeave.touched ? '' : leaveText) || '无';
+      const remarkValue = gridRemark.value || meta.remark || teacher.remark || teacher.note || '';
+      const onLeave = leaveValue !== '无';
       const statusOf = {
         sit: aggregate('sit'), class: aggregate('class'),
         listen: aggregate('listen'), research: aggregate('research'),
@@ -509,7 +536,7 @@ export function buildAttendanceExportGrid({
           index + 1, departmentOf(teacher), gradeOf(teacher), name, teacher.subject || '',
           winner || onLeave ? cell('sit') : '未登记',
           cell('class'), cell('listen'), cell('research'),
-          leaveText, meta.remark || teacher.remark || teacher.note || '',
+          leaveValue, remarkValue,
         ],
       };
     });

@@ -251,6 +251,58 @@ test('五种状态互斥：同一人只显示一个状态，按 请假>上课>�
   assert.equal(cross.raw.sit, 'y');
 });
 
+test('坐班表行内填写的请假和备注原样进入导出（11-15 反馈）', () => {
+  const teachers = [
+    { id: 1, name: '朱瑞涵', subject: '语文', grade: '高一', active: 1 },
+    { id: 2, name: '王玉华', subject: '数学', grade: '高一', active: 1 },
+    { id: 3, name: '赵荣耀', subject: '英语', grade: '高一', active: 1 },
+  ];
+  const seatRows = [
+    { teacher: '朱瑞涵', subject: '语文', data: { __teacherId: 1,
+      __teacherGrid: { 1: { class: 'u', sit: 'u', listen: 'u', research: 'u', leave: '公出', remark: '外出培训' } } } },
+    { teacher: '王玉华', subject: '数学', data: { __teacherId: 2,
+      __teacherGrid: { 1: { class: 'u', sit: 'u', listen: 'u', research: 'u', leave: '病假' } } } },
+    /* 行内清空请假：导出按「无」处理，不能回退成请假页的旧记录 */
+    { teacher: '赵荣耀', subject: '英语', data: { __teacherId: 3,
+      __teacherGrid: { 1: { class: 'u', sit: 'u', listen: 'u', research: 'u', leave: '' } } } },
+  ];
+  const leaveRecords = [
+    { name: '赵荣耀', grade: '高一', subject: '英语', type: '事假',
+      start_date: '2026-11-15', end_date: '2026-11-15', days: 1, duration: 1, duration_unit: 'day', status: '已批' },
+  ];
+  const grid = buildAttendanceExportGrid({
+    type: 'seat', grade: '高一', date: '2026-11-15', period: 1, teachers, seatRows,
+    classRows: [], researchRows: [], leaveRecords, resolvePeriodRange: () => ['08:00', '08:45'],
+  });
+  const rows = grid.slice(2);
+  assert.equal(rows[0][9], '公出');
+  assert.equal(rows[0][10], '外出培训');
+  assert.ok([5, 6, 7, 8].every(index => rows[0][index] === ''), '请假后四类状态应留空');
+  assert.equal(rows[1][9], '病假');
+  assert.ok([5, 6, 7, 8].every(index => rows[1][index] === ''), '请假后四类状态应留空');
+  assert.equal(rows[2][9], '无');
+  assert.equal(rows[2][5], '未登记');
+  assert.match(grid[0][0], /请假2/);
+  assert.match(grid[0][0], /未登记1人/);
+});
+
+test('导出的请假和备注优先取坐班表行内填写，其次才是请假页记录和教师备注', () => {
+  const teachers = [{ id: 1, name: '李老师', subject: '语文', grade: '高一', active: 1 }];
+  const leaveRecords = [
+    { name: '李老师', grade: '高一', type: '事假', start_date: '2026-11-15', end_date: '2026-11-15',
+      days: 0.5, duration: 0.5, duration_unit: 'day', status: '已批' },
+  ];
+  const base = { type: 'seat', grade: '高一', date: '2026-11-15', period: 0, teachers, leaveRecords,
+    classRows: [], researchRows: [], teacherMeta: { 1: { remark: '教师档案备注' } } };
+  const recorded = buildAttendanceExportGrid({ ...base, seatRows: [] }).slice(2)[0];
+  assert.match(recorded[9], /事假/);
+  assert.equal(recorded[10], '教师档案备注');
+  const filled = buildAttendanceExportGrid({ ...base, seatRows: [{ teacher: '李老师', subject: '语文',
+    data: { __teacherId: 1, __teacherGrid: { 0: { class: 'u', sit: 'u', listen: 'u', research: 'u', leave: '调休', remark: '家里有事' } } } }] }).slice(2)[0];
+  assert.equal(filled[9], '调休');
+  assert.equal(filled[10], '家里有事');
+});
+
 test('导出 PNG 按页切分，每页都带表头，方便上下滑动查看', () => {
   const grid = [['坐班表 · 高一年级 · 2026-11-12 · 全天'],
     ['序号', '姓名', '学科'],
