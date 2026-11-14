@@ -63,6 +63,7 @@ function stampOf(row) {
 
 /* 只看「创建时间属于该批次、且从未被修改」的原始示例记录 */
 function isUntouchedSeed(row, stamp) {
+  if (stamp === null || stamp === undefined) return false;
   if (stampOf(row) !== stamp) return false;
   const u = row.updated_at;
   if (u === undefined || u === null || u === '') return true;
@@ -103,31 +104,63 @@ export function findSeedBatch(db) {
   return best ? { stamp: best.stamp, rows: best.rows, tables: [...best.tables] } : null;
 }
 
+/* 有些示例记录的时间戳已经对不上批次（被页面重新保存过、或批次只剩零星几条），
+   只靠时间戳会漏掉，清理入口干脆不出现。这里按「示例原文」逐字段精确匹配，
+   学习记录的标题、内容、时长、来源必须和种子一模一样才算示例，用户自己写的不会命中。 */
+const SEED_STUDY_TITLES = new Set(['《红楼梦》整本书阅读指导', '读《语文学习任务设计》']);
+const SEED_STUDY_MINUTES = new Set([30, 45, 60, 75]);
+
+function isSeedStudy(row) {
+  if (!row || typeof row !== 'object' || row.deleted_at) return false;
+  if (!SEED_STUDY_TITLES.has(String(row.title || '').trim())) return false;
+  if (String(row.content || '').trim() !== '记录要点若干') return false;
+  if (String(row.source || '').trim()) return false;
+  if (String(row.tags || '').trim()) return false;
+  return SEED_STUDY_MINUTES.has(Number(row.minutes));
+}
+
+function collectBySignature(db) {
+  const out = new Map();
+  if (!db || typeof db !== 'object') return out;
+  const studies = Array.isArray(db.studies) ? db.studies.filter(isSeedStudy) : [];
+  if (studies.length) out.set('studies', new Set(studies));
+  return out;
+}
+
 /* 预览用：每张表将删多少条、有多少条因被改过而保留 */
 export function scanDemoData(db) {
   const batch = findSeedBatch(db);
-  if (!batch) return { found: false, stamp: null, groups: [], total: 0, modified: 0 };
+  const stamp = batch ? batch.stamp : null;
+  const signature = collectBySignature(db);
   const groups = [];
   let total = 0;
   let modified = 0;
-  for (const table of scanTables(db)) {
-    const same = db[table].filter((row) => stampOf(row) === batch.stamp);
-    if (!same.length) continue;
-    const remove = same.filter((row) => isUntouchedSeed(row, batch.stamp)).length;
-    const keep = same.length - remove;
-    total += remove;
+  const tables = new Set([...scanTables(db), ...signature.keys()]);
+  for (const table of tables) {
+    const rows = Array.isArray(db[table]) ? db[table] : [];
+    const same = stamp === null ? [] : rows.filter((row) => stampOf(row) === stamp);
+    const untouched = same.filter((row) => isUntouchedSeed(row, stamp));
+    const removable = new Set([...untouched, ...(signature.get(table) || [])]);
+    const keep = same.length - untouched.length;
+    if (!removable.size && !keep) continue;
+    total += removable.size;
     modified += keep;
-    groups.push({ table, label: TABLE_LABELS[table] || table, remove, keep });
+    groups.push({ table, label: TABLE_LABELS[table] || table, remove: removable.size, keep });
   }
-  return { found: total > 0, stamp: batch.stamp, groups, total, modified };
+  return { found: total > 0, stamp, groups, total, modified };
 }
 
 /* 执行用：按对象引用收集待删记录，避免 filter 时靠字段二次推测 */
 export function collectRemovable(db, stamp) {
   const out = new Map();
+  const signature = collectBySignature(db);
   for (const table of scanTables(db)) {
-    const rows = new Set(db[table].filter((row) => isUntouchedSeed(row, stamp)));
+    const rows = new Set((Array.isArray(db[table]) ? db[table] : []).filter((row) => isUntouchedSeed(row, stamp)));
+    for (const row of signature.get(table) || []) rows.add(row);
     if (rows.size) out.set(table, rows);
+  }
+  for (const [table, rows] of signature) {
+    if (rows.size && !out.has(table)) out.set(table, rows);
   }
   return out;
 }

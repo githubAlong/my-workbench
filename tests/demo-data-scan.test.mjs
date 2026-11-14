@@ -98,6 +98,29 @@ test('批量导入的真实数据不会被误判成示例', () => {
   assert.match(readFileSync(new URL('../js/me.js', import.meta.url), 'utf8'), /hasDemoData\(\)/);
 });
 
+test('批次时间戳丢失时按示例原文精确清理学习记录', () => {
+  const db = { seqs: {}, meta: { seeded: true } };
+  const seed = (id, title, minutes) => ({
+    id, title, content: '记录要点若干', minutes, source: '', tags: '',
+    created_at: USER_AT, updated_at: USER_AT, deleted_at: null,
+  });
+  db.studies = [
+    seed(1, '《红楼梦》整本书阅读指导', 60),
+    seed(2, '读《语文学习任务设计》', 45),
+    { id: 3, title: '我自己的读书笔记', content: '记录要点若干', minutes: 45, source: '', tags: '', created_at: USER_AT, updated_at: USER_AT },
+    { id: 4, title: '《红楼梦》整本书阅读指导', content: '我写的真实心得', minutes: 60, source: '', tags: '', created_at: USER_AT, updated_at: USER_AT },
+  ];
+  const scan = scanDemoData(db);
+  assert.equal(scan.found, true);
+  assert.equal(scan.stamp, null, '时间戳对不上批次，走原文匹配');
+  assert.equal(scan.total, 2);
+  const removable = collectRemovable(db, scan.stamp);
+  const rows = removable.get('studies');
+  assert.equal(rows.size, 2);
+  assert.ok(![...rows].some((r) => r.title === '我自己的读书笔记'));
+  assert.ok(![...rows].some((r) => r.content === '我写的真实心得'));
+});
+
 test('清理后写标记防止示例数据再灌回来', () => {
   const source = readFileSync(new URL('../js/clean-demo-data.js', import.meta.url), 'utf8');
   assert.match(source, /db\.meta\.seeded = true/);

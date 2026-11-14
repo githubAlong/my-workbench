@@ -45,9 +45,12 @@ export function openCleanDemoSheet() {
 
   const body = el(
     '<div class="demo-clean">' +
-      '<p class="demo-clean-lead">检测到系统首次启动时自动灌入的一批示例数据（时间：' +
-        esc(stampText(scan.stamp)) + '）。下面这些<strong>从未被修改过</strong>的记录会被删除，共 <strong>' +
-        scan.total + '</strong> 条。</p>' +
+      '<p class="demo-clean-lead">' + (
+        scan.stamp
+          ? '检测到系统首次启动时自动灌入的一批示例数据（时间：' + esc(stampText(scan.stamp)) +
+            '）。下面这些<strong>从未被修改过</strong>的记录会被删除，共 <strong>'
+          : '检测到系统自动灌入的示例记录（时间戳已变化，按示例原文逐字段比对）。下面这些<strong>和示例完全一致</strong>的记录会被删除，共 <strong>'
+      ) + scan.total + '</strong> 条。</p>' +
       '<div class="demo-clean-table"><table><thead><tr><th>数据</th><th>将删除</th><th>改过·保留</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>' +
       '<div class="demo-clean-notes">' +
