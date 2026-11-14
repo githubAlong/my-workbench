@@ -921,10 +921,9 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   };
   const editLeaveRecord = (record = null, defaultTeacher = null) => {
     const recordName=record?.name||record?.teacher||'';
-    const teacherOptions=teachers.map(x=>({value:x.name,label:x.name+' · '+x.subject}));
-    if(recordName&&!teacherOptions.some(x=>x.value===recordName))teacherOptions.push({value:recordName,label:recordName+'（历史记录）'});
     openEditor(record?'修改请假记录':'登记请假',[
-      {key:'teacher',label:'教师（可选择或手动输入）',type:'combo',options:teacherOptions,required:true},
+      /* 教师直接手输：全校名单太长，下拉翻半天反而慢 */
+      {key:'teacher',label:'教师姓名',type:'text',required:true},
       {key:'type',label:'类型',type:'select',options:[{value:'',label:'无（取消请假）'},...LEAVE_TYPES.map(x=>({value:x,label:x}))]},
       {key:'start_date',label:'开始日期',type:'date'},
       {key:'end_date',label:'结束日期',type:'date'},
@@ -938,7 +937,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       {key:'status',label:'状态',type:'select',options:['待批','已批','已撤销'].map(x=>({value:x,label:x}))},
       {key:'remark',label:'备注',type:'textarea'},
     ],{
-      teacher:recordName||defaultTeacher?.name||teachers[0]?.name||'',
+      teacher:recordName||defaultTeacher?.name||'',
       type:record?.type||'',start_date:record?.start_date||date,end_date:record?.end_date||date,
       days:record?.duration??(record?.hours||record?.days||1),duration_unit:record?.duration_unit||(record?.hours?'hour':'day'),status:record?.status||'待批',remark:record?.remark||'',
     },async data=>{
