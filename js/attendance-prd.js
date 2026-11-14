@@ -521,7 +521,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       ctx.textAlign='center';
       let lineY=38;
       if(title){ctx.fillStyle='#172744';ctx.font='bold 22px "Microsoft YaHei",sans-serif';ctx.fillText(title,canvas.width/2,lineY);lineY+=26;}
-      if(subtitle){ctx.fillStyle='#667085';ctx.font='12.5px "Microsoft YaHei",sans-serif';ctx.fillText(subtitle,canvas.width/2,lineY);lineY+=26;}
+      if(subtitle){ctx.fillStyle='#22304a';ctx.font='600 13px "Microsoft YaHei",sans-serif';ctx.fillText(subtitle,canvas.width/2,lineY);lineY+=26;}
       if(stats){ctx.fillStyle='#34445d';ctx.font='bold 12.5px "Microsoft YaHei",sans-serif';ctx.fillText(stats,canvas.width/2,lineY);}
       ctx.textAlign='left';
       let y=titleH,x=0;
@@ -642,7 +642,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       win.document.write('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>'+esc(fileBase)+'</title><style>'
         +'body{font-family:"Microsoft YaHei",Arial,sans-serif;padding:26px 28px;color:#1d2939}'
         +'h1{font-size:20px;text-align:center;margin:0 0 8px;letter-spacing:.5px}'
-        +'.aprd-print-sub{color:#475467;font-size:12.5px;text-align:center;margin:0 0 6px}'
+        +'.aprd-print-sub{color:#22304a;font-size:13px;font-weight:600;text-align:center;margin:0 0 6px}'
         +'.aprd-print-stats{color:#1d2939;font-size:12.5px;font-weight:600;text-align:center;margin:0 0 16px}'
         +'table{width:100%;border-collapse:collapse;font-size:12px}'
         +'th,td{border:1px solid #d0d5dd;padding:7px 8px;text-align:left}'
