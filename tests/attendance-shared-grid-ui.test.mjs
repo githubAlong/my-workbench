@@ -112,8 +112,8 @@ test('实际四页签展示相同名单和列，花名册无考勤编辑入口�
   const headers=()=>[...root.innerHTML.matchAll(/<th>(.*?)<\/th>/g)].map(match=>match[1]);
   const names=()=>[...root.innerHTML.matchAll(/<td><b>(.*?)<\/b><\/td>/g)].map(match=>match[1]);
   const rosterHeaders=headers(),expectedNames=names();
-  /* 用户 11-15 裁决：花名册只维护教师名单，考勤状态列全部隐藏 */
-  assert.deepEqual(rosterHeaders,['序号','归属部门','归属年级','姓名','学科','操作']);
+  /* 用户 11-15 裁决：花名册只维护教师名单，考勤状态列全部隐藏；操作前保留一列可填写的备注 */
+  assert.deepEqual(rosterHeaders,['序号','归属部门','归属年级','姓名','学科','备注','操作']);
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
   assert.equal(root.querySelectorAll('[data-person]').length,0);
   let workHeaders=null;
@@ -142,8 +142,8 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   const {root,saved,calls}=await setup();
   await root.querySelector('[data-tab="seat"]').click();
   await control(root,'sit').click();
-  /* 备注改成「查看备注」弹层入口（11-15 设计稿）；写入值由领域层导出单测覆盖 */
-  assert.equal(control(root,'remark').tag,'button');
+  /* 用户 11-15 要求：备注列改为行内输入框，默认空白，失焦即保存 */
+  assert.equal(control(root,'remark').tag,'input');
   /* 不再需要点「保存本表」：点击后自动落盘（350ms 防抖），这里等它执行完 */
   await new Promise(resolve=>setTimeout(resolve,450));
   assert.deepEqual(calls,['seat']);
@@ -153,7 +153,7 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   /* 用户 11-15 规定：上课表只显示上课/听课，但数据仍来自坐班表，可直接在本表改。 */
   assert.equal(control(root,'sit'),undefined);
   await control(root,'class').click();
-  assert.equal(control(root,'remark').tag,'button');
+  assert.equal(control(root,'remark').tag,'input');
   await root.querySelector('[data-tab="roster"]').click();
   /* 花名册只保留名单与操作，不再展示任何考勤状态格 */
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);

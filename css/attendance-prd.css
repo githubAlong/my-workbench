@@ -222,6 +222,10 @@
 
 /* 备注列：超长省略，hover 由 title 显示全文 */
 .attendance-prd span.aprd-remark{display:inline-block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;color:#5c6b83}
+/* 备注列行内输入（用户 11-15 要求）：默认空白，格子里直接写，回车或失焦保存 */
+.attendance-prd .aprd-note-input{width:100%;min-width:96px;padding:6px 8px;border:1px solid transparent;border-radius:8px;background:transparent;font:inherit;color:inherit}
+.attendance-prd .aprd-note-input:hover{border-color:rgba(148,163,184,.35);background:#fff}
+.attendance-prd .aprd-note-input:focus{outline:none;border-color:#165dff;background:#fff;box-shadow:0 0 0 3px rgba(22,93,255,.12)}
 
 /* 考勤状态标签：绿=正常、黄=待确认、红=异常/请假 */
 .attendance-prd .aprd-mark{display:inline-flex;align-items:center;justify-content:center;min-width:64px;height:24px;padding:0 9px;border:1px solid transparent;border-radius:6px;background:#f2f5fa;color:#7a899e;font-size:12.5px;line-height:1;cursor:pointer;transition:box-shadow .15s}

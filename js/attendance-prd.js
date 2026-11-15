@@ -1221,16 +1221,18 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       classRows:type==='class'?draftRows:(details.class?.rows||[]),
       researchRows:type==='research'?draftRows:(details.research?.rows||[]),
     };
-    /* 花名册只维护教师名单：考勤相关的坐班/上课/听课/教研/请假/备注一律不展示（用户 11-15 裁决）。 */
+    /* 花名册只维护教师名单：考勤状态不展示，但保留一列可直接填写的备注（用户 11-15 要求）。 */
     const columns = type === 'roster'
-      ? ['序号','归属部门','归属年级','姓名','学科','操作']
+      ? ['序号','归属部门','归属年级','姓名','学科','备注','操作']
       : ['序号','归属部门','归属年级','姓名','学科',...GRID_STATE_COLUMNS[type].map(key=>GRID_STATE_LABELS[key]),'备注','操作'];
     const actionsOf = teacher => '<div class="aprd-actions"><button type="button" class="aprd-op" data-edit="'+esc(teacher.id)+'">编辑</button>'
       +'<button type="button" class="aprd-op danger" data-disable="'+esc(teacher.id)+'">删除</button></div>';
     const rows = list.map((teacher,index) => {
       if (type === 'roster') {
         return '<tr><td>'+(index+1)+'</td><td>'+esc(deptOf(teacher))+'</td><td>'+esc(teacher.grade||grade)+'</td>'
-          +'<td><b>'+esc(teacher.name)+'</b></td><td>'+esc(teacher.subject||'')+'</td><td>'+actionsOf(teacher)+'</td></tr>';
+          +'<td><b>'+esc(teacher.name)+'</b></td><td>'+esc(teacher.subject||'')+'</td>'
+          +'<td><input type="text" class="aprd-note-input" data-roster-note="'+esc(teacher.id)+'" value="'+escAttr(noteOf(teacher))+'" placeholder="备注" aria-label="'+escAttr(teacher.name+' 备注')+'"></td>'
+          +'<td>'+actionsOf(teacher)+'</td></tr>';
       }
       const state = editable
         ? (() => {
@@ -1261,9 +1263,9 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const leave = editable ? '<span class="aprd-leave-wrap'+(state.leave?' on':'')+'"><select class="aprd-leave-select '+(state.leave?'on':'')+'" data-grid-person="'+esc(teacher.id)+'" data-grid-key="leave" aria-label="'+esc(teacher.name+' 请假')+'">'
         +['',...new Set([...LEAVE_TYPES,state.leave].filter(Boolean))].map(value=>'<option value="'+esc(value)+'" '+(state.leave===value?'selected':'')+'>'+esc(value||'无')+'</option>').join('')+'</select><i class="aprd-caret" aria-hidden="true"></i></span>'
         : (state.leave?'<span class="aprd-mark leave">'+esc(state.leave)+'</span>':'<span class="aprd-mark ap-placeholder">—</span>');
-      /* 备注列按设计稿改成「查看备注」入口，点开弹层查看和修改，行内保持干净。 */
+      /* 备注列直接用行内输入框，默认空白，点进去就能写（用户 11-15 要求）。 */
       const remark = editable
-        ? '<button type="button" class="aprd-link" data-grid-person="'+esc(teacher.id)+'" data-grid-key="remark" title="'+escAttr(state.remark||'')+'">查看备注</button>'
+        ? '<input type="text" class="aprd-note-input" data-grid-person="'+esc(teacher.id)+'" data-grid-key="remark" value="'+escAttr(state.remark||'')+'" placeholder="备注" aria-label="'+escAttr(teacher.name+' 备注')+'">'
         : '<span class="aprd-remark" title="'+escAttr(noteOf(teacher))+'">'+esc(noteOf(teacher)||'—')+'</span>';
       const stateCells = GRID_STATE_COLUMNS[type].map(key => {
         if (key === 'leave') return '<td>'+leave+'</td>';
@@ -1312,7 +1314,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       ? '<span class="aprd-filter-count">仅显示 '+esc(leaveOnlyDate)+' 请假 · '+shown.length+' 人 <button type="button" class="aprd-op" data-leave-show-all>查看全部</button></span>'
       : '';
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'<button class="primary" data-add-leave>新增请假</button>'+exportMenuHtml(teachers.length)+'</div>'+dayChip+'</div>'
-      +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><span class="aprd-status '+(x.status==='已批'?'approved':'pending')+'">'+esc(x.status)+'</span></td><td>'+esc(x.remark||'')+'</td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
+      +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><span class="aprd-status '+(x.status==='已批'?'approved':'pending')+'">'+esc(x.status)+'</span></td><td><input type="text" class="aprd-note-input" data-leave-note="'+x.id+'" value="'+escAttr(x.remark||'')+'" placeholder="备注" aria-label="'+escAttr(x.name+' 备注')+'"></td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
   };
   const summaryHtml = () => {
     const filteredTeachers=visibleTeachers();
@@ -1424,13 +1426,10 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         update(value); paint(); scheduleAutoSave(tab);
         if (value !== 'u') { await clearOtherTableMarks(teacher); paint(); }
       };
-      /* 备注以「查看备注」入口打开弹层编辑，保存后写回本表的 __teacherGrid。 */
-      else if (key === 'remark') control.onclick = () => {
-        const state = deriveTableGridState(teacher,tab,getDraftRows(tab),{leaveRecords,date,period});
-        openEditor('备注 · '+teacher.name,[{key:'remark',label:'备注内容',type:'textarea'}],{remark:state.remark||''},async data=>{
-          update(String(data.remark??'').trim()); paint(); scheduleAutoSave(tab);
-        });
-      };
+      /* 备注列直接用行内输入框，写完（回车或失焦）即保存到本表的 __teacherGrid。 */
+      else if (key === 'remark') control.addEventListener('change', () => {
+        update(String(control.value??'').trim()); paint(); scheduleAutoSave(tab);
+      });
       else if (key === 'leave') control.addEventListener('change', async () => {
         try{
           update(control.value);
@@ -1532,6 +1531,22 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const record=leaveRecords.find(x=>String(x.id)===b.dataset.editLeave);
       if(record)editLeaveRecord(record);
     });
+    /* 备注列行内输入：花名册写教师级备注，请假表写请假记录备注（用户 11-15 要求）。 */
+    root.querySelectorAll('[data-roster-note]').forEach(input=>input.addEventListener('change',async()=>{
+      const teacher=teachers.find(item=>String(item.id)===input.dataset.rosterNote);
+      if(!teacher)return;
+      try{await setTeacherMeta(teacher,{remark:String(input.value??'').trim()});}
+      catch(error){toast(error.message||'备注保存失败','err');}
+    }));
+    root.querySelectorAll('[data-leave-note]').forEach(input=>input.addEventListener('change',async()=>{
+      const record=leaveRecords.find(item=>String(item.id)===input.dataset.leaveNote);
+      if(!record)return;
+      const next=leaveRecords.map(item=>String(item.id)===input.dataset.leaveNote
+        ?{...item,remark:String(input.value??'').trim()}:item);
+      leaveRecords=next;
+      try{await savePrefs({leaves:next});}
+      catch(error){toast(error.message||'备注保存失败','err');}
+    }));
 
     root.querySelector('[data-add-class]')?.addEventListener('click',()=>openEditor('新增班级上课记录',[
       {key:'class_name',label:'班级',required:true},
