@@ -1,10 +1,11 @@
 ﻿﻿/* 我的工作台 Service Worker
    作用只有两个：可添加到主屏幕、断网时能打开。
 
-   === 为什么策略是「网络优先」 ===
-   踩过坑：缓存优先的写法改完代码用户还看旧版，而且刷新几次都不变，
-   只能手动清缓存，比不能离线更糟。所以任何能连上网络的时候都以网络为准，
-   缓存只用于断网兜底。
+   === 为什么首页网络优先、静态资源按缓存版本更新 ===
+   首页必须网络优先，才能及时发现新版本；JS/CSS 则跟随 CACHE 整体换版，
+   同一个缓存版本内内容不变，可以直接使用预缓存。每次发布必须递增 CACHE，
+   新 Service Worker 激活时会重新预取并删除旧缓存，不会长期停在旧版本。
+   这样避免每次打开都把近百个模块重新请求一遍，慢网络下也不至于白屏一分钟。
 
    === 【2026-10 白屏事故复盘，别再犯】 ===
    现象：同一台电脑，Chrome 正常、另一个浏览器整个页面空白（书签栏还在，
@@ -30,12 +31,12 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v280-navigation-recovery';
+const CACHE = 'wb-v281-static-cache-first';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
    加新模块时记得同步加进来，否则断网时那个页面打不开
-   （联网时没影响，因为网络优先）。
+   （联网且缓存缺失时会回源，发布时随 CACHE 整体换版）。
    核对方法：把下面每个路径拼到站点根地址后面，应当全部返回 200。 */
 const ASSETS = [
   './',
@@ -244,13 +245,9 @@ self.addEventListener('fetch', (e) => {
   if (u.origin !== self.location.origin) return;
   if (u.pathname.includes('/api/')) return;
 
-  /* 【打开页面本身：缓存优先 + 后台更新（stale-while-revalidate）】
-     这是白屏事故的直接修法，也是唯一一处「缓存优先」。
-     打开页面如果傻等网络，GitHub Pages 一排队就是几十秒，
-     用户看到的就是一片空白，然后自己按 F5，每次结果还不一样。
-     所以：缓存里有首页就**立刻**给（毫秒级，不可能白屏），
-          同时后台去拉最新版，拉到就更新缓存，下次打开就是新的。
-     缓存里没有（第一次来）才走网络；网络也拿不到就返回兜底页。
+  /* 【打开页面本身：网络优先 + 离线缓存兜底】
+     首页不直接沿用缓存，避免新 HTML 与当前 CACHE 的静态资源错配。
+     网络失败时才读首页缓存；网络也拿不到且没有缓存就返回兜底页。
      注意不能把「网络返回的错误页」当成功 —— 502/503 也要走兜底。 */
   if (e.request.mode === 'navigate') {
     const base = self.registration.scope;
@@ -299,14 +296,20 @@ self.addEventListener('fetch', (e) => {
   }
 
   e.respondWith((async () => {
+    /* JS/CSS 与 CACHE 同版本：命中就直接返回，不再让近百个模块逐个等待网络。
+       发布时递增 CACHE 并重新预缓存；旧缓存会在 activate 时删除。 */
+    const cached = await caches.match(e.request);
+    if (cached) return cached;
     try {
-      const r = await fetch(e.request);
-      return r;
-    } catch (err) {
-      // 断网：先找缓存，找不到再抛给浏览器
-      const hit = await caches.match(e.request);
-      if (hit) return hit;
-      throw err;
+      const response = await fetch(e.request);
+      if (response.ok) {
+        const cache = await caches.open(CACHE);
+        await cache.put(e.request, response.clone());
+      }
+      return response;
+    } catch (error) {
+      console.warn('[sw] 静态资源网络请求失败：', e.request.url, error && error.message);
+      throw error;
     }
   })());
 });
