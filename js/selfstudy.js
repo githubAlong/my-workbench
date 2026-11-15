@@ -152,6 +152,7 @@ async function renderSelfstudyManage(box) {
   let editingId = null;
   let errors = {};
   let busy = false;
+  let savedAt = 0;
   let ddOpen = false;
   let form = {
     title: '今日自习任务', class_scope: 'all', class_label: '全部',
@@ -260,6 +261,8 @@ async function renderSelfstudyManage(box) {
 
   function paint() {
     const pub = isPublished();
+    /* 保存成功后按钮自己亮 1.4 秒「已保存」：toast('已保存') 会被全局静默，见 core.js */
+    const saved = Date.now() - savedAt < 1400;
     const pc = Number(form.pc_visible) !== 0;
     const list = tasks.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (b.id - a.id));
     const clsOptions = [{ label: '全部', scope: 'all' }, ...classes.map((label) => ({ label, scope: label }))];
@@ -342,7 +345,7 @@ async function renderSelfstudyManage(box) {
           <div class="ssm-actions">
             ${editingId ? '<button class="ssm-btn danger" id="ssm-del">删除</button>' : ''}
             <span style="flex:1"></span>
-            <button class="ssm-btn" id="ssm-save" ${busy ? 'disabled' : ''}>保存任务</button>
+            <button class="ssm-btn${saved ? ' ok' : ''}" id="ssm-save" ${busy || saved ? 'disabled' : ''}>${saved ? '已保存' : '保存任务'}</button>
             <button class="ssm-btn primary" id="ssm-preview" ${busy ? 'disabled' : ''}>生成学生端预览</button>
           </div>
         </div>
@@ -426,7 +429,14 @@ async function renderSelfstudyManage(box) {
       btn.disabled = true; btn.textContent = '保存中…';
       try {
         await upsert('draft');
-        toast('已保存');
+        busy = false;
+        /* 保存成功不能只靠 toast：'已保存' 属于全局静默文案（core.js 的
+           SILENT_SAVE_MESSAGES），不弹提示，按钮又瞬间复原，用户会以为没点上。
+           这里让按钮自己变成绿色「已保存」，停留 1.4 秒再恢复。 */
+        savedAt = Date.now();
+        paint();
+        setTimeout(() => { if (box.isConnected) paint(); }, 1400);
+        return;
       } catch (e) { toast(e.message || '保存失败', 'err'); }
       busy = false;
       paint();

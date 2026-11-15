@@ -4663,7 +4663,10 @@ textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:ver
 .ssm-count { margin-top:6px; color:#9ca3af; font-size:12px; text-align:right; }
 .ssm-count.over { color:#ef4444; }
 .ssm-time { display:flex; gap:10px; }
-.ssm-time select { width:112px; flex:0 0 auto; }
+/* 日期固定宽度，节次下拉吃掉剩余空间：
+   节次文案形如「第6节 · 14:00–14:40」，原来写死 112px 会被截成「第6节 · 14…」 */
+.ssm-time input[type="date"] { width:150px; flex:0 0 150px; }
+.ssm-time select { width:auto; flex:1 1 auto; min-width:0; }
 /* 适用班级：竖排单列下拉，底部固定一行不可点的小字 */
 .ssm-dd { position:relative; }
 .ssm-dd-btn { display:flex; align-items:center; justify-content:space-between; cursor:pointer; }
@@ -4690,6 +4693,8 @@ textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:ver
 .ssm-btn:hover { background:var(--bg-sunken); }
 .ssm-btn.primary { border-color:#1677ff; background:#1677ff; color:#fff; }
 .ssm-btn.primary:hover { background:#0e63d6; }
+/* 保存成功后的短暂确认态（按钮文案改成「已保存」），只做视觉强调 */
+.ssm-btn.ok, .ssm-btn.ok:disabled { border-color:#b7ebc9; background:#e9f9ef; color:#12a150; font-weight:650; opacity:1; }
 .ssm-btn.danger { border-color:rgba(239,68,68,.4); color:#ef4444; }
 .ssm-btn:disabled { opacity:.5; cursor:not-allowed; }
 .ssm-list { display:flex; flex-direction:column; gap:12px; }
