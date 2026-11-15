@@ -1017,45 +1017,56 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       }).join('')+
       '<div class="aprd-foot"><button type="button" data-cancel>取消</button><button class="primary" type="submit">保存</button></div></form>';
     (root.querySelector('.attendance-prd') || root).append(dialog); const form=dialog.querySelector('form');
+    /* 时长单位=天 时，时长换成「上午/下午/整天」选择；小时/月仍用数字（用户 11-15 要求） */
     const durationUnit=form.querySelector('[name="duration_unit"]');
     const durationInput=form.querySelector('[name="days"]');
-    const syncDurationMode=()=>{
-      if(!durationUnit||!durationInput)return;
-      const halfDay=['morning','afternoon'].includes(durationUnit.value);
-      if(halfDay){durationInput.value='0.5';durationInput.readOnly=true;}
-      else durationInput.readOnly=false;
-    };
-    durationUnit?.addEventListener('change',syncDurationMode);
-    syncDurationMode();
+    if(durationUnit&&durationInput){
+      const dayPart=document.createElement('select');
+      dayPart.name='day_part';dayPart.hidden=true;
+      dayPart.innerHTML=['上午','下午','整天'].map(v=>'<option value="'+v+'">'+v+'</option>').join('');
+      if(initial.day_part)dayPart.value=initial.day_part;
+      durationInput.after(dayPart);
+      const syncDurationMode=()=>{
+        const byDay=durationUnit.value==='day';
+        durationInput.hidden=byDay;durationInput.disabled=byDay;
+        dayPart.hidden=!byDay;dayPart.disabled=!byDay;
+      };
+      durationUnit.addEventListener('change',syncDurationMode);
+      syncDurationMode();
+    }
     dialog.querySelector('[data-cancel]').onclick=()=>dialog.remove();
     form.onsubmit=async e=>{e.preventDefault();const data=Object.fromEntries(new FormData(form));try{await onSave(data);dialog.remove();}catch(err){toast(err.message||'保存失败','err');}};
   };
   const editLeaveRecord = (record = null, defaultTeacher = null) => {
     const recordName=record?.name||record?.teacher||'';
+    const unitOf=record?.duration_unit==='month'?'month':record?.duration_unit==='hour'?'hour':'day';
+    const dayPartOf=record?.day_part||(['morning','afternoon'].includes(record?.duration_unit)
+      ?(record.duration_unit==='morning'?'上午':'下午')
+      :(Number(record?.days??record?.duration??1)>=1?'整天':'上午'));
+    const amountOf=unitOf==='day'?dayPartOf:(record?.months??record?.hours??record?.duration??1);
     openEditor(record?'修改请假记录':'登记请假',[
       /* 教师直接手输：全校名单太长，下拉翻半天反而慢 */
       {key:'teacher',label:'教师姓名',type:'text',required:true},
       {key:'type',label:'类型',type:'select',options:[{value:'',label:'无（取消请假）'},...LEAVE_TYPES.map(x=>({value:x,label:x}))]},
       {key:'start_date',label:'开始日期',type:'date'},
       {key:'end_date',label:'结束日期',type:'date'},
-      {key:'days',label:'请假时长（天支持0.5，小时支持小数）',type:'number',min:'0.01',step:'any',required:true},
+      /* 时长单位放在时长上方，支持 小时/天/月；天用 上午/下午/整天（用户 11-15 要求），状态不再让用户选 */
       {key:'duration_unit',label:'时长单位',type:'select',options:[
-        {value:'day',label:'天（支持0.5天）'},
-        {value:'morning',label:'上午（0.5天）'},
-        {value:'afternoon',label:'下午（0.5天）'},
-        {value:'hour',label:'小时（支持小数）'},
+        {value:'hour',label:'小时'},
+        {value:'day',label:'天'},
+        {value:'month',label:'月'},
       ]},
-      {key:'status',label:'状态',type:'select',options:['待批','已批','已撤销'].map(x=>({value:x,label:x}))},
+      {key:'days',label:'请假时长',type:'number',min:'0.01',step:'any'},
       {key:'remark',label:'备注',type:'textarea'},
     ],{
       teacher:recordName||defaultTeacher?.name||'',
       type:record?.type||'',start_date:record?.start_date||date,end_date:record?.end_date||date,
-      days:record?.duration??(record?.hours||record?.days||1),duration_unit:record?.duration_unit||(record?.hours?'hour':'day'),status:record?.status||'待批',remark:record?.remark||'',
+      days:amountOf,duration_unit:unitOf,day_part:dayPartOf,remark:record?.remark||'',
     },async data=>{
       const teacherName=String(data.teacher||'').trim();
       if(data.type && !teacherName)throw new Error('请填写教师姓名');
       const who=teachers.find(x=>x.name===teacherName);
-      const duration = data.type ? parseLeaveDuration(data.days,data.duration_unit) : null;
+      const duration = data.type ? parseLeaveDuration(data.duration_unit==='day'?data.day_part:data.days,data.duration_unit) : null;
       if(data.type && data.end_date < data.start_date)throw new Error('结束日期不能早于开始日期');
       const next=record
         ? leaveRecords.filter(x=>x!==record&&String(x.id)!==String(record.id))
@@ -1065,7 +1076,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
           ...(record||{}),id:record?.id||Date.now(),grade:record?.grade||grade,
           name:teacherName||recordName||'',subject:who?.subject||record?.subject||'',type:data.type,
           start_date:data.start_date||date,end_date:data.end_date||data.start_date||date,
-          ...duration,status:data.status||'待批',remark:data.remark||'',
+          ...duration,status:record?.status||'已批',remark:data.remark||'',
         });
       }
       await savePrefs({leaves:next});

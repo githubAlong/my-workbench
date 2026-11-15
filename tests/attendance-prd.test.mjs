@@ -81,6 +81,11 @@ test('请假时长支持半天、上午、下午和小时小数', () => {
   assert.equal(formatLeaveDuration(parseLeaveDuration('0.5','afternoon')),'下午（0.5天）');
   assert.deepEqual(parseLeaveDuration('1.5','hour'), {duration:1.5,duration_unit:'hour',days:0,hours:1.5});
   assert.throws(() => parseLeaveDuration('0.25','day'), /0.5天/);
+  /* 用户 11-15 要求：天支持 上午/下午/整天，月按数字填写 */
+  assert.deepEqual(parseLeaveDuration('整天','day'), {duration:1,duration_unit:'day',days:1,hours:0,day_part:'整天'});
+  assert.equal(formatLeaveDuration(parseLeaveDuration('上午','day')),'上午');
+  assert.deepEqual(parseLeaveDuration('1','month'), {duration:1,duration_unit:'month',days:30,hours:0,months:1});
+  assert.equal(formatLeaveDuration(parseLeaveDuration('2','month')),'2个月');
 });
 
 test('四类导出都保留全量名单并显示对应状态（11-12 新裁决）', () => {

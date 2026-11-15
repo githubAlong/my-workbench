@@ -377,16 +377,28 @@ export function calculateDailySummary(context = {}) {
 }
 
 export function parseLeaveDuration(amount, unit='day') {
-  if (!['day','hour','morning','afternoon'].includes(unit)) throw new Error('请选择请假时长单位');
+  if (!['day','hour','month','morning','afternoon'].includes(unit)) throw new Error('请选择请假时长单位');
   if (unit === 'morning' || unit === 'afternoon') return {duration:0.5,duration_unit:unit,days:0.5,hours:0};
+  /* 天单位支持「上午/下午/整天」三个时段（用户 11-15 要求） */
+  if (unit === 'day' && ['上午','下午','整天'].includes(String(amount))) {
+    const days = String(amount) === '整天' ? 1 : 0.5;
+    return {duration:days,duration_unit:'day',days,hours:0,day_part:String(amount)};
+  }
   const value=Number(amount);
   if (String(amount).trim()==='' || !Number.isFinite(value) || value<=0) throw new Error('请假时长必须大于0，不能为负数');
   if(unit==='day' && !Number.isInteger(value*2)) throw new Error('按天请假以0.5天为单位');
+  /* 月单位按 30 天折算进汇总，展示仍用「x个月」 */
+  if(unit==='month') return {duration:value,duration_unit:'month',days:value*30,hours:0,months:value};
   return {duration:value,duration_unit:unit,days:unit==='day'?value:0,hours:unit==='hour'?value:0};
 }
 export function formatLeaveDuration(record) {
+  if (record?.day_part) return record.day_part;
   if (record?.duration_unit === 'morning') return '上午（0.5天）';
   if (record?.duration_unit === 'afternoon') return '下午（0.5天）';
+  if (record?.duration_unit === 'month') {
+    const months=Number(record.months ?? record.duration ?? 0);
+    return Number(Number(months).toFixed(2))+'个月';
+  }
   const parts=[];
   if(Number(record.days)>0)parts.push(Number(Number(record.days).toFixed(2))+'天');
   if(Number(record.hours)>0)parts.push(Number(Number(record.hours).toFixed(2))+'小时');
