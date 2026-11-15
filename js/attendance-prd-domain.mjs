@@ -645,9 +645,9 @@ export function buildAttendanceExportGrid({
     const count = key => entries.filter(entry => entry.winner === key && entry.statusOf[key] === 'y').length;
     const leaveCount = entries.filter(entry => entry.onLeave).length;
     const unregistered = entries.filter(entry => !entry.winner && !entry.onLeave).length;
+    /* 上课表统计只显示上课和请假人数，不再展示应到/听课/未登记（用户 11-15 要求） */
     const statsLine = type === 'class'
-      ? '应到 ' + people.length + ' 人 · 上课 ' + count('class') + ' 人 · 听课 ' + count('listen')
-        + ' 人 · 未登记 ' + unregistered + ' 人'
+      ? '上课 ' + count('class') + ' 人 · 请假 ' + leaveCount + ' 人'
       : '应到 ' + people.length + ' 人 · 教研 ' + count('research') + ' 人 · 请假 ' + leaveCount
         + ' 人 · 未登记 ' + unregistered + ' 人';
     const headers = type === 'class'
