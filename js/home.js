@@ -209,13 +209,23 @@ async function loadWeather(force = false) {
     if (requestId === weatherRequestSeq && stillCurrent()) state.weather = cache;
     return cache;
   }
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}`
+  const query = `latitude=${city.lat}&longitude=${city.lon}`
     + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m,wind_direction_10m'
     + '&hourly=temperature_2m,weather_code,precipitation_probability'
     + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max'
     + '&timezone=auto&forecast_days=7';
-  const r = await fetch(url, { signal: AbortSignal.timeout(8000) })
-    .then((x) => (x.ok ? x.json() : null)).catch(() => null);
+  /* 取数地址按环境拆开：测试环境走同源 /wx/forecast（Pages Function 代取），
+     绕开部分网络对 api.open-meteo.com 的直连重置；其它环境/代理不可用时回落到直连。
+     两个地址都失败才算天气没拿到，避免「一处被墙就整卡空白」。 */
+  const sources = [];
+  if (/\.pages\.dev$/i.test(location.hostname)) sources.push(`${location.origin}/wx/forecast?${query}`);
+  sources.push(`https://api.open-meteo.com/v1/forecast?${query}`);
+  let r = null;
+  for (const url of sources) {
+    r = await fetch(url, { signal: AbortSignal.timeout(8000) })
+      .then((x) => (x.ok ? x.json() : null)).catch(() => null);
+    if (r && r.current) break;
+  }
   if (requestId !== weatherRequestSeq || !stillCurrent()) return state.weather;
   if (!r || !r.current) {
     if (matchesCity(cache)) { state.weather = cache; return cache; }
@@ -2159,11 +2169,7 @@ function bindHome() {
 
   // 天气：简要常显，详细折起来
   document.querySelectorAll('[data-pick-city]').forEach((b) => { b.onclick = pickCity; });
-  const bindWxRefresh = () => {
-    const wr = q('[data-wx-refresh]');
-    if (wr) wr.onclick = async () => { wr.textContent = '…'; await loadWeather(true).catch(() => toast('天气刷新失败', 'warn')); renderWeatherOnly(); };
-  };
-  bindWxRefresh();
+  bindWxRefreshButtons();
   const bindWxForecast = (root = document) => {
     root.querySelectorAll('[data-wx-forecast]').forEach((button) => {
       button.onclick = () => openWeatherSheet();
@@ -2297,14 +2303,31 @@ function shiftMonth(delta) {
   const d = new Date(y, m - 1 + delta, 1);
   loadCal(ymd(d));
 }
+/* 天气刷新按钮的统一入口。
+   以前这里写的是 `await loadWeather(true).catch(() => {})`：请求被网络重置时
+   卡片原样重绘，没有任何提示，用户看到的就是「点了没反应」。
+   现在按钮当场变成「…」，成功/失败都给 toast，失败文案说明下一步怎么办。 */
+function bindWxRefreshButtons(root = document) {
+  root.querySelectorAll('[data-wx-refresh]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (btn.dataset.busy === '1') return;
+      btn.dataset.busy = '1';
+      btn.textContent = '…';
+      try { await loadWeather(true); } catch { /* 下面统一按结果给提示 */ }
+      btn.removeAttribute('data-busy');
+      const ok = !!state.weather?.raw;
+      toast(ok ? '天气已更新' : '天气刷新失败：当前网络访问不到天气服务，请稍后重试', ok ? undefined : 'warn');
+      renderWeatherOnly();
+    };
+  });
+}
 function renderWeatherOnly() {
   const brief = document.getElementById('wx-brief');
   if (brief) {
     brief.innerHTML = weatherBriefHTML();
     brief.querySelectorAll('[data-pick-city]').forEach((b) => { b.onclick = pickCity; });
     brief.querySelectorAll('[data-wx-forecast]').forEach((b) => { b.onclick = () => openWeatherSheet(); });
-    const wr = brief.querySelector('[data-wx-refresh]');
-    if (wr) wr.onclick = async () => { await loadWeather(true).catch(() => {}); renderWeatherOnly(); };
+    bindWxRefreshButtons(brief);
   }
   const week = document.getElementById('home-weather-week');
   if (week) week.innerHTML = wxForecastHTML();
