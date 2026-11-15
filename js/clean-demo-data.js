@@ -15,7 +15,7 @@
 
 import { el, esc, toast, sheet, saveBlob } from './core.js';
 import { load, save, exportJSON } from './localdb.js';
-import { scanDemoData, collectRemovable } from './demo-data-scan.mjs';
+import { scanDemoData, collectRemovable, collectDemoMessages } from './demo-data-scan.mjs';
 
 export function hasDemoData() {
   try { return scanDemoData(load()).found; } catch { return false; }
@@ -54,7 +54,8 @@ export function openCleanDemoSheet() {
       '<div class="demo-clean-table"><table><thead><tr><th>数据</th><th>将删除</th><th>改过·保留</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>' +
       '<div class="demo-clean-notes">' +
-        '<p>· 你自己后来录入的记录<strong>全部保留</strong>；被你改过的示例记录也保留。</p>' +
+        '<p>· 你自己后来录入的记录<strong>全部保留</strong>；改过标题或正文的示例记录也保留。</p>' +
+        '<p>· 消息中心里由示例事项 / 便签生成的任务提醒会随来源一起清掉；你自己建的消息不受影响。</p>' +
         '<p>· 教师名册、计费规则、搬家链接等不参与清理。</p>' +
         '<p>· 点确认时会先<strong>自动下载一份完整备份</strong>；清理后本机与云端一起更新，示例数据不会自己长回来。</p>' +
       '</div>' +
@@ -93,12 +94,22 @@ async function runClean(stamp, total) {
 
   /* ---------- 2. 只删原始示例记录 ---------- */
   const db = load();
+  /* 消息要先算：来源一旦从数组里删掉，就再也认不出哪条提醒是它生成的 */
+  const demoMessages = collectDemoMessages(db, stamp);
   const removable = collectRemovable(db, stamp);
   let removed = 0;
   for (const [table, rows] of removable) {
     const before = db[table].length;
     db[table] = db[table].filter((row) => !rows.has(row));
     removed += before - db[table].length;
+  }
+  /* 消息是「投影」：直接删行会被 reconcileTaskMessages 重新生成，
+     所以打删除标记，让它连同来源一起彻底消失。 */
+  const deletedAt = new Date().toISOString();
+  for (const message of demoMessages) {
+    if (message.deleted_at) continue;
+    message.deleted_at = deletedAt;
+    removed += 1;
   }
   if (!removed) {
     toast('没有可删除的记录，未改动数据', 'warn');

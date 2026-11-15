@@ -119,12 +119,64 @@ function isSeedStudy(row) {
   return SEED_STUDY_MINUTES.has(Number(row.minutes));
 }
 
+/* 示例事项 / 便签：消息中心里的「任务提醒」就是它们投影出来的。
+   按「标题 + 正文」逐字段比对：改过标题或正文的记录视为用户已接管，保留；
+   只改了状态（在消息中心点「待完成 / 进行中 / 已完成」）仍然算示例，
+   连它生成的提醒一起清掉，否则刷新后消息中心又会长回来。 */
+const SEED_TASK_ROWS = {
+  '高二语文备课组会': '讨论下周《劝学》教学进度',
+  '提交十月课时统计表': '月底与财务核对课时',
+  '期中考试命题截止': '完成试卷与答题卡',
+  '把月考答题卡交到教务处': '',
+  '给(3)班准备《劝学》课件': '',
+  '联系家长沟通作业情况': '',
+};
+
+/* items 的正文叫 detail，todos 的正文叫 content；两边都按同一张示例表比对 */
+function isSeedTaskRow(row) {
+  if (!row || typeof row !== 'object' || row.deleted_at) return false;
+  const title = String(row.title || '').trim();
+  if (!Object.prototype.hasOwnProperty.call(SEED_TASK_ROWS, title)) return false;
+  const body = row.detail !== undefined ? row.detail : row.content;
+  return String(body || '').trim() === SEED_TASK_ROWS[title];
+}
+
 function collectBySignature(db) {
   const out = new Map();
   if (!db || typeof db !== 'object') return out;
   const studies = Array.isArray(db.studies) ? db.studies.filter(isSeedStudy) : [];
   if (studies.length) out.set('studies', new Set(studies));
+  for (const table of ['items', 'todos']) {
+    const rows = Array.isArray(db[table]) ? db[table].filter(isSeedTaskRow) : [];
+    if (rows.length) out.set(table, new Set(rows));
+  }
   return out;
+}
+
+/* 示例事项 / 便签的 id 集合：既认批次时间戳，也认示例原文。
+   时间戳认「同批创建」，所以只改过状态的记录也跑不掉；原文认「批次时间戳已丢失」的情况。 */
+function demoSourceIds(db, stamp, signature) {
+  const ids = { items: new Set(), todos: new Set() };
+  for (const table of ['items', 'todos']) {
+    const rows = Array.isArray(db[table]) ? db[table] : [];
+    for (const row of rows) if (stamp !== null && stampOf(row) === stamp) ids[table].add(String(row.id));
+    for (const row of signature.get(table) || []) ids[table].add(String(row.id));
+  }
+  return ids;
+}
+
+/* 消息中心里由示例事项 / 便签生成的任务提醒。
+   这些消息不是示例批次的一部分（created_at 是生成提醒的时间），
+   只能顺着 ref_type / ref_id 找回来源，再判断来源是不是示例数据。 */
+export function collectDemoMessages(db, stamp) {
+  if (!db || typeof db !== 'object') return [];
+  const ids = demoSourceIds(db, stamp, collectBySignature(db));
+  return (Array.isArray(db.messages) ? db.messages : []).filter((row) => row
+    && typeof row === 'object'
+    && !row.deleted_at
+    && row.type === 'task'
+    && ((row.ref_type === 'items' && ids.items.has(String(row.ref_id)))
+      || (row.ref_type === 'todos' && ids.todos.has(String(row.ref_id)))));
 }
 
 /* 预览用：每张表将删多少条、有多少条因被改过而保留 */
@@ -141,11 +193,19 @@ export function scanDemoData(db) {
     const same = stamp === null ? [] : rows.filter((row) => stampOf(row) === stamp);
     const untouched = same.filter((row) => isUntouchedSeed(row, stamp));
     const removable = new Set([...untouched, ...(signature.get(table) || [])]);
-    const keep = same.length - untouched.length;
+    /* 「改过·保留」只算最终不会被删的那些，否则只改过状态的示例事项
+       会同时出现在「将删除」和「改过·保留」两列里。 */
+    const keep = same.filter((row) => !removable.has(row)).length;
     if (!removable.size && !keep) continue;
     total += removable.size;
     modified += keep;
     groups.push({ table, label: TABLE_LABELS[table] || table, remove: removable.size, keep });
+  }
+  /* 消息中心的任务提醒不是批次记录，按来源单独统计 */
+  const demoMessages = collectDemoMessages(db, stamp).length;
+  if (demoMessages) {
+    groups.push({ table: 'messages', label: TABLE_LABELS.messages, remove: demoMessages, keep: 0 });
+    total += demoMessages;
   }
   return { found: total > 0, stamp, groups, total, modified };
 }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  findSeedBatch, scanDemoData, collectRemovable, PROTECTED_TABLES,
+  findSeedBatch, scanDemoData, collectRemovable, collectDemoMessages, PROTECTED_TABLES,
 } from '../js/demo-data-scan.mjs';
 
 const SEED_AT = '2026-11-01T02:00:00.000Z';
@@ -119,6 +119,47 @@ test('批次时间戳丢失时按示例原文精确清理学习记录', () => {
   assert.equal(rows.size, 2);
   assert.ok(![...rows].some((r) => r.title === '我自己的读书笔记'));
   assert.ok(![...rows].some((r) => r.content === '我写的真实心得'));
+});
+
+test('消息中心里由示例事项 / 便签生成的提醒随来源一起清理', () => {
+  const db = makeDb();
+  db.items = [
+    /* 只改过状态：仍算示例，提醒和事项一起清 */
+    seedRow(1, { title: '提交十月课时统计表', detail: '月底与财务核对课时', status: 'doing', updated_at: USER_AT }),
+    /* 用户自己录入的事项：连提醒一起保留 */
+    { id: 2, title: '我的真实事项', detail: '自己写的', status: 'todo', created_at: USER_AT, updated_at: USER_AT, deleted_at: null },
+  ];
+  db.todos.push(seedRow(4, { title: '联系家长沟通作业情况', content: '' }));
+  db.messages = [
+    { id: 1, type: 'task', ref_type: 'items', ref_id: 1, read: 0, created_at: USER_AT },
+    { id: 2, type: 'task', ref_type: 'items', ref_id: 2, read: 0, created_at: USER_AT },
+    { id: 3, type: 'task', ref_type: 'todos', ref_id: 4, read: 0, created_at: USER_AT },
+  ];
+  const scan = scanDemoData(db);
+  const msgGroup = scan.groups.find((g) => g.table === 'messages');
+  assert.equal(msgGroup.remove, 2);
+  const itemGroup = scan.groups.find((g) => g.table === 'items');
+  assert.equal(itemGroup.remove, 1);
+  assert.equal(itemGroup.keep, 0, '只改过状态的示例事项不能再算「改过·保留」');
+  const removable = collectRemovable(db, scan.stamp);
+  assert.ok(removable.get('items').has(db.items[0]));
+  assert.ok(!removable.get('items').has(db.items[1]));
+  assert.deepEqual(collectDemoMessages(db, scan.stamp).map((m) => m.id), [1, 3]);
+});
+
+test('批次时间戳丢失时，示例事项仍能识别并清理提醒', () => {
+  const db = {
+    seqs: {}, meta: {}, todos: [], messages: [{ id: 1, type: 'task', ref_type: 'items', ref_id: 1, read: 0 }],
+    items: [{
+      id: 1, title: '高二语文备课组会', detail: '讨论下周《劝学》教学进度',
+      status: 'doing', created_at: USER_AT, updated_at: USER_AT, deleted_at: null,
+    }],
+  };
+  assert.equal(findSeedBatch(db), null);
+  const scan = scanDemoData(db);
+  assert.equal(scan.stamp, null);
+  assert.equal(scan.found, true);
+  assert.deepEqual(collectDemoMessages(db, scan.stamp).map((m) => m.id), [1]);
 });
 
 test('清理后写标记防止示例数据再灌回来', () => {
