@@ -504,6 +504,30 @@ function recyclePut(table, id, extraTitle = '') {
   return rid;
 }
 
+/* 首页事项和便签是同一件事的两份投影，删除必须成对。
+   只删一边会出现「首页删了便签还在」「消息删了任务还在」的割裂状态。 */
+function linkedTaskRow(table, row) {
+  if (!row) return null;
+  if (table === 'items') {
+    return (T('todos') || []).find((note) => !note.deleted_at
+      && (String(note.ref_item_id) === String(row.id)
+        || (row.source === '便签' && String(row.ref_id) === String(note.id))));
+  }
+  if (table === 'todos') {
+    return (T('items') || []).find((item) => !item.deleted_at
+      && (String(item.ref_id) === String(row.id) || String(row.ref_item_id) === String(item.id)));
+  }
+  return null;
+}
+
+/* 把事项 / 便签成对放进回收站，两边都能单独还原 */
+function recycleTaskPair(table, row) {
+  if (!row || (table !== 'items' && table !== 'todos')) return;
+  const other = linkedTaskRow(table, row);
+  if (other) recyclePut(table === 'items' ? 'todos' : 'items', other.id);
+  recyclePut(table, row.id);
+}
+
 function purgeExpiredRecycle() {
   const db = load();
   db.recycle = db.recycle || [];
@@ -2066,7 +2090,16 @@ on('POST', '/messages/read', ({ body }) => {
 on('DELETE', '/messages/:id', ({ params }) => {
   const db = load();
   const message = (db.messages || []).find(m => String(m.id) === String(params.id));
-  if (message && !message.deleted_at) message.deleted_at = nowISO();
+  if (message && !message.deleted_at) {
+    /* 任务提醒本身就是任务的投影：删提醒等于删任务，
+       否则消息中心删掉了，首页和便签里同一条还留着。
+       事项提醒 / 系统通知只清消息，不动业务数据。 */
+    if (message.type === 'task' && ['items', 'todos'].includes(message.ref_type)) {
+      const source = (T(message.ref_type) || []).find(row => String(row.id) === String(message.ref_id) && !row.deleted_at);
+      if (source) recycleTaskPair(message.ref_type, source);
+    }
+    message.deleted_at = nowISO();
+  }
   save();
   return { ok: true };
 });
@@ -4206,7 +4239,8 @@ on('DELETE', '/:table/:id', ({ params }) => {
     const refs = rowsOf(t).filter((x) => String(x.category_id) === String(row.id)).length;
     if (refs) fail(400, '该分类下还有内容，请先移动或删除内容');
   }
-  recyclePut(table, params.id);
+  if (table === 'items' || table === 'todos') recycleTaskPair(table, row);
+  else recyclePut(table, params.id);
   return { ok: true };
 });
 

@@ -1451,6 +1451,10 @@ async function renderMessages(main, { inline = false } = {}) {
     main.querySelectorAll('[data-del]').forEach((b) => {
       b.onclick = async (e) => {
         e.stopPropagation();
+        /* 任务提醒和首页事项 / 便签是同一条数据，删提醒会一起删掉，
+           先讲清楚，免得用户以为只是清一条通知。 */
+        const message = rows.find((row) => String(row.id) === String(b.dataset.del));
+        if (message?.type === 'task' && !(await confirmDialog('这条提醒对应的任务会一起从首页和便签中删除，删除后可在回收站找回。确定删除？', { title: '删除任务提醒', danger: true, okText: '删除' }))) return;
         await api.del('/messages/' + b.dataset.del);
         await refreshUnread(); paintUnread();
         load();

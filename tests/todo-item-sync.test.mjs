@@ -75,6 +75,73 @@ test('local API creates mirrored records and synchronizes state and details with
   assert.equal(writes, 0);
 });
 
+test('deleting a task message removes the same task from home items and sticky notes', async () => {
+  const storage = installBrowser();
+  const db = await import('../js/localdb.js');
+  db.setActiveAccount('message-delete-test');
+  storage.setItem(db.DB_KEY, JSON.stringify(db.blank()));
+  const { handle } = await import('../js/localapi.js');
+  const call = async (method, path, body) => {
+    const result = await handle(method, path, {}, body);
+    assert.equal(result.ok, true, result.error); return result.data;
+  };
+  const note = await call('POST', '/todos', { title: '交答题卡', status: 'todo' });
+  const raw = db.load();
+  raw.messages ||= [];
+  raw.messages.push({ id: 9001, type: 'task', ref_type: 'todos', ref_id: note.id, read: 0, created_at: new Date().toISOString() });
+  db.save();
+  await call('DELETE', '/messages/9001');
+  const after = db.load();
+  assert.ok(after.messages.find((row) => row.id === 9001).deleted_at, '提醒本身要标记删除');
+  assert.ok(after.todos.find((row) => row.id === note.id).deleted_at, '便签要一起删除');
+  assert.ok(after.items.find((row) => row.id === note.ref_item_id).deleted_at, '首页事项要一起删除');
+  assert.deepEqual(after.recycle.map((row) => row.entity).sort(), ['items', 'todos'], '两边都能从回收站还原');
+});
+
+test('deleting a home item or sticky note also removes its counterpart', async () => {
+  const storage = installBrowser();
+  const db = await import('../js/localdb.js');
+  db.setActiveAccount('task-delete-pair-test');
+  storage.setItem(db.DB_KEY, JSON.stringify(db.blank()));
+  const { handle } = await import('../js/localapi.js');
+  const call = async (method, path, body) => {
+    const result = await handle(method, path, {}, body);
+    assert.equal(result.ok, true, result.error); return result.data;
+  };
+  const note = await call('POST', '/todos', { title: '从便签删', status: 'todo' });
+  await call('DELETE', '/todos/' + note.id);
+  let rows = db.load();
+  assert.ok(rows.todos.find((row) => row.id === note.id).deleted_at);
+  assert.ok(rows.items.find((row) => row.id === note.ref_item_id).deleted_at);
+
+  const item = await call('POST', '/items', { title: '从首页删', status: 'todo' });
+  const linked = db.load().todos.find((row) => String(row.ref_item_id) === String(item.id));
+  await call('DELETE', '/items/' + item.id);
+  rows = db.load();
+  assert.ok(rows.items.find((row) => row.id === item.id).deleted_at);
+  assert.ok(rows.todos.find((row) => row.id === linked.id).deleted_at);
+});
+
+test('deleting a reminder or system message keeps the underlying item', async () => {
+  const storage = installBrowser();
+  const db = await import('../js/localdb.js');
+  db.setActiveAccount('message-remind-delete-test');
+  storage.setItem(db.DB_KEY, JSON.stringify(db.blank()));
+  const { handle } = await import('../js/localapi.js');
+  const call = async (method, path, body) => {
+    const result = await handle(method, path, {}, body);
+    assert.equal(result.ok, true, result.error); return result.data;
+  };
+  const item = await call('POST', '/items', { title: '开会', status: 'todo' });
+  const raw = db.load();
+  raw.messages ||= [];
+  raw.messages.push({ id: 9101, type: 'remind', ref_type: 'items', ref_id: item.id, read: 1, created_at: new Date().toISOString() });
+  db.save();
+  await call('DELETE', '/messages/9101');
+  const after = db.load();
+  assert.ok(!after.items.find((row) => row.id === item.id).deleted_at, '事项提醒只清消息');
+});
+
 test('China date does not apply the browser timezone twice or move evening notes into tomorrow', async () => {
   const { cnDate, handle } = await import('../js/localapi.js');
   const db = await import('../js/localdb.js');
