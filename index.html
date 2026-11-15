@@ -16,16 +16,30 @@
      而本仓库没有这个文件，控制台就常驻一条 404，排查真问题时容易误判。 -->
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<!-- 样式异步下载：慢网络下任何一个 CSS 挂起都不能阻塞后面的启动脚本。
-     首屏加载提示使用内联样式；各样式下载完成后立即切换为 all。 -->
+<!-- 首屏只下载全局、工作台和登录样式；其它样式等首屏完成后再加载，
+     避免慢网络下十多个 CSS 请求把启动模块一直排在后面。 -->
 <link rel="stylesheet" media="print" onload="this.media='all'" href="css/app.css">
 <link rel="stylesheet" media="print" onload="this.media='all'" href="css/teacher-ui.css">
 <link rel="stylesheet" media="print" onload="this.media='all'" href="css/auth-redesign.css">
-<link rel="stylesheet" media="print" onload="this.media='all'" href="css/attendance-workspace.css">
-<link rel="stylesheet" media="print" onload="this.media='all'" href="css/attendance-prd.css">
-<link rel="stylesheet" media="print" onload="this.media='all'" href="css/workbench-unified.css">
-<link rel="stylesheet" media="print" onload="this.media='all'" href="css/timetable-redesign.css">
-<link rel="stylesheet" media="print" onload="this.media='all'" href="css/sticky-notes.css">
+<script>
+  window.addEventListener('wb:booted', function () {
+    [
+      'css/attendance-workspace.css',
+      'css/attendance-prd.css',
+      'css/workbench-unified.css',
+      'css/timetable-redesign.css',
+      'css/sticky-notes.css',
+      './css/trips-redesign.css',
+      './css/study-records.css',
+      './css/sync-status.css',
+    ].forEach(function (href) {
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      document.head.appendChild(link);
+    });
+  }, { once: true });
+</script>
 <script>
   (function () {
     try {
@@ -40,9 +54,6 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" media="print" onload="this.media='all'" href="./css/trips-redesign.css">
-<link rel="stylesheet" media="print" onload="this.media='all'" href="./css/study-records.css">
-<link rel="stylesheet" media="print" onload="this.media='all'" href="./css/sync-status.css">
 </head>
 <body>
 <script>
