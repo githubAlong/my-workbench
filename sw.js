@@ -20,9 +20,9 @@
         不同浏览器对 install 超时的容忍度不同，所以「换个浏览器就好了 / 就坏了」。
    修法：
      1) 清单只列本项目真实存在的文件，并且用脚本核对过全部 200。
-     2) 导航请求（打开页面本身）单独处理：网络最多等 3 秒，
-        超时就用缓存；缓存也没有就返回一个「加载失败，点这里重试」的极简页，
-        永远不让用户对着一片空白猜。
+     2) 导航请求（打开页面本身）单独处理：网络失败才用缓存；
+        缓存也没有就返回一个「加载失败，点这里重试」的极简页，
+        不用固定超时把仍在传输的线上页面误判成离线。
      3) 清单里的 JS 与 index.html 版本绑定在同一个 CACHE 名上，
         改名即全量换新，不会出现「新 HTML 配旧 JS」的错配。
 
@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v279-selfstudy-ui';
+const CACHE = 'wb-v280-navigation-recovery';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -274,17 +274,18 @@ self.addEventListener('fetch', (e) => {
       return;
     }
     e.respondWith((async () => {
-      /* TEST：优先取线上最新 HTML，避免旧缓存 HTML 与新 JS 模块错配。
-         网络失败时才回退缓存；不会清除 localStorage / IndexedDB 或业务数据。 */
+      /* 网络优先，但不人为缩短浏览器自身的网络超时。
+         缓存只用于离线兜底：写入慢或失败都不能丢弃已经成功的网络响应。 */
       try {
-        const response = await withTimeout(fetch(e.request, { cache: 'no-store' }), 20000, 'navigate-network');
-        if (response && response.ok) {
-          const cache = await caches.open(CACHE);
-          await cache.put(base + 'index.html', response.clone());
-          await cache.put(base, response.clone());
-          return response;
-        }
-        throw new Error('HTTP ' + (response && response.status));
+        const response = await fetch(e.request, { cache: 'no-store' });
+        if (!response || !response.ok) throw new Error('HTTP ' + (response && response.status));
+        caches.open(CACHE).then((cache) => Promise.all([
+          cache.put(base + 'index.html', response.clone()),
+          cache.put(base, response.clone()),
+        ])).catch((cacheError) => {
+          console.warn('[sw] 首页缓存写入失败，仍使用网络页面：', cacheError && cacheError.message);
+        });
+        return response;
       } catch (error) {
         console.warn('[sw] 导航网络请求失败，尝试使用缓存页面：', error && error.message);
         const cached = (await caches.match(base + 'index.html'))
