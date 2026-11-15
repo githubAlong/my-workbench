@@ -536,9 +536,10 @@ export function buildAttendanceExportGrid({
      一级 = 谁的哪张表；二级 = 日期星期 · 节次（起—止时段）；
      三级 = 应到/坐班/上课/听课/教研/请假/未登记人数。
      导出时间不写进标题，由各导出通道画在右下角。 */
-  const titleHead = type === 'seat' || type === 'roster'
-    ? (grade || '全部年级') + '教师' + baseTitle
-    : baseTitle + ' · ' + (grade || '全部年级');
+  /* 统一「年级在前、表名在后」：高一年级教师教研表 / 高一年级教师上课表…
+     以前只给坐班表、花名册这么排，其余表是「教研表 · 高一年级」，
+     同一批导出表抬头顺序不一致，打印出来看着像两套东西（用户 11-15 要求）。 */
+  const titleHead = (grade || '全部年级') + '教师' + baseTitle;
   const subtitle = date + (weekdayText ? ' ' + weekdayText : '')
     + ' · ' + periodLabel(period) + '（' + rangeText(period) + '）';
   const heading = statsLine => [[titleHead], [subtitle], [statsLine]];

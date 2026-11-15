@@ -161,6 +161,8 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
     data:{'__teacherGrid':{'1':{'class':'u','sit':'u','listen':'u','research':'y'}}},
   }]});
   assert.equal(research.length,6);
+  /* 抬头统一「年级在前、表名在后」（用户 11-15 要求） */
+  assert.match(research[0][0],/高一教师教研表/);
   assert.deepEqual(research[3],['序号','归属部门','归属年级','姓名','学科','教研','请假','备注']);
   assert.deepEqual(new Set(namesOf(research)),new Set(['赵老师','王老师']));
   assert.equal(rowByName(research,'赵老师')[5],'✓');
