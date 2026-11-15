@@ -17,7 +17,7 @@ function service({ payload = fixture(), failUpload = 0, bucketExists = true } = 
     calls.push({ url, options });
     if (url.endsWith('/auth/v1/user')) return options.headers.Authorization === 'Bearer teacher-token' ? Response.json({ id: 'teacher-1' }) : Response.json({}, { status: 401 });
     if (url.includes('/rest/v1/wb_user_data')) return Response.json([{ user_id: 'teacher-1', payload }]);
-    if (url.includes('/object/sign/')) return Response.json({ signedURL: '/object/sign/teaching-materials/teacher-1/1/file-1?token=temporary' });
+    if (url.includes('/object/sign/')) return options.method === 'POST' ? Response.json({ signedURL: '/object/sign/teaching-materials/teacher-1/1/file-1?token=temporary' }) : new Response('%PDF-file-bytes', { headers: { 'content-type': 'application/pdf', 'content-length': '15' } });
     if (url.endsWith('/bucket/teaching-materials')) return Response.json({ public: false }, { status: bucketExists ? 200 : 404 });
     if (url.endsWith('/bucket')) return Response.json({ id: 'teaching-materials' });
     if (options.method === 'DELETE') return Response.json({});
@@ -55,18 +55,20 @@ test('anonymous details reveal file names but never private storage pointers or 
   assert.ok(!text.includes('wb-material:'));
   assert.ok(!text.includes('base64'));
 });
-test('anonymous WPS download redirects to a short-lived signed URL with original filename', async () => {
+test('anonymous WPS download streams the file with the original filename', async () => {
   const { handler, calls } = service();
   const response = await get(handler, '&material_id=1&file_id=11&mode=download');
-  assert.equal(response.status, 302);
-  const destination = new URL(response.headers.get('location'));
-  assert.equal(destination.searchParams.get('download'), '语文课件.dps');
-  assert.equal(JSON.parse(calls.find(call => call.url.includes('/object/sign/')).options.body).expiresIn, 120);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'application/octet-stream');
+  assert.match(response.headers.get('content-disposition'), /attachment; filename\*=UTF-8''/);
+  assert.equal(await response.text(), '%PDF-file-bytes');
+  assert.equal(JSON.parse(calls.find(call => call.url.includes('/object/sign/') && call.options.method === 'POST').options.body).expiresIn, 120);
 });
-test('WPS view also downloads safely, while existing PDF data can preview without a login', async () => {
+test('WPS view also streams as a download, while existing PDF data can preview without a login', async () => {
   const { handler } = service();
   const office = await get(handler, '&material_id=1&file_id=11&mode=view');
-  assert.ok(new URL(office.headers.get('location')).searchParams.has('download'));
+  assert.equal(office.status, 200);
+  assert.match(office.headers.get('content-disposition'), /^attachment;/);
   const pdf = await get(handler, '&material_id=1&file_id=12&mode=view');
   assert.equal(pdf.headers.get('content-type'), 'application/pdf');
   assert.equal(await pdf.text(), '%PDF');

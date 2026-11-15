@@ -100,9 +100,15 @@ export function createMaterialHandler({ backendUrl, serviceKey, fetchImpl = fetc
         const signed = await backend('/storage/v1/object/sign/' + BUCKET + '/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 120 }) });
         if (!signed.ok) throw failure(404, '文件暂时不可用，请联系老师');
         const value = await signed.json();
-        const destination = new URL(base + '/storage/v1' + value.signedURL);
-        if (download) destination.searchParams.set('download', String(file.name || '教材'));
-        return new Response(null, { status: 302, headers: { ...cors, Location: destination.href, 'Cache-Control': 'no-store' } });
+        /* 原来 302 到签名地址，但签名地址是内网主机名（SUPABASE_URL 形如 http://api-gw:8000），
+           学生浏览器根本解析不了，所以「查看」「下载」全都打不开。
+           现在由函数把文件内容转发出去，前端用 fetch 拿到 blob 再打开或保存。 */
+        const object = await backend('/storage/v1' + value.signedURL);
+        if (!object.ok) throw failure(404, '文件暂时不可用，请联系老师');
+        const responseHeaders = new Headers({ ...cors, 'Content-Type': download ? 'application/octet-stream' : previewType(file.name), 'Content-Disposition': (download ? 'attachment' : 'inline') + "; filename*=UTF-8''" + encodeURIComponent(String(file.name || '教材')), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+        const length = object.headers.get('content-length');
+        if (length) responseHeaders.set('Content-Length', length);
+        return new Response(object.body, { status: 200, headers: responseHeaders });
       }
       const legacy = String(file.url || '').match(/^data:[^,]*;base64,([A-Za-z0-9+/=\s]+)$/);
       if (!legacy) throw failure(404, '旧文件需要老师重新上传后才能下载');

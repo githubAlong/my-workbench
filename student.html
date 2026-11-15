@@ -527,16 +527,50 @@ async function paintMaterialDetail() {
       <h2 style="margin:12px 0 4px;font-size:19px">${esc(d.material.title)}</h2>
       <div class="tiny muted">${esc(d.material.descr || '')}</div>
       <div class="col" style="margin-top:14px">
-        ${d.files.length ? d.files.map((f) => `<a class="btn ghost block" href="${esc(materialEndpoint(code, cur, f.id, 'view'))}" target="_blank" rel="noopener" style="justify-content:flex-start;gap:10px">
+        ${d.files.length ? d.files.map((f) => `<button class="btn ghost block" data-view="${f.id}" data-name="${esc(f.name)}" style="justify-content:flex-start;gap:10px">
           <span style="flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis">${esc(f.name)}</span>
-          <span class="tiny muted">${(f.size / 1024 / 1024).toFixed(1)} MB</span></a>`).join('')
+          <span class="tiny muted">${(f.size / 1024 / 1024).toFixed(1)} MB</span></button>`).join('')
           : '<div class="muted small">这份资料还没有文件</div>'}
       </div>
       <div class="row wrap" style="gap:8px;margin-top:14px">
-        ${d.files.map((f) => `<a class="btn soft sm" href="${esc(materialEndpoint(code, cur, f.id, 'download'))}" download="${esc(f.name)}">${ICON.dl} 下载 ${esc(f.name).slice(0, 12)}</a>`).join('')}
+        ${d.files.map((f) => `<button class="btn soft sm" data-dl="${f.id}" data-name="${esc(f.name)}">${ICON.dl} 下载 ${esc(f.name).slice(0, 12)}</button>`).join('')}
       </div>
       <div class="tiny muted" style="margin-top:14px">PDF、图片可在浏览器查看。WPS / Office 文档请下载原文件后打开；查看和下载均无需账号密码。</div>
     </div>`;
+    /* 不能直接给 href 让浏览器跳转：文件地址在云端函数上，顶层导航会撞上 ngrok 提示页，
+       跨域时 download 属性也会被忽略。先 fetch 成 blob（请求自带跳过警告的请求头），再打开或保存。 */
+    const openFile = async (btn, mode) => {
+      const id = mode === 'view' ? btn.dataset.view : btn.dataset.dl;
+      const name = btn.dataset.name;
+      const html = btn.innerHTML;
+      const win = mode === 'view' ? window.open('', '_blank') : null;
+      btn.disabled = true;
+      btn.textContent = mode === 'view' ? '打开中…' : '下载中…';
+      try {
+        const res = await fetch(materialEndpoint(code, cur, id, mode)).catch(() => null);
+        if (!res || !res.ok) throw new Error('文件暂时打不开，请稍后重试');
+        const href = URL.createObjectURL(await res.blob());
+        if (mode === 'view') {
+          if (!win) throw new Error('浏览器拦截了新窗口，请允许弹窗后重试');
+          win.location.href = href;
+          setTimeout(() => URL.revokeObjectURL(href), 60000);
+        } else {
+          const a = document.createElement('a');
+          a.href = href; a.download = name;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(href), 10000);
+        }
+        btn.innerHTML = mode === 'view' ? html : '已开始下载';
+        setTimeout(() => { btn.innerHTML = html; }, 1800);
+      } catch (e) {
+        if (win) win.close();
+        btn.textContent = e.message;
+        setTimeout(() => { btn.innerHTML = html; }, 2200);
+      }
+      btn.disabled = false;
+    };
+    document.querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => openFile(b, 'view'); });
+    document.querySelectorAll('[data-dl]').forEach((b) => { b.onclick = () => openFile(b, 'download'); });
     document.getElementById('back').onclick = () => { cur = null; paint(); };
   } catch (e) { $('#s-body').innerHTML = `<div class="card card-pad">${esc(e.message)}</div>`; }
 }
