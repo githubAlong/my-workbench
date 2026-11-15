@@ -5,6 +5,7 @@ import { makeXlsx } from './attendance.js';
 import { voiceSheet } from './attvoice.js';
 import { cleanPeriodTime, getCanonicalPeriodNumber, normalizeTimetablePeriods } from './timetable-periods.mjs';
 import { parseRosterFile, parseRosterText } from './roster-batch.mjs';
+import { ROSTER_SUBJECTS } from './roster-structure.mjs';
 import {
   DEFAULT_PERIODS, LEAVE_TYPES, ATTENDANCE_COLUMNS, buildAttendanceExportGrid, parseLeaveDuration, formatLeaveDuration,
   nextTriState, activeLeavesFor, deriveRosterState, calculateDailySummary,
@@ -481,8 +482,10 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       +'<span>当前年级：'+esc(grade)+'</span></div>'
       +'<form class="aprd-roster-add-form" id="aprd-roster-add-form">'
       +'<label>姓名 <em>*</em><input name="name" type="text" placeholder="请输入教师姓名" autocomplete="off" required></label>'
-      +'<label>学科 <em>*</em><input name="subject" type="text" list="aprd-add-subjects" placeholder="请输入或选择学科" autocomplete="off" required>'
-      +'<datalist id="aprd-add-subjects">'+subjects.map(item=>'<option value="'+esc(item)+'"></option>').join('')+'</datalist></label>'
+      /* 学科和「全部学科」筛选同一份列表，统一用下拉，不再用浏览器自带候选浮层。 */
+      +'<label>学科 <em>*</em><select name="subject" required><option value="">请选择学科</option>'
+      +(subjects.length?subjects:ROSTER_SUBJECTS).map(item=>'<option value="'+esc(item)+'">'+esc(item)+'</option>').join('')
+      +'</select></label>'
       +'<label>归属年级 <em>*</em><input name="grade" type="text" list="aprd-add-grades" value="'+esc(grade)+'" placeholder="请输入或选择归属年级" maxlength="12" required><datalist id="aprd-add-grades">'+grades.map(item=>'<option value="'+esc(item)+'"></option>').join('')+'</datalist></label>'
       +'<label>归属部门<input name="department" type="text" value="高中部" placeholder="请输入归属部门"></label>'
       +'<div class="aprd-roster-add-actions"><button type="button" data-roster-add-cancel>取消</button><button type="submit" class="primary">保存教师</button></div>'
