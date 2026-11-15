@@ -42,9 +42,11 @@ function money(value) {
     maximumFractionDigits: 2,
   });
 }
+/* 用户 11-15 要求：日期统一显示年月日，不再只显示 MM/DD */
 function dateLabel(value) {
   const text = String(value || '');
-  return text.length >= 10 ? text.slice(5, 10).replace('-', '/') : text || '—';
+  const match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return match ? Number(match[1]) + '年' + Number(match[2]) + '月' + Number(match[3]) + '日' : text || '—';
 }
 function timeLabel(row) {
   const start = String(row.start_time || '').slice(0, 5);
@@ -224,7 +226,7 @@ export async function renderInvigilation(box) {
       + '<button class="iv-action danger" data-delete="' + esc(row.id) + '">删除</button>';
     return '<tr>'
       + '<td class="iv-no">' + (index + 1) + '</td>'
-      + '<td class="iv-date"><b>' + esc(dateLabel(row.date)) + '</b><small>' + esc(row.date || '') + '</small></td>'
+      + '<td class="iv-date"><b>' + esc(dateLabel(row.date)) + '</b></td>'
       + '<td><span class="iv-type ' + (type === 'school' ? 'school' : type === '替他人' ? 'earn' : 'pay') + '">' + esc(typeLabel(row)) + '</span></td>'
       + '<td class="iv-exam"><b>' + esc(row.exam_name || '未填写考试名称') + '</b><small>' + esc(row.subject || '未填科目') + (row.grade ? ' · ' + esc(row.grade) : '') + '</small></td>'
       + '<td>' + esc(row.room || row.place || '—') + '</td>'
@@ -255,7 +257,7 @@ export async function renderInvigilation(box) {
       + '</div>'
       + '<section class="iv-panel">'
       + '<div class="iv-panel-head"><div><b>监考记录</b><span>点击收付明细可查看每一笔到账或付款</span></div><span class="iv-panel-meta">' + monthLabel(month) + '</span></div>'
-      + '<div class="iv-table-wrap"><table class="iv-table"><thead><tr><th>#</th><th>日期</th><th>类型</th><th>考试 / 科目</th><th>考场</th><th>时间</th><th>时长</th><th>对方</th><th>金额 / 收付</th><th>状态</th><th>操作</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+      + '<div class="iv-table-wrap"><table class="iv-table"><thead><tr><th>序号</th><th>日期</th><th>类型</th><th>考试 / 科目</th><th>考场</th><th>时间</th><th>时长</th><th>对方</th><th>金额 / 收付</th><th>状态</th><th>操作</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
       + '<div class="iv-table-foot"><span>学校款单独统计；同事之间按实际收付金额逐笔对账。</span><b>本月共 ' + rows.length + ' 场</b></div>'
       + '</section>';
   }
@@ -315,13 +317,13 @@ export async function renderInvigilation(box) {
       const type = rowType(row);
       const original = type === '替他人' ? row.peer_name || row.orig_teacher || '' : type === '他人替我' ? '本人' : '学校分配';
       const actual = type === '他人替我' ? row.peer_name || row.person || '' : '本人';
-      return '<tr><td>' + (index + 1) + '</td><td>' + esc(row.date || '') + '</td><td>' + esc(typeLabel(row)) + '</td><td>' + esc(row.exam_name || '') + '</td><td>' + esc(row.subject || '') + '</td><td>' + esc(row.room || row.place || '') + '</td><td>' + esc(timeLabel(row)) + '</td><td>' + money(row.duration_min || row.minutes || 0) + '</td><td>' + esc(original) + '</td><td>' + esc(actual) + '</td><td>¥' + money(row.pay_amount != null ? row.pay_amount : row.amount) + '</td><td></td></tr>';
+      return '<tr><td>' + (index + 1) + '</td><td>' + esc(dateLabel(row.date)) + '</td><td>' + esc(typeLabel(row)) + '</td><td>' + esc(row.exam_name || '') + '</td><td>' + esc(row.subject || '') + '</td><td>' + esc(row.room || row.place || '') + '</td><td>' + esc(timeLabel(row)) + '</td><td>' + money(row.duration_min || row.minutes || 0) + '</td><td>' + esc(original) + '</td><td>' + esc(actual) + '</td><td>¥' + money(row.pay_amount != null ? row.pay_amount : row.amount) + '</td><td></td></tr>';
     }).join('') : '<tr><td colspan="12"><div class="iv-empty compact">当前月份暂无监考记录</div></td></tr>';
     return '<div class="iv-sheet-toolbar"><div><b>' + monthLabel(month) + '监考表</b><span>自动汇总本月监考安排，可打印或导出。</span></div>'
       + '<div class="iv-sheet-actions"><select data-sheet-filter><option value="all">全部类型</option><option value="school"' + (sheetFilter === 'school' ? ' selected' : '') + '>学校分配</option><option value="替他人"' + (sheetFilter === '替他人' ? ' selected' : '') + '>我代别人</option><option value="他人替我"' + (sheetFilter === '他人替我' ? ' selected' : '') + '>别人代我</option></select>'
       + '<button class="btn ghost sm" data-sheet-export="csv">导出 CSV</button><button class="btn ghost sm" data-sheet-export="word">导出 Word</button><button class="btn primary sm" data-sheet-export="print">打印 / PDF</button></div></div>'
       + '<section class="iv-paper"><h2>' + monthLabel(month) + '监考安排表</h2><div class="iv-paper-meta"><span>共 ' + filtered.length + ' 场</span><span>学校分配 / 同事代监分类登记</span></div>'
-      + '<div class="iv-table-wrap"><table class="iv-table iv-paper-table"><thead><tr><th>#</th><th>日期</th><th>类型</th><th>考试名称</th><th>科目</th><th>考场</th><th>时间</th><th>时长（分）</th><th>原监考人</th><th>实际监考人</th><th>金额（元）</th><th>签字</th></tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<div class="iv-table-wrap"><table class="iv-table iv-paper-table"><thead><tr><th>序号</th><th>日期</th><th>类型</th><th>考试名称</th><th>科目</th><th>考场</th><th>时间</th><th>时长（分）</th><th>原监考人</th><th>实际监考人</th><th>金额（元）</th><th>签字</th></tr></thead><tbody>' + body + '</tbody></table></div>'
       + '<div class="iv-sign-row"><span>填表人：________________</span><span>教务审核：________________</span><span>日期：________________</span></div></section>';
   }
 
