@@ -91,6 +91,7 @@
   outline:none;background:#fff;color:#263650;font:13px inherit;transition:border-color .15s,box-shadow .15s;
 }
 .attendance-prd .aprd-roster-add-form select{cursor:pointer}
+.attendance-prd .aprd-roster-add-form input[readonly]{background:#f4f7fc;color:#53627a;cursor:default}
 .attendance-prd .aprd-roster-add-form input:focus,.attendance-prd .aprd-roster-add-form select:focus{
   border-color:#6b9cff;box-shadow:0 0 0 3px rgba(22,93,255,.09);
 }

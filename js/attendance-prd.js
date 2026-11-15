@@ -486,7 +486,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       +'<label>学科 <em>*</em><select name="subject" required><option value="">请选择学科</option>'
       +(subjects.length?subjects:ROSTER_SUBJECTS).map(item=>'<option value="'+esc(item)+'">'+esc(item)+'</option>').join('')
       +'</select></label>'
-      +'<label>归属年级 <em>*</em><input name="grade" type="text" list="aprd-add-grades" value="'+esc(grade)+'" placeholder="请输入或选择归属年级" maxlength="12" required><datalist id="aprd-add-grades">'+grades.map(item=>'<option value="'+esc(item)+'"></option>').join('')+'</datalist></label>'
+      +'<label>归属年级 <em>*</em><input name="grade" type="text" value="'+esc(grade)+'" readonly title="新增教师归入当前所选年级，如需更换请先切换顶部年级"></label>'
       +'<label>归属部门<input name="department" type="text" value="高中部" placeholder="请输入归属部门"></label>'
       +'<div class="aprd-roster-add-actions"><button type="button" data-roster-add-cancel>取消</button><button type="submit" class="primary">保存教师</button></div>'
       +'</form></section>';
