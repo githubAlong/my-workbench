@@ -396,9 +396,7 @@ function paintSelfstudy() {
       <b>本时段暂无自习任务</b>
       <div class="tiny muted" style="margin-top:6px">老师发布后会自动出现在这里</div>
       ${myClass() ? `<div class="tiny muted" style="margin-top:4px">当前设备班级：${esc(myClass())}</div>` : ''}
-      <button class="btn ghost sm" id="stu-setcls" style="margin-top:16px">设置本机班级</button>
     </div>`;
-    $('#stu-setcls').onclick = () => { panelOpen = true; paintPanel(); $('#stu-panel').classList.remove('hidden'); };
     return;
   }
   if (myDevice() === 'pc' && Number(t.pc_visible) === 0) {
