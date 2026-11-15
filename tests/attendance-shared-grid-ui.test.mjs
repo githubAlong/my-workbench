@@ -91,6 +91,7 @@ async function setup() {
     },
     async patch(path,body) {
       patchCalls.push({path,expected:body.expected_updated_at});
+      if(path==='/me') return {user:{settings:{}}};
       const table=saved[path.split('/').pop()];
       if(body.expected_updated_at!==undefined && body.expected_updated_at!==String(table.updated_at||'')) {
         throw Error('WB_ATTENDANCE_CONFLICT: stale header version');
@@ -175,6 +176,18 @@ test('生成请假表按所选日期汇总请假记录并切到请假页',async(
   assert.ok(toasts.some(item=>/请假表已生成/.test(item.message)),'要有生成成功提示');
   /* 请假表只汇总请假记录，不该凭空写入坐班/上课/教研工作表 */
   assert.deepEqual(calls,[]);
+});
+
+test('表内登记的请假只作用在登记的那一节，不会被带到其他节次',async()=>{
+  /* 用户 11-15 反馈：第 1 节登记的信息自动带到了第 8 节，每节课录入的内容应该各管各的。 */
+  const {root}=await setup();
+  await root.querySelector('[data-tab="seat"]').click();
+  await root.querySelector('#aprd-period').change('1');
+  await control(root,'leave').change('事假');
+  await new Promise(resolve=>setTimeout(resolve,450));
+  assert.equal(control(root,'leave').value,'事假');
+  await root.querySelector('#aprd-period').change('8');
+  assert.equal(control(root,'leave').value,'','第 1 节的请假不该出现在第 8 节');
 });
 
 test('换节次后连续自动保存，不会把自己的上一次写入判成「另一台设备修改」',async()=>{

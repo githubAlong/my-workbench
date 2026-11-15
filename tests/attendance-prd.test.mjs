@@ -343,6 +343,23 @@ test('导出的请假和备注优先取坐班表行内填写，其次才是请�
   assert.equal(filled[10], '家里有事');
 });
 
+test('表内登记的请假按节次独立：第 1 节请假不会带到第 8 节', () => {
+  /* 用户 11-15 反馈：第 1 节登记的信息自动带进了第 8 节，每节课录入的内容应各管各的。 */
+  const teachers = [{ id: 1, name: '李老师', subject: '语文', grade: '高一', active: 1 }];
+  const seatRows = [{ teacher: '李老师', subject: '语文',
+    data: { __teacherId: 1, __teacherGrid: { 1: { leave: '事假' }, 8: { leave: '' } } } }];
+  const leaveRecords = [{ id: 'grid:seat:1:李老师', name: '李老师', grade: '高一', subject: '语文', type: '事假',
+    start_date: '2026-11-15', end_date: '2026-11-15', days: 1, duration_unit: 'day', status: '已批',
+    source: 'grid', source_table: 'seat', source_period: 1 }];
+  const context = { seatRows, classRows: [], researchRows: [], leaveRecords, date: '2026-11-15' };
+  assert.equal(deriveRosterState(teachers[0], { ...context, period: 1 }).leave, '事假');
+  assert.equal(deriveRosterState(teachers[0], { ...context, period: 8 }).leave, '');
+  const base = { type: 'seat', grade: '高一', date: '2026-11-15', teachers, seatRows,
+    classRows: [], researchRows: [], leaveRecords };
+  assert.equal(splitAttendanceExportGrid(buildAttendanceExportGrid({ ...base, period: 1 })).rows[0][9], '事假');
+  assert.equal(splitAttendanceExportGrid(buildAttendanceExportGrid({ ...base, period: 8 })).rows[0][9], '');
+});
+
 test('导出 PNG 按页切分，每页都带表头，方便上下滑动查看', () => {
   const grid = [['坐班表 · 高一年级 · 2026-11-12 · 全天'],
     ['序号', '姓名', '学科'],

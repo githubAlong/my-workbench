@@ -41,6 +41,14 @@ export function activeLeavesFor(leaveRecords, date, grade) {
   );
 }
 
+/* 表内登记的请假按节次独立：只在登记的那一节生效（用户 11-15 反馈：
+   第 1 节登记的信息被自动带到了第 8 节，每节课录入的内容应各管各的）。
+   请假页手写的整日记录没有 source_period，仍在所有节次生效。 */
+function leavesForPeriod(leaveRecords, period) {
+  return (Array.isArray(leaveRecords) ? leaveRecords : []).filter((item) =>
+    item?.source !== 'grid' || Number(item.source_period ?? 0) === Number(period ?? 0));
+}
+
 function rowData(row) {
   return row?.data && typeof row.data === 'object' ? row.data : {};
 }
@@ -84,7 +92,7 @@ function deriveLegacyRosterState(teacher, {
       && d.attendees.includes(name)
       && matchesAttendancePeriod(d.period_time, period);
   });
-  const leaves = activeLeavesFor(leaveRecords,date).filter((item) =>
+  const leaves = activeLeavesFor(leavesForPeriod(leaveRecords, period),date).filter((item) =>
     String(item.name || item.teacher || '').trim() === name && leaveCoversDate(item, date)
   );
   const classStatus = classRecords.some((row) => (rowData(row).__classRecord || {}).status === 'y') ? 'y'
@@ -492,6 +500,9 @@ export function buildAttendanceExportGrid({
   const periodNumbers = Number(period) === 0
     ? [0, ...Array.from({ length: 9 }, (_, index) => index + 1)]
     : [Number(period)];
+  /* 表内登记的请假按节次生效（用户 11-15 反馈）：导出某一节时只带这一节的请假，
+     全天导出才汇总当天全部，避免第 1 节的请假被带到第 8 节。 */
+  const scopedLeaveRecords = periodNumbers.length > 1 ? leaveRecords : leavesForPeriod(leaveRecords, period);
   /* 坐班表行内填写的请假/备注写进 __teacherGrid，导出优先取这些填写值；
      touched 记录该字段是否被显式填写过，填过后又清空按「无」处理。 */
   const gridCell = (teacher, key) => {
@@ -533,7 +544,7 @@ export function buildAttendanceExportGrid({
   const heading = statsLine => [[titleHead], [subtitle], [statsLine]];
 
   if (type === 'seat' || type === 'roster') {
-    const activeLeaves = activeLeavesFor(leaveRecords, date);
+    const activeLeaves = activeLeavesFor(scopedLeaveRecords, date);
     /* 导出表里同一人一次只能有一个状态（用户 11-15 裁决）：
        请假 > 上课 > 坐班 > 听课 > 教研，只给胜出的那一格打勾，其余留空。
        四类都没登记时，只在「坐班」格写「未登记」，避免整行空白看不出是漏登。 */
@@ -598,7 +609,7 @@ export function buildAttendanceExportGrid({
   if (type === 'class' || type === 'research') {
     /* 上课表 / 教研表导出与页面同一套口径（用户 11-15 反馈）：
        只导出本表显示的状态列，勾选取页面的跨表合并状态，以录入的为准。 */
-    const activeLeaves = activeLeavesFor(leaveRecords, date);
+    const activeLeaves = activeLeavesFor(scopedLeaveRecords, date);
     const ownRows = type === 'class' ? classRows : researchRows;
     const STATUS_PRIORITY = ['class', 'sit', 'listen', 'research'];
     const entries = people.map((teacher, index) => {
