@@ -597,7 +597,8 @@ export async function uploadMaterialFiles(files, ownerId) {
   const form = new FormData();
   form.append('owner_id', String(ownerId));
   for (const file of files) form.append('files', new Blob([file.data], { type: file.mime || 'application/octet-stream' }), file.filename);
-  const response = await fetch(config.url + '/functions/v1/material-sharing', { method: 'POST', headers: { apikey: config.anon, Authorization: 'Bearer ' + token }, body: form });
+  const response = await fetch(config.url + '/functions/v1/material-sharing', { method: 'POST', headers: { apikey: config.anon, Authorization: 'Bearer ' + token }, body: form })
+    .catch(() => { throw new Error('连不上云端教材服务，文件没有上传。请检查网络后重试'); });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || '教材上传失败，请稍后重试');
   if (!Array.isArray(result.files) || result.files.length !== files.length) throw new Error('教材上传未完成，请重试');

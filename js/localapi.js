@@ -3700,7 +3700,15 @@ on('POST', '/upload', async ({ body }) => {
   if (ownerType === 'material' && await cloudReady()) {
     for (const file of files) if (byteLen(file.data) > 50 * 1024 * 1024) fail(413, '教材单个文件不能超过 50 MB');
     const cloud = await import('./cloud.js');
-    const uploaded = await cloud.uploadMaterialFiles(files, ownerId);
+    let uploaded;
+    /* 云端教材服务（Edge Function）没部署或连不上时，错误要以云端服务不可用的口径报出来，
+       不能掉进 handle() 的兜底拼成「本地处理失败：Failed to fetch」——
+       那样既怪错了地方，也没告诉用户文件其实没传。 */
+    try {
+      uploaded = await cloud.uploadMaterialFiles(files, ownerId);
+    } catch (e) {
+      fail(502, (e && e.message) || '教材上传服务暂时不可用，请稍后重试');
+    }
     return uploaded.map(file => ({ ...file, id: saveAttachment(ownerType, ownerId, file.name, file.mime, file.size, file.url) }));
   }
 

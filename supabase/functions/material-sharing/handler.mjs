@@ -1,6 +1,9 @@
 export const MAX_MATERIAL_SIZE = 50 * 1024 * 1024;
 const BUCKET = 'teaching-materials';
-const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
+/* ngrok-skip-browser-warning 必须放行：自建 Supabase 走 ngrok 固定域名，
+   前端给所有 ngrok 请求都加了这个头（环境配置里的 fetch 补丁）。
+   少写它，预检就会失败，浏览器整条请求报 Failed to fetch，看不出是 CORS 问题。 */
+const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, ngrok-skip-browser-warning', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 const live = row => row && !row.deleted_at;
 const fields = (row, keys) => Object.fromEntries(keys.map(key => [key, row[key] ?? '']));
 const materialKeys = ['id', 'title', 'grade', 'class_name', 'descr', 'created_at'];
