@@ -501,7 +501,7 @@ export async function render() {
       </div>
       <div class="side-nav">${NAV.filter((n) => n.id !== 'me').map((n) => navHTML(n, 'nav-item') + subNavHTML(n)).join('')}</div>
       <div class="sidebar-foot">
-        <button class="nav-item side-user-entry${isActive('me') ? ' active' : ''}" id="side-user" data-nav="me" title="打开个人中心" aria-label="我的，${esc(state.user?.nickname || '用户')}"><span class="ni side-user-avatar">${esc((state.user?.nickname || '师').slice(0, 1))}</span><span class="side-user-label"><strong>我的</strong><small>${esc(state.user?.nickname || '个人中心')}</small></span></button>
+        <button class="nav-item side-user-entry${isActive('me') ? ' active' : ''}" id="side-user" data-nav="me" title="打开个人中心" aria-label="我的，${esc(state.user?.nickname || '用户')}"><span class="ni side-user-avatar">${esc((state.user?.nickname || '师').slice(0, 1))}</span><span class="side-user-label"><strong>我的</strong></span></button>
       </div>
     </aside>
     <main class="main" id="main"></main>
