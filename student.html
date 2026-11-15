@@ -140,9 +140,16 @@ window.__wbLocalApi = { handle: localHandle };
 const api = async (p, body) => {
   const [path, qs] = String(p).split('?');
   const method = body === undefined ? 'GET' : 'POST';
-  const materialRoute = path.match(/^\/public\/link\/([^/]+)(?:\/materials\/(\d+))?$/);
-  if (method === 'GET' && materialRoute) return getStudentMaterials(materialRoute[1], materialRoute[2] || '');
   const ctx = { query: Object.fromEntries(new URLSearchParams(qs || '')), body };
+  const materialRoute = path.match(/^\/public\/link\/([^/]+)(?:\/materials\/(\d+))?$/);
+  if (method === 'GET' && materialRoute) {
+    /* 静态版的数据就在本机，先读 localapi；本机没有这条链接才走云端教材服务。
+       云端函数没部署时这里会抛 Failed to fetch，整页直接白掉，所以要有本地兜底。 */
+    const local = await localHandle(method, path, ctx.query).catch(() => null);
+    if (local?.ok) return local.data;
+    try { return await getStudentMaterials(materialRoute[1], materialRoute[2] || ''); }
+    catch (error) { throw new Error(local?.error || error?.message || '教材加载失败'); }
+  }
   const j = await localHandle(method, path, ctx.query, ctx.body);
   if (!j.ok) throw new Error(j.error || '加载失败');
   return j.data;
