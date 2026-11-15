@@ -1,5 +1,4 @@
 import { api, el, esc, toast, ls, sheet } from './core.js';
-import { decodeQR as qrDecode } from './qrdecode.js';
 import { setActiveAccount, load as loadLocalDB } from './localdb.js';
 import { DEFAULT_PLACE } from './weather-view.mjs';
 
@@ -899,7 +898,8 @@ async function decodeFromSource(src) {
     }
   }
   try {
-    return qrDecode(src) || '';
+    const { decodeQR } = await import('./qrdecode.js');
+    return decodeQR(src) || '';
   } catch {
     return '';
   }

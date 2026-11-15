@@ -78,12 +78,15 @@ if (retiredReset.requested) {
 
 /* 【换设备登录 #k=…】必须在 render 之前跑完：
    先把 token 换到手，后面课时页一渲染就是已登录状态，
-   不会出现「先闪一下未登录提示条、再跳成已登录」的抖动。 */
-try {
-  const { autoLoginFromUrl } = await import('./auth.js');
-  await autoLoginFromUrl();
-} catch (e) {
-  toast(e.message, 'err', 6000);
+   不会出现「先闪一下未登录提示条、再跳成已登录」的抖动。
+   普通打开不带 #k，无需为这次判断额外下载登录和迁移模块。 */
+if (/[#&]k=/.test(location.hash || '')) {
+  try {
+    const { autoLoginFromUrl } = await import('./auth.js');
+    await autoLoginFromUrl();
+  } catch (e) {
+    toast(e.message, 'err', 6000);
+  }
 }
 
 await loadAuthConfig();
