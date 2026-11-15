@@ -216,8 +216,8 @@ export async function renderInvigilation(box) {
     const state = settlementOf(row);
     const type = rowType(row);
     const amountSub = state.paid > 0
-      ? '<small>已收付 ' + money(state.paid) + ' · 剩余 ' + money(state.remaining) + '</small>'
-      : '<small>' + (state.status === 'unpriced' ? '尚未计价' : '待结 ' + money(state.remaining)) + '</small>';
+      ? '已收付 ' + money(state.paid) + ' · 剩余 ' + money(state.remaining)
+      : (state.status === 'unpriced' ? '尚未计价' : '待结 ' + money(state.remaining));
     const actions = (state.remaining > 0 && state.status !== 'unpriced'
       ? '<button class="iv-action primary" data-pay="' + esc(row.id) + '">' + paymentActionLabel(row) + '</button>'
       : '')
@@ -236,7 +236,9 @@ export async function renderInvigilation(box) {
       + '<td class="iv-time">' + esc(timeLabel(row)) + '</td>'
       + '<td class="iv-num">' + money(row.duration_min || row.minutes || 0) + ' 分钟</td>'
       + '<td>' + esc(peerLabel(row)) + '</td>'
-      + '<td class="iv-money"><b>¥' + money(state.total) + '</b>' + amountSub + '</td>'
+      + '<td class="iv-money"><b>¥' + money(state.total) + '</b></td>'
+      /* 用户 11-15 要求：金额与收付分开成两列记录 */
+      + '<td class="iv-pay-state">' + amountSub + '</td>'
       + '<td><span class="iv-status ' + statusClass(state) + '">' + esc(statusLabel(row, state)) + '</span></td>'
       + '<td class="iv-actions">' + actions + '</td>'
       + '</tr>';
@@ -248,7 +250,7 @@ export async function renderInvigilation(box) {
     const subjectOptions = ['<option value="all">全部科目</option>'].concat(subjects.map((subject) => '<option value="' + esc(subject) + '"' + (subjectFilter === subject ? ' selected' : '') + '>' + esc(subject) + '</option>')).join('');
     const rowsHtml = filtered.length
       ? filtered.map(renderRecordRow).join('')
-      : '<tr><td colspan="13"><div class="iv-empty"><b>没有符合条件的监考记录</b><span>可以调整筛选条件，或新增一场监考。</span><button class="btn primary sm" data-add-empty>新增监考</button></div></td></tr>';
+      : '<tr><td colspan="14"><div class="iv-empty"><b>没有符合条件的监考记录</b><span>可以调整筛选条件，或新增一场监考。</span><button class="btn primary sm" data-add-empty>新增监考</button></div></td></tr>';
     return renderKpis()
       + '<div class="iv-filterbar">'
       + '<select data-filter-type><option value="all">全部监考类型</option><option value="school"' + (typeFilter === 'school' ? ' selected' : '') + '>学校分配</option><option value="替他人"' + (typeFilter === '替他人' ? ' selected' : '') + '>我代别人</option><option value="他人替我"' + (typeFilter === '他人替我' ? ' selected' : '') + '>别人代我</option></select>'
@@ -260,7 +262,7 @@ export async function renderInvigilation(box) {
       + '</div>'
       + '<section class="iv-panel">'
       + '<div class="iv-panel-head"><div><b>监考记录</b><span>点击收付明细可查看每一笔到账或付款</span></div><span class="iv-panel-meta">' + monthLabel(month) + '</span></div>'
-      + '<div class="iv-table-wrap"><table class="iv-table"><thead><tr><th>序号</th><th>日期</th><th>类型</th><th>考试名称</th><th>科目</th><th>年级</th><th>考场</th><th>时间</th><th>时长</th><th>对方</th><th>金额 / 收付</th><th>状态</th><th>操作</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+      + '<div class="iv-table-wrap"><table class="iv-table"><thead><tr><th>序号</th><th>日期</th><th>类型</th><th>考试名称</th><th>科目</th><th>年级</th><th>考场</th><th>时间</th><th>时长</th><th>对方</th><th>金额</th><th>收付</th><th>状态</th><th>操作</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
       + '<div class="iv-table-foot"><span>学校款单独统计；同事之间按实际收付金额逐笔对账。</span><b>本月共 ' + rows.length + ' 场</b></div>'
       + '</section>';
   }
