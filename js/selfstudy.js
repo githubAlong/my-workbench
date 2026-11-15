@@ -10,6 +10,8 @@ import {
 } from './core.js';
 import { registerView, icon, pageHead, state } from './ui.js';
 import { taskImagePages, canvasToDataUrl, downloadCanvas } from './selfstudy-task-image.mjs';
+import { cleanPeriodTime, normalizeTimetablePeriods, completeTimetablePeriods } from './timetable-periods.mjs';
+import { AUTUMN_2026_SCHEDULE, resolveDefinitions } from './timetable-schedule.mjs';
 
 /* 单独占一个视图名还保留着，是为了 #/selfstudy 这种老链接能落到正确的地方；
    实际渲染走 render() 里的 translate，这里只做兜底。 */
@@ -100,28 +102,60 @@ async function renderSelfstudyManage(box) {
   box.innerHTML = '<div class="empty">加载中…</div>';
   let tasks = [];
   let classes = [];
+  let periods = [];
   try {
-    const [rows, courses, rosters] = await Promise.all([
+    const [rows, courses, rosters, periodRows, me] = await Promise.all([
       api.get('/selfstudy_tasks').catch(() => []),
       api.get('/courses').catch(() => []),
       api.get('/rosters').catch(() => []),
+      api.get('/periods').catch(() => []),
+      api.get('/me').catch(() => ({ settings: {} })),
     ]);
     tasks = rows;
     classes = ssClassOptions(courses, rosters);
+
+    const parse = (value) => {
+      if (value && typeof value === 'object') return value;
+      try { return JSON.parse(value || '{}'); } catch { return {}; }
+    };
+    const preference = parse(localStorage.getItem('wb_timetable_view_v1'));
+    const scheduleType = preference.type === '冬令时课表' ? '冬令时课表' : '夏令时课表';
+    const timetable = parse(parse(me?.settings).timetable);
+    const periodTimes = parse(timetable.periodTimes);
+    const periodDefinitions = parse(timetable.periodDefinitions);
+    const options = { periodTimes, scheduleType };
+    const configured = resolveDefinitions(periodDefinitions, scheduleType, '全部');
+    const normalized = normalizeTimetablePeriods(periodRows, options);
+    const base = Array.isArray(configured) && configured.length
+      ? [...configured].sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0))
+      : (normalized.length ? normalized : AUTUMN_2026_SCHEDULE);
+    const resolved = completeTimetablePeriods(base, courses, options);
+    if (!Array.isArray(configured) || !configured.length) {
+      resolved.sort((a, b) => Number(a.period_no) - Number(b.period_no));
+    }
+    periods = resolved.map((period) => {
+      const override = periodTimes[scheduleType]?.[String(period.period_no)] || {};
+      const start = cleanPeriodTime(override.start_time) || cleanPeriodTime(period.start_time);
+      const end = cleanPeriodTime(override.end_time) || cleanPeriodTime(period.end_time);
+      return {
+        name: String(period.name || `第${period.period_no}节`),
+        time: start && end ? `${start}–${end}` : '',
+      };
+    });
   } catch (e) {
     box.innerHTML = `<div class="empty">${esc(e.message || '加载失败')}</div>`;
     return;
   }
 
   const today = ymd(new Date());
-  const periods = Array.from({ length: 12 }, (_, i) => `第${i + 1}节`);
+  const defaultPeriod = periods.find((p) => p.name === '第3节')?.name || periods[0]?.name || '';
   let editingId = null;
   let errors = {};
   let busy = false;
   let ddOpen = false;
   let form = {
     title: '今日自习任务', class_scope: 'all', class_label: '全部',
-    date: today, period: '第3节', content: '', task_image: '', generated_image: '',
+    date: today, period: defaultPeriod, content: '', task_image: '', generated_image: '',
     pc_visible: 1,
   };
 
@@ -135,7 +169,7 @@ async function renderSelfstudyManage(box) {
     ddOpen = false;
     form = {
       title: t.title || '', class_scope: t.class_scope || 'all', class_label: t.class_label || '全部',
-      date: t.date || today, period: t.period || '第3节', content: t.content || '',
+      date: t.date || today, period: t.period || defaultPeriod, content: t.content || '',
       task_image: t.task_image || '', generated_image: t.generated_image || '',
       pc_visible: Number(t.pc_visible) ? 1 : 0,
     };
@@ -272,7 +306,8 @@ async function renderSelfstudyManage(box) {
               <div class="ssm-time">
                 <input class="ssm-input ${errors.time ? 'is-err' : ''}" id="ssm-date" type="date" value="${esc(form.date)}">
                 <select class="ssm-input" id="ssm-period">
-                  ${periods.map((p) => `<option value="${p}" ${form.period === p ? 'selected' : ''}>${p}</option>`).join('')}
+                  ${form.period && !periods.some((p) => p.name === form.period) ? `<option value="${esc(form.period)}" selected>${esc(form.period)}</option>` : ''}
+                  ${periods.map((p) => `<option value="${esc(p.name)}" ${form.period === p.name ? 'selected' : ''}>${esc(p.time ? `${p.name} · ${p.time}` : p.name)}</option>`).join('')}
                 </select>
               </div>
               ${errors.time ? `<div class="ssm-err">${esc(errors.time)}</div>` : ''}

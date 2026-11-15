@@ -125,10 +125,7 @@
   .stu-searchbar input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--line);
     border-radius: 9px; background: var(--card); color: var(--text); font: inherit; font-size: 14px; }
   .stu-empty { max-width: 640px; margin: 60px auto; text-align: center; color: #98a2b3; }
-  /* 任务卡片在班班通大屏上垂直居中，下方不留一大片空白 */
-  .st-stage { display: flex; align-items: center; justify-content: center;
-    min-height: calc(100vh - 230px); padding: 24px 0; }
-  @media (max-width: 900px) { .st-stage { min-height: 0; } }
+
   .stu-empty svg { opacity: .55; }
   .stu-empty b { display: block; margin-top: 16px; color: #5b667a; font-size: 17px; font-weight: 650; }
   .stu-lock { max-width: 560px; margin: 60px auto; padding: 34px 30px; border-radius: 16px;
@@ -356,7 +353,7 @@ document.addEventListener('click', () => {
   if (panelOpen) { panelOpen = false; $('#stu-panel').classList.add('hidden'); }
 });
 
-/* ---------- 自习任务卡片（设计稿） ---------- */
+/* ---------- 自习任务：与教材、抽人一致的普通卡片 ---------- */
 function taskLines(t) {
   return String(t.content || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
     .map((line) => line.replace(/^\s*(?:\d+[.、)]|[-•])\s*/, '')).filter(Boolean);
@@ -369,20 +366,18 @@ function studentCardHtml(t) {
   const img = t.task_image || t.generated_image;
   const day = t.date === todayStr() ? '今日' : (t.date || '');
   const deadline = [day, t.end_time || t.period].filter(Boolean).join(' ');
-  return `<div class="st-card">
-    <div class="st-card-head">
-      <div class="st-card-title">${esc(t.title || '今日自习任务')}</div>
-      <div class="st-card-sub">${esc([t.class_label || '全部', t.date || '', t.period || ''].filter(Boolean).join(' · '))}</div>
-    </div>
-    <div class="st-card-body">${body}${img ? `<img class="st-img" src="${esc(img)}" alt="任务图">` : ''}</div>
-    <div class="st-meta">
+  return `<div class="card card-pad">
+    <div class="card-title">${esc(t.title || '今日自习任务')}</div>
+    <div class="tiny muted" style="margin-top:5px">${esc([t.class_label || '全部', t.date || '', t.period || ''].filter(Boolean).join(' · '))}</div>
+    <div class="st-card-body" style="padding:20px 0 12px;font-size:16px">${body}${img ? `<img class="st-img" src="${esc(img)}" alt="任务图">` : ''}</div>
+    <div class="row wrap tiny muted" style="gap:8px 22px;padding:14px 0;border-top:1px solid var(--line)">
       <span>教师：${esc(t.creator || '老师')}</span>
       <span>任务类型：课堂自习</span>
       <span>截止时间：${esc(deadline)}</span>
     </div>
-    <div class="st-actions">
-      <button class="st-btn ghost" id="st-view">查看任务</button>
-      <button class="st-btn grad" id="st-save">保存任务图</button>
+    <div class="row wrap" style="gap:10px;margin-top:4px">
+      <button class="btn ghost" id="st-view">查看任务</button>
+      <button class="btn primary" id="st-save">保存任务图</button>
     </div>
   </div>`;
 }
@@ -407,7 +402,7 @@ function paintSelfstudy() {
     </div>`;
     return;
   }
-  $('#s-body').innerHTML = `<div class="st-stage">${studentCardHtml(t)}</div>`;
+  $('#s-body').innerHTML = studentCardHtml(t);
   $('#st-view').onclick = () => openTaskModal(t);
   $('#st-save').onclick = () => {
     const pages = taskImagePages({
