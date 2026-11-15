@@ -21,35 +21,22 @@ registerView(async function selfstudy(main, ctx) {
 });
 
 export async function renderSelfstudyBody(box, ctx = {}) {
-  /* 这一页有三个身份：
-       ① 自习管理：教师端发布当节自习任务（本次按设计稿新增，默认落在这里）
-       ② 学生页面里的「自习」模块配置（从「课件 → 自习」进来）
-       ③ 老师自己记自习（从旧的一级导航进来）
-     ②③ 的数据不是一回事：②配置的是 student.html 上那个签到模块，
-     ③记的是我看了哪个班的自习、多长、算不算课时。 */
-  let mode = ctx.studentTab ? 'student' : (ctx.mode || 'manage');
-  const tabs = el(`<div class="seg" style="margin-bottom:14px">
-    <button data-m="manage" class="${mode === 'manage' ? 'on' : ''}">自习管理</button>
-    <button data-m="student" class="${mode === 'student' ? 'on' : ''}">学生页面里的自习</button>
-    <button data-m="mine" class="${mode === 'mine' ? 'on' : ''}">我自己看的自习</button>
-  </div>`);
+  /* 学生入口固定在自习管理页顶部；签到管理和教师自习记录仍可从原路由打开。 */
+  const mode = ctx.studentTab ? 'student' : (ctx.mode || 'manage');
   const pane = el('<div></div>');
   box.innerHTML = '';
-  box.appendChild(tabs);
+  if (mode === 'manage') {
+    const entry = el('<div></div>');
+    box.appendChild(entry);
+    box.appendChild(pane);
+    return Promise.all([
+      renderStudentSelfstudy(entry, true),
+      renderSelfstudyManage(pane),
+    ]);
+  }
   box.appendChild(pane);
-  tabs.querySelectorAll('[data-m]').forEach((b) => {
-    b.onclick = () => {
-      mode = b.dataset.m;
-      tabs.querySelectorAll('[data-m]').forEach((x) => x.classList.toggle('on', x === b));
-      paint();
-    };
-  });
-  const paint = () => {
-    if (mode === 'manage') return renderSelfstudyManage(pane);
-    if (mode === 'student') return renderStudentSelfstudy(pane);
-    return renderMySelfstudy(pane);
-  };
-  return paint();
+  if (mode === 'student') return renderStudentSelfstudy(pane);
+  return renderMySelfstudy(pane);
 }
 
 /* ---------- ① 自习管理（教师端发布页） ----------
@@ -482,9 +469,9 @@ async function renderSelfstudyManage(box) {
    学生打开短链后，如果老师开了自习签到，顶部会出现「签到」页，点「我到了」。
    老师这边能做的只有三件事：开一场、看谁到了、结束。
    配置项（是否需要学生填姓名、是否允许迟到）存在 link.settings 上。 */
-async function renderStudentSelfstudy(box) {
-  const [links, sessions, rosters] = await Promise.all([
-    api.get('/links').catch(() => []),
+async function renderStudentSelfstudy(box, entryOnly = false) {
+  const links = await api.get('/links').catch(() => []);
+  const [sessions, rosters] = entryOnly ? [[], []] : await Promise.all([
     api.get('/roll/sessions').catch(() => []),
     api.get('/rosters').catch(() => []),
   ]);
@@ -503,7 +490,7 @@ async function renderStudentSelfstudy(box) {
            <div class="field-hint" style="margin-top:8px">学生打开这个链接，顶部就有「自习」页；没有进行中的签到时，页面会显示「现在没有在进行的签到」。</div>`
       : `<div class="empty" style="padding:18px">还没有生成学生链接。<button class="btn primary sm" id="ss-mklink">生成一条</button></div>`}
     </div>
-
+    ${entryOnly ? '' : `
     <div class="ss-stats mod-stats">
       <div class="card card-pad ss-stat"><div class="ss-k">进行中</div>
         <div class="ss-v" style="color:${open.length ? 'var(--green)' : 'var(--text)'}">${open.length}<span class="ss-u">场</span></div>
@@ -522,7 +509,8 @@ async function renderStudentSelfstudy(box) {
       <span class="tiny muted">学生端每 3 秒刷新一次人数</span>
     </div>
 
-    <div class="card" id="ss-sess">${open.length || today.length ? '' : '<div class="empty">今天还没有自习签到</div>'}</div>`;
+    <div class="card" id="ss-sess">${open.length || today.length ? '' : '<div class="empty">今天还没有自习签到</div>'}</div>`}
+  `;
 
   box.querySelector('#ss-copy')?.addEventListener('click', async () => {
     const url = studentUrl(link.code);
@@ -530,8 +518,9 @@ async function renderStudentSelfstudy(box) {
   });
   box.querySelector('#ss-mklink')?.addEventListener('click', async () => {
     await api.post('/links', { title: '班级资料站' }).catch(() => { });
-    renderStudentSelfstudy(box);
+    renderStudentSelfstudy(box, entryOnly);
   });
+  if (entryOnly) return;
   box.querySelector('#ss-open')?.addEventListener('click', () => openRollDialog(rosters, () => renderStudentSelfstudy(box)));
 
   /* 场次列表 */

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>班级资料站</title>
+<title>学生工作台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#007aff">
 <link rel="stylesheet" href="css/app.css">
@@ -282,7 +282,7 @@ const todayStr = () => {
 async function init() {
   try { data = await api(`/public/link/${code}`); }
   catch (e) { $('#s-app').innerHTML = `<div class="card card-pad empty"><div class="em">${ICON.lock}</div>${esc(e.message)}</div>`; return; }
-  document.title = data.link.title + ' · ' + (data.teacher?.nickname || '');
+  document.title = '学生工作台';
   const hasTask = (data.selfstudyTasks || []).length > 0;
   tab = (data.roll && data.roll.length) ? 'checkin' : (hasTask ? 'selfstudy' : 'material');
   paintPanel();
