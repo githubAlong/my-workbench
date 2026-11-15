@@ -72,7 +72,8 @@ async function chooseResearchAttendees(members, selected = members){
 export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {}) {
   let grades = (await api.get('/grades').catch(() => ({grades:[]}))).grades || [];
   let grade = grades.includes(initialGrade) ? initialGrade : (grades[0] || initialGrade || '');
-  let date = TODAY(), period = 1, tab = 'roster', search = '', subject = '';
+  /* 用户 11-15 需求：进入考勤默认当天、全天（00:00-23:59），并优先打开坐班表 */
+  let date = TODAY(), period = 0, tab = 'seat', search = '', subject = '';
   let isComposingSearch = false;
   let teachers = [], allTeachers = [], tables = [], details = {}, leaveRecords = [], prefs = {};
   let timetableSettings = {}, timetableCourses = [], timetablePeriods = [], periodTimeEdits = {};
@@ -1232,13 +1233,38 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       classRows:type==='class'?draftRows:(details.class?.rows||[]),
       researchRows:type==='research'?draftRows:(details.research?.rows||[]),
     };
+    /* 子表只挑坐班表里对应状态的人（用户 11-15 需求）：
+       上课表 = 上课/听课，教研表 = 教研/请假，未登记的人不再出现。 */
+    const mergedStates = new Map(list.map(teacher => [String(teacher.id), deriveRosterState(teacher, summaryContext)]));
+    const statusOfTeacher = teacher => mergedStates.get(String(teacher.id)) || {};
+    const hasListen = list.some(teacher => {
+      const state = statusOfTeacher(teacher);
+      return state.listenStatus === 'y' || state.listen === true || state.listen === 'y';
+    });
+    const hasLeave = list.some(teacher => !!statusOfTeacher(teacher).leave);
+    /* 听课列有人才显示、请假列有人才显示（用户 11-15 需求）；
+       坐班表是数据源，永远展示全部状态列 */
+    const activeStateKeys = (GRID_STATE_COLUMNS[type] || []).filter(key =>
+      type === 'class' && key === 'listen' ? hasListen
+        : type === 'research' && key === 'leave' ? hasLeave : true);
+    const listedTeachers = type === 'class'
+      ? list.filter(teacher => {
+        const state = statusOfTeacher(teacher);
+        return state.class === 'y' || state.listenStatus === 'y' || state.listen === true || state.listen === 'y';
+      })
+      : type === 'research'
+        ? list.filter(teacher => {
+          const state = statusOfTeacher(teacher);
+          return state.researchStatus === 'y' || state.research === true || !!state.leave;
+        })
+        : list;
     /* 花名册只维护教师名单：考勤状态不展示，但保留一列可直接填写的备注（用户 11-15 要求）。 */
     const columns = type === 'roster'
       ? ['序号','归属部门','归属年级','姓名','学科','备注','操作']
-      : ['序号','归属部门','归属年级','姓名','学科',...GRID_STATE_COLUMNS[type].map(key=>GRID_STATE_LABELS[key]),'备注','操作'];
+      : ['序号','归属部门','归属年级','姓名','学科',...activeStateKeys.map(key=>GRID_STATE_LABELS[key]),'备注','操作'];
     const actionsOf = teacher => '<div class="aprd-actions"><button type="button" class="aprd-op" data-edit="'+esc(teacher.id)+'">编辑</button>'
       +'<button type="button" class="aprd-op danger" data-disable="'+esc(teacher.id)+'">删除</button></div>';
-    const rows = list.map((teacher,index) => {
+    const rows = listedTeachers.map((teacher,index) => {
       if (type === 'roster') {
         return '<tr><td>'+(index+1)+'</td><td>'+esc(deptOf(teacher))+'</td><td>'+esc(teacher.grade||grade)+'</td>'
           +'<td><b>'+esc(teacher.name)+'</b></td><td>'+esc(teacher.subject||'')+'</td>'
@@ -1278,7 +1304,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const remark = editable
         ? '<input type="text" class="aprd-note-input" data-grid-person="'+esc(teacher.id)+'" data-grid-key="remark" value="'+escAttr(state.remark||'')+'" placeholder="备注" aria-label="'+escAttr(teacher.name+' 备注')+'">'
         : '<span class="aprd-remark" title="'+escAttr(noteOf(teacher))+'">'+esc(noteOf(teacher)||'—')+'</span>';
-      const stateCells = GRID_STATE_COLUMNS[type].map(key => {
+      const stateCells = activeStateKeys.map(key => {
         if (key === 'leave') return '<td>'+leave+'</td>';
         if (key === 'listen') return '<td>'+mark('listen',listen)+'</td>';
         if (key === 'research') return '<td>'+mark('research',research)+'</td>';
@@ -1292,7 +1318,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
       +'<button type="button" class="aprd-op" data-roster-import>批量导入</button>'
       +exportMenuHtml(teachers.length);
-    const currentStates = editable ? list.map(teacher=>deriveRosterState(teacher,summaryContext)) : [];
+    const currentStates = editable ? listedTeachers.map(teacher=>deriveRosterState(teacher,summaryContext)) : [];
     /* 设计稿的统计条：数字在上、文字在下，整条一个圆角边框，格子之间用竖线分隔。
        统计条跟着本表显示的列走：坐班表全量，上课表看上课/听课，教研表看教研/请假。 */
     const kpiOf = {
@@ -1303,8 +1329,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       leave:['请假教师',state=>!!state.leave],
     };
     const summaryItems = [
-      ['当前筛选教师',list.length],
-      ...(GRID_STATE_COLUMNS[type]||[]).map(key=>{
+      ['当前筛选教师',listedTeachers.length],
+      ...(activeStateKeys||[]).map(key=>{
         const [label,match]=kpiOf[key];
         return [label,currentStates.filter(match).length];
       }),
@@ -1344,7 +1370,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       +'<div class="aprd-grade">'+grades.map(g=>'<button data-grade-tab="'+esc(g)+'" class="'+(g===grade?'on':'')+'">'+esc(g)+'</button>').join('')+'</div>'
       +'<div class="aprd-filter"><div class="aprd-filter-fields">'
       +'<label>日期 <input type="date" id="aprd-date" value="'+date+'"></label>'
-      +'<label>节次 <select id="aprd-period"><option value="0" '+(period===0?'selected':'')+'>全部</option>'+DEFAULT_PERIODS.map(p=>'<option value="'+p.no+'" '+(p.no===period?'selected':'')+'>'+p.label+'</option>').join('')+'</select></label>'
+      +'<label>节次 <select id="aprd-period"><option value="0" '+(period===0?'selected':'')+'>全天</option>'+DEFAULT_PERIODS.map(p=>'<option value="'+p.no+'" '+(p.no===period?'selected':'')+'>'+p.label+'</option>').join('')+'</select></label>'
       +'<label>时段 <span class="aprd-time-range"><input type="time" id="aprd-start" value="'+periodRange[0]+'"><span class="aprd-time-sep">—</span><input type="time" id="aprd-end" value="'+periodRange[1]+'"></span></label>'
       +'</div><div class="aprd-filter-actions">'
       +'<div class="aprd-export-wrap"><button type="button" class="aprd-generate-btn" data-generate-toggle>生成'+(GENERATE_LABELS[generateType]||'班表')+'<i class="aprd-caret"></i></button>'

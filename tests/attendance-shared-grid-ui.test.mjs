@@ -111,6 +111,9 @@ test('实际四页签展示相同名单和列，花名册无考勤编辑入口�
   const {root}=await setup();
   const headers=()=>[...root.innerHTML.matchAll(/<th>(.*?)<\/th>/g)].map(match=>match[1]);
   const names=()=>[...root.innerHTML.matchAll(/<td><b>(.*?)<\/b><\/td>/g)].map(match=>match[1]);
+  /* 用户 11-15 需求：默认进入坐班表（数据源），优先展示全状态 */
+  assert.deepEqual(headers(),['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注','操作']);
+  await root.querySelector('[data-tab="roster"]').click();
   const rosterHeaders=headers(),expectedNames=names();
   /* 用户 11-15 裁决：花名册只维护教师名单，考勤状态列全部隐藏；操作前保留一列可填写的备注 */
   assert.deepEqual(rosterHeaders,['序号','归属部门','归属年级','姓名','学科','备注','操作']);
@@ -120,16 +123,18 @@ test('实际四页签展示相同名单和列，花名册无考勤编辑入口�
   /* 用户 11-15 规定：坐班表是数据源、全量显示；上课表只看上课/听课；教研表只看教研/请假。 */
   const expectedHeaders={
     seat:['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注','操作'],
-    class:['序号','归属部门','归属年级','姓名','学科','上课','听课','备注','操作'],
-    research:['序号','归属部门','归属年级','姓名','学科','教研','请假','备注','操作'],
+    class:['序号','归属部门','归属年级','姓名','学科','上课','备注','操作'],
+    research:['序号','归属部门','归属年级','姓名','学科','教研','备注','操作'],
   };
-  const expectedControls={seat:12,class:6,research:6};
+  /* 用户 11-15 需求：上课表/教研表只出对应状态的人，没人听课时听课列也隐藏 */
+  const expectedNamesByType={seat:['李老师','王老师'],class:[],research:[]};
+  const expectedControls={seat:12,class:0,research:0};
   for(const type of ['seat','class','research']) {
     await root.querySelector('[data-tab="'+type+'"]').click();
     const current=headers();
     if(workHeaders===null) workHeaders=current;
     assert.deepEqual(current,expectedHeaders[type]);
-    assert.deepEqual(names(),expectedNames);
+    assert.deepEqual(names(),expectedNamesByType[type]);
     assert.equal(root.querySelectorAll('[data-grid-person]').length,expectedControls[type]);
     /* 用户 11-12 裁决：去掉「保存本表」，改为点一下即自动保存 */
     assert.equal(root.querySelector('[data-grid-save]'),null);
@@ -150,10 +155,10 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   assert.equal(saved.class.rows.length,0);
   assert.equal(saved.research.rows.length,0);
   await root.querySelector('[data-tab="class"]').click();
-  /* 用户 11-15 规定：上课表只显示上课/听课，但数据仍来自坐班表，可直接在本表改。 */
+  /* 用户 11-15 需求：上课表只出上课/听课的人，只勾坐班的李老师不再出现在上课表 */
   assert.equal(control(root,'sit'),undefined);
-  await control(root,'class').click();
-  assert.equal(control(root,'remark').tag,'input');
+  assert.equal(control(root,'class'),undefined);
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
   await root.querySelector('[data-tab="roster"]').click();
   /* 花名册只保留名单与操作，不再展示任何考勤状态格 */
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
@@ -210,21 +215,20 @@ test('明细行真被别的设备改过时仍会拦下，并给出中文提示�
 
 test('切换节次和日期不串草稿；搜索后四页签共用同一花名册筛选',async()=>{
   const {root,saved}=await setup();
-  await root.querySelector('[data-tab="research"]').click();
+  /* 新规则下教研表只出教研/请假的人，先在坐班表给李老师勾上教研 */
+  await root.querySelector('[data-tab="seat"]').click();
   await control(root,'research').click();
+  await root.querySelector('[data-tab="research"]').click();
   await root.querySelector('#aprd-period').change('2');
-  assert.match(control(root,'research').attributes['aria-label'],/未登记/);
-  await root.querySelector('#aprd-period').change('1');
-  assert.match(control(root,'research').attributes['aria-label'],/正常/);
+  /* 该节次没有教研记录，教研表按状态筛人后不再补未登记行 */
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
   /* 真实环境按日期分表，换日期就是另一张空表；这里清空桩数据来模拟 */
   Object.values(saved).forEach(table=>{table.rows=[];});
   await root.querySelector('#aprd-date').change('2026-10-01');
-  assert.match(control(root,'research').attributes['aria-label'],/未登记/);
+  /* 源数据清空后，教研表按状态筛人，不再为未登记教师补行 */
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
   await root.querySelector('#aprd-search').input('王老师');
-  /* 教研表只剩教研/请假/备注三处可操作：筛选后 1 位教师 × 3 */
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,3);
-  assert.equal(control(root,'research','1'),undefined);
-  assert.ok(control(root,'research','2'));
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
 });
 
 test('教师搜索支持中文输入法组合输入，组合期间不重绘，选字完成后再筛选',async()=>{
@@ -244,6 +248,9 @@ test('教师搜索支持中文输入法组合输入，组合期间不重绘，�
 
 test('工作表导出和生成操作针对当前页签，导出的列及勾选与页面一致',async()=>{
   const {root,exportedGrids}=await setup();
+  /* 上课表只出上课/听课的人：先在坐班表勾上上课，再切到上课表 */
+  await root.querySelector('[data-tab="seat"]').click();
+  await control(root,'class').click();
   await root.querySelector('[data-tab="class"]').click();
   /* 「生成班表」改下拉菜单（11-15 设计稿）：先选上课表，确认生成按它走 */
   assert.equal(root.querySelector('[data-generate-menu]').attributes.hidden,'');
@@ -255,11 +262,11 @@ test('工作表导出和生成操作针对当前页签，导出的列及勾选�
   assert.match(grid[0][0],/上课表/);
   assert.match(grid[1][0],/星期/);
   /* 上课表统计只保留上课/请假人数，听课有人才展示（用户 11-15 要求），不再有应到/未登记 */
-  assert.match(grid[2][0],/上课 \d+ 人/);
-  assert.match(grid[2][0],/请假 \d+ 人/);
+  assert.match(grid[2][0],/上课 1 人/);
+  assert.ok(!/听课|请假/.test(grid[2][0]),'没人听课/请假时不应展示对应统计');
   assert.ok(!/应到|未登记/.test(grid[2][0]),'上课表标题不应出现应到/未登记');
-  /* 上课表导出与页面同一套列（用户 11-15 规定），勾选取页面录入结果 */
-  assert.deepEqual(grid[3],['序号','归属部门','归属年级','姓名','学科','上课','听课','备注']);
+  /* 上课表导出与页面同一套列（用户 11-15 规定），没人听课时不导出听课列 */
+  assert.deepEqual(grid[3],['序号','归属部门','归属年级','姓名','学科','上课','备注']);
   assert.equal(grid[4][3],'李老师');
   assert.equal(grid[4][5],'✓');
   /* 右下角导出时间写在最后一行的最右列 */

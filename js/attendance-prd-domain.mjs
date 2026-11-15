@@ -586,7 +586,8 @@ export function buildAttendanceExportGrid({
     const count = key => entries.filter(entry => entry.winner === key && entry.row[{ class: 6, sit: 5, listen: 7, research: 8 }[key]] === '✓').length;
     const leaveCount = rows.filter(row => row[9] !== '').length;
     const unregistered = entries.filter(entry => !entry.winner && !entry.onLeave).length;
-    const statsLine = '应到 ' + people.length + ' 人 · 坐班 ' + count('sit') + ' 人 · 上课 ' + count('class')
+    /* 用户 11-15 需求：导出统一去掉「应到人数」 */
+    const statsLine = '坐班 ' + count('sit') + ' 人 · 上课 ' + count('class')
       + ' 人 · 听课 ' + count('listen') + ' 人 · 教研 ' + count('research') + ' 人'
       + ' · 请假 ' + leaveCount + ' 人 · 未登记 ' + unregistered + ' 人';
     return [...heading(statsLine), EXPORT_HEADERS[type], ...rows];
@@ -630,33 +631,42 @@ export function buildAttendanceExportGrid({
         leaveRecords, date, period: periodNumbers[0],
       }).remark;
       const remarkValue = ownRemark || meta.remark || teacher.remark || teacher.note || '';
-      const cell = key => key === 'leave' ? leaveValue
-        : (winner === key ? exportStatusLabel(statusOf[key]) : '');
-      const stateKeys = type === 'class' ? ['class', 'listen'] : ['research', 'leave'];
-      return {
-        winner, onLeave, statusOf,
-        row: [
-          index + 1, departmentOf(teacher), gradeOf(teacher), name, teacher.subject || '',
-          ...stateKeys.map(cell), remarkValue,
-        ],
-      };
+      return { winner, onLeave, statusOf, leaveValue, teacher, remarkValue };
     });
-    const rows = entries.map(entry => entry.row);
     const count = key => entries.filter(entry => entry.winner === key && entry.statusOf[key] === 'y').length;
     const leaveCount = entries.filter(entry => entry.onLeave).length;
-    const unregistered = entries.filter(entry => !entry.winner && !entry.onLeave).length;
-    /* 上课表统计不展示应到/未登记；听课有人才展示（用户 11-15 要求） */
     const listenCount = count('listen');
-    const classStats = ['上课 ' + count('class') + ' 人'];
-    if (listenCount > 0) classStats.push('听课 ' + listenCount + ' 人');
-    classStats.push('请假 ' + leaveCount + ' 人');
-    const statsLine = type === 'class'
-      ? classStats.join(' · ')
-      : '应到 ' + people.length + ' 人 · 教研 ' + count('research') + ' 人 · 请假 ' + leaveCount
-        + ' 人 · 未登记 ' + unregistered + ' 人';
-    const headers = type === 'class'
-      ? ['序号', '归属部门', '归属年级', '姓名', '学科', '上课', '听课', '备注']
-      : ['序号', '归属部门', '归属年级', '姓名', '学科', '教研', '请假', '备注'];
+    /* 用户 11-15 需求：子表只出对应状态的人，未登记人员不展示；
+       听课/请假列有人才展示，统计数字也按需展示。 */
+    const included = type === 'class'
+      ? entries.filter(entry => entry.winner === 'class' || entry.winner === 'listen')
+      : entries.filter(entry => entry.winner === 'research' || entry.onLeave);
+    const showListen = type === 'class' && listenCount > 0;
+    const showLeave = type === 'research' && leaveCount > 0;
+    const rows = included.map((entry, index) => {
+      const label = key => entry.winner === key ? exportStatusLabel(entry.statusOf[key]) : '';
+      return [
+        index + 1, departmentOf(entry.teacher), gradeOf(entry.teacher),
+        String(entry.teacher.name || '').trim(), entry.teacher.subject || '',
+        ...(type === 'class'
+          ? [label('class'), ...(showListen ? [label('listen')] : [])]
+          : [label('research'), ...(showLeave ? [entry.leaveValue] : [])]),
+        entry.remarkValue,
+      ];
+    });
+    const stats = type === 'class'
+      ? ['上课 ' + count('class') + ' 人']
+      : ['教研 ' + count('research') + ' 人'];
+    if (showListen) stats.push('听课 ' + listenCount + ' 人');
+    if (leaveCount > 0) stats.push('请假 ' + leaveCount + ' 人');
+    const statsLine = stats.join(' · ');
+    const headers = [
+      '序号', '归属部门', '归属年级', '姓名', '学科',
+      ...(type === 'class'
+        ? ['上课', ...(showListen ? ['听课'] : [])]
+        : ['教研', ...(showLeave ? ['请假'] : [])]),
+      '备注',
+    ];
     return [...heading(statsLine), headers, ...rows];
   }
 
@@ -680,22 +690,9 @@ export function buildAttendanceExportGrid({
         record.status || '未注明', record.remark || '',
       ];
     });
-    /* 全名单兜底：没请假的教师也出一行，状态写「未请假」 */
-    const covered = new Set(entries.map(exportName));
-    let noLeavePeople = 0;
-    for (const teacher of people) {
-      const name = String(teacher.name || '').trim();
-      if (!name || covered.has(name)) continue;
-      rows.push([
-        0, departmentOf(teacher), gradeOf(teacher), name, teacher.subject || '',
-        '无', '—', '—', '—', '—', '未请假', '',
-      ]);
-      covered.add(name);
-      noLeavePeople += 1;
-    }
+    /* 用户 11-15 需求：请假表只统计请假人员，不再补未请假名单 */
     const numbered = rows.map((row, index) => [index + 1, ...row.slice(1)]);
-    const statsLine = '应到 ' + people.length + ' 人 · 请假 ' + entries.length
-      + ' 人 · 未请假 ' + noLeavePeople + ' 人';
+    const statsLine = '请假 ' + entries.length + ' 人';
     return [...heading(statsLine), EXPORT_HEADERS.leave, ...numbered];
   }
 
@@ -707,7 +704,8 @@ export function buildAttendanceExportGrid({
       index + 1, row.name, row.subject, row.seatPresent, row.classes, row.listens,
       row.research, formatLeaveDuration({ days: row.leaveDays, hours: row.leaveHours }), row.overall,
     ]);
-    const statsLine = '应到 ' + summary.expectedTeachers + ' 人 · 坐班 ' + summary.seatPresent
+    /* 用户 11-15 需求：导出统一去掉「应到人数」 */
+    const statsLine = '坐班 ' + summary.seatPresent
       + ' 次 · 上课 ' + summary.classes + ' 次 · 听课 ' + summary.listens
       + ' 人次 · 请假 ' + summary.leavePeople + ' 人';
     return [...heading(statsLine), ATTENDANCE_COLUMNS.summary, ...rows];
