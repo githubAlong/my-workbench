@@ -31,7 +31,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v282-route-lazy-load';
+const CACHE = 'wb-v283-core-precache';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -138,17 +138,10 @@ const ASSETS = [
   './js/roster-structure.mjs',
 ];
 
-/* 【预缓存的超时】
-   线上实测（GitHub Pages）：manifest 只有 603 字节，也要 36 秒；
-   css/app.css 193KB 要 40 秒。不是文件大小的问题，是每个请求都要排进
-   同一条慢队列。而 install 事件是等 waitUntil 里的 Promise 全部落地才算装完，
-   任一请求挂住，整个 SW 就永远停在 installing：
-     · active 永远是 null → 页面压根没被 SW 接管
-     · 缓存只写进一半
-     · 断网也就打不开
-   所以给每个文件 8 秒上限：拿不到就算了，不拖累整体。
-   断网兜底只要求 index.html + css 在，这两个优先、超时放宽到 15 秒。 */
-const TIMEOUT_MS = 8000;
+/* 安装阶段只预缓存首页核心。若同时回源全部 ASSETS，几十个小文件会占满
+   慢网络连接，反而让首屏自己的 JS 排队到启动看门狗超时。
+   其它资源首次实际使用时由 fetch 处理程序写入同一个 CACHE；
+   ASSETS 仍保留完整清单，供版本换缓存、资源核对和已访问页面离线使用。 */
 const CORE = new Set(['./', './index.html', './css/app.css']);
 
 function withTimeout(p, ms, label) {
@@ -166,25 +159,18 @@ self.addEventListener('install', (e) => {
   self.skipWaiting();
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    /* 逐个添加，且**互不等待**：某个文件慢或 404 都不影响其它文件落进缓存。
-       核心文件（首页与样式）放最后并且单独一串，超时更宽，
-       这样即使前面几个静态资源全部超时，断网也还能打开站点。 */
-    const others = ASSETS.filter((u) => !CORE.has(u));
+    /* 只取核心三个文件，某个文件慢或失败都不影响其它文件落进缓存。 */
     const cores = ASSETS.filter((u) => CORE.has(u));
-    const grab = (u, ms) => withTimeout(
+    const grab = (u) => withTimeout(
       fetch(new Request(u, { cache: 'reload' })).then((r) => {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return c.put(u, r);
       }),
-      ms, u,
+      15000, u,
     ).catch((err) => {
-      console.warn('[sw] 预缓存失败，跳过：', u, err && err.message);
+      console.warn('[sw] 核心预缓存失败，跳过：', u, err && err.message);
     });
-    // 两串并发跑，谁先完成都不影响谁
-    await Promise.all([
-      Promise.all(others.map((u) => grab(u, TIMEOUT_MS))),
-      Promise.all(cores.map((u) => grab(u, 15000))),
-    ]);
+    await Promise.all(cores.map((u) => grab(u)));
   })());
 });
 
