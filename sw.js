@@ -31,7 +31,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v287-startup-css';
+const CACHE = 'wb-v288-no-prefetch';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -138,40 +138,12 @@ const ASSETS = [
   './js/roster-structure.mjs',
 ];
 
-/* 安装阶段只预缓存首页核心。若同时回源全部 ASSETS，几十个小文件会占满
-   慢网络连接，反而让首屏自己的 JS 排队到启动看门狗超时。
-   其它资源首次实际使用时由 fetch 处理程序写入同一个 CACHE；
+/* 安装阶段不预取文件。冷启动时即使只预取首页核心，也会和当前页面争用
+   慢网络连接；所有资源首次实际使用时由 fetch 处理程序写入同一个 CACHE。
    ASSETS 仍保留完整清单，供版本换缓存、资源核对和已访问页面离线使用。 */
-const CORE = new Set(['./', './index.html', './css/app.css']);
-
-function withTimeout(p, ms, label) {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('超时 ' + ms + 'ms: ' + label)), ms);
-    p.then(
-      (v) => { clearTimeout(t); resolve(v); },
-      (e) => { clearTimeout(t); reject(e); },
-    );
-  });
-}
-
-self.addEventListener('install', (e) => {
+self.addEventListener('install', () => {
   // 立刻进入 waiting → activate，不等所有旧标签页关掉
   self.skipWaiting();
-  e.waitUntil((async () => {
-    const c = await caches.open(CACHE);
-    /* 只取核心三个文件，某个文件慢或失败都不影响其它文件落进缓存。 */
-    const cores = ASSETS.filter((u) => CORE.has(u));
-    const grab = (u) => withTimeout(
-      fetch(new Request(u, { cache: 'reload' })).then((r) => {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return c.put(u, r);
-      }),
-      15000, u,
-    ).catch((err) => {
-      console.warn('[sw] 核心预缓存失败，跳过：', u, err && err.message);
-    });
-    await Promise.all(cores.map((u) => grab(u)));
-  })());
 });
 
 self.addEventListener('activate', (e) => {
