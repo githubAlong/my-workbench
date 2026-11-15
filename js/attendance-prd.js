@@ -1175,7 +1175,6 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         +'<td>'+actionsOf(teacher)+'</td></tr>';
     }).join('');
     const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
-      +'<button type="button" class="aprd-op" data-subject-manager>学科管理</button><i class="aprd-divider" aria-hidden="true"></i>'
       +'<button type="button" class="aprd-op" data-roster-import>批量导入</button>'
       +exportMenuHtml(teachers.length);
     const currentStates = editable ? list.map(teacher=>deriveRosterState(teacher,summaryContext)) : [];
@@ -1539,8 +1538,6 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       });
     }));
     root.querySelector('[data-save-research]')?.addEventListener('click',async()=>{try{await persistDraft('research');toast('教研表修改已保存','ok');}catch(error){toast(attendanceErrorText(error),'err');}});
-
-    root.querySelector('[data-subject-manager]')?.addEventListener('click',()=>toast('学科管理请在名册管理入口维护','warn'));
   };
   /* 勾选/编辑后是整块重绘（root.innerHTML 全换），浏览器会把滚动位置归零：
      勾第 12 行就跳回表格顶部，没法连续登记。这里在重绘前后记住窗口和表格的
