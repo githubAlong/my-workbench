@@ -1,30 +1,50 @@
-import { state, loadMe, render, parseHash, loadAuthConfig } from './ui.js';
+import { state, loadMe, render, parseHash, loadAuthConfig, WORK_TABS } from './ui.js';
 import { ls, toast, STATIC, api } from './core.js';
 import { setActiveAccount, activeAccountId } from './localdb.js';
 import { load as loadTaskData, save as saveTaskData } from './localdb.js';
 import { reconcileTaskLinks } from './todo-item-sync.mjs';
 import { takeRetiredResetParam } from './startup-safety.mjs';
 
-/* 【第 30 条 · 白屏】
-   原来这里是 9 行串行 import：
-       await import('./home.js'); await import('./work.js'); ...
-   本地看不出问题，但部署到静态托管后每个 js 文件都要单独回源，
-   冷启动一个文件就要 0.8~5 秒，串行等 9 个 = 十几秒白屏。
+/* 静态托管没有打包器，首屏静态导入所有页面会迫使浏览器先下载完整模块图。
+   只让当前路由阻塞首屏，其余页面启动后再预加载；路由切换也必须先等视图注册。 */
+const PAGE_MODULES = Object.freeze({
+  home: './home.js',
+  work: './work.js',
+  daily: './daily.js',
+  study: './study.js',
+  selfstudy: './selfstudy.js',
+  repairs: './repairs.js',
+  me: './me.js',
+  recycle: './recycle.js',
+});
+const pageModuleLoads = new Map();
 
-   现在改用**静态 import**（不是 await import）：
-     - 静态 import 会被打包工具合成一个请求，上线后 18 个文件变 1 个；
-     - 静态 import 是「先解析完整个模块图再执行」，天然并发；
-     - 各页面模块的顶层代码只是 registerView()，副作用极轻。
-   首屏渲染仍然先于重内容：render() 只依赖 ui.js/core.js，早就到位了。 */
-import './home.js';
-import './work.js';
-import './daily.js';
-import './study.js';
-import './selfstudy.js';
-import './repairs.js';
-import './me.js';
-import './recycle.js';
-import './alarm.js';
+function loadPageModule(file) {
+  if (!pageModuleLoads.has(file)) {
+    const loading = import(file).catch((error) => {
+      pageModuleLoads.delete(file);
+      throw error;
+    });
+    pageModuleLoads.set(file, loading);
+  }
+  return pageModuleLoads.get(file);
+}
+
+function currentPageModule() {
+  const seg = parseHash().path.split('/')[0];
+  if (WORK_TABS.some((item) => item.id === seg)) return PAGE_MODULES.work;
+  if (['materials', 'textbook', 'pick', 'mystery'].includes(seg)) return PAGE_MODULES.work;
+  if (seg === 'messages' || seg === 'profile') return PAGE_MODULES.me;
+  if (seg === 'qr') return null;
+  return PAGE_MODULES[seg] || PAGE_MODULES.home;
+}
+
+async function renderCurrentRoute() {
+  const file = currentPageModule();
+  if (file) await loadPageModule(file);
+  await render();
+}
+
 import { hookSave, tryImportFromHash, initializeAccountSync } from './cloudsync.js';
 import { startSyncStatus } from './sync-status.js';
 startSyncStatus();
@@ -118,7 +138,12 @@ if (E2E_LOCAL) {
 state.user = E2E_LOCAL ? (e2eLocalUser?.user || null) : (cloudSession?.uid ? await loadMe() : null);
 if (state.user && (accountSyncReady || E2E_LOCAL) && reconcileTaskLinks(loadTaskData())) saveTaskData();
 if (!location.hash) location.hash = '#/home';
-window.addEventListener('hashchange', () => render());
+window.addEventListener('hashchange', () => {
+  renderCurrentRoute().catch((e) => {
+    console.error('[route] 页面模块加载失败', e);
+    toast('页面加载失败，请刷新重试', 'err', 6000);
+  });
+});
 
 window.addEventListener('storage', (event) => {
   if (event.key !== cloudAuth.SESSION_STORAGE_KEY) return;
@@ -133,12 +158,20 @@ window.addEventListener('wb:signout', async () => {
   setActiveAccount('');
   state.user = null;
   location.hash = '#/home';
-  await render();
+  await renderCurrentRoute();
 });
 
-await render();
+await renderCurrentRoute();
 window.__wbBooted = true;
 window.dispatchEvent(new Event('wb:booted'));
+
+/* 预加载不能阻塞首屏；正在切换路由时会复用同一批加载 Promise。 */
+setTimeout(() => {
+  for (const file of new Set(Object.values(PAGE_MODULES))) {
+    loadPageModule(file).catch((e) => console.warn('[boot] 页面模块预加载失败：' + file, e));
+  }
+  import('./alarm.js').catch((e) => console.warn('[boot] 提醒模块加载失败', e));
+}, 0);
 
 /* ============================================================================
    实时同步（一端改动，另一端自己变）
