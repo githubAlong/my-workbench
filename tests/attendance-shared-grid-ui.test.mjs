@@ -117,18 +117,25 @@ test('实际四页签展示相同名单和列，花名册无考勤编辑入口�
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
   assert.equal(root.querySelectorAll('[data-person]').length,0);
   let workHeaders=null;
+  /* 用户 11-15 规定：坐班表是数据源、全量显示；上课表只看上课/听课；教研表只看教研/请假。 */
+  const expectedHeaders={
+    seat:['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注','操作'],
+    class:['序号','归属部门','归属年级','姓名','学科','上课','听课','备注','操作'],
+    research:['序号','归属部门','归属年级','姓名','学科','教研','请假','备注','操作'],
+  };
+  const expectedControls={seat:12,class:6,research:6};
   for(const type of ['seat','class','research']) {
     await root.querySelector('[data-tab="'+type+'"]').click();
     const current=headers();
     if(workHeaders===null) workHeaders=current;
-    assert.deepEqual(current,workHeaders);
+    assert.deepEqual(current,expectedHeaders[type]);
     assert.deepEqual(names(),expectedNames);
-    assert.equal(workHeaders.includes('坐班')&&workHeaders.includes('请假'),true);
-    assert.equal(root.querySelectorAll('[data-grid-person]').length,12);
+    assert.equal(root.querySelectorAll('[data-grid-person]').length,expectedControls[type]);
     /* 用户 11-12 裁决：去掉「保存本表」，改为点一下即自动保存 */
     assert.equal(root.querySelector('[data-grid-save]'),null);
     assert.equal(/保存本表/.test(root.innerHTML),false);
   }
+  assert.ok(workHeaders.includes('坐班')&&workHeaders.includes('请假'));
 });
 
 test('真实操作链：草稿跨页签保留，自动保存仅写本表，重新打开与花名册一致',async()=>{
@@ -143,12 +150,10 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   assert.equal(saved.class.rows.length,0);
   assert.equal(saved.research.rows.length,0);
   await root.querySelector('[data-tab="class"]').click();
-  /* 用户 11-15 反馈：坐班表登记的状态在 上课表 / 教研表 页签也要能看到，
-     四个页签共用同一份跨表状态，不再各表只看自己。 */
-  assert.match(control(root,'sit').attributes['aria-label'],/正常/);
+  /* 用户 11-15 规定：上课表只显示上课/听课，但数据仍来自坐班表，可直接在本表改。 */
+  assert.equal(control(root,'sit'),undefined);
+  await control(root,'class').click();
   assert.equal(control(root,'remark').tag,'button');
-  await root.querySelector('[data-tab="seat"]').click();
-  assert.match(control(root,'sit').attributes['aria-label'],/正常/);
   await root.querySelector('[data-tab="roster"]').click();
   /* 花名册只保留名单与操作，不再展示任何考勤状态格 */
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
@@ -216,7 +221,8 @@ test('切换节次和日期不串草稿；搜索后四页签共用同一花名�
   await root.querySelector('#aprd-date').change('2026-10-01');
   assert.match(control(root,'research').attributes['aria-label'],/未登记/);
   await root.querySelector('#aprd-search').input('王老师');
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,6);
+  /* 教研表只剩教研/请假/备注三处可操作：筛选后 1 位教师 × 3 */
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,3);
   assert.equal(control(root,'research','1'),undefined);
   assert.ok(control(root,'research','2'));
 });

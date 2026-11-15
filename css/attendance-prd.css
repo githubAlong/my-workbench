@@ -304,7 +304,7 @@
 @media(max-width:760px){
  .attendance-prd .aprd-kpis.aprd-grid-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
  .attendance-prd .aprd-grid-summary .aprd-kpi{border-bottom:1px solid #eef2f8}
- .attendance-prd .aprd-grid-summary .aprd-kpi:nth-child(2n){border-right:0}
+ .attendance-prd .aprd-grid-summary .aprd-kpi:last-child{border-right:0}
  .attendance-prd .aprd-grid-summary .aprd-kpi:nth-last-child(-n+2){border-bottom:0}
 }
 
