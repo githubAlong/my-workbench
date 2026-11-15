@@ -22,6 +22,9 @@ let ACTIVE_UID = '';
    remains untouched and is not silently assigned to the first account. */
 export function setActiveAccount(uid = '') {
   ACTIVE_UID = String(uid || '');
+  /* 记住最后使用的账号：学生端和教师端在同一个浏览器打开时，
+     学生页要读同一份账号库，否则会落到默认空库，出现「链接不存在」。 */
+  try { localStorage.setItem('wb_static_active_uid', ACTIVE_UID); } catch { }
   const next = ACTIVE_UID ? `${LEGACY_DB_KEY}:user:${ACTIVE_UID}` : LEGACY_DB_KEY;
   if (next === DB_KEY) return;
   DB_KEY = next;
@@ -48,6 +51,10 @@ export const TABLES = {
   punishments: ['text', 'level', 'active'],
   exceptions: ['type', 'date', 'ref_id', 'action', 'start_time', 'end_time', 'class_name', 'room', 'rescheduled', 'remark'],
   selfstudy: ['date', 'period_no', 'start_time', 'end_time', 'grade', 'class_name', 'subject', 'minutes', 'content', 'absent', 'billable', 'remark'],
+  /* 自习任务：教师端「自习管理」发布、学生工作台展示的那条任务。
+     一条任务只对应一个班级范围（class_scope='all' 或具体班级名），
+     需要发给多个班就建多条，和需求文档 4.3 的约定一致。 */
+  selfstudy_tasks: ['title', 'class_scope', 'class_label', 'date', 'period', 'content', 'task_image', 'generated_image', 'status', 'pc_visible', 'creator'],
   repairs: ['date', 'place', 'item', 'fault', 'urgency', 'status', 'reporter', 'handler', 'cost', 'expect_at', 'fixed_at', 'remark', 'follow_up'],
   /* 下面几张服务端不是走 CRUD 生成的，但前端在用，一并实现 */
   items: ['title', 'done', 'due_at', 'remind_at', 'note', 'priority', 'kind'],
@@ -190,6 +197,7 @@ const ORDER = {
   class_records: (a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || (b.id - a.id),
   preps: (a, b) => String(b.date).localeCompare(String(a.date)) || (b.id - a.id),
   selfstudy: (a, b) => String(b.date).localeCompare(String(a.date)) || ((b.period_no || 0) - (a.period_no || 0)) || (b.id - a.id),
+  selfstudy_tasks: (a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (b.id - a.id),
   repairs: (a, b) => {
     const rank = (s) => (s === 'pending' ? 0 : s === 'doing' ? 1 : 2);
     return (rank(a.status) - rank(b.status)) || String(b.date).localeCompare(String(a.date)) || (b.id - a.id);

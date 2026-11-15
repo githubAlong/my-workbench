@@ -434,7 +434,7 @@ const RECYCLE_TITLE = {
   invigilations: (r) => `${r.date} ${r.subject || ''} 监考`,
   trips: (r) => `${r.to_place || ''} 出差`,
   materials: (r) => r.title, notes: (r) => r.title, homework: (r) => r.title,
-  studies: (r) => r.title,
+  studies: (r) => r.title, selfstudy_tasks: (r) => r.title,
   preps: (r) => `${r.date || ''} ${r.class_name || ''} ${r.topic || ''}`.trim(),
   courses: (r) => `周${r.weekday} 第${r.period_no}节 ${r.class_name || ''}`,
   categories: (r) => r.name, students: (r) => r.name,
@@ -3932,7 +3932,34 @@ on('GET', '/public/link/:code', ({ params, query }) => {
     link: { code: l.code, title: l.title, grades },
     teacher: { nickname: u.nickname, subject: u.subject, school: u.school },
     materials: mats, categories: cats, rosters, punishments: punish, roll, date,
+    selfstudyTasks: publicSelfstudyTasks(),
   };
+});
+/* 学生端可见的自习任务：只下发已发布的，其余（班级匹配、PC 开关）由学生端判定。
+   这样总开关一关，下一次轮询拿到的就是空数组，学生端立即进入空态。 */
+function publicSelfstudyTasks() {
+  const periods = rowsOf('periods');
+  const endTimeOf = (period) => {
+    const no = String(period || '').replace(/[^\d]/g, '');
+    const hit = periods.find((p) => String(p.period_no) === no);
+    return hit?.end_time || '';
+  };
+  const u = currentUser();
+  return rowsOf('selfstudy_tasks')
+    .filter((t) => t.status === 'published')
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (b.id - a.id))
+    .map((t) => ({
+      id: t.id, title: t.title, class_scope: t.class_scope, class_label: t.class_label,
+      date: t.date, period: t.period, content: t.content,
+      task_image: t.task_image || '', generated_image: t.generated_image || '',
+      pc_visible: num(t.pc_visible), creator: t.creator || u.nickname,
+      end_time: endTimeOf(t.period), updated_at: t.updated_at,
+    }));
+}
+on('GET', '/public/link/:code/selfstudy', ({ params }) => {
+  const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
+  if (!l) fail(404, '链接不存在或已关闭');
+  return { tasks: publicSelfstudyTasks() };
 });
 on('GET', '/public/link/:code/file/:id', ({ params }) => {
   const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
@@ -4138,7 +4165,7 @@ on('POST', '/study/records/import', ({ body }) => {
 const CRUD_TABLES = [
   'periods', 'courses', 'class_records', 'invigilations', 'trips', 'materials', 'notes', 'preps',
   'categories', 'homework', 'studies', 'students', 'rosters', 'punishments', 'exceptions',
-  'selfstudy', 'repairs', 'teachers',
+  'selfstudy', 'selfstudy_tasks', 'repairs', 'teachers',
 ];
 
 for (const table of CRUD_TABLES) {
@@ -4184,6 +4211,11 @@ for (const table of CRUD_TABLES) {
       b.active = b.active ?? 1;
     }
     if (table === 'materials') { b.views = b.views ?? 0; b.downloads = b.downloads ?? 0; }
+    if (table === 'selfstudy_tasks') {
+      /* 新建默认是草稿；PC 端默认可见（总开关未发布时二级开关不生效）。 */
+      b.status = b.status || 'draft';
+      b.pc_visible = b.pc_visible ?? 1;
+    }
     return createRow(table, normalizeBody(b));
   });
   on('PATCH', `/${table}/:id`, ({ params, body }) => {

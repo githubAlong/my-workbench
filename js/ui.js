@@ -108,7 +108,7 @@ export const NAV = [
       { id: 'invigilation', label: '监考', icon: 'shield' },
       { id: 'trips', label: '出差', icon: 'car' },
       { id: 'notes', label: '笔记', icon: 'edit' },
-  { id: 'selfstudy', label: '自习', icon: 'clock' },
+  { id: 'selfstudy', label: '自习管理', icon: 'clock' },
   { id: 'textbook', label: '教材', icon: 'book' },
   { id: 'pick', label: '抽人', icon: 'dice' },
   { id: 'mystery', label: '盲盒', icon: 'gift' },
@@ -457,7 +457,8 @@ export async function render() {
 
   let viewName = seg;
   const isWorkModule = WORK_TABS.some(item => item.id === seg);
-  const isToolModule = ['selfstudy', 'textbook', 'pick', 'mystery'].includes(seg);
+  /* 自习管理是独立的一级页面（见 selfstudy.js），不再落到「课件」工具页 */
+  const isToolModule = ['textbook', 'pick', 'mystery'].includes(seg);
   if (isWorkModule) viewName = 'work';
   if (isToolModule) viewName = 'materials';
   if (seg === 'daily') viewName = 'daily';

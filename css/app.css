@@ -4636,6 +4636,119 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .prep-table th { padding:14px 16px; color:#5b667a; background:#fff; border-bottom:1px solid #eef1f6; font-size:13px; font-weight:650; text-align:left; white-space:nowrap; }
 .prep-table td { padding:13px 16px; color:#2b3648; border-bottom:1px solid #f2f5f9; font-size:13px; vertical-align:middle; white-space:nowrap; }
 .prep-table tbody tr:hover { background:#fafcff; }
+
+/* ================= 自习管理（教师端） ================= */
+.ssm-head { display:flex; align-items:flex-start; gap:16px; margin-bottom:20px; }
+.ssm-title { font-size:20px; font-weight:700; color:var(--text); }
+.ssm-sub { margin-top:4px; font-size:14px; color:#9ca3af; }
+.ssm-pub { display:flex; align-items:center; gap:10px; margin-left:auto; }
+.ssm-pub-label { font-size:14px; color:var(--text-2); }
+.ssm-pub-btn { padding:9px 20px; border:0; border-radius:999px; background:#1677ff; color:#fff;
+  font:inherit; font-size:14px; font-weight:650; cursor:pointer; transition:background .18s; }
+.ssm-pub-btn.on { background:#36c66b; }
+.ssm-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; }
+@media (max-width:1024px) { .ssm-grid { grid-template-columns:1fr; } }
+.ssm-card { padding:24px; background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.08); }
+.ssm-card-title { margin-bottom:18px; color:var(--text); font-size:16px; font-weight:650; }
+.ssm-field { display:flex; align-items:flex-start; gap:12px; margin-bottom:16px; }
+.ssm-label { flex:0 0 96px; padding-top:10px; color:var(--text-2); font-size:14px; text-align:right; }
+.ssm-label .req { color:#ef4444; }
+.ssm-ctl { flex:1; min-width:0; }
+.ssm-input { width:100%; height:40px; padding:0 12px; border:1px solid var(--line); border-radius:8px;
+  background:var(--card); color:var(--text); font:inherit; font-size:14px; outline:none; }
+textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:vertical; }
+.ssm-input:focus, .ssm-input.is-err:focus { border-color:#1677ff; box-shadow:0 0 0 3px rgba(22,119,255,.15); }
+.ssm-input.is-err { border-color:#ef4444; }
+.ssm-err { margin-top:5px; color:#ef4444; font-size:13px; }
+.ssm-count { margin-top:6px; color:#9ca3af; font-size:12px; text-align:right; }
+.ssm-count.over { color:#ef4444; }
+.ssm-time { display:flex; gap:10px; }
+.ssm-time select { width:112px; flex:0 0 auto; }
+/* 适用班级：竖排单列下拉，底部固定一行不可点的小字 */
+.ssm-dd { position:relative; }
+.ssm-dd-btn { display:flex; align-items:center; justify-content:space-between; cursor:pointer; }
+.ssm-dd-panel { position:absolute; z-index:30; left:0; right:0; top:calc(100% + 6px); display:none;
+  max-height:280px; padding:6px; overflow:auto; background:var(--card);
+  border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.14); }
+.ssm-dd.open .ssm-dd-panel { display:block; }
+.ssm-dd-opt { padding:9px 12px; border-radius:8px; color:var(--text); font-size:14px; cursor:pointer; white-space:nowrap; }
+.ssm-dd-opt:hover { background:var(--bg-sunken); }
+.ssm-dd-opt.on { background:rgba(22,119,255,.1); color:#1677ff; font-weight:600; }
+.ssm-dd-foot { margin-top:6px; padding:8px 12px 4px; border-top:1px solid var(--line); color:#9ca3af; font-size:12px; cursor:default; }
+.ssm-imgs { display:flex; gap:16px; margin:4px 0 18px 108px; }
+@media (max-width:640px) { .ssm-imgs { margin-left:0; } }
+.ssm-img { position:relative; display:grid; place-items:center; width:128px; height:128px; overflow:hidden;
+  border:1.5px dashed #cfd6e4; border-radius:8px; color:#9ca3af; font-size:13px; text-align:center; cursor:pointer; }
+.ssm-img img { width:100%; height:100%; object-fit:cover; }
+.ssm-img-ops { position:absolute; inset:0; display:none; align-items:center; justify-content:center; gap:12px;
+  background:rgba(0,0,0,.45); color:#fff; font-size:12px; }
+.ssm-img-ops span { cursor:pointer; }
+.ssm-img:hover .ssm-img-ops { display:flex; }
+.ssm-actions { display:flex; align-items:center; gap:12px; }
+.ssm-btn { height:40px; padding:0 24px; border:1px solid var(--line); border-radius:8px;
+  background:var(--card); color:var(--text); font:inherit; font-size:14px; font-weight:600; cursor:pointer; }
+.ssm-btn:hover { background:var(--bg-sunken); }
+.ssm-btn.primary { border-color:#1677ff; background:#1677ff; color:#fff; }
+.ssm-btn.primary:hover { background:#0e63d6; }
+.ssm-btn.danger { border-color:rgba(239,68,68,.4); color:#ef4444; }
+.ssm-btn:disabled { opacity:.5; cursor:not-allowed; }
+.ssm-list { display:flex; flex-direction:column; gap:12px; }
+.ssm-item { display:flex; align-items:center; gap:12px; min-height:64px; padding:12px 14px;
+  border:1px solid var(--line); border-radius:10px; background:var(--card); cursor:pointer; transition:background .15s; }
+.ssm-item:hover { background:var(--bg-sunken); }
+.ssm-item.on { border-color:#1677ff; background:rgba(22,119,255,.06); }
+.ssm-item.on:hover { background:rgba(22,119,255,.09); }
+.ssm-item-ico { flex:0 0 auto; display:grid; place-items:center; width:30px; height:30px;
+  border-radius:8px; background:rgba(22,119,255,.1); color:#1677ff; }
+.ssm-item-t { color:var(--text); font-size:14px; font-weight:650; }
+.ssm-item-d { margin-top:2px; color:#9ca3af; font-size:12.5px; }
+.ssm-tag { margin-left:auto; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:650; }
+.ssm-tag.pub { background:rgba(22,119,255,.12); color:#1677ff; }
+.ssm-tag.draft { background:rgba(54,198,107,.12); color:#36c66b; }
+.ssm-pc-row { display:flex; align-items:center; gap:12px; }
+.ssm-pc-text { color:#9ca3af; font-size:14px; font-weight:600; }
+.ssm-pc-text.on { color:#36c66b; }
+.ssm-switch { position:relative; flex:0 0 auto; width:48px; height:28px; border:0; border-radius:999px;
+  background:#d8dee9; cursor:pointer; transition:background .2s; }
+.ssm-switch::after { content:''; position:absolute; top:2px; left:2px; width:24px; height:24px; border-radius:50%;
+  background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.2); transition:left .2s; }
+.ssm-switch.on { background:#36c66b; }
+.ssm-switch.on::after { left:22px; }
+.ssm-switch:disabled { opacity:.45; cursor:not-allowed; }
+.ssm-pc-note { margin-top:10px; color:#9ca3af; font-size:13px; line-height:1.6; }
+.ssv-wrap { padding:2px 0 4px; }
+.ssv-note { margin-bottom:14px; color:#9ca3af; font-size:13px; }
+.ssv-actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:18px; }
+
+/* ---------- 学生端自习任务卡片（教师预览与学生页共用） ---------- */
+.st-card { width:80%; max-width:960px; margin:0 auto; overflow:hidden; background:#fff; border-radius:16px;
+  box-shadow:0 4px 24px rgba(0,0,0,.06); color:#1f2937; }
+.st-card.in-sheet { width:100%; max-width:none; box-shadow:none; border:1px solid #e5e7eb; }
+.st-card-head { padding:26px 36px 24px; text-align:center; color:#fff;
+  background:linear-gradient(90deg,#1677ff 0%,#2f9dfb 45%,#36c66b 100%); }
+.st-card-title { font-size:24px; font-weight:700; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.st-card-sub { margin-top:8px; font-size:14px; opacity:.92; }
+.st-card-body { padding:34px 48px 12px; font-size:18px; line-height:1.8; }
+.st-list { margin:0; padding-left:26px; }
+.st-list li { margin-bottom:14px; font-weight:650; }
+.st-list li:last-child { margin-bottom:0; }
+.st-text { white-space:pre-wrap; word-break:break-word; }
+.st-img { display:block; width:100%; height:auto; margin:22px 0 6px; border-radius:10px; }
+.st-meta { display:flex; flex-wrap:wrap; align-items:center; gap:10px 28px; padding:18px 48px;
+  border-top:1px solid #eef1f6; color:#9ca3af; font-size:13px; }
+.st-actions { display:flex; gap:14px; padding:0 48px 34px; }
+.st-btn { flex:1; height:44px; border-radius:999px; font:inherit; font-size:14px; font-weight:650; cursor:pointer; }
+.st-btn.ghost { border:1px solid #1677ff; background:#fff; color:#1677ff; }
+.st-btn.grad { border:0; background:linear-gradient(90deg,#1677ff,#36c66b); color:#fff; }
+.st-btn:disabled { cursor:default; opacity:.9; }
+@media (max-width:900px) {
+  .st-card { width:92%; }
+  .st-card-head { padding:20px 22px; }
+  .st-card-title { font-size:20px; }
+  .st-card-body { padding:24px 24px 8px; font-size:16px; }
+  .st-meta { padding:14px 24px; gap:8px 18px; }
+  .st-actions { padding:0 24px 24px; }
+}
 .prep-col-date { color:#4a5568; white-space:nowrap; }
 .prep-topic { max-width:220px; font-weight:600; overflow:hidden; text-overflow:ellipsis; }
 .prep-table td.prep-process { max-width:430px; color:#4a5568; white-space:normal; }
