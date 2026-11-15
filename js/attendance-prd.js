@@ -17,6 +17,9 @@ const TABS = [
   ['research','教研表'],['leave','请假'],['summary','汇总统计表'],
 ];
 const TYPE = { seat:'seat', class:'class', research:'research' };
+/* 「生成班表」下拉的四个目标表；按钮文字跟着当前选择走，
+   否则一直写「生成班表」，用户看不出到底会生成哪一张。 */
+const GENERATE_LABELS = { seat:'坐班表', class:'上课表', research:'教研表', leave:'请假表' };
 const TODAY = () => new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'});
 const rowData = (r) => r?.data && typeof r.data === 'object' ? r.data : {};
 const objectValue = (value) => {
@@ -71,6 +74,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   let showAddTeacher = false;
   /* 「生成班表」下拉里选中的表类型：确认生成时用它，不再用原生 select。 */
   let generateType = 'seat';
+  /* 生成请假表后，请假页只显示所选日期的请假记录；点「查看全部」恢复。 */
+  let leaveOnlyDate = '';
   let watermarkOn = false, watermarkText = '';
   const draftCache = new Map();
   const currentScheduleType = () => {
@@ -442,6 +447,16 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     catch(error){toast(attendanceErrorText(error),'err',4000);}
   };
   const generateTable = async type => {
+    /* 请假表不需要新建工作表：把所选日期的请假记录汇总出来即可。 */
+    if (type === 'leave') {
+      leaveOnlyDate = date;
+      tab = 'leave';
+      search = '';
+      paint();
+      const count = activeLeavesFor(leaveRecords, date, grade).length;
+      toast('请假表已生成：'+grade+' · '+date+' · '+(count?count+' 人请假':'暂无请假记录'), count?'ok':'warn', 4000);
+      return;
+    }
     const existed=!!details[type];
     await persistDraft(type,{reload:false});
     await load();
@@ -1101,6 +1116,14 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const editable = type !== 'roster', list = visibleTeachers();
     const draftRows = editable ? getDraftRows(type) : [];
     const context = {leaveRecords,date,period};
+    /* 统计条、表格和导出共用同一份跨表数据：坐班表里登记的状态，
+       切到上课表 / 教研表也要能看到（用户 11-15 反馈），不再各表只看自己。 */
+    const summaryContext = {
+      leaveRecords,date,period,
+      seatRows:type==='seat'?draftRows:(details.seat?.rows||[]),
+      classRows:type==='class'?draftRows:(details.class?.rows||[]),
+      researchRows:type==='research'?draftRows:(details.research?.rows||[]),
+    };
     /* 花名册只维护教师名单：考勤相关的坐班/上课/听课/教研/请假/备注一律不展示（用户 11-15 裁决）。 */
     const columns = type === 'roster'
       ? ['序号','归属部门','归属年级','姓名','学科','操作']
@@ -1112,7 +1135,12 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         return '<tr><td>'+(index+1)+'</td><td>'+esc(deptOf(teacher))+'</td><td>'+esc(teacher.grade||grade)+'</td>'
           +'<td><b>'+esc(teacher.name)+'</b></td><td>'+esc(teacher.subject||'')+'</td><td>'+actionsOf(teacher)+'</td></tr>';
       }
-      const state = editable ? deriveTableGridState(teacher,type,draftRows,context)
+      const state = editable
+        ? (() => {
+          const own = deriveTableGridState(teacher,type,draftRows,context);
+          const merged = deriveRosterState(teacher,summaryContext);
+          return {...merged, remark:own.remark, leave:merged.leave||own.leave||''};
+        })()
         : deriveRosterState(teacher,{...context,seatRows:details.seat?.rows||[],
           classRows:details.class?.rows||[],researchRows:details.research?.rows||[]});
       /* 请假优先级最高：已请假的人其他四类格子显示为未登记，与导出和 KPI 口径一致，
@@ -1150,12 +1178,6 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       +'<button type="button" class="aprd-op" data-subject-manager>学科管理</button><i class="aprd-divider" aria-hidden="true"></i>'
       +'<button type="button" class="aprd-op" data-roster-import>批量导入</button>'
       +exportMenuHtml(teachers.length);
-    const summaryContext = {
-      leaveRecords,date,period,
-      seatRows:type==='seat'?draftRows:(details.seat?.rows||[]),
-      classRows:type==='class'?draftRows:(details.class?.rows||[]),
-      researchRows:type==='research'?draftRows:(details.research?.rows||[]),
-    };
     const currentStates = editable ? list.map(teacher=>deriveRosterState(teacher,summaryContext)) : [];
     /* 设计稿的统计条：数字在上、文字在下，整条一个圆角边框，格子之间用竖线分隔。 */
     const summaryItems = [
@@ -1176,8 +1198,12 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       +'</tr></thead><tbody>'+(rows||'<tr><td colspan="'+columns.length+'" class="aprd-empty">当前筛选下暂无在岗教师</td></tr>')+'</tbody></table></div>';
   };
   const leaveHtml = () => {
-    const shown=leaveRecords.filter(x=>(!search||(x.name+' '+x.subject).includes(search))&&(!subject||x.subject===subject));
-    return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'<button class="primary" data-add-leave>新增请假</button>'+exportMenuHtml(teachers.length)+'</div></div>'
+    const scope = leaveOnlyDate ? activeLeavesFor(leaveRecords, leaveOnlyDate, grade) : leaveRecords;
+    const shown=scope.filter(x=>(!search||(x.name+' '+x.subject).includes(search))&&(!subject||x.subject===subject));
+    const dayChip = leaveOnlyDate
+      ? '<span class="aprd-filter-count">仅显示 '+esc(leaveOnlyDate)+' 请假 · '+shown.length+' 人 <button type="button" class="aprd-op" data-leave-show-all>查看全部</button></span>'
+      : '';
+    return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'<button class="primary" data-add-leave>新增请假</button>'+exportMenuHtml(teachers.length)+'</div>'+dayChip+'</div>'
       +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><span class="aprd-status '+(x.status==='已批'?'approved':'pending')+'">'+esc(x.status)+'</span></td><td>'+esc(x.remark||'')+'</td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
   };
   const summaryHtml = () => {
@@ -1200,9 +1226,9 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       +'<label>节次 <select id="aprd-period"><option value="0" '+(period===0?'selected':'')+'>全部</option>'+DEFAULT_PERIODS.map(p=>'<option value="'+p.no+'" '+(p.no===period?'selected':'')+'>'+p.label+'</option>').join('')+'</select></label>'
       +'<label>时段 <span class="aprd-time-range"><input type="time" id="aprd-start" value="'+periodRange[0]+'"><span class="aprd-time-sep">—</span><input type="time" id="aprd-end" value="'+periodRange[1]+'"></span></label>'
       +'</div><div class="aprd-filter-actions">'
-      +'<div class="aprd-export-wrap"><button type="button" class="aprd-generate-btn" data-generate-toggle>生成班表<i class="aprd-caret"></i></button>'
+      +'<div class="aprd-export-wrap"><button type="button" class="aprd-generate-btn" data-generate-toggle>生成'+(GENERATE_LABELS[generateType]||'班表')+'<i class="aprd-caret"></i></button>'
       +'<div class="aprd-export-menu aprd-generate-menu" data-generate-menu hidden>'
-      +['seat','class','research'].map(t=>'<button type="button" data-generate-type="'+t+'" class="'+(generateType===t?'on':'')+'">生成'+({seat:'坐班表',class:'上课表',research:'教研表'}[t])+'</button>').join('')
+      +Object.keys(GENERATE_LABELS).map(t=>'<button type="button" data-generate-type="'+t+'" class="'+(generateType===t?'on':'')+'">生成'+GENERATE_LABELS[t]+'</button>').join('')
       +'</div></div>'
       +'<button class="primary" data-generate>确认生成</button><button type="button" class="aprd-voice" data-workspace-voice>'+icon('speak',15)+'语音登记</button></div></div>'
       +'<section class="aprd-card"><nav class="aprd-tabs">'+TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(tab===id?'on':'')+'">'+label+'</button>').join('')+'</nav>'
@@ -1213,13 +1239,15 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     root.querySelectorAll('[data-generate-type]').forEach(button => button.onclick = () => {
       generateType = button.dataset.generateType;
       generateMenu.hidden = true;
+      generateToggle.innerHTML = '生成'+(GENERATE_LABELS[generateType]||'班表')+'<i class="aprd-caret"></i>';
       root.querySelectorAll('[data-generate-type]').forEach(item => {
         if (item.classList) item.classList.toggle('on', item === button);
       });
     });
     root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();tab=b.dataset.tab;search='';subject='';paint();});
-    root.querySelectorAll('[data-grade-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();grade=b.dataset.gradeTab;await load();});
-    root.querySelector('#aprd-date').onchange=async e=>{await flushAutoSave();date=e.target.value;await load();};
+    root.querySelector('[data-leave-show-all]')?.addEventListener('click',()=>{leaveOnlyDate='';paint();});
+    root.querySelectorAll('[data-grade-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();grade=b.dataset.gradeTab;leaveOnlyDate='';await load();});
+    root.querySelector('#aprd-date').onchange=async e=>{await flushAutoSave();date=e.target.value;leaveOnlyDate='';await load();};
     root.querySelector('#aprd-period').onchange=async e=>{await flushAutoSave();period=Number(e.target.value);paint();};
     const rememberPeriodTime = () => {
       const start=root.querySelector('#aprd-start')?.value||'';

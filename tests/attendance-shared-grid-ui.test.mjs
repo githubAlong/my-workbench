@@ -143,7 +143,9 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   assert.equal(saved.class.rows.length,0);
   assert.equal(saved.research.rows.length,0);
   await root.querySelector('[data-tab="class"]').click();
-  assert.match(control(root,'sit').attributes['aria-label'],/未登记/);
+  /* 用户 11-15 反馈：坐班表登记的状态在 上课表 / 教研表 页签也要能看到，
+     四个页签共用同一份跨表状态，不再各表只看自己。 */
+  assert.match(control(root,'sit').attributes['aria-label'],/正常/);
   assert.equal(control(root,'remark').tag,'button');
   await root.querySelector('[data-tab="seat"]').click();
   assert.match(control(root,'sit').attributes['aria-label'],/正常/);
@@ -151,6 +153,18 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   /* 花名册只保留名单与操作，不再展示任何考勤状态格 */
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
   assert.equal(root.querySelectorAll('[aria-disabled]').length,0);
+});
+
+test('生成请假表按所选日期汇总请假记录并切到请假页',async()=>{
+  const {root,toasts,calls}=await setup();
+  const leaveOption=root.querySelector('[data-generate-type="leave"]');
+  assert.ok(leaveOption,'生成菜单里要有请假表');
+  await leaveOption.click();
+  await root.querySelector('[data-generate]').click();
+  assert.match(root.querySelector('[data-tab="leave"]').attributes.class,/on/,'生成后应切到请假页');
+  assert.ok(toasts.some(item=>/请假表已生成/.test(item.message)),'要有生成成功提示');
+  /* 请假表只汇总请假记录，不该凭空写入坐班/上课/教研工作表 */
+  assert.deepEqual(calls,[]);
 });
 
 test('换节次后连续自动保存，不会把自己的上一次写入判成「另一台设备修改」',async()=>{
