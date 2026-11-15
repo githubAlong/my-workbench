@@ -108,7 +108,7 @@ export const NAV = [
       { id: 'invigilation', label: '监考', icon: 'shield' },
       { id: 'trips', label: '出差', icon: 'car' },
       { id: 'notes', label: '笔记', icon: 'edit' },
-  { id: 'selfstudy', label: '自习管理', icon: 'clock' },
+  { id: 'selfstudy', label: '自习', icon: 'clock' },
   { id: 'textbook', label: '教材', icon: 'book' },
   { id: 'pick', label: '抽人', icon: 'dice' },
   { id: 'mystery', label: '盲盒', icon: 'gift' },
