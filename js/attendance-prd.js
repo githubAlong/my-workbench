@@ -1018,13 +1018,13 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       }).join('')+
       '<div class="aprd-foot"><button type="button" data-cancel>取消</button><button class="primary" type="submit">保存</button></div></form>';
     (root.querySelector('.attendance-prd') || root).append(dialog); const form=dialog.querySelector('form');
-    /* 时长单位=天 时，时长换成「上午/下午/整天」选择；小时/月仍用数字（用户 11-15 要求） */
+    /* 时长单位=天 时，时长换成「上午/下午/1天」选择；小时/月仍用数字（用户 11-15 要求） */
     const durationUnit=form.querySelector('[name="duration_unit"]');
     const durationInput=form.querySelector('[name="days"]');
     if(durationUnit&&durationInput){
       const dayPart=document.createElement('select');
       dayPart.name='day_part';dayPart.hidden=true;
-      dayPart.innerHTML=['上午','下午','整天'].map(v=>'<option value="'+v+'">'+v+'</option>').join('');
+      dayPart.innerHTML=['上午','下午','1天'].map(v=>'<option value="'+v+'">'+v+'</option>').join('');
       if(initial.day_part)dayPart.value=initial.day_part;
       durationInput.after(dayPart);
       const syncDurationMode=()=>{
@@ -1041,9 +1041,10 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   const editLeaveRecord = (record = null, defaultTeacher = null) => {
     const recordName=record?.name||record?.teacher||'';
     const unitOf=record?.duration_unit==='month'?'month':record?.duration_unit==='hour'?'hour':'day';
-    const dayPartOf=record?.day_part||(['morning','afternoon'].includes(record?.duration_unit)
+    /* 历史数据的「整天」编辑时统一回显为「1天」（用户 11-15 要求） */
+    const dayPartOf=(record?.day_part==='整天'?'1天':record?.day_part)||(['morning','afternoon'].includes(record?.duration_unit)
       ?(record.duration_unit==='morning'?'上午':'下午')
-      :(Number(record?.days??record?.duration??1)>=1?'整天':'上午'));
+      :(Number(record?.days??record?.duration??1)>=1?'1天':'上午'));
     const amountOf=unitOf==='day'?dayPartOf:(record?.months??record?.hours??record?.duration??1);
     openEditor(record?'修改请假记录':'登记请假',[
       /* 教师直接手输：全校名单太长，下拉翻半天反而慢 */
@@ -1051,7 +1052,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       {key:'type',label:'类型',type:'select',options:[{value:'',label:'无（取消请假）'},...LEAVE_TYPES.map(x=>({value:x,label:x}))]},
       {key:'start_date',label:'开始日期',type:'date'},
       {key:'end_date',label:'结束日期',type:'date'},
-      /* 时长单位放在时长上方，支持 小时/天/月；天用 上午/下午/整天（用户 11-15 要求），状态不再让用户选 */
+      /* 时长单位放在时长上方，支持 小时/天/月；天用 上午/下午/1天（用户 11-15 要求），状态不再让用户选 */
       {key:'duration_unit',label:'时长单位',type:'select',options:[
         {value:'hour',label:'小时'},
         {value:'day',label:'天'},
@@ -1351,7 +1352,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       ? '<span class="aprd-filter-count">仅显示 '+esc(leaveOnlyDate)+' 请假 · '+shown.length+' 人 <button type="button" class="aprd-op" data-leave-show-all>查看全部</button></span>'
       : '';
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'<button class="primary" data-add-leave>新增请假</button>'+exportMenuHtml(teachers.length)+'</div>'+dayChip+'</div>'
-      +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><span class="aprd-status '+(x.status==='已批'?'approved':'pending')+'">'+esc(x.status)+'</span></td><td><input type="text" class="aprd-note-input" data-leave-note="'+x.id+'" value="'+escAttr(x.remark||'')+'" placeholder="备注" aria-label="'+escAttr(x.name+' 备注')+'"></td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
+      +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><input type="text" class="aprd-note-input" data-leave-note="'+x.id+'" value="'+escAttr(x.remark||'')+'" placeholder="备注" aria-label="'+escAttr(x.name+' 备注')+'"></td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
   };
   const summaryHtml = () => {
     const filteredTeachers=visibleTeachers();

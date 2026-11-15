@@ -19,7 +19,7 @@ export const ATTENDANCE_COLUMNS = {
   seat: TEACHER_COLUMNS,
   class: TEACHER_COLUMNS,
   research: TEACHER_COLUMNS,
-  leave: ['姓名', '学科', '类型', '开始', '结束', '请假时长', '状态', '备注'],
+  leave: ['姓名', '学科', '类型', '开始', '结束', '请假时长', '备注'],
   summary: ['序号', '姓名', '学科', '坐班', '上课', '听课', '教研', '请假时长', '综合状态'],
 };
 
@@ -379,10 +379,10 @@ export function calculateDailySummary(context = {}) {
 export function parseLeaveDuration(amount, unit='day') {
   if (!['day','hour','month','morning','afternoon'].includes(unit)) throw new Error('请选择请假时长单位');
   if (unit === 'morning' || unit === 'afternoon') return {duration:0.5,duration_unit:unit,days:0.5,hours:0};
-  /* 天单位支持「上午/下午/整天」三个时段（用户 11-15 要求） */
-  if (unit === 'day' && ['上午','下午','整天'].includes(String(amount))) {
-    const days = String(amount) === '整天' ? 1 : 0.5;
-    return {duration:days,duration_unit:'day',days,hours:0,day_part:String(amount)};
+  /* 天单位支持「上午/下午/1天」三个时段（用户 11-15 要求，整天改为 1天） */
+  if (unit === 'day' && ['上午','下午','整天','1天'].includes(String(amount))) {
+    const days = ['整天','1天'].includes(String(amount)) ? 1 : 0.5;
+    return {duration:days,duration_unit:'day',days,hours:0,day_part:days===1?'1天':String(amount)};
   }
   const value=Number(amount);
   if (String(amount).trim()==='' || !Number.isFinite(value) || value<=0) throw new Error('请假时长必须大于0，不能为负数');
@@ -392,6 +392,8 @@ export function parseLeaveDuration(amount, unit='day') {
   return {duration:value,duration_unit:unit,days:unit==='day'?value:0,hours:unit==='hour'?value:0};
 }
 export function formatLeaveDuration(record) {
+  /* 历史数据的「整天」统一展示为「1天」（用户 11-15 要求） */
+  if (record?.day_part === '整天') return '1天';
   if (record?.day_part) return record.day_part;
   if (record?.duration_unit === 'morning') return '上午（0.5天）';
   if (record?.duration_unit === 'afternoon') return '下午（0.5天）';
@@ -443,7 +445,7 @@ const EXPORT_HEADERS = Object.freeze({
   seat: ['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注'],
   class: ['序号','归属部门','归属年级','姓名','学科','班级','节次','上课时间','上课状态','听课教师','备注'],
   research: ['序号','归属部门','归属年级','姓名','学科','教研时间','地点','主持人','签到状态','备注'],
-  leave: ['序号','归属部门','归属年级','姓名','学科','请假类型','开始日期','结束日期','时段','请假时长','状态','备注'],
+  leave: ['序号','归属部门','归属年级','姓名','学科','请假类型','开始日期','结束日期','时段','请假时长','备注'],
 });
 
 const exportRowData = row => row?.data && typeof row.data === 'object' ? row.data : {};
@@ -687,7 +689,7 @@ export function buildAttendanceExportGrid({
         gradeOf(teacher, record), name, teacher?.subject || record.subject || '',
         record.type || '未填写', record.start_date || '', record.end_date || record.start_date || '',
         exportLeavePeriod(record) || '—', exportLeaveDuration(record),
-        record.status || '未注明', record.remark || '',
+        record.remark || '',
       ];
     });
     /* 用户 11-15 需求：请假表只统计请假人员，不再补未请假名单 */
