@@ -149,10 +149,12 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
   assert.equal(rowByName(classes,'王老师')[5],'');
   assert.equal(rowByName(classes,'赵老师')[5],'');
   assert.deepEqual(new Set(namesOf(classes)),new Set(allNames));
-  /* 上课表统计只保留上课和请假人数（用户 11-15 要求），不再出现应到/未登记 */
+  /* 上课表统计只保留上课/请假人数，听课有人才展示（用户 11-15 要求），不再出现应到/未登记 */
   assert.match(classes[2][0],/上课 1 人/);
   assert.match(classes[2][0],/请假 1 人/);
-  assert.ok(!/应到|未登记|听课/.test(classes[2][0]),'上课表导出标题不应再出现应到/未登记/听课');
+  assert.ok(!/应到|未登记/.test(classes[2][0]),'上课表导出标题不应再出现应到/未登记');
+  /* 本场唯一的听课人王老师当天请假，状态判给请假，所以标题不出现听课 */
+  assert.ok(!/听课/.test(classes[2][0]),'没人听课（或被请假覆盖）时不应展示听课人数');
 
   /* 教研表现在也是格子录入（__teacherGrid），导出取同一份数据 */
   const research = buildAttendanceExportGrid({...common,type:'research',researchRows:[{
@@ -188,6 +190,26 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
   assert.match(summary[2][0],/应到 3 人/);
   assert.deepEqual(summary[3],['序号','姓名','学科','坐班','上课','听课','教研','请假时长','综合状态']);
   assert.equal(summary[4][1],'李老师');
+});
+
+test('上课表统计：有人听课才展示听课人数', () => {
+  const teachers = [
+    {id:1,name:'李老师',subject:'语文',grade:'高一',active:1},
+    {id:2,name:'王老师',subject:'数学',grade:'高一',active:1},
+  ];
+  const common = {
+    grade:'高一',date:'2026-11-13',period:1,teachers,seatRows:[],
+    researchRows:[],leaveRecords:[],resolvePeriodRange:()=>['08:00','08:45'],
+  };
+  const withListener = buildAttendanceExportGrid({...common,type:'class',classRows:[
+    {teacher:'李老师',subject:'语文',data:{__classRecord:{class_name:'高一(1)班',period:1,status:'y',listeners:['王老师']}}},
+  ]});
+  assert.match(withListener[2][0],/上课 1 人/);
+  assert.match(withListener[2][0],/听课 1 人/);
+  assert.match(withListener[2][0],/请假 0 人/);
+  assert.ok(!/应到|未登记/.test(withListener[2][0]),'上课表标题不应出现应到/未登记');
+  const withoutListener = buildAttendanceExportGrid({...common,type:'class',classRows:[]});
+  assert.ok(!/听课/.test(withoutListener[2][0]),'没人听课时不应展示听课人数');
 });
 
 test('一场都没登记时，四个页签仍然输出全名单与明确状态，不留白', () => {
