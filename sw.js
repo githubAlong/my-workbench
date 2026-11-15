@@ -30,7 +30,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v272-unified';
+const CACHE = 'wb-v273-unified';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -254,6 +254,25 @@ self.addEventListener('fetch', (e) => {
      注意不能把「网络返回的错误页」当成功 —— 502/503 也要走兜底。 */
   if (e.request.mode === 'navigate') {
     const base = self.registration.scope;
+    const url = new URL(e.request.url);
+    const scopePath = new URL(base).pathname;
+    /* 只有工作台首页（scope 根 / index.html）才按「首页壳」处理。
+       以前所有导航都当成 index.html：打开 student.html 时断网会拿缓存的教师首页
+       顶替（学生端就显示「页面没能加载出来」），联网时还会把学生端 HTML 写进
+       首页缓存，反过来污染工作台。子页面改成网络优先、离线回退自己的缓存。 */
+    if (url.pathname !== scopePath && url.pathname !== scopePath + 'index.html') {
+      e.respondWith((async () => {
+        try {
+          return await fetch(e.request);
+        } catch (error) {
+          console.warn('[sw] 子页面网络失败，尝试使用缓存：', url.pathname, error && error.message);
+          const cached = (await caches.match(e.request))
+            || (url.pathname.includes('student') ? await caches.match(base + 'student.html') : null);
+          return cached || offlineResponse();
+        }
+      })());
+      return;
+    }
     e.respondWith((async () => {
       /* TEST：优先取线上最新 HTML，避免旧缓存 HTML 与新 JS 模块错配。
          网络失败时才回退缓存；不会清除 localStorage / IndexedDB 或业务数据。 */
