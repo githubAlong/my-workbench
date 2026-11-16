@@ -59,13 +59,8 @@
   .pick-names { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
   .pick-win.sm { font-size: 26px; display: inline-block; padding: 8px 16px; border-radius: 14px;
     background: var(--primary); color: #fff; letter-spacing: -.5px; animation: pop .38s cubic-bezier(.34,1.56,.64,1); }
-  /* 点名（第 19 条）：班级/人数/点几个 三个输入并排 */
-  .pk-grid { display: grid; grid-template-columns: 1.4fr .8fr .8fr; gap: 10px; }
-  @media (max-width: 420px) { .pk-grid { grid-template-columns: 1fr 1fr; } .pk-grid > .field:first-child { grid-column: 1 / -1; } }
-  .pk-recent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 10px; }
-  .pk-chip { padding: 5px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--card);
-    font-size: 12.5px; color: var(--text-2); cursor: pointer; }
-  .pk-chip:active { background: var(--primary-weak); }
+  /* 点名（第 19 条）：人数/点几个 两个输入并排 */
+  .pk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .pk-mode { display: flex; width: 100%; }
   .pk-mode button { flex: 1; }
   .pk-mode button[disabled] { opacity: .42; cursor: not-allowed; }
@@ -391,10 +386,9 @@ function studentCardHtml(t) {
     : `<div class="st-text">${esc(items[0] || '')}</div>`;
   const img = t.task_image || t.generated_image;
   const day = t.date === todayStr() ? '今日' : (t.date || '');
-  const deadline = [day, t.end_time || t.period].filter(Boolean).join(' ');
+  const deadline = [day, t.deadline_time || t.end_time || t.period].filter(Boolean).join(' ');
   return `<div class="card card-pad">
-    <div class="card-title">${esc(t.title || '今日自习任务')}</div>
-    <div class="tiny muted" style="margin-top:5px">${esc([t.class_label || '全部', t.date || '', t.period || ''].filter(Boolean).join(' · '))}</div>
+    <div class="card-title" style="text-align:center">${esc(t.title || '今日自习任务')}</div>
     <div class="st-card-body" style="padding:20px 0 12px;font-size:16px">${body}${img ? `<img class="st-img" src="${esc(img)}" alt="任务图">` : ''}</div>
     <div class="row wrap tiny muted" style="gap:8px 22px;padding:14px 0;border-top:1px solid var(--line)">
       <span>教师：${esc(t.creator || '老师')}</span>
@@ -611,49 +605,41 @@ function paintRoll() {
   const first = (liveCls && rosters.find((r) => String(r.id) === String(liveCls.roster_id)))
     || rosters[0]
     || { id: 0, grade: '', class_name: '', names: [], count: 0 };
-  /* 【第 19 条：点名改成自填班级 + 人数 + 点几个，按号码点】
+  /* 【第 19 条：点名改成填人数 + 点几个，按号码点】
      原来只能从老师预置的名单里选班，名单没建就没得点；
      「同时点 N 人」藏在右上角一个不起眼的数字框里；点的永远是名字。
      老师实际用法通常是：随便报个班号，从 1 号点到 50 号，点 3 个。
-     所以这里三件事都摊开：班级自己填（可点常用班回填）、人数自己填、点几个自己填，
-     并且默认按号码点（学生名单里没名字时本来就只能按号）。
-     模式二选一：按号码 / 按名单名字。 */
+     现在只填人数和点几个，默认按号码点；班级和最近常用班已按反馈去掉，
+     姓名模式退化为使用老师当前名单（有名单时可选）。 */
   const names0 = (first.names || []).filter(Boolean);
   const hasNames = names0.length > 0;
   const cnt0 = Math.max(1, Math.min(200, Number(first.count) || first.roster_count || names0.length || 40));
-  const recentCls = (() => {
-    try { return JSON.parse(localStorage.getItem('wb_pick_cls') || '[]').slice(0, 6); } catch { return []; }
-  })();
 
   $('#s-body').innerHTML = `<div class="card card-pad">
     <div class="pk-grid">
-      <div class="field"><label class="field-label">班级</label>
-        <input class="input" id="pk-cls" placeholder="如 高一(3)班" value="${esc(clsName(first.grade, first.class_name))}" autocomplete="off"></div>
       <div class="field"><label class="field-label">人数</label>
         <input class="input" id="pk-total" type="number" inputmode="numeric" min="1" max="200" value="${cnt0}"></div>
       <div class="field"><label class="field-label">点几个</label>
         <input class="input" id="pk-num" type="number" inputmode="numeric" min="1" max="20" value="1"></div>
     </div>
-    ${recentCls.length ? `<div class="pk-recent"><span class="tiny muted">最近：</span>${recentCls.map((c) => `<button class="pk-chip" data-cls="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
     <div class="field" style="margin-top:4px">
       <label class="field-label">怎么点</label>
       <div class="seg pk-mode">
         <button class="on" data-mode="no">按号码</button>
-        <button data-mode="name" ${hasNames ? '' : 'disabled title="这个班还没有名单，去老师那里导入名单后才能按名字点"'}>按名单名字</button>
+        <button data-mode="name" ${hasNames ? '' : 'disabled title="还没有名单，导入名单后才能按名字点"'}>按名单名字</button>
       </div>
     </div>
     <label class="pk-nr"><input type="checkbox" id="pk-norepeat"><span>不重复点同一人 <span class="tiny muted">（点完一轮前不会再出现）</span></span></label>
     <button class="btn primary block" id="go" style="height:56px;font-size:17px;margin-top:14px">${ICON.dice} 开始点名</button>
-    <div class="pick-stage"><div class="pick-roll" id="stage">填好上面三项，点「开始点名」</div></div>
+    <div class="pick-stage"><div class="pick-roll" id="stage">填好人数和点几个，点「开始点名」</div></div>
     <div id="history" class="tiny muted" style="text-align:center;min-height:18px"></div>
   </div>`;
 
   let mode = 'no';
   let norepeat = false;
   let pool = [];        // 不重复模式下「还没点到过」的
-  let poolKey = '';     // 班级|人数|模式，变了就重置池子
+  let poolKey = '';     // 人数|模式，变了就重置池子
 
-  const clsOf = () => ($('#pk-cls').value || '').trim() || '未命名班级';
   const totalOf = () => Math.max(1, Math.min(200, Number($('#pk-total').value) || 1));
   // 池子：号码是 1..人数；名字是名单（人数框跟着名单长度走）
   const allOf = () => {
@@ -661,23 +647,13 @@ function paintRoll() {
     const n = totalOf();
     return Array.from({ length: n }, (_, i) => String(i + 1));
   };
-  const keyOf = () => `${clsOf()}|${mode}|${mode === 'name' ? names0.length : totalOf()}`;
+  const keyOf = () => `${mode}|${mode === 'name' ? names0.length : totalOf()}`;
   const resetPool = (force = false) => {
     const k = keyOf();
     if (!force && k === poolKey) return;
     poolKey = k; pool = allOf();
   };
-  const saveCls = () => {
-    const c = clsOf();
-    const old = (() => { try { return JSON.parse(localStorage.getItem('wb_pick_cls') || '[]'); } catch { return []; } })()
-      .filter((x) => x !== c);
-    try { localStorage.setItem('wb_pick_cls', JSON.stringify([c, ...old].slice(0, 6))); } catch {}
-  };
 
-  // 常用班一键回填
-  $('#s-body').querySelectorAll('[data-cls]').forEach((b) => {
-    b.onclick = () => { $('#pk-cls').value = b.dataset.cls; resetPool(true); };
-  });
   // 模式切换
   $('#s-body').querySelectorAll('[data-mode]').forEach((b) => {
     b.onclick = () => {
@@ -694,11 +670,10 @@ function paintRoll() {
     resetPool(true);
     $('#history').textContent = norepeat ? `已点 0/${pool.length}，点完自动洗牌重新开始` : '';
   };
-  ['#pk-cls', '#pk-total'].forEach((s2) => { $(s2).oninput = () => { if (norepeat) resetPool(); }; });
+  $('#pk-total').oninput = () => { if (norepeat) resetPool(); };
   resetPool(true);
 
   $('#go').onclick = () => {
-    saveCls();
     resetPool();
     const k = Math.max(1, Math.min(20, Number($('#pk-num').value) || 1));
     const whole = allOf();
@@ -730,13 +705,12 @@ function paintRoll() {
           stage.innerHTML = `<div class="pick-names">${picks.map((p) => `<span class="pick-win sm">${esc(label(p))}</span>`).join('')}</div>`;
         }
         try { navigator.vibrate?.([40, 60, 90]); } catch {}
-        const cls = clsOf();
         if (norepeat) {
           $('#history').textContent = pool.length
-            ? `${cls} · 已点 ${whole.length - pool.length}/${whole.length} 人，还剩 ${pool.length} 人`
-            : `${cls} · 全班都点过了，下次点击自动洗牌重来`;
+            ? `已点 ${whole.length - pool.length}/${whole.length} 人，还剩 ${pool.length} 人`
+            : '全班都点过了，下次点击自动洗牌重来';
         } else {
-          $('#history').textContent = `${cls} · 从 ${whole.length} ${mode === 'name' ? '个名字' : '个号码'}里点了 ${picks.length} 个`;
+          $('#history').textContent = `从 ${whole.length} ${mode === 'name' ? '个名字' : '个号码'}里点了 ${picks.length} 个`;
         }
       }
     }, 62);

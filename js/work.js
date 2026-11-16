@@ -2242,7 +2242,7 @@ function paintPickCard(rosters) {
       <div style="flex:1;min-width:180px">
         <div class="bold">${icon('user', 15)} 点名
           <span class="tiny muted" style="margin-left:6px">按号码点，不重复</span></div>
-        <div class="small muted">填班级和人数，选点几个，点一下就开始。</div>
+        <div class="small muted">填人数和点几个，点一下就开始。</div>
       </div>
       <button class="btn primary sm" id="pick-open">${icon('refresh', 15)} 开始点名</button>
     </div>
@@ -2575,7 +2575,7 @@ const STUDENT_MOD = {
   },
   pick: {
     name: '点名', icon: 'dice', tab: 'roll',
-    desc: '学生端那台设备上的点名转盘：填班级和人数，点一下滚出号码或名字。',
+    desc: '学生端那台设备上的点名转盘：填人数和点几个，点一下滚出号码或名字。',
   },
   mystery: {
     name: '盲盒', icon: 'gift', tab: 'punish',
