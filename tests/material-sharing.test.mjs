@@ -9,7 +9,8 @@ function fixture() {
     materials: [{ id: 1, public: 1, grade: '高二', title: '公开教材' }, { id: 2, public: 0, grade: '高二', title: 'private-material' }, { id: 3, public: 1, grade: '高二', title: 'deleted', deleted_at: '2026-11-10' }, { id: 4, public: 1, grade: '高一', title: 'other-grade' }],
     attachments: [{ id: 11, owner_type: 'material', owner_id: 1, name: '语文课件.dps', url: 'wb-material:teacher-1/1/file-1', size: 123 },
       { id: 12, owner_type: 'material', owner_id: 1, name: '阅读.pdf', url: 'data:application/pdf;base64,JVBERg==' },
-      { id: 13, owner_type: 'material', owner_id: 2, name: 'private.wps', url: 'wb-material:teacher-1/2/private' }] };
+      { id: 13, owner_type: 'material', owner_id: 2, name: 'private.wps', url: 'wb-material:teacher-1/2/private' },
+      { id: 14, owner_type: 'material', owner_id: 1, name: '跳舞视频.mp4', url: 'wb-material:teacher-1/1/video', size: 200 }] };
 }
 function service({ payload = fixture(), failUpload = 0, bucketExists = true } = {}) {
   const calls = []; let uploads = 0;
@@ -49,9 +50,10 @@ test('private, deleted and wrong-grade material IDs cannot be guessed through th
 test('anonymous details reveal file names but never private storage pointers or file bodies', async () => {
   const response = await get(service().handler, '&material_id=1');
   const text = await response.text(), data = JSON.parse(text);
-  assert.equal(data.files.length, 2);
+  assert.equal(data.files.length, 3);
   assert.equal(data.files[0].name, '语文课件.dps');
   assert.equal(data.files[0].preview, false);
+  assert.equal(data.files[2].preview, true);
   assert.ok(!text.includes('wb-material:'));
   assert.ok(!text.includes('base64'));
 });
@@ -72,6 +74,13 @@ test('WPS view also streams as a download, while existing PDF data can preview w
   const pdf = await get(handler, '&material_id=1&file_id=12&mode=view');
   assert.equal(pdf.headers.get('content-type'), 'application/pdf');
   assert.equal(await pdf.text(), '%PDF');
+});
+test('video files stay playable inline instead of turning into unnamed downloads', async () => {
+  const { handler } = service();
+  const video = await get(handler, '&material_id=1&file_id=14&mode=view');
+  assert.equal(video.status, 200);
+  assert.equal(video.headers.get('content-type'), 'video/mp4');
+  assert.match(video.headers.get('content-disposition'), /^inline;/);
 });
 test('files belonging to another material or account cannot be downloaded', async () => {
   const payload = fixture(); payload.attachments[0].url = 'wb-material:other-teacher/1/file';

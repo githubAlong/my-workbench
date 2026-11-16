@@ -16,7 +16,14 @@ export function validateFiles(files) {
 }
 export function previewType(name) {
   const extension = String(name || '').split('.').pop().toLowerCase();
-  return extension === 'pdf' ? 'application/pdf' : ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[extension] || 'application/octet-stream');
+  /* 视频 / 音频也要给出真实类型：之前只认 pdf 和图片，mp4 会被当成附件，
+     学生点开时浏览器直接存成一个没有扩展名的 blob 文件，既不能播放也看不出是什么。 */
+  return ({
+    pdf: 'application/pdf',
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+    mp4: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg',
+    mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav'
+  }[extension] || 'application/octet-stream');
 }
 export function publicMaterials(payload, code) {
   const links = Array.isArray(payload.links) ? payload.links : [];

@@ -546,7 +546,7 @@ async function paintMaterialDetail() {
       <div class="row wrap" style="gap:8px;margin-top:14px">
         ${d.files.map((f) => `<button class="btn soft sm" data-dl="${f.id}" data-name="${esc(f.name)}">${ICON.dl} 下载 ${esc(f.name).slice(0, 12)}</button>`).join('')}
       </div>
-      <div class="tiny muted" style="margin-top:14px">PDF、图片可在浏览器查看。WPS / Office 文档请下载原文件后打开；查看和下载均无需账号密码。</div>
+      <div class="tiny muted" style="margin-top:14px">PDF、图片、音视频可在浏览器直接查看。WPS / Office 文档请下载原文件后打开；查看和下载均无需账号密码。</div>
     </div>`;
     /* 不能直接给 href 让浏览器跳转：文件地址在云端函数上，顶层导航会撞上 ngrok 提示页，
        跨域时 download 属性也会被忽略。先 fetch 成 blob（请求自带跳过警告的请求头），再打开或保存。 */
