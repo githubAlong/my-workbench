@@ -1,12 +1,14 @@
 # Cloudflare Pages 缓存策略
-# 静态资源缓存 1 天，减少 max-age=0 带来的频繁回源；
-# Service Worker 用 CACHE 版本号管理内容更新，不会长期持有旧版本。
+# JS/CSS 必须每次回源校验（304 很便宜）。
+# 之前设了 max-age=86400，发布后浏览器最长一天还在用旧脚本：
+# 新页面的界面已经更新，但旧 localapi.js 不认新字段，表现为「开关点了没反应」。
+# 日常提速交给 Service Worker 的 cache-first（由 CACHE 版本号控制）。
 
 /js/*
-  Cache-Control: public, max-age=86400
+  Cache-Control: no-cache
 
 /css/*
-  Cache-Control: public, max-age=86400
+  Cache-Control: no-cache
 
 /assets/*
   Cache-Control: public, max-age=86400
