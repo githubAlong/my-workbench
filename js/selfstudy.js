@@ -157,7 +157,6 @@ async function renderSelfstudyManage(box) {
   let form = {
     title: '今日自习任务', class_scope: 'all', class_label: '全部',
     date: today, period: defaultPeriod, content: '', task_image: '', generated_image: '',
-    pc_visible: 1,
   };
 
   const current = () => tasks.find((t) => String(t.id) === String(editingId)) || null;
@@ -172,7 +171,6 @@ async function renderSelfstudyManage(box) {
       title: t.title || '', class_scope: t.class_scope || 'all', class_label: t.class_label || '全部',
       date: t.date || today, period: t.period || defaultPeriod, content: t.content || '',
       task_image: t.task_image || '', generated_image: t.generated_image || '',
-      pc_visible: Number(t.pc_visible) ? 1 : 0,
     };
     paint();
   };
@@ -198,7 +196,7 @@ async function renderSelfstudyManage(box) {
     title: form.title.trim(), class_scope: form.class_scope, class_label: form.class_label,
     date: form.date, period: form.period, content: form.content.trim(),
     task_image: form.task_image, generated_image: form.generated_image,
-    status, pc_visible: form.pc_visible, creator: state.user?.nickname || '老师',
+    status, creator: state.user?.nickname || '老师',
   });
 
   const upsert = async (status) => {
@@ -263,7 +261,6 @@ async function renderSelfstudyManage(box) {
     const pub = isPublished();
     /* 保存成功后按钮自己亮 1.4 秒「已保存」：toast('已保存') 会被全局静默，见 core.js */
     const saved = Date.now() - savedAt < 1400;
-    const pc = Number(form.pc_visible) !== 0;
     const list = tasks.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (b.id - a.id));
     const clsOptions = [{ label: '全部', scope: 'all' }, ...classes.map((label) => ({ label, scope: label }))];
 
@@ -367,15 +364,6 @@ async function renderSelfstudyManage(box) {
               }).join('') : '<div class="empty" style="padding:20px">还没有任务，填好左侧内容后点「保存任务」</div>'}
             </div>
           </div>
-
-          <div class="ssm-card">
-            <div class="ssm-card-title">是否在PC端显示</div>
-            <div class="ssm-pc-row">
-              <button class="ssm-switch ${pc ? 'on' : ''}" id="ssm-pc" ${pub ? '' : 'disabled'} aria-label="PC端显示开关"></button>
-              <span class="ssm-pc-text ${pc ? 'on' : ''}">${pc ? '开启' : '关闭'}</span>
-            </div>
-            <div class="ssm-pc-note">开启后，学生可在个人电脑浏览器查看本节自习任务；关闭时仅教室班班通可见</div>
-          </div>
         </div>
       </div>`;
 
@@ -469,15 +457,6 @@ async function renderSelfstudyManage(box) {
       paint();
     };
 
-    box.querySelector('#ssm-pc').onclick = async () => {
-      if (!isPublished() || busy) return;
-      form.pc_visible = Number(form.pc_visible) ? 0 : 1;
-      paint();
-      try {
-        if (editingId) await api.patch('/selfstudy_tasks/' + editingId, { pc_visible: form.pc_visible });
-      } catch (e) { toast(e.message || '保存失败', 'err'); }
-    };
-
     box.querySelectorAll('[data-task]').forEach((n) => {
       n.onclick = () => {
         const t = tasks.find((x) => String(x.id) === String(n.dataset.task));
@@ -492,7 +471,7 @@ async function renderSelfstudyManage(box) {
         await api.del('/selfstudy_tasks/' + editingId);
         tasks = await api.get('/selfstudy_tasks');
         editingId = null;
-        form = { ...form, title: '今日自习任务', class_scope: 'all', class_label: '全部', content: '', task_image: '', generated_image: '', pc_visible: 1 };
+        form = { ...form, title: '今日自习任务', class_scope: 'all', class_label: '全部', content: '', task_image: '', generated_image: '' };
         toast('已删除');
         paint();
       } catch (e) { toast(e.message || '删除失败', 'err'); }
@@ -532,7 +511,7 @@ async function renderStudentSelfstudy(box, entryOnly = false) {
              <button class="btn ghost sm" id="ss-copy">${icon('copy', 14)} 复制链接</button>
              <a class="btn ghost sm" href="${esc(studentUrl(link.code, 'tab=selfstudy'))}" target="_blank" rel="noopener">打开看看</a>
            </div>
-           <div class="field-hint" style="margin-top:8px">学生打开这个链接，顶部就有「自习」页；没有进行中的签到时，页面会显示「现在没有在进行的签到」。</div>`
+           <div class="field-hint" style="margin-top:8px">学生打开这个链接，发布任务后顶部会出现「自习」页；没有进行中的签到时，页面会显示「现在没有在进行的签到」。</div>`
       : `<div class="empty" style="padding:18px">还没有生成学生链接。<button class="btn primary sm" id="ss-mklink">生成一条</button></div>`}
     </div>
     ${entryOnly ? '' : `

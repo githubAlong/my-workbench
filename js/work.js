@@ -2608,6 +2608,12 @@ async function renderStudentModule(box, key) {
   const link = links[0];
   const pubMats = mats.filter((m) => Number(m.public) !== 0);
 
+  /* 每个模块在学生页上都有一个页签。老师可以单独关掉某个页签，
+     开关存在 links.modules 上（material / roll / punish），默认全开。
+     老链接没有这个字段，读出来是 undefined，按「开」处理。 */
+  const modKey = meta.tab;
+  let modOn = link ? Number((link.modules || {})[modKey] ?? 1) !== 0 : true;
+
   /* 打开学生页时直接落到本模块对应的页签（教材→material、点名→roll、盲盒→punish）。
      以前链接只是一张通用学生页，从哪个模块点进去都停在默认页签，看着像「打开的不是这个模块」。 */
   const studentLink = link ? studentUrl(link.code, `tab=${meta.tab}`) : '';
@@ -2630,6 +2636,14 @@ async function renderStudentModule(box, key) {
         学生打开上面的地址 → 顶部点「${esc(meta.name)}」→ 就是这个模块。学生不用登录，也不需要装 App。
       </div>
     </div>
+    ${link ? `<div class="card card-pad" style="margin-bottom:14px">
+      <div class="ssm-card-title">是否在学生端显示</div>
+      <div class="ssm-pc-row">
+        <button class="ssm-switch ${modOn ? 'on' : ''}" id="sm-visible" aria-label="学生端显示开关"></button>
+        <span class="ssm-pc-text ${modOn ? 'on' : ''}" id="sm-visible-txt">${modOn ? '开启' : '关闭'}</span>
+      </div>
+      <div class="ssm-pc-note">关闭后学生页不显示「${esc(meta.name)}」页签；三个模块全关时学生只看到「正在来的路上」</div>
+    </div>` : ''}
     <div id="sm-body"></div>`;
 
   box.querySelector('#sm-copy')?.addEventListener('click', async () => {
@@ -2648,6 +2662,28 @@ async function renderStudentModule(box, key) {
     await api.post('/links', { title: '班级资料站' });
     await syncMaterialSharing();
     await renderStudentModule(box, key);
+  });
+
+  /* 开关只改 links.modules，不重绘整页：重绘会丢掉刚打开的其他弹层 */
+  box.querySelector('#sm-visible')?.addEventListener('click', async () => {
+    const btn = box.querySelector('#sm-visible');
+    const txt = box.querySelector('#sm-visible-txt');
+    const next = !modOn;
+    btn.disabled = true;
+    try {
+      const modules = { ...(link.modules || {}), [modKey]: next ? 1 : 0 };
+      await api.patch('/links/' + link.id, { modules });
+      modOn = next;
+      link.modules = modules;
+      btn.classList.toggle('on', next);
+      txt.textContent = next ? '开启' : '关闭';
+      txt.classList.toggle('on', next);
+      toast(next ? '学生端已显示该模块' : '已关闭，学生端不再显示该模块');
+    } catch (e) {
+      toast(e.message || '保存失败，请重试', 'err');
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   const inner = box.querySelector('#sm-body');

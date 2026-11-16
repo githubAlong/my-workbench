@@ -3792,10 +3792,20 @@ on('DELETE', '/attachments/:id', ({ params }) => {
 });
 
 /* ---- 学生短链 ---- */
+/* 学生页「教材 / 点名 / 盲盒」三个模块的可见开关，存在 links.modules 上。
+   默认全开：老链接没有这个字段时，学生看到的还是原来的样子。 */
+const LINK_MODULE_KEYS = ['material', 'roll', 'punish'];
+function linkModules(l) {
+  let raw = {};
+  try { raw = JSON.parse(l?.modules || '{}') || {}; } catch { raw = {}; }
+  const out = {};
+  for (const k of LINK_MODULE_KEYS) out[k] = Number(raw[k]) === 0 ? 0 : 1;
+  return out;
+}
 on('GET', '/links', () => (load().links || [])
   .filter((l) => !l.deleted_at)
   .sort((a, b) => a.id - b.id)
-  .map((l) => ({ ...l, grades: safeJSON(l.grades, []) })));
+  .map((l) => ({ ...l, grades: safeJSON(l.grades, []), modules: linkModules(l) })));
 on('POST', '/links', ({ body }) => {
   const db = load();
   db.links = db.links || [];
@@ -3803,7 +3813,9 @@ on('POST', '/links', ({ body }) => {
   const id = T('links').reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
   const row = {
     id, code, title: body?.title || '班级资料站',
-    grades: JSON.stringify(body?.grades || []), enabled: 1,
+    grades: JSON.stringify(body?.grades || []),
+    modules: JSON.stringify({ material: 1, roll: 1, punish: 1 }),
+    enabled: 1,
     created_at: nowISO(), updated_at: nowISO(), deleted_at: null,
   };
   T('links').push(row);
@@ -3815,6 +3827,9 @@ on('PATCH', '/links/:id', ({ params, body }) => {
   if (!l) fail(404, '链接不存在');
   for (const k of ['title', 'enabled']) if (k in (body || {})) l[k] = body[k];
   if (body?.grades) l.grades = JSON.stringify(body.grades);
+  if (body?.modules && typeof body.modules === 'object') {
+    l.modules = JSON.stringify(linkModules({ modules: JSON.stringify(body.modules) }));
+  }
   l.updated_at = nowISO();
   save();
   return l;
@@ -3937,7 +3952,7 @@ on('GET', '/public/link/:code', ({ params, query }) => {
       };
     });
   return {
-    link: { code: l.code, title: l.title, grades },
+    link: { code: l.code, title: l.title, grades, modules: linkModules(l) },
     teacher: { nickname: u.nickname, subject: u.subject, school: u.school },
     materials: mats, categories: cats, rosters, punishments: punish, roll, date,
     selfstudyTasks: publicSelfstudyTasks(),
