@@ -1,0 +1,29 @@
+# Cloudflare Pages 缓存策略
+# 静态资源缓存 1 天，减少 max-age=0 带来的频繁回源；
+# Service Worker 用 CACHE 版本号管理内容更新，不会长期持有旧版本。
+
+/js/*
+  Cache-Control: public, max-age=86400
+
+/css/*
+  Cache-Control: public, max-age=86400
+
+/assets/*
+  Cache-Control: public, max-age=86400
+
+/manifest.webmanifest
+  Cache-Control: public, max-age=86400
+
+# Service Worker 文件不缓存，确保浏览器能及时检测更新
+/sw.js
+  Cache-Control: no-cache
+
+# HTML 不缓存，确保用户拿到最新版本
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+/student.html
+  Cache-Control: no-cache
