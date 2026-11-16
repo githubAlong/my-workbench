@@ -2983,7 +2983,7 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   border-bottom: 1px dashed color-mix(in srgb, var(--line) 90%, var(--text-3));
 }
 
-/* ---------- 抽人（第 19 条） ---------- */
+/* ---------- 点名（第 19 条） ---------- */
 .pick-card { margin-bottom: 14px; }
 .pk-stage {
   margin: 14px 0 10px; padding: 20px 14px; border-radius: 14px; min-height: 110px;
@@ -3065,7 +3065,7 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
   border-color: color-mix(in srgb, var(--green) 26%, transparent);
 }
 
-/* ---------- 三级导航页里的统计卡（教材/抽人/盲盒/自习） ----------
+/* ---------- 三级导航页里的统计卡（教材/点名/盲盒/自习） ----------
    这些页面用的是 3 列内联网格。手机上 390px 三列每张只剩 110px，
    「盒子里的任务」标题要折成两行，数字和说明挤在一起。
    窄屏统一退到 2 列（3 张卡时最后一张占满整行），再窄就 1 列。 */

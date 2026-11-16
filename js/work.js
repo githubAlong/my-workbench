@@ -126,7 +126,7 @@ registerView(async function work(main, { tab, third }) {
       headEl.innerHTML = pageHead(node.label, {
         selfstudy: '学生端「自习」：开一场签到，学生点「我到了」，这里实时看人数',
         textbook: '学生端「教材」：你勾了「学生可见」的资料，就是学生看到的全部',
-        pick: '学生端「抽人」：按号码或按名单，抽过的不重复',
+        pick: '学生端「点名」：按号码或按名单，点过的不重复',
         mystery: '学生端「盲盒」：点一下随机弹一个任务，这一轮不重复',
       }[third] || '');
     }
@@ -171,9 +171,9 @@ registerView(async function materials(main, { tab }) {
   const meta = {
     selfstudy: ['自习', '学生端「自习」：开一场签到，学生点「我到了」，这里实时看人数'],
     textbook: ['教材', '学生端「教材」：你勾了「学生可见」的资料，就是学生看到的全部'],
-    pick: ['抽人', '学生端「抽人」：按号码或按名单，抽过的不重复'],
+    pick: ['点名', '学生端「点名」：按号码或按名单，点过的不重复'],
     mystery: ['盲盒', '学生端「盲盒」：点一下随机弹一个任务，这一轮不重复'],
-  }[t] || ['小助手', '学生端互动工具统一管理：自习、教材、抽人、盲盒'];
+  }[t] || ['小助手', '学生端互动工具统一管理：自习、教材、点名、盲盒'];
 
   main.innerHTML = '<div id="materials-body"></div>';
   const body = main.querySelector('#materials-body');
@@ -2222,29 +2222,29 @@ function applyRollStats(sessions) {
   if (tag) tag.hidden = !live;
 }
 
-/* ================= 抽人（第 19 条） =================
-   用户原话：「抽人改成自己填班级 + 人数 + 抽几个，按号码抽」。
+/* ================= 点名（第 19 条） =================
+   用户原话：「点名改成自己填班级 + 人数 + 点几个，按号码点」。
 
-   原来的问题是：抽人绑死在「班级名册」上，没有名册就抽不了；
+   原来的问题是：点名绑死在「班级名册」上，没有名册就点不了；
    而且抽出来的是姓名，课堂上点名不方便 —— 老师喊的是「3 号」，
    学生看的是自己座位号 / 学号。
 
    所以这里完全按用户说的做：
      · 班级随便填（有名册就下拉选，没有就直接打字）；
      · 人数自己填（40 人），不需要提前导入名单；
-     · 抽几个自己填（1~N）；
-     · 按 1~人数 的号码抽，结果同时显示号码和姓名（名册里有对应就叫名字）。
+     · 点几个自己填（1~N）；
+     · 按 1~人数 的号码点，结果同时显示号码和姓名（名册里有对应就叫名字）。
    号码和名册的对应关系：名册第 k 个 = k 号。这样不用额外维护学号字段，
    名册顺序就是座位号顺序，跟老师手里的点名册一致。 */
 function paintPickCard(rosters) {
   return `<div class="card card-pad pick-card">
     <div class="row wrap" style="gap:10px;align-items:center">
       <div style="flex:1;min-width:180px">
-        <div class="bold">${icon('user', 15)} 抽人
-          <span class="tiny muted" style="margin-left:6px">按号码抽，不重复</span></div>
-        <div class="small muted">填班级和人数，选抽几个，点一下就抽。</div>
+        <div class="bold">${icon('user', 15)} 点名
+          <span class="tiny muted" style="margin-left:6px">按号码点，不重复</span></div>
+        <div class="small muted">填班级和人数，选点几个，点一下就开始。</div>
       </div>
-      <button class="btn primary sm" id="pick-open">${icon('refresh', 15)} 开始抽</button>
+      <button class="btn primary sm" id="pick-open">${icon('refresh', 15)} 开始点名</button>
     </div>
   </div>`;
 }
@@ -2259,12 +2259,12 @@ function pickStudentDialog(rosters) {
         <input class="input" id="pk-total" type="number" min="1" max="200" value="${esc(String(rosters[0]?.count || 40))}" inputmode="numeric"></div>
     </div>
     <div class="form-grid">
-      <div class="field"><label class="field-label">抽几个</label>
+      <div class="field"><label class="field-label">点几个</label>
         <input class="input" id="pk-n" type="number" min="1" max="50" value="1" inputmode="numeric"></div>
-      <div class="field"><label class="field-label">已抽过的</label>
+      <div class="field"><label class="field-label">已点过的</label>
         <div class="row" style="gap:8px;align-items:center;height:38px">
           <label class="row" style="gap:6px;align-items:center;font-size:13px">
-            <input type="checkbox" id="pk-norepeat" checked> 不重复抽
+            <input type="checkbox" id="pk-norepeat" checked> 不重复点
           </label>
           <button class="btn ghost sm" id="pk-reset" style="margin-left:auto">重置</button>
         </div></div>
@@ -2273,16 +2273,16 @@ function pickStudentDialog(rosters) {
       <div class="pk-hint">点下面的按钮开始</div>
     </div>
     <div class="pk-history-wrap">
-      <div class="tiny muted" id="pk-his-tip">这轮还没抽</div>
+      <div class="tiny muted" id="pk-his-tip">这轮还没点</div>
       <div class="row wrap" id="pk-history" style="gap:6px;margin-top:6px"></div>
     </div>
     <div class="confirm-actions"><button class="btn ghost" id="pk-close">关闭</button>
-      <button class="btn primary" id="pk-go">${icon('refresh', 15)} 抽</button></div>
+      <button class="btn primary" id="pk-go">${icon('refresh', 15)} 点名</button></div>
   </div>`);
-  const s = sheet({ title: '抽人', body, wide: true });
+  const s = sheet({ title: '点名', body, wide: true });
   const $ = (q) => body.querySelector(q);
   const stage = $('#pk-stage');
-  const drawn = [];        // 已抽出的号码（跨次累积，用于「不重复」）
+  const drawn = [];        // 已点出的号码（跨次累积，用于「不重复」）
 
   /* 名册：班级名对上就取名字，对不上就只显示号码。
      优先精确匹配「高二(3)班」，其次按 grade+class_name 拼出来的名字匹配。 */
@@ -2303,7 +2303,7 @@ function pickStudentDialog(rosters) {
 
   const paintHis = () => {
     const names = namesFor($('#pk-cls').value);
-    $('#pk-his-tip').textContent = drawn.length ? `这轮已抽 ${drawn.length} 个` : '这轮还没抽';
+    $('#pk-his-tip').textContent = drawn.length ? `这轮已点 ${drawn.length} 个` : '这轮还没点';
     $('#pk-history').innerHTML = drawn.map((no, i) => `<span class="pk-chip">
       <b>${no}</b>${names[no - 1] ? `<i>${esc(names[no - 1])}</i>` : ''}
       <button data-un="${i}" title="撤销这个">×</button></span>`).join('');
@@ -2312,8 +2312,8 @@ function pickStudentDialog(rosters) {
     });
   };
 
-  /* 抽签：从 1..total 里排除已抽过的，用 crypto 取随机数。
-     不用 Math.random 是因为它的种子可预测，连着抽会出现明显规律；
+  /* 抽签：从 1..total 里排除已点过的，用 crypto 取随机数。
+     不用 Math.random 是因为它的种子可预测，连着点会出现明显规律；
      课堂上「怎么又是 3 号」是要被学生起哄的。 */
   const randInt = (max) => {
     if (window.crypto?.getRandomValues) {
@@ -2334,7 +2334,7 @@ function pickStudentDialog(rosters) {
     const pool = [];
     for (let i = 1; i <= total; i += 1) if (!noRepeat || !drawn.includes(i)) pool.push(i);
     if (!pool.length) {
-      stage.innerHTML = `<div class="pk-hint pk-done">1~${total} 号都抽完了，点「重置」重新开始</div>`;
+      stage.innerHTML = `<div class="pk-hint pk-done">1~${total} 号都点完了，点「重置」重新开始</div>`;
       return;
     }
     const pickCount = Math.min(want, pool.length);
@@ -2345,7 +2345,7 @@ function pickStudentDialog(rosters) {
       pool.splice(k, 1);       // 同一次里也不重复
     }
     /* 滚动动画：号码快速跳 600ms 再定格。
-       不是为了炫，是为了「抽」这个动作有过程感 —— 直接出结果像内定的。 */
+       不是为了炫，是为了「点」这个动作有过程感 —— 直接出结果像内定的。 */
     stage.innerHTML = `<div class="pk-roll"><span id="pk-roll-num">?</span></div>`;
     const spin = $('#pk-roll-num');
     const t0 = Date.now();
@@ -2376,7 +2376,7 @@ function pickStudentDialog(rosters) {
   paintHis();
 }
 
-/* 惩罚盲盒：学生抽到什么，这里能看到；任务清单也在这里维护 */
+/* 惩罚盲盒：学生点到什么，这里能看到；任务清单也在这里维护 */
 const LV_TXT = { light: '轻松', average: '有点挑战', heavy: '大冒险' };
 const LV_COLOR = { light: 'green', average: 'amber', heavy: 'red' };
 function paintPunishCard(items, records) {
@@ -2385,7 +2385,7 @@ function paintPunishCard(items, records) {
     <div class="row wrap" style="gap:10px;align-items:center">
       <div style="flex:1;min-width:180px">
         <div class="bold">${icon('gift', 15)} 惩罚盲盒<span class="tiny muted" style="margin-left:6px">${items.length} 个任务</span></div>
-        <div class="small muted">学生点「抽任务」随机弹一个，抽到什么这里立刻能看到。</div>
+        <div class="small muted">学生点「盲盒」随机弹一个，点到什么这里立刻能看到。</div>
       </div>
       <button class="btn ghost sm" id="pb-add">${icon('plus', 15)} 加任务</button>
       ${items.length ? `<button class="btn ghost sm" id="pb-seed">补经典任务</button>` : ''}
@@ -2399,7 +2399,7 @@ function paintPunishCard(items, records) {
       </div>`).join('')}
     </div>` : '<div class="empty" style="padding:18px 0">还没有任务，点「加任务」或「补默认任务」开始</div>'}
     ${today.length ? `<div class="pb-recent">
-      <div class="tiny muted" style="margin:10px 0 6px">今天学生抽到的（${today.length} 条）</div>
+      <div class="tiny muted" style="margin:10px 0 6px">今天学生点到的（${today.length} 条）</div>
       ${today.slice(0, 6).map((r) => `<div class="pb-rec">
         <span class="chip ${r.stu_name ? 'blue' : 'grey'}">${esc(r.stu_name || '匿名')}</span>
         <span class="pb-rtext">${esc(r.text)}</span>
@@ -2408,7 +2408,7 @@ function paintPunishCard(items, records) {
     </div>` : ''}
   </div>`;
 }
-/* 抽任务弹层：标题 + 等级 */
+/* 盲盒弹层：标题 + 等级 */
 function punishEditor(p, reload) {
   const body = el(`<div class="sheet-body">
     <div class="field"><label class="field-label">任务内容</label>
@@ -2560,9 +2560,9 @@ function askStatus() {
 }
 
 /* ================= 学生页面的三个模块（小助手下面的二级入口） =================
-   教材 / 抽人 / 盲盒，对应 student.html 顶部的三个页签：
+   教材 / 点名 / 盲盒，对应 student.html 顶部的三个页签：
      material → 老师在「课件」里上传、勾了「学生可见」的资料
-     roll     → 抽人（按号码或按名单，不重复）
+     roll     → 点名（按号码或按名单，不重复）
      punish   → 惩罚盲盒（点一下随机弹一个任务）
    二级页面不做「学生页的复刻」，而是给这三件事做后台：
    看学生到底能拿到什么、把要用的东西配好、看用了几次。
@@ -2574,18 +2574,18 @@ const STUDENT_MOD = {
     desc: '学生打开短链后看到的「课件」页，内容来自你勾了「学生可见」的资料。',
   },
   pick: {
-    name: '抽人', icon: 'dice', tab: 'roll',
-    desc: '学生端那台设备上的抽人转盘：填班级和人数，点一下滚出号码或名字。',
+    name: '点名', icon: 'dice', tab: 'roll',
+    desc: '学生端那台设备上的点名转盘：填班级和人数，点一下滚出号码或名字。',
   },
   mystery: {
     name: '盲盒', icon: 'gift', tab: 'punish',
-    desc: '学生点「抽任务」随机弹一个。这一轮不重复，抽完自动洗牌。',
+    desc: '学生点「盲盒」随机弹一个。这一轮不重复，点完自动洗牌。',
   },
 };
 
 /* 名单字段在库里可能是两种形态：JSON 数组（导入班级时写入）、
    或者「张一诺,李晨阳」这种逗号串（种子数据与手工录的一条就写成了这样）。
-   以前只有抽人弹层里 JSON.parse 一处，串形态直接抛 SyntaxError，
+   以前只有点名弹层里 JSON.parse 一处，串形态直接抛 SyntaxError，
    整页白屏。统一走这个函数，解析不了就按分隔符切开。 */
 function parseNames(raw) {
   if (Array.isArray(raw)) return raw.filter(Boolean);
@@ -2608,7 +2608,7 @@ async function renderStudentModule(box, key) {
   const link = links[0];
   const pubMats = mats.filter((m) => Number(m.public) !== 0);
 
-  /* 打开学生页时直接落到本模块对应的页签（教材→material、抽人→roll、盲盒→punish）。
+  /* 打开学生页时直接落到本模块对应的页签（教材→material、点名→roll、盲盒→punish）。
      以前链接只是一张通用学生页，从哪个模块点进去都停在默认页签，看着像「打开的不是这个模块」。 */
   const studentLink = link ? studentUrl(link.code, `tab=${meta.tab}`) : '';
 
@@ -2691,32 +2691,32 @@ async function renderStudentModule(box, key) {
       };
     });
   } else if (key === 'pick') {
-    /* —— 抽人 —— */
+    /* —— 点名 —— */
     const totalNames = rosters.reduce((s, r) => s + (parseNames(r.names).length || Number(r.count) || 0), 0);
     inner.innerHTML = `
       <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-        <div class="card card-pad"><div class="tiny muted">可抽班级</div>
+        <div class="card card-pad"><div class="tiny muted">可点班级</div>
           <div style="font-size:24px;font-weight:700">${rosters.length}</div>
-          <div class="tiny muted">${rosters.slice(0, 2).map((r) => esc(r.class_name)).join('、') || '没有名单也能按号码抽'}</div></div>
+          <div class="tiny muted">${rosters.slice(0, 2).map((r) => esc(r.class_name)).join('、') || '没有名单也能按号码点'}</div></div>
         <div class="card card-pad"><div class="tiny muted">名单人数</div>
           <div style="font-size:24px;font-weight:700">${totalNames}</div>
           <div class="tiny muted">没名单就只能按号码</div></div>
         <div class="card card-pad"><div class="tiny muted">进行中的签到</div>
           <div style="font-size:24px;font-weight:700">${rollSess.filter((s) => s.status === 'open').length}</div>
-          <div class="tiny muted">抽人不需要签到</div></div>
+          <div class="tiny muted">点名不需要签到</div></div>
       </div>
       <div class="row wrap" style="gap:8px;margin:16px 0 10px">
-        <button class="btn primary sm" id="pk-try">${icon('dice', 15)} 在这里试抽一次</button>
+        <button class="btn primary sm" id="pk-try">${icon('dice', 15)} 在这里试点一次</button>
         <button class="btn ghost sm" id="pk-ros">${icon('users', 15)} 管理班级名单</button>
       </div>
       <div class="card card-pad">
         <div class="card-title">${icon('users', 16)} 班级名单</div>
-        <div class="tiny muted" style="margin:6px 0 10px">名单只影响「按名单名字抽」这一个选项。没有名单，学生页照样能按 1~50 号抽。</div>
+        <div class="tiny muted" style="margin:6px 0 10px">名单只影响「按名单名字点」这一个选项。没有名单，学生页照样能按 1~50 号点。</div>
         ${rosters.length ? `<div class="pb-list">${rosters.map((r) => {
       const n = parseNames(r.names);
       return `<div class="pb-row">
             <span class="chip blue">${esc(clsName(r.grade, r.class_name))}</span>
-            <span class="pb-text">${n.length ? `${n.length} 个名字` : `未导入姓名（按号码抽 ${r.count || 40} 人）`}</span>
+            <span class="pb-text">${n.length ? `${n.length} 个名字` : `未导入姓名（按号码点 ${r.count || 40} 人）`}</span>
             <span class="tiny muted">${n.slice(0, 6).join('、')}${n.length > 6 ? '…' : ''}</span>
           </div>`;
     }).join('')}</div>` : '<div class="empty" style="padding:16px">还没有班级名单</div>'}
@@ -2732,7 +2732,7 @@ async function renderStudentModule(box, key) {
         <div class="card card-pad"><div class="tiny muted">盒子里的任务</div>
           <div style="font-size:24px;font-weight:700">${punishes.length}</div>
           <div class="tiny muted">${punishes.filter((p) => p.level === 'heavy').length} 个是「大冒险」</div></div>
-        <div class="card card-pad"><div class="tiny muted">今天被抽中</div>
+        <div class="card card-pad"><div class="tiny muted">今天被点中</div>
           <div style="font-size:24px;font-weight:700">${today.length}</div></div>
         <div class="card card-pad"><div class="tiny muted">正在生效</div>
           <div style="font-size:24px;font-weight:700;color:var(--green)">${punishes.filter((p) => Number(p.active) !== 0).length}</div></div>
@@ -2741,7 +2741,7 @@ async function renderStudentModule(box, key) {
         <button class="btn primary sm" id="mb-add">${icon('plus', 15)} 加任务</button>
         ${punishes.length ? '<button class="btn ghost sm" id="mb-seed">补经典任务</button>' : ''}
         <span style="flex:1"></span>
-        <span class="tiny muted">学生那边这一轮不重复，抽完自动洗牌</span>
+        <span class="tiny muted">学生那边这一轮不重复，点完自动洗牌</span>
       </div>
       <div class="card card-pad" id="mb-list"></div>`;
 
@@ -2758,7 +2758,7 @@ async function renderStudentModule(box, key) {
       });
       listBox.querySelectorAll('[data-pb-del]').forEach((b) => {
         b.onclick = async () => {
-          if (!(await confirmDialog('删掉这个任务？学生就抽不到它了。'))) return;
+          if (!(await confirmDialog('删掉这个任务？学生就点不到它了。'))) return;
           await api.del('/punishments/' + b.dataset.pbDel); toast('已删除'); renderStudentModule(box, key);
         };
       });
@@ -2790,7 +2790,7 @@ async function renderStudentModule(box, key) {
 
     if (today.length) {
       const rec = el(`<div class="card card-pad" style="margin-top:12px">
-        <div class="card-title">${icon('clock', 15)} 今天学生抽到的（${today.length} 条）</div>
+        <div class="card-title">${icon('clock', 15)} 今天学生点到的（${today.length} 条）</div>
         <div class="pb-recent">${today.slice(0, 12).map((r) => `<div class="pb-rec">
           <span class="chip ${r.stu_name ? 'blue' : 'grey'}">${esc(r.stu_name || '匿名')}</span>
           <span class="pb-rtext">${esc(r.text)}</span>
@@ -2802,7 +2802,7 @@ async function renderStudentModule(box, key) {
   }
 }
 
-/* 班级名单管理：本地版没有单独的名单页，就在抽人下面开一个弹层改。
+/* 班级名单管理：本地版没有单独的名单页，就在点名下面开一个弹层改。
    以前用户反馈「名单建好了没法改名字」，根因是根本没有编辑入口。 */
 function openRosterDialog(rosters, reload) {
   const body = el(`<div class="sheet-body">
@@ -2813,7 +2813,7 @@ function openRosterDialog(rosters, reload) {
         <label class="field-label">${esc(clsName(r.grade, r.class_name))}</label>
         <textarea class="input" rows="3" data-names="${r.id}">${esc(n.join('\n'))}</textarea>
       </div>`;
-  }).join('') || '<div class="empty">还没有班级名单。先在「课件 → 上传资料」里建班，或直接在学生页按号码抽。</div>'}
+  }).join('') || '<div class="empty">还没有班级名单。先在「课件 → 上传资料」里建班，或直接在学生页按号码点。</div>'}
     <div class="confirm-actions"><button class="btn ghost" id="rc">取消</button><button class="btn primary" id="ro">保存</button></div>
   </div>`);
   const s = sheet({ title: '班级名单', body });
@@ -2929,7 +2929,7 @@ async function renderMaterials(box) {
         toast('已结束签到'); load();
       };
     });
-    /* —— 抽人 —— */
+    /* —— 点名 —— */
     box.querySelector('#pick-open')?.addEventListener('click', () => pickStudentDialog(rosters));
 
     /* —— 惩罚盲盒 —— */
@@ -2939,7 +2939,7 @@ async function renderMaterials(box) {
     });
     box.querySelectorAll('[data-pb-del]').forEach((b) => {
       b.onclick = async () => {
-        if (!(await confirmDialog('删掉这个任务？学生就抽不到它了。'))) return;
+        if (!(await confirmDialog('删掉这个任务？学生就点不到它了。'))) return;
         await api.del('/punishments/' + b.dataset.pbDel); toast('已删除'); load();
       };
     });

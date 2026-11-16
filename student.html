@@ -46,7 +46,7 @@
   @media (max-width: 380px) { .ck-grid { grid-template-columns: 1fr 1fr; } .ck-b.mute { grid-column: span 2; height: 44px; } }
   .roll { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 6px; }
 
-  /* ---------- 抽人：滚动轮播 + 揭晓 ---------- */
+  /* ---------- 点名：滚动轮播 + 揭晓 ---------- */
   .pick-stage { position: relative; display: grid; place-items: center; min-height: 132px; margin: 16px 0 4px;
     border-radius: 18px; background: rgba(0,122,255,.06); overflow: hidden; }
   html[data-theme=dark] .pick-stage { background: rgba(10,132,255,.12); }
@@ -59,7 +59,7 @@
   .pick-names { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
   .pick-win.sm { font-size: 26px; display: inline-block; padding: 8px 16px; border-radius: 14px;
     background: var(--primary); color: #fff; letter-spacing: -.5px; animation: pop .38s cubic-bezier(.34,1.56,.64,1); }
-  /* 抽人（第 19 条）：班级/人数/抽几个 三个输入并排 */
+  /* 点名（第 19 条）：班级/人数/点几个 三个输入并排 */
   .pk-grid { display: grid; grid-template-columns: 1.4fr .8fr .8fr; gap: 10px; }
   @media (max-width: 420px) { .pk-grid { grid-template-columns: 1fr 1fr; } .pk-grid > .field:first-child { grid-column: 1 / -1; } }
   .pk-recent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 10px; }
@@ -281,7 +281,7 @@ async function init() {
   catch (e) { $('#s-app').innerHTML = `<div class="card card-pad empty"><div class="em">${ICON.lock}</div>${esc(e.message)}</div>`; return; }
   document.title = '学生工作台';
   const hasTask = (data.selfstudyTasks || []).length > 0;
-  /* 老师端各模块的链接会带 ?tab=，直接落到对应页签（教材/抽人/盲盒/自习），
+  /* 老师端各模块的链接会带 ?tab=，直接落到对应页签（教材/点名/盲盒/自习），
      否则一律停在默认页签，看起来像「打开的学生页不一样」。非法值仍走原来的默认逻辑。 */
   const wanted = new URLSearchParams(location.search).get('tab');
   const opened = ['selfstudy', 'material', 'roll', 'punish'].concat(data.roll && data.roll.length ? ['checkin'] : []);
@@ -295,8 +295,8 @@ function paint() {
       <button data-t="selfstudy" class="${tab === 'selfstudy' ? 'on' : ''}">${ICON.clock} 自习</button>
       ${data.roll && data.roll.length ? `<button data-t="checkin" class="${tab === 'checkin' ? 'on' : ''}">${ICON.check} 签到 <span class="s-dot"></span></button>` : ''}
       <button data-t="material" class="${tab === 'material' ? 'on' : ''}">${ICON.mat} 教材</button>
-      <button data-t="roll" class="${tab === 'roll' ? 'on' : ''}">${ICON.dice} 抽人</button>
-      <button data-t="punish" class="${tab === 'punish' ? 'on' : ''}">${ICON.target} 抽任务</button>
+      <button data-t="roll" class="${tab === 'roll' ? 'on' : ''}">${ICON.dice} 点名</button>
+      <button data-t="punish" class="${tab === 'punish' ? 'on' : ''}">${ICON.target} 盲盒</button>
     </div>
     <div id="s-body"></div>`;
   document.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { tab = b.dataset.t; cur = null; paint(); }; });
@@ -357,7 +357,7 @@ document.addEventListener('click', () => {
   if (panelOpen) { panelOpen = false; $('#stu-panel').classList.add('hidden'); }
 });
 
-/* ---------- 自习任务：与教材、抽人一致的普通卡片 ---------- */
+/* ---------- 自习任务：与教材、点名一致的普通卡片 ---------- */
 function taskLines(t) {
   return String(t.content || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
     .map((line) => line.replace(/^\s*(?:\d+[.、)]|[-•])\s*/, '')).filter(Boolean);
@@ -390,7 +390,7 @@ function paintSelfstudy() {
   const mine = all.filter((t) => t.class_scope === 'all' || t.class_label === myClass());
   const t = mine[0];
   if (!t) {
-    /* 和教材 / 抽人 / 抽任务保持一致：都放在一张普通卡片里，不再用整页居中的空白块 */
+    /* 和教材 / 点名 / 盲盒保持一致：都放在一张普通卡片里，不再用整页居中的空白块 */
     $('#s-body').innerHTML = `<div class="card card-pad">
       <div class="card-title">${ICON.clock} 今日自习任务</div>
       <div class="tiny muted" style="margin-top:4px">${myClass() ? `当前设备班级：${esc(myClass())} · ` : ''}老师发布后会自动出现在这里</div>
@@ -585,24 +585,24 @@ async function paintMaterialDetail() {
     document.getElementById('back').onclick = () => { cur = null; paint(); };
   } catch (e) { $('#s-body').innerHTML = `<div class="card card-pad">${esc(e.message)}</div>`; }
 }
-/* ---------- 抽人：选班级 → 点一下 → 滚出名字 ---------- */
+/* ---------- 点名：选班级 → 点一下 → 滚出名字 ---------- */
 const ROLL_ME = 'wb_pick_';
 function paintRoll() {
   /* 【第 19 条】以前这里有一道硬拦截：没有班级名单就直接「老师还没有设置班级名单」，
-     整页什么都不给。可老师最常见的用法恰恰是「报个班号，从 1 号抽到 50 号」——
-     根本不需要名单。名单现在只是「按名字抽」这个可选项的数据来源，
+     整页什么都不给。可老师最常见的用法恰恰是「报个班号，从 1 号点到 50 号」——
+     根本不需要名单。名单现在只是「按名字点」这个可选项的数据来源，
      没有名单就默认走按号码，页面照常可用。 */
   const rosters = data.rosters || [];
   const liveCls = (data.roll && data.roll[0]) || null;
   const first = (liveCls && rosters.find((r) => String(r.id) === String(liveCls.roster_id)))
     || rosters[0]
     || { id: 0, grade: '', class_name: '', names: [], count: 0 };
-  /* 【第 19 条：抽人改成自填班级 + 人数 + 抽几个，按号码抽】
-     原来只能从老师预置的名单里选班，名单没建就没得抽；
-     「同时抽 N 人」藏在右上角一个不起眼的数字框里；抽的永远是名字。
-     老师实际用法通常是：随便报个班号，从 1 号抽到 50 号，抽 3 个。
-     所以这里三件事都摊开：班级自己填（可点常用班回填）、人数自己填、抽几个自己填，
-     并且默认按号码抽（学生名单里没名字时本来就只能按号）。
+  /* 【第 19 条：点名改成自填班级 + 人数 + 点几个，按号码点】
+     原来只能从老师预置的名单里选班，名单没建就没得点；
+     「同时点 N 人」藏在右上角一个不起眼的数字框里；点的永远是名字。
+     老师实际用法通常是：随便报个班号，从 1 号点到 50 号，点 3 个。
+     所以这里三件事都摊开：班级自己填（可点常用班回填）、人数自己填、点几个自己填，
+     并且默认按号码点（学生名单里没名字时本来就只能按号）。
      模式二选一：按号码 / 按名单名字。 */
   const names0 = (first.names || []).filter(Boolean);
   const hasNames = names0.length > 0;
@@ -617,26 +617,26 @@ function paintRoll() {
         <input class="input" id="pk-cls" placeholder="如 高一(3)班" value="${esc(clsName(first.grade, first.class_name))}" autocomplete="off"></div>
       <div class="field"><label class="field-label">人数</label>
         <input class="input" id="pk-total" type="number" inputmode="numeric" min="1" max="200" value="${cnt0}"></div>
-      <div class="field"><label class="field-label">抽几个</label>
+      <div class="field"><label class="field-label">点几个</label>
         <input class="input" id="pk-num" type="number" inputmode="numeric" min="1" max="20" value="1"></div>
     </div>
     ${recentCls.length ? `<div class="pk-recent"><span class="tiny muted">最近：</span>${recentCls.map((c) => `<button class="pk-chip" data-cls="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
     <div class="field" style="margin-top:4px">
-      <label class="field-label">怎么抽</label>
+      <label class="field-label">怎么点</label>
       <div class="seg pk-mode">
         <button class="on" data-mode="no">按号码</button>
-        <button data-mode="name" ${hasNames ? '' : 'disabled title="这个班还没有名单，去老师那里导入名单后才能按名字抽"'}>按名单名字</button>
+        <button data-mode="name" ${hasNames ? '' : 'disabled title="这个班还没有名单，去老师那里导入名单后才能按名字点"'}>按名单名字</button>
       </div>
     </div>
-    <label class="pk-nr"><input type="checkbox" id="pk-norepeat"><span>不重复抽同一人 <span class="tiny muted">（抽完一轮前不会再出现）</span></span></label>
-    <button class="btn primary block" id="go" style="height:56px;font-size:17px;margin-top:14px">${ICON.dice} 开始抽</button>
-    <div class="pick-stage"><div class="pick-roll" id="stage">填好上面三项，点「开始抽」</div></div>
+    <label class="pk-nr"><input type="checkbox" id="pk-norepeat"><span>不重复点同一人 <span class="tiny muted">（点完一轮前不会再出现）</span></span></label>
+    <button class="btn primary block" id="go" style="height:56px;font-size:17px;margin-top:14px">${ICON.dice} 开始点名</button>
+    <div class="pick-stage"><div class="pick-roll" id="stage">填好上面三项，点「开始点名」</div></div>
     <div id="history" class="tiny muted" style="text-align:center;min-height:18px"></div>
   </div>`;
 
   let mode = 'no';
   let norepeat = false;
-  let pool = [];        // 不重复模式下「还没抽到过」的
+  let pool = [];        // 不重复模式下「还没点到过」的
   let poolKey = '';     // 班级|人数|模式，变了就重置池子
 
   const clsOf = () => ($('#pk-cls').value || '').trim() || '未命名班级';
@@ -672,13 +672,13 @@ function paintRoll() {
       $('#s-body').querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('on', x === b));
       if (mode === 'name') $('#pk-total').value = names0.length;
       resetPool(true);
-      $('#history').textContent = norepeat ? `已抽 0/${pool.length}，抽完自动洗牌` : '';
+      $('#history').textContent = norepeat ? `已点 0/${pool.length}，点完自动洗牌` : '';
     };
   });
   $('#pk-norepeat').onchange = (e) => {
     norepeat = e.target.checked;
     resetPool(true);
-    $('#history').textContent = norepeat ? `已抽 0/${pool.length}，抽完自动洗牌重新开始` : '';
+    $('#history').textContent = norepeat ? `已点 0/${pool.length}，点完自动洗牌重新开始` : '';
   };
   ['#pk-cls', '#pk-total'].forEach((s2) => { $(s2).oninput = () => { if (norepeat) resetPool(); }; });
   resetPool(true);
@@ -719,10 +719,10 @@ function paintRoll() {
         const cls = clsOf();
         if (norepeat) {
           $('#history').textContent = pool.length
-            ? `${cls} · 已抽 ${whole.length - pool.length}/${whole.length} 人，还剩 ${pool.length} 人`
-            : `${cls} · 全班都抽过了，下次点击自动洗牌重来`;
+            ? `${cls} · 已点 ${whole.length - pool.length}/${whole.length} 人，还剩 ${pool.length} 人`
+            : `${cls} · 全班都点过了，下次点击自动洗牌重来`;
         } else {
-          $('#history').textContent = `${cls} · 从 ${whole.length} ${mode === 'name' ? '个名字' : '个号码'}里抽了 ${picks.length} 个`;
+          $('#history').textContent = `${cls} · 从 ${whole.length} ${mode === 'name' ? '个名字' : '个号码'}里点了 ${picks.length} 个`;
         }
       }
     }, 62);
@@ -740,7 +740,7 @@ const BOX_ICO = {
   average: '<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>',
   heavy: '<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c3 4 6 6.6 6 10a6 6 0 0 1-12 0c0-3.4 3-6 6-10z"/><path d="M12 17a2.6 2.6 0 0 1-2.6-2.6c0-1.5 1.3-2.6 2.6-4.4 1.3 1.8 2.6 2.9 2.6 4.4A2.6 2.6 0 0 1 12 17z"/></svg>',
 };
-/* 这一轮还剩几个没抽过（第 20 条） */
+/* 这一轮还剩几个没点过（第 20 条） */
 function leftCount(list) {
   let done = [];
   try { done = JSON.parse(localStorage.getItem('wb_punish_done_' + code) || '[]'); } catch { done = []; }
@@ -753,19 +753,19 @@ function paintPunish() {
   const me = recall();
   $('#s-body').innerHTML = `<div class="card card-pad" style="text-align:center">
     <div class="card-title" style="justify-content:center">${ICON.target} 惩罚盲盒</div>
-    <div class="tiny muted">点一下开箱，抽到什么就做什么</div>
+    <div class="tiny muted">点一下开箱，点到什么就做什么</div>
     <div class="box-stage" id="box">
       <div>
         <div class="box-icon" id="bico">${BOX_ICO.closed}</div>
         <div class="box-text" id="ptext" style="font-size:18px;font-weight:600;color:var(--text-2)">点下面按钮开箱</div>
         <div id="plv"></div>
-        ${me ? `<div class="box-who">给 <b>${esc(me.name || me.stu_no)}</b> 抽的</div>` : ''}
+        ${me ? `<div class="box-who">给 <b>${esc(me.name || me.stu_no)}</b> 点的</div>` : ''}
       </div>
     </div>
     <button class="btn primary block" id="spin" style="height:54px;font-size:16px" ${list.length ? '' : 'disabled'}>
       ${ICON.target} <span id="spintxt">${list.length ? '开箱' : '老师还没设置任务'}</span>
     </button>
-    <div class="tiny muted" id="pcnt" style="margin-top:12px">${list.length ? `盲盒里共 ${list.length} 个任务 · 这一轮还剩 ${leftCount(list)} 个没抽过` : '请老师到「工作 - 课件」里添加'}</div>
+    <div class="tiny muted" id="pcnt" style="margin-top:12px">${list.length ? `盲盒里共 ${list.length} 个任务 · 这一轮还剩 ${leftCount(list)} 个没点过` : '请老师到「工作 - 课件」里添加'}</div>
   </div>`;
   if (!list.length) return;
 
@@ -786,11 +786,11 @@ function paintPunish() {
     let c = 0;
     let picked = null;
     const total = 12 + Math.floor(Math.random() * 6);
-    /* 【第 20 条：抽任务不能重复】
-       原来每一轮都是从全部任务里完全随机取，同一个任务一节课能被抽到三次，
+    /* 【第 20 条：盲盒不能重复】
+       原来每一轮都是从全部任务里完全随机取，同一个任务一节课能被点到三次，
        学生一眼就看出「又是这个」，盲盒的公平性也就没了。
-       现在按「本轮已抽」记账：优先从没抽过的里抽；全部抽完才洗牌重来，
-       并在界面上说清「这一轮抽完了，已重新洗牌」，而不是悄悄从头开始。 */
+       现在按「本轮已点」记账：优先从没点过的里点；全部点完才洗牌重来，
+       并在界面上说清「这一轮点完了，已重新洗牌」，而不是悄悄从头开始。 */
     const KEY_DONE = 'wb_punish_done_' + code;
     const readDone = () => {
       try { return JSON.parse(localStorage.getItem(KEY_DONE) || '[]'); } catch { return []; }
@@ -825,12 +825,12 @@ function paintPunish() {
         if (pc && list.length) {
           const lf = leftCount(list);
           pc.textContent = reshuffled
-            ? `这一轮 ${list.length} 个都抽过了，已重新洗牌 · 还剩 ${lf} 个没抽过`
-            : `盲盒里共 ${list.length} 个任务 · 这一轮还剩 ${lf} 个没抽过`;
+            ? `这一轮 ${list.length} 个都点过了，已重新洗牌 · 还剩 ${lf} 个没点过`
+            : `盲盒里共 ${list.length} 个任务 · 这一轮还剩 ${lf} 个没点过`;
         }
         $('#spintxt').textContent = '再来一个';
         try { navigator.vibrate?.([40, 60, 90]); } catch {}
-        // 开箱即留痕：老师那边能看到谁、什么时候、抽到了什么
+        // 开箱即留痕：老师那边能看到谁、什么时候、点到了什么
         const cls = (data.roll && data.roll[0]) || {};
         api(`/public/link/${code}/punish`, {
           text: picked.text, stu_name: me?.name || '', grade: cls.grade || '', class_name: cls.class_name || '',
