@@ -35,6 +35,8 @@ import {
   prepareRosterEntries,
   tableTypeOf,
 } from './attendance-domain.mjs';
+import { cleanPeriodTime, normalizeTimetablePeriods, completeTimetablePeriods } from './timetable-periods.mjs';
+import { AUTUMN_2026_SCHEDULE, resolveDefinitions } from './timetable-schedule.mjs';
 
 /* ============================ 基础工具 ============================ */
 
@@ -3958,6 +3960,31 @@ on('GET', '/public/link/:code', ({ params, query }) => {
     selfstudyTasks: publicSelfstudyTasks(),
   };
 });
+/* 课表第六节的结束时间：与教师端自习页同一套解析顺序
+   （用户作息设置 → 节次表 → 2026 秋季默认作息），再按当前作息类型取时间覆盖。 */
+function sixthPeriodEnd() {
+  const parse = (value) => {
+    if (value && typeof value === 'object') return value;
+    try { return JSON.parse(value || '{}'); } catch { return {}; }
+  };
+  let preference = {};
+  try { preference = parse(localStorage.getItem('wb_timetable_view_v1')); } catch { /* 无 localStorage */ }
+  const scheduleType = preference.type === '冬令时课表' ? '冬令时课表' : '夏令时课表';
+  const timetable = parse(parse(currentUser()?.settings).timetable);
+  const periodTimes = parse(timetable.periodTimes);
+  const periodDefinitions = parse(timetable.periodDefinitions);
+  const options = { periodTimes, scheduleType };
+  const configured = resolveDefinitions(periodDefinitions, scheduleType, '全部');
+  const normalized = normalizeTimetablePeriods(rowsOf('periods'), options);
+  const base = Array.isArray(configured) && configured.length
+    ? configured
+    : (normalized.length ? normalized : AUTUMN_2026_SCHEDULE);
+  const resolved = completeTimetablePeriods(base, rowsOf('courses'), options);
+  const period = resolved.find((row) => Number(row.period_no) === 6);
+  const override = periodTimes[scheduleType]?.['6'] || {};
+  return cleanPeriodTime(override.end_time) || cleanPeriodTime(period?.end_time) || '';
+}
+
 /* 学生端可见的自习任务：只下发已发布的，其余（班级匹配、PC 开关）由学生端判定。
    这样总开关一关，下一次轮询拿到的就是空数组，学生端立即进入空态。 */
 function publicSelfstudyTasks() {
@@ -3965,8 +3992,10 @@ function publicSelfstudyTasks() {
   const endTimeOf = (period) => {
     const no = String(period || '').replace(/[^\d]/g, '');
     const hit = periods.find((p) => String(p.period_no) === no);
-    return hit?.end_time || '';
+    return cleanPeriodTime(hit?.end_time);
   };
+  /* 自习任务的截止时间统一取课表第六节的结束时间，精确到分 */
+  const sixthEnd = sixthPeriodEnd();
   const u = currentUser();
   return rowsOf('selfstudy_tasks')
     .filter((t) => t.status === 'published')
@@ -3976,7 +4005,8 @@ function publicSelfstudyTasks() {
       date: t.date, period: t.period, content: t.content,
       task_image: t.task_image || '', generated_image: t.generated_image || '',
       pc_visible: num(t.pc_visible), creator: t.creator || u.nickname,
-      end_time: endTimeOf(t.period), updated_at: t.updated_at,
+      end_time: endTimeOf(t.period), deadline_time: sixthEnd || endTimeOf(t.period),
+      updated_at: t.updated_at,
     }));
 }
 on('GET', '/public/link/:code/selfstudy', ({ params }) => {

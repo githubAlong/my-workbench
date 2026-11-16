@@ -70,6 +70,13 @@ function ssTaskStatus(task) {
   return task && task.status === 'published' ? 'published' : 'draft';
 }
 
+/* 截止时间统一取课表第六节的结束时间（精确到分），课表缺这一节时退回任务自己的节次 */
+let ssDeadlineTime = '';
+function ssDeadlineText(task) {
+  const day = task.date === ymd(new Date()) ? '今日' : (task.date || '');
+  return [day, ssDeadlineTime || task.period].filter(Boolean).join(' ');
+}
+
 /* 学生端卡片 HTML：教师端预览用，和学生页保持同一套 class 名（样式在 app.css） */
 function ssStudentCard(task) {
   const raw = String(task.content || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
@@ -81,7 +88,6 @@ function ssStudentCard(task) {
   return `<div class="st-card in-sheet">
     <div class="st-card-head">
       <div class="st-card-title">${esc(task.title || '今日自习任务')}</div>
-      <div class="st-card-sub">${esc([task.class_label || '全部', task.date || '', task.period || ''].filter(Boolean).join(' · '))}</div>
     </div>
     <div class="st-card-body">${body}
       ${img ? `<img class="st-img" src="${esc(img)}" alt="任务图">` : ''}
@@ -89,7 +95,7 @@ function ssStudentCard(task) {
     <div class="st-meta">
       <span>教师：${esc(task.creator || state.user?.nickname || '老师')}</span>
       <span>任务类型：课堂自习</span>
-      <span>截止时间：${esc([task.date === ymd(new Date()) ? '今日' : task.date, task.period].filter(Boolean).join(' '))}</span>
+      <span>截止时间：${esc(ssDeadlineText(task))}</span>
     </div>
     <div class="st-actions">
       <button class="st-btn ghost" disabled>查看任务</button>
@@ -138,10 +144,13 @@ async function renderSelfstudyManage(box) {
       const start = cleanPeriodTime(override.start_time) || cleanPeriodTime(period.start_time);
       const end = cleanPeriodTime(override.end_time) || cleanPeriodTime(period.end_time);
       return {
+        no: Number(period.period_no),
         name: String(period.name || `第${period.period_no}节`),
+        end,
         time: start && end ? `${start}–${end}` : '',
       };
     });
+    ssDeadlineTime = periods.find((p) => p.no === 6)?.end || '';
   } catch (e) {
     box.innerHTML = `<div class="empty">${esc(e.message || '加载失败')}</div>`;
     return;

@@ -4732,7 +4732,6 @@ textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:ver
 .st-card-head { padding:26px 36px 24px; text-align:center; color:#fff;
   background:linear-gradient(90deg,#1677ff 0%,#2f9dfb 45%,#36c66b 100%); }
 .st-card-title { font-size:24px; font-weight:700; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.st-card-sub { margin-top:8px; font-size:14px; opacity:.92; }
 .st-card-body { padding:34px 48px 12px; font-size:18px; line-height:1.8; }
 .st-list { margin:0; padding-left:26px; }
 .st-list li { margin-bottom:14px; font-weight:650; }

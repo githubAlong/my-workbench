@@ -8,8 +8,8 @@ const FONT = '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
 const MAX_PAGES = 3;
 
 const SIZES = {
-  save: { width: 1080, height: 1440, pad: 80, title: 44, meta: 26, body: 34, line: 1.8, footer: 26 },
-  screen: { width: 1920, height: 1080, pad: 154, title: 56, meta: 30, body: 32, line: 1.8, footer: 26 },
+  save: { width: 1080, height: 1440, pad: 80, title: 44, body: 34, line: 1.8, footer: 26 },
+  screen: { width: 1920, height: 1080, pad: 154, title: 56, body: 32, line: 1.8, footer: 26 },
 };
 
 /* 逐字断行：中文按字宽算，连续英文/数字尽量不拆开 */
@@ -33,7 +33,7 @@ function wrapLines(ctx, text, maxWidth) {
   return out.length ? out : [''];
 }
 
-function paint({ width, height, pad, titleSize, metaSize, bodySize, line, footerSize }, task, lines, page, pageCount) {
+function paint({ width, height, pad, titleSize, bodySize, line, footerSize }, task, lines, page, pageCount) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -48,12 +48,8 @@ function paint({ width, height, pad, titleSize, metaSize, bodySize, line, footer
   ctx.font = `700 ${titleSize}px ${FONT}`;
   ctx.fillText(title, width / 2, pad + titleSize, width - pad * 2);
 
-  const meta = [task.class_label || '全部', task.date || '', task.period || ''].filter(Boolean).join(' · ');
-  ctx.fillStyle = '#9ca3af';
-  ctx.font = `400 ${metaSize}px ${FONT}`;
-  ctx.fillText(meta, width / 2, pad + titleSize + metaSize + 24);
-
-  const top = pad + titleSize + metaSize + 24 + metaSize + 56;
+  /* 标题居中；副标题（班级 · 日期 · 节次）已按需求去掉，正文直接跟在标题下面 */
+  const top = pad + titleSize + Math.round(titleSize * 0.75) + 40;
   const footerH = footerSize + 36;
   const capacity = Math.max(1, Math.floor((height - top - pad - footerH) / (bodySize * line)));
   const slice = lines.slice(page * capacity, page * capacity + capacity);
@@ -84,9 +80,10 @@ export function taskImagePages(task = {}, size = 'save') {
   const measure = document.createElement('canvas').getContext('2d');
   measure.font = `400 ${conf.body}px ${FONT}`;
   const lines = wrapLines(measure, task.content || '', conf.width - conf.pad * 2);
+  /* 与 paint() 里的 top 保持一致，去掉副标题后正文上移 */
+  const top = conf.pad + conf.title + Math.round(conf.title * 0.75) + 40;
   const capacity = Math.max(1, Math.floor(
-    (conf.height - (conf.pad + conf.title + conf.meta + 24 + conf.meta + 56) - conf.pad - (conf.footer + 36))
-    / (conf.body * conf.line)
+    (conf.height - top - conf.pad - (conf.footer + 36)) / (conf.body * conf.line)
   ));
   const pageCount = Math.min(MAX_PAGES, Math.max(1, Math.ceil(lines.length / capacity)));
   return Array.from({ length: pageCount }, (_, i) => paint(conf, task, lines, i, pageCount));
