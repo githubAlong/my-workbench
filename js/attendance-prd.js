@@ -545,12 +545,18 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     toast(label+(existed?'已更新成功':'已生成成功')+'：'+grade+' · '+date+' · '+(period===0?'全天':'第'+period+'节'),'ok',4000);
   };
   const teacherSubjects = () => [...new Set([...teachers, ...(tab === 'leave' ? leaveRecords : [])].map(item=>String(item.subject||'').trim()).filter(Boolean))].sort();
+  /* 每个学科有多少位教师：科目下拉里直接带上人数，选之前就知道要记多少人。 */
+  const subjectTeacherCounts = () => {
+    const map=new Map();
+    teachers.forEach(t=>{const key=String(t.subject||'').trim()||'未填学科';map.set(key,(map.get(key)||0)+1);});
+    return map;
+  };
   const teacherFiltersHtml = () => {
-    const subjects=teacherSubjects();
+    const subjects=teacherSubjects(), counts=subjectTeacherCounts();
     return '<label class="aprd-search">'+icon('search',14)
       +'<input type="search" id="aprd-search" placeholder="搜索教师姓名" value="'+esc(search)+'"></label>'
-      +'<select id="aprd-subject"><option value="">全部学科</option>'
-      +subjects.map(item=>'<option value="'+esc(item)+'" '+(subject===item?'selected':'')+'>'+esc(item)+'</option>').join('')
+      +'<select id="aprd-subject"><option value="">全部学科（'+teachers.length+'）</option>'
+      +subjects.map(item=>'<option value="'+esc(item)+'" '+(subject===item?'selected':'')+'>'+esc(item)+(counts.has(item)?'（'+counts.get(item)+'）':'')+'</option>').join('')
       +'</select><i class="aprd-divider" aria-hidden="true"></i>';
   };
   const teacherAddCardHtml = () => {
@@ -1343,16 +1349,18 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         '<div class="aprd-kpi'+(label==='请假教师'?' leave':'')+'"><b>'+value+'</b><span>'+label+'</span></div>').join('')+'</div>'
       : '';
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+tools+'</div>'
-      +'<span class="aprd-filter-count">当前筛：'+esc(subject||'全部')+' · '+list.length+'人</span></div>'+teacherAddCardHtml()+summaryStrip
+      +'<span class="aprd-filter-count">当前筛：'+esc(subject||'全部学科')+' · '+list.length+' 位教师</span></div>'+teacherAddCardHtml()+summaryStrip
       +'<div class="aprd-table-wrap"><table><thead><tr>'+columns.map(column=>'<th>'+column+'</th>').join('')
       +'</tr></thead><tbody>'+(rows||'<tr><td colspan="'+columns.length+'" class="aprd-empty">当前筛选下暂无在岗教师</td></tr>')+'</tbody></table></div>';
   };
   const leaveHtml = () => {
     const scope = leaveOnlyDate ? activeLeavesFor(leaveRecords, leaveOnlyDate, grade) : leaveRecords;
     const shown=scope.filter(x=>(!search||(x.name+' '+x.subject).includes(search))&&(!subject||x.subject===subject));
+    /* 请假表按科目筛选时同样要能看到「这个科目有多少老师」，人数取花名册而不是请假条数。 */
+    const matchedTeachers=teachers.filter(t=>(!subject||String(t.subject||'').trim()===subject)&&(!search||(t.name+' '+t.subject).includes(search)));
     const dayChip = leaveOnlyDate
-      ? '<span class="aprd-filter-count">仅显示 '+esc(leaveOnlyDate)+' 请假 · '+shown.length+' 人 <button type="button" class="aprd-op" data-leave-show-all>查看全部</button></span>'
-      : '';
+      ? '<span class="aprd-filter-count">仅显示 '+esc(leaveOnlyDate)+' 请假 · '+shown.length+' 条 <button type="button" class="aprd-op" data-leave-show-all>查看全部</button></span>'
+      : '<span class="aprd-filter-count">当前筛：'+esc(subject||'全部学科')+' · '+matchedTeachers.length+' 位教师 / '+shown.length+' 条请假</span>';
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+'<button class="primary" data-add-leave>新增请假</button>'+exportMenuHtml(teachers.length)+'</div>'+dayChip+'</div>'
       +'<div class="aprd-table-wrap"><table><thead><tr>'+ATTENDANCE_COLUMNS.leave.map(c=>'<th>'+c+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+shown.map((x)=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.subject)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.start_date)+'</td><td>'+esc(x.end_date)+'</td><td>'+esc(formatLeaveDuration(x))+'</td><td><input type="text" class="aprd-note-input" data-leave-note="'+x.id+'" value="'+escAttr(x.remark||'')+'" placeholder="备注" aria-label="'+escAttr(x.name+' 备注')+'"></td><td><button data-edit-leave="'+x.id+'">编辑</button> <button data-delete-leave="'+x.id+'">删除</button></td></tr>').join('')+'</tbody></table></div>';
   };
