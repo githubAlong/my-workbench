@@ -2608,6 +2608,10 @@ async function renderStudentModule(box, key) {
   const link = links[0];
   const pubMats = mats.filter((m) => Number(m.public) !== 0);
 
+  /* 打开学生页时直接落到本模块对应的页签（教材→material、抽人→roll、盲盒→punish）。
+     以前链接只是一张通用学生页，从哪个模块点进去都停在默认页签，看着像「打开的不是这个模块」。 */
+  const studentLink = link ? studentUrl(link.code, `tab=${meta.tab}`) : '';
+
   /* 顶部：这个模块在学生那边长什么样 */
   box.innerHTML = `
     <div class="card card-pad" style="margin-bottom:14px;background:var(--primary-weak);border-color:transparent">
@@ -2617,9 +2621,9 @@ async function renderStudentModule(box, key) {
           <div class="small muted" style="margin-top:3px">${esc(meta.desc)}</div>
         </div>
         ${link
-      ? `<code class="mono link-short" title="${esc(studentUrl(link.code))}">${esc(shortPath(link.code))}</code>
+      ? `<code class="mono link-short" title="${esc(studentLink)}">${esc(shortPath(link.code))}</code>
              <button class="btn ghost sm" id="sm-copy">${icon('copy', 14)} 复制</button>
-             <a class="btn ghost sm" href="${esc(studentUrl(link.code))}" target="_blank" rel="noopener">打开学生页</a>`
+             <a class="btn ghost sm" href="${esc(studentLink)}" target="_blank" rel="noopener">打开学生页</a>`
       : '<button class="btn primary sm" id="sm-mklink">生成学生链接</button>'}
       </div>
       <div class="field-hint" style="margin-top:10px">
@@ -2629,7 +2633,7 @@ async function renderStudentModule(box, key) {
     <div id="sm-body"></div>`;
 
   box.querySelector('#sm-copy')?.addEventListener('click', async () => {
-    const url = studentUrl(link.code);
+    const url = studentLink;
     try { await syncMaterialSharing(); } catch (error) { toast(error.message || '链接尚未同步，请稍后重试', 'err'); return; }
     try { await navigator.clipboard.writeText(url); toast('已复制，发到班级群就行'); } catch { prompt('复制下面的链接', url); }
   });
@@ -2637,7 +2641,7 @@ async function renderStudentModule(box, key) {
     event.preventDefault();
     const opened = window.open('about:blank', '_blank');
     if (opened) opened.opener = null;
-    try { await syncMaterialSharing(); if (opened) opened.location.replace(studentUrl(link.code)); else location.href = studentUrl(link.code); }
+    try { await syncMaterialSharing(); if (opened) opened.location.replace(studentLink); else location.href = studentLink; }
     catch (error) { opened?.close(); toast(error.message || '链接尚未同步，请稍后重试', 'err'); }
   });
   saving(box.querySelector('#sm-mklink'), async () => {

@@ -281,7 +281,11 @@ async function init() {
   catch (e) { $('#s-app').innerHTML = `<div class="card card-pad empty"><div class="em">${ICON.lock}</div>${esc(e.message)}</div>`; return; }
   document.title = '学生工作台';
   const hasTask = (data.selfstudyTasks || []).length > 0;
-  tab = (data.roll && data.roll.length) ? 'checkin' : (hasTask ? 'selfstudy' : 'material');
+  /* 老师端各模块的链接会带 ?tab=，直接落到对应页签（教材/抽人/盲盒/自习），
+     否则一律停在默认页签，看起来像「打开的学生页不一样」。非法值仍走原来的默认逻辑。 */
+  const wanted = new URLSearchParams(location.search).get('tab');
+  const opened = ['selfstudy', 'material', 'roll', 'punish'].concat(data.roll && data.roll.length ? ['checkin'] : []);
+  tab = opened.includes(wanted) ? wanted : ((data.roll && data.roll.length) ? 'checkin' : (hasTask ? 'selfstudy' : 'material'));
   paintPanel();
   paint();
 }

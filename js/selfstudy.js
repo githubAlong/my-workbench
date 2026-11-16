@@ -530,7 +530,7 @@ async function renderStudentSelfstudy(box, entryOnly = false) {
       ? `<div class="row wrap" style="gap:10px;margin-top:8px">
              <code class="mono link-short" id="ss-link">${esc(shortPath(link.code))}</code>
              <button class="btn ghost sm" id="ss-copy">${icon('copy', 14)} 复制链接</button>
-             <a class="btn ghost sm" href="${esc(studentUrl(link.code))}" target="_blank" rel="noopener">打开看看</a>
+             <a class="btn ghost sm" href="${esc(studentUrl(link.code, 'tab=selfstudy'))}" target="_blank" rel="noopener">打开看看</a>
            </div>
            <div class="field-hint" style="margin-top:8px">学生打开这个链接，顶部就有「自习」页；没有进行中的签到时，页面会显示「现在没有在进行的签到」。</div>`
       : `<div class="empty" style="padding:18px">还没有生成学生链接。<button class="btn primary sm" id="ss-mklink">生成一条</button></div>`}
@@ -558,7 +558,7 @@ async function renderStudentSelfstudy(box, entryOnly = false) {
   `;
 
   box.querySelector('#ss-copy')?.addEventListener('click', async () => {
-    const url = studentUrl(link.code);
+    const url = studentUrl(link.code, 'tab=selfstudy');
     try { await navigator.clipboard.writeText(url); toast('已复制，发到班级群就行'); } catch { prompt('复制下面的链接', url); }
   });
   box.querySelector('#ss-mklink')?.addEventListener('click', async () => {
