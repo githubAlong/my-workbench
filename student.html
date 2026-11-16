@@ -386,19 +386,26 @@ function paintSelfstudy() {
   const mine = all.filter((t) => t.class_scope === 'all' || t.class_label === myClass());
   const t = mine[0];
   if (!t) {
-    $('#s-body').innerHTML = `<div class="stu-empty">
-      <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h5M8 16h3"/></svg>
-      <b>本时段暂无自习任务</b>
-      <div class="tiny muted" style="margin-top:6px">老师发布后会自动出现在这里</div>
-      ${myClass() ? `<div class="tiny muted" style="margin-top:4px">当前设备班级：${esc(myClass())}</div>` : ''}
+    /* 和教材 / 抽人 / 抽任务保持一致：都放在一张普通卡片里，不再用整页居中的空白块 */
+    $('#s-body').innerHTML = `<div class="card card-pad">
+      <div class="card-title">${ICON.clock} 今日自习任务</div>
+      <div class="tiny muted" style="margin-top:4px">${myClass() ? `当前设备班级：${esc(myClass())} · ` : ''}老师发布后会自动出现在这里</div>
+      <div class="stu-empty" style="margin:26px auto 6px">
+        <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h5M8 16h3"/></svg>
+        <b>本时段暂无自习任务</b>
+      </div>
     </div>`;
     return;
   }
   if (myDevice() === 'pc' && Number(t.pc_visible) === 0) {
-    $('#s-body').innerHTML = `<div class="stu-lock">
-      ${ICON.lock}
-      <b>本节自习任务仅可在教室班班通查看</b>
-      <div class="tiny muted" style="margin-top:8px">老师关闭了个人电脑显示；如需在电脑上查看，请联系老师开启。</div>
+    $('#s-body').innerHTML = `<div class="card card-pad">
+      <div class="card-title">${ICON.clock} 今日自习任务</div>
+      <div class="tiny muted" style="margin-top:4px">老师关闭了个人电脑显示</div>
+      <div class="stu-lock" style="margin:20px auto 6px;max-width:none">
+        ${ICON.lock}
+        <b>本节自习任务仅可在教室班班通查看</b>
+        <div class="tiny muted" style="margin-top:8px">如需在电脑上查看，请联系老师开启。</div>
+      </div>
     </div>`;
     return;
   }
