@@ -184,11 +184,11 @@ const ICON = { mat: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"
   clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
   more: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9.5 6 6 6-6 6"/></svg>' };
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-/* 静态版：不再请求 /api，直接调 localapi（同一个浏览器里存储的就是老师端那份数据，
-   所以老师在自己手机上开点名，学生在这台设备上也能看到——演示够用）。
-   真正的多人实时签到需要服务端，静态版做不到，这一点在页面上会写清楚。 */
+/* 静态版：优先调 localapi（同一个浏览器里演示时学生端能读到老师那份数据）；
+   在外网独立访问时本地库为空，自动回退到云端 student-api Edge Function。 */
 import { handle as localHandle } from './js/localapi.js';
 import { getStudentMaterials, materialEndpoint } from './js/material-sharing.mjs';
+import { resolveEnvironmentProfile } from './js/environment-config.mjs';
 import { setActiveAccount } from './js/localdb.js';
 import { taskImagePages, downloadCanvas } from './js/selfstudy-task-image.mjs';
 /* 同一个浏览器里演示时，学生端要读老师那份账号库。
@@ -197,22 +197,42 @@ import { taskImagePages, downloadCanvas } from './js/selfstudy-task-image.mjs';
 try { const uid = localStorage.getItem('wb_static_active_uid'); if (uid) setActiveAccount(uid); } catch {}
 /* 打包版没有 js/localapi.js 这个路径了，测试/调试统一从 window 取 */
 window.__wbLocalApi = { handle: localHandle };
+/* 找到 student-api Edge Function 的地址 */
+function studentApiBase() {
+  try { return resolveEnvironmentProfile().supabaseUrl + '/functions/v1/student-api'; }
+  catch { return ''; }
+}
+async function callCloudStudent(method, path, query, body) {
+  const base = studentApiBase();
+  if (!base) throw new Error('学生服务地址未配置');
+  const url = new URL(base);
+  const joinedPath = path + (query ? '?' + new URLSearchParams(query).toString() : '');
+  url.searchParams.set('path', joinedPath);
+  const init = { method, headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' } };
+  if (method === 'POST' && body !== undefined) init.body = JSON.stringify(body);
+  const res = await fetch(url.toString(), init);
+  const result = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(result.error || '服务暂时不可用');
+  return result;
+}
 const api = async (p, body) => {
   const [path, qs] = String(p).split('?');
   const method = body === undefined ? 'GET' : 'POST';
   const ctx = { query: Object.fromEntries(new URLSearchParams(qs || '')), body };
   const materialRoute = path.match(/^\/public\/link\/([^/]+)(?:\/materials\/(\d+))?$/);
   if (method === 'GET' && materialRoute) {
-    /* 静态版的数据就在本机，先读 localapi；本机没有这条链接才走云端教材服务。
-       云端函数没部署时这里会抛 Failed to fetch，整页直接白掉，所以要有本地兜底。 */
+    /* 教材：本地 → 云端 material-sharing */
     const local = await localHandle(method, path, ctx.query).catch(() => null);
     if (local?.ok) return local.data;
     try { return await getStudentMaterials(materialRoute[1], materialRoute[2] || ''); }
     catch (error) { throw new Error(local?.error || error?.message || '教材加载失败'); }
   }
-  const j = await localHandle(method, path, ctx.query, ctx.body);
-  if (!j.ok) throw new Error(j.error || '加载失败');
-  return j.data;
+  /* 非教材路由：本地 → 云端 student-api */
+  const local = await localHandle(method, path, ctx.query, ctx.body).catch(() => null);
+  if (local?.ok) return local.data;
+  /* 本地失败（常见于外网独立访问，没有老师的 localStorage），走云端 */
+  try { return await callCloudStudent(method, path, ctx.query, ctx.body); }
+  catch (cloudErr) { throw new Error(local?.error || cloudErr.message || '加载失败'); }
 };
 /* 记住我是谁：学号/姓名存本地，下次自动带出 */
 const ME_KEY = 'wb_stu_' + code;
