@@ -18,13 +18,13 @@ test('上课记录支持点击切换月份，可翻到上一个月、下一个�
   assert.ok(source.includes('上课记录统计_'));
 });
 
-test('统计区列出当月总次数与四类上课类型，方便月底核对课时', () => {
+test('统计区列出当月总次数与上课类型（含假期/考试/其他），方便月底核对课时', () => {
   for (const marker of [
     'id="cr-month-total"', 'id="cr-month-normal"', 'id="cr-month-isub"',
     'id="cr-month-subme"', 'id="cr-month-swap"', 'id="cr-month-fee"',
   ]) assert.ok(source.includes(marker), 'missing KPI card: ' + marker);
-  for (const type of ['normal', 'i_substitute', 'substituted_for_me', 'swap']) {
-    assert.ok(source.includes("'" + type + "'"), 'missing lesson type: ' + type);
+  for (const label of ['正常上课', '我代别人上课', '别人代我上课', '换课', '假期', '考试', '其他']) {
+    assert.ok(source.includes("'" + label + "'"), 'missing lesson type label: ' + label);
   }
 });
 
@@ -43,13 +43,17 @@ test('只有上课日期、上课年级、上课班级是必填项', () => {
   assert.match(localapi, /class_records: \[\['class_month', '请填写上课日期'\], \['grade', '请填写上课年级'\], \['class_name', '请填写上课班级'\]\]/);
 });
 
-test('上课类型自动带出课时费与支付状态默认值', () => {
-  assert.match(source, /normal: \{ amount: 30, status: '学校支付' \}/);
-  assert.match(source, /i_substitute: \{ amount: 40, status: '待支付' \}/);
-  assert.match(source, /substituted_for_me: \{ amount: 40, status: '待支付' \}/);
-  assert.match(source, /swap: \{ amount: 0, status: '无需支付' \}/);
-  assert.match(source, /type\.onchange = applyTypeDefaults/);
-  for (const status of ['学校支付', '待支付', '无需支付']) {
+test('上课类型自动带出课时费与支付状态默认值，新类型假期/考试/其他统一为 0 课时费 + 已支付', () => {
+  assert.match(source, /正常上课: \{ amount: 30, status: '学校支付' \}/);
+  assert.match(source, /我代别人上课: \{ amount: 40, status: '待支付' \}/);
+  assert.match(source, /换课: \{ amount: 0, status: '已支付' \}/);
+  assert.match(source, /假期: \{ amount: 0, status: '已支付' \}/);
+  assert.match(source, /考试: \{ amount: 0, status: '已支付' \}/);
+  assert.match(source, /type\.addEventListener\('input', applyTypeDefaults\)/);
+  assert.doesNotMatch(source, /swap: \{ amount: 0, status: '无需支付' \}/);
+  assert.ok(!source.includes('无需支付') || source.includes("status === '无需支付'"),
+    '无需支付 不应出现在 PAY_OPTIONS 或新表单默认值中（statusClass 历史兼容除外）');
+  for (const status of ['学校支付', '待支付', '已支付', '未支付']) {
     assert.ok(source.includes("'" + status + "'"), 'missing pay status option: ' + status);
   }
 });

@@ -1,21 +1,41 @@
 import { api, esc, el, sheet, saving, confirmDialog, toast, download } from './core.js';
 import { cleanPeriodTime, normalizeTimetablePeriods } from './timetable-periods.mjs';
 
+/* 上课类型：预设 + 可手动输入。预设用来带默认课时费与支付状态；
+   手动输入或自定义类型按「课时费 0 / 已支付」兜底。
+   key 用中文名（datalist 候选值需要直接展示中文名），
+   历史数据里的英文 key（normal / swap / ...）在 TYPE_LABEL_ENG 里做兼容。 */
 const TYPES = [
-  ['normal', '正常上课'],
-  ['i_substitute', '我代别人上课'],
-  ['substituted_for_me', '别人代我上课'],
-  ['swap', '换课'],
+  ['正常上课', '正常上课'],
+  ['我代别人上课', '我代别人上课'],
+  ['别人代我上课', '别人代我上课'],
+  ['换课', '换课'],
+  ['假期', '假期'],
+  ['考试', '考试'],
+  ['其他', '其他'],
 ];
 const TYPE_LABEL = Object.fromEntries(TYPES);
-/* 上课类型 → 课时费 / 支付状态默认值。切换类型时自动带出，之后仍可手改。 */
+/* 历史数据英文 key → 中文类型，列表渲染时优先查 TYPE_LABEL，回退这里。 */
+const TYPE_LABEL_ENG = { normal: '正常上课', i_substitute: '我代别人上课', substituted_for_me: '别人代我上课', swap: '换课', holiday: '假期', exam: '考试', other: '其他' };
+/* 上课类型 → 课时费 / 支付状态默认值。切换类型时自动带出，之后仍可手改。
+   预设 key 同时接受中文名和历史英文 key，保存时会归一到 TYPE_KEY_NORMALIZE。 */
 const TYPE_DEFAULTS = {
-  normal: { amount: 30, status: '学校支付' },
-  i_substitute: { amount: 40, status: '待支付' },
-  substituted_for_me: { amount: 40, status: '待支付' },
-  swap: { amount: 0, status: '无需支付' },
+  正常上课: { amount: 30, status: '学校支付' }, normal: { amount: 30, status: '学校支付' },
+  我代别人上课: { amount: 40, status: '待支付' }, i_substitute: { amount: 40, status: '待支付' },
+  别人代我上课: { amount: 40, status: '待支付' }, substituted_for_me: { amount: 40, status: '待支付' },
+  换课: { amount: 0, status: '已支付' }, swap: { amount: 0, status: '已支付' },
+  假期: { amount: 0, status: '已支付' }, holiday: { amount: 0, status: '已支付' },
+  考试: { amount: 0, status: '已支付' }, exam: { amount: 0, status: '已支付' },
+  其他: { amount: 0, status: '已支付' }, other: { amount: 0, status: '已支付' },
 };
-const PAY_OPTIONS = ['学校支付', '待支付', '无需支付', '已支付', '未支付'];
+/* 保存时归一：把历史英文 key 转成中文 key，自定义类型直接保留。 */
+const TYPE_KEY_NORMALIZE = Object.fromEntries(TYPES.map(([v]) => [v, v]));
+for (const [eng, chi] of Object.entries(TYPE_LABEL_ENG)) TYPE_KEY_NORMALIZE[eng] = chi;
+const normalizeTypeKey = (v) => TYPE_KEY_NORMALIZE[String(v || '').trim()] || String(v || '').trim();
+const CUSTOM_TYPE_DEFAULTS = { amount: 0, status: '已支付' };
+/* 「无需支付」已全局下线：历史数据里的旧值保留展示，但不再出现在下拉、
+   也不会被新表单写入；空值/假期/考试统一走「已支付」表达「结清」语义。 */
+const PAY_OPTIONS = ['学校支付', '待支付', '已支付', '未支付'];
 const GRADE_OPTIONS = ['高一', '高二', '高三'];
 const money = (v) => v === '' || v == null ? '—' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const parseMonth = (value) => {
@@ -93,17 +113,26 @@ const rowSortValue = (row) => {
   if (Number.isFinite(created)) return created;
   return Number(row.id) || 0;
 };
-const typeBadgeClass = (type) => ({ normal: 'normal', i_substitute: 'i-substitute', substituted_for_me: 'substituted', swap: 'swap' })[type] || 'other';
+const typeBadgeClass = (type) => {
+  const chi = TYPE_KEY_NORMALIZE[String(type || '').trim()];
+  return ({ '正常上课': 'normal', normal: 'normal',
+    '我代别人上课': 'i-substitute', i_substitute: 'i-substitute',
+    '别人代我上课': 'substituted', substituted_for_me: 'substituted',
+    '换课': 'swap', swap: 'swap',
+    '假期': 'holiday', holiday: 'holiday',
+    '考试': 'exam', exam: 'exam'
+  })[chi] || 'other';
+};
 const statusClass = (status) => {
-  if (status === '已支付' || status === '学校支付') return 'paid';
+  if (status === '已支付' || status === '学校支付' || status === '无需支付') return 'paid';
   if (status === '待支付' || status === '未支付') return 'unpaid';
-  if (status === '无需支付') return 'settled';
   return 'custom';
 };
 const clip = (value, max = 26) => {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   return text.length > max ? text.slice(0, max) + '…' : text;
 };
+const labelOf = (type) => TYPE_LABEL[type] || TYPE_LABEL_ENG[type] || type || '未分类';
 
 /* 表单与列表共用的列顺序 —— 改这里之前先确认「列表显示顺序跟表单一致」这条约定。 */
 const COLUMNS = ['上课日期', '上课年级', '上课班级', '节次', '学科', '上课类型', '上课人', '代课人', '课时费（元）', '支付状态', '备注说明'];
@@ -174,6 +203,8 @@ export async function renderClassRecords(root) {
         .cr-type-badge.i-substitute{color:#286fc5;background:#eaf3ff}
         .cr-type-badge.substituted{color:#7650c9;background:#f1ebff}
         .cr-type-badge.swap{color:#a86a12;background:#fff4df}
+        .cr-type-badge.holiday{color:#b15a00;background:#fff1e3}
+        .cr-type-badge.exam{color:#6a1fb5;background:#f1e6ff}
         .cr-type-badge.other{color:var(--text-2,#4e5969);background:var(--surface-2,#f5f6f8)}
         .cr-status{display:inline-flex;align-items:center;max-width:135px;padding:5px 9px;border-radius:7px;font-size:11px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .cr-status.paid{color:#12835b;background:#e8f7f0}
@@ -268,8 +299,8 @@ export async function renderClassRecords(root) {
           <select id="cr-filter-subject" aria-label="按学科筛选"><option value="">全部学科</option></select>
           <select id="cr-filter-class" aria-label="按年级班级筛选"><option value="">全部年级班级</option></select>
           <select id="cr-filter-type" aria-label="按上课类型筛选">
-            <option value="">全部上课类型</option><option value="normal">正常上课</option>
-            <option value="i_substitute">我代别人上课</option><option value="substituted_for_me">别人代我上课</option><option value="swap">换课</option>
+            <option value="">全部上课类型</option>
+            ${TYPES.map(([v, t]) => '<option value="' + esc(v) + '">' + esc(t) + '</option>').join('')}
           </select>
           <label class="cr-search"><span aria-hidden="true">⌕</span><input id="cr-search" type="search" placeholder="搜索学科、班级或老师"></label>
           <button class="cr-filter-reset" id="cr-filter-reset" type="button">重置筛选</button>
@@ -316,10 +347,10 @@ export async function renderClassRecords(root) {
     quick.value = recentMonths().includes(month) ? month : '';
     q('#cr-month-summary').textContent = monthLabel(month) + ' · 按上课类型统计，方便月底核对总课时';
     q('#cr-month-total').textContent = monthRows.length;
-    q('#cr-month-normal').textContent = monthRows.filter((r) => r.class_type === 'normal').length;
-    q('#cr-month-isub').textContent = monthRows.filter((r) => r.class_type === 'i_substitute').length;
-    q('#cr-month-subme').textContent = monthRows.filter((r) => r.class_type === 'substituted_for_me').length;
-    q('#cr-month-swap').textContent = monthRows.filter((r) => r.class_type === 'swap').length;
+    q('#cr-month-normal').textContent = monthRows.filter((r) => labelOf(r.class_type) === '正常上课').length;
+    q('#cr-month-isub').textContent = monthRows.filter((r) => labelOf(r.class_type) === '我代别人上课').length;
+    q('#cr-month-subme').textContent = monthRows.filter((r) => labelOf(r.class_type) === '别人代我上课').length;
+    q('#cr-month-swap').textContent = monthRows.filter((r) => labelOf(r.class_type) === '换课').length;
     const fee = monthRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
     q('#cr-month-fee').textContent = '课时费合计 ¥' + money(fee);
     q('#cr-export').textContent = '导出' + monthLabel(month) + '统计';
@@ -341,7 +372,7 @@ export async function renderClassRecords(root) {
       if (rowMonth(r) !== month) return false;
       if (subject && r.subject !== subject) return false;
       if (className && r.class_name !== className) return false;
-      if (type && r.class_type !== type) return false;
+      if (type && normalizeTypeKey(r.class_type) !== normalizeTypeKey(type)) return false;
       if (keyword) {
         const people = parseRelatedPeople(r.related_person, r.class_type);
         const haystack = [r.subject, r.grade, r.class_name, r.class_time, r.teacher, people.original_teacher, people.substitute_person, r.pay_status, r.remark].join(' ').toLowerCase();
@@ -368,10 +399,10 @@ export async function renderClassRecords(root) {
     }
 
     body.innerHTML = visible.map((r) => {
-      const typeLabel = TYPE_LABEL[r.class_type] || r.class_type || '未分类';
+      const typeLabel = labelOf(r.class_type);
       const people = parseRelatedPeople(r.related_person, r.class_type);
       const classTime = splitClassTime(r.class_time);
-      const status = r.pay_status || (r.class_type === 'swap' ? '无需支付' : '未填写');
+        const status = r.pay_status || '未填写';
       const amount = r.amount == null || r.amount === '' ? '—' : money(r.amount);
       const remark = String(r.remark || '');
       return '<tr>' +
@@ -406,7 +437,7 @@ export async function renderClassRecords(root) {
       ['上课班级', row.class_name],
       ['节次', classTime.period],
       ['学科', row.subject],
-      ['上课类型', TYPE_LABEL[row.class_type] || row.class_type],
+      ['上课类型', labelOf(row.class_type)],
       ['上课人', row.teacher || people.original_teacher],
       ['代课人', people.substitute_person],
       ['课时费（元）', row.amount == null || row.amount === '' ? '' : money(row.amount)],
@@ -423,7 +454,7 @@ export async function renderClassRecords(root) {
 
   const openEditor = (row = null) => {
     const editing = !!row;
-    const initialType = row?.class_type || 'normal';
+    const initialType = normalizeTypeKey(row?.class_type) || '正常上课';
     const initialTime = splitClassTime(row?.class_time);
     const initialPeople = parseRelatedPeople(row?.related_person, initialType);
     const form = el(`<div class="cr-editor">
@@ -433,7 +464,7 @@ export async function renderClassRecords(root) {
         <div class="cr-field"><label>上课班级 <span class="cr-required">*</span></label><input id="cr-class" value="${esc(row?.class_name || '')}" placeholder="如：高二11班"></div>
         <div class="cr-field"><label>节次</label><input id="cr-period" list="cr-period-options" value="${esc(initialTime.period)}" placeholder="选择课表节次或手动输入"><datalist id="cr-period-options"></datalist></div>
         <div class="cr-field"><label>学科</label><input id="cr-subject" value="${esc(row?.subject || '')}" placeholder="例如：信息技术、语文"></div>
-        <div class="cr-field"><label>上课类型</label><select id="cr-type">${TYPES.map(([v, t]) => `<option value="${v}" ${initialType === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+        <div class="cr-field"><label>上课类型</label><input id="cr-type" list="cr-type-options" value="${esc(initialType)}" placeholder="选择预设或手动输入"><datalist id="cr-type-options">${TYPES.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</datalist></div>
         <div class="cr-field"><label>上课人</label><input id="cr-teacher" value="${esc(row?.teacher || initialPeople.original_teacher || '')}" placeholder="填写实际授课老师"></div>
         <div class="cr-field"><label>代课人</label><input id="cr-substitute-person" value="${esc(initialPeople.substitute_person)}" placeholder="填写代课老师"></div>
         <div class="cr-field"><label>课时费（元）</label><input id="cr-money" type="number" min="0" step="0.01" value="${row?.amount ?? ''}" placeholder="请输入金额"></div>
@@ -449,13 +480,14 @@ export async function renderClassRecords(root) {
     const statusInput = form.querySelector('#cr-status');
     form.querySelector('#cr-cancel').onclick = () => sh.close();
 
-    /* 只在切换上课类型（或新建）时自动带出默认值，用户手改后不会被覆盖。 */
+    /* 只在切换上课类型（或新建）时自动带出默认值，用户手改后不会被覆盖。
+       预设类型按 TYPE_DEFAULTS；手动输入的自定义类型统一走 CUSTOM_TYPE_DEFAULTS。 */
     const applyTypeDefaults = () => {
-      const preset = TYPE_DEFAULTS[type.value] || TYPE_DEFAULTS.normal;
+      const preset = TYPE_DEFAULTS[type.value] || CUSTOM_TYPE_DEFAULTS;
       moneyInput.value = String(preset.amount);
       statusInput.value = preset.status;
     };
-    type.onchange = applyTypeDefaults;
+    type.addEventListener('input', applyTypeDefaults);
     if (!editing || (row.amount == null && !row.pay_status)) applyTypeDefaults();
 
     /* 时间不再单独显示，但节次仍按课表自动带出，保持 class_time 与历史数据兼容。 */
@@ -499,7 +531,7 @@ export async function renderClassRecords(root) {
       if (!className) throw new Error('请填写上课班级');
       const classTime = joinClassTime(date, periodInput.value, autoTime);
       const data = {
-        class_type: type.value || 'normal',
+        class_type: normalizeTypeKey(type.value) || '正常上课',
         subject: form.querySelector('#cr-subject').value.trim(),
         class_name: className,
         grade: grade || null,
@@ -533,12 +565,12 @@ export async function renderClassRecords(root) {
 
   const exportMonth = () => {
     const list = rows.filter((r) => rowMonth(r) === month);
-    const data = list.map((r) => {
+      const data = list.map((r) => {
       const classTime = splitClassTime(r.class_time);
       const people = parseRelatedPeople(r.related_person, r.class_type);
       return [
         classTime.date, r.grade, r.class_name, classTime.period, r.subject,
-        TYPE_LABEL[r.class_type] || r.class_type,
+        labelOf(r.class_type),
         r.teacher || people.original_teacher, people.substitute_person,
         r.amount, r.pay_status, r.remark,
       ];

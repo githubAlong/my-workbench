@@ -111,6 +111,8 @@ export const NAV = [
   { id: 'textbook', label: '教材', icon: 'book' },
   { id: 'pick', label: '点名', icon: 'dice' },
   { id: 'mystery', label: '盲盒', icon: 'gift' },
+  { id: 'misconduct', label: '违纪', icon: 'alert' },
+  { id: 'bulletin', label: '留言板', icon: 'chat' },
   { id: 'daily', label: '便签', icon: 'daily' },
   { id: 'study', label: '学习', icon: 'study' },
   { id: 'recycle', label: '回收站', icon: 'trash' },

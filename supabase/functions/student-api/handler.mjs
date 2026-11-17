@@ -16,7 +16,7 @@ function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
-const LINK_MODULE_KEYS = ['material', 'roll', 'punish'];
+const LINK_MODULE_KEYS = ['material', 'roll', 'punish', 'misconduct', 'bulletin'];
 function linkModules(l) {
   let raw = {};
   try { raw = JSON.parse(l?.modules || '{}') || {}; } catch { raw = {}; }
@@ -151,11 +151,18 @@ export function createStudentApiHandler({ backendUrl, serviceKey, fetchImpl = fe
         updated_at: t.updated_at,
       }));
 
+    const misconduct = (payload.misconduct_records || [])
+      .filter((m) => live(m) && (!grades.length || !m.grade || grades.includes(m.grade)))
+      .map((m) => ({ id: m.id, grade: m.grade, class_name: m.class_name, student_name: m.student_name, student_no: m.student_no, content: m.content, created_at: m.created_at }));
+    const bulletin = (payload.bulletin_records || [])
+      .filter((b) => live(b) && (!grades.length || !b.grade || grades.includes(b.grade)))
+      .map((b) => ({ id: b.id, grade: b.grade, class_name: b.class_name, content: b.content, created_at: b.created_at }));
+
     return json({
       link: { code: link.code, title: link.title, grades, modules: linkModules(link) },
       teacher: { nickname: u.nickname, subject: u.subject, school: u.school },
       materials: mats, categories: cats, rosters, punishments: punish, roll, date,
-      selfstudyTasks,
+      selfstudyTasks, misconduct, bulletin,
     });
   }
 

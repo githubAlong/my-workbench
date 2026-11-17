@@ -33,7 +33,7 @@ function loadPageModule(file) {
 function currentPageModule() {
   const seg = parseHash().path.split('/')[0];
   if (WORK_TABS.some((item) => item.id === seg)) return PAGE_MODULES.work;
-  if (['materials', 'textbook', 'pick', 'mystery'].includes(seg)) return PAGE_MODULES.work;
+  if (['materials', 'textbook', 'pick', 'mystery', 'misconduct', 'bulletin'].includes(seg)) return PAGE_MODULES.work;
   if (seg === 'messages' || seg === 'profile') return PAGE_MODULES.me;
   if (seg === 'qr') return null;
   return PAGE_MODULES[seg] || PAGE_MODULES.home;

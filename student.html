@@ -182,7 +182,9 @@ const ICON = { mat: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"
   lock: '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/></svg>',
   check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg>',
   clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
-  more: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9.5 6 6 6-6 6"/></svg>' };
+  more: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9.5 6 6 6-6 6"/></svg>',
+  alert: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+  chat: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' };
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 /* 静态版：优先调 localapi（同一个浏览器里演示时学生端能读到老师那份数据）；
    在外网独立访问时本地库为空，自动回退到云端 student-api Edge Function。 */
@@ -315,6 +317,8 @@ function visibleTabs() {
   if (on('material')) list.push('material');
   if (on('roll')) list.push('roll');
   if (on('punish')) list.push('punish');
+  if (on('misconduct')) list.push('misconduct');
+  if (on('bulletin')) list.push('bulletin');
   return list;
 }
 
@@ -336,6 +340,8 @@ const TAB_DEF = {
   material: { icon: ICON.mat, label: '教材' },
   roll: { icon: ICON.dice, label: '点名' },
   punish: { icon: ICON.target, label: '盲盒' },
+  misconduct: { icon: ICON.alert, label: '违纪' },
+  bulletin: { icon: ICON.chat, label: '留言' },
 };
 function paint() {
   if (!availTabs.length) {
@@ -362,6 +368,8 @@ function paint() {
   if (tab === 'material') paintMaterials();
   if (tab === 'roll') paintRoll();
   if (tab === 'punish') paintPunish();
+  if (tab === 'misconduct') paintMisconduct();
+  if (tab === 'bulletin') paintBulletin();
 }
 
 /* ---------- 本机设置：班级 ---------- */
@@ -861,6 +869,78 @@ function paintPunish() {
     }, 78);
   };
 }
+
+/* ---------- 违纪：学生按班级查看违纪记录 ---------- */
+function paintMisconduct() {
+  const all = data?.misconduct || [];
+  const clsChoices = new Set();
+  (data?.rosters || []).forEach((r) => { if (r.grade || r.class_name) clsChoices.add(clsName(r.grade, r.class_name)); });
+  /* 违纪里出现过的班级也加进来（防止课表名单不全） */
+  all.forEach((m) => { if (m.grade || m.class_name) clsChoices.add(clsName(m.grade, m.class_name)); });
+  const curCls = prefs().misconduct_cls || myClass();
+  const matchCls = (m) => {
+    if (!curCls) return true;
+    return clsName(m.grade, m.class_name) === curCls
+      || (m.grade + m.class_name) === curCls
+      || (m.class_name || '').includes(curCls.replace(/^[一二三四五六]年级?/, '').trim())
+      || m.content.includes(curCls);
+  };
+  const list = all.filter(matchCls).slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  $('#s-body').innerHTML = `<div class="card card-pad">
+    <div class="card-title">${ICON.alert} 违纪登记</div>
+    <div class="row wrap" style="gap:8px;margin:6px 0 12px">
+      <input class="input" id="mc-cls" list="mc-cls-list" value="${esc(curCls)}" placeholder="选班级，留空看全部" style="flex:1;min-width:160px">
+      <datalist id="mc-cls-list">${[...clsChoices].map((n) => `<option>${esc(n)}</option>`).join('')}</datalist>
+      <button class="btn ghost" id="mc-clear">${curCls ? '看全部' : '按班级'}</button>
+    </div>
+    ${list.length ? list.map((m) => `<div class="list-item" style="display:block">
+      <div class="row wrap" style="gap:6px">
+        <span class="chip blue">${esc(clsName(m.grade, m.class_name) || '未指定班级')}</span>
+        ${m.student_name ? `<span class="chip grey">${esc(m.student_name)}</span>` : ''}
+        <span class="tiny muted" style="margin-left:auto">${esc(m.created_at ? new Date(m.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '')}</span>
+      </div>
+      <div style="margin-top:6px;font-size:15px;line-height:1.5">${esc(m.content)}</div>
+    </div>`).join('') : `<div class="empty" style="padding:20px">${curCls ? `${esc(curCls)} 班目前没有违纪记录` : '老师还没有登记违纪'}</div>`}
+  </div>`;
+  $('#mc-cls')?.addEventListener('change', (e) => { savePref('misconduct_cls', e.target.value); paintMisconduct(); });
+  $('#mc-clear')?.addEventListener('click', () => { savePref('misconduct_cls', ''); paintMisconduct(); });
+}
+
+/* ---------- 留言板：学生按班级查看老师发的留言 ---------- */
+function paintBulletin() {
+  const all = data?.bulletin || [];
+  const curCls = prefs().bulletin_cls || '';
+  const matchCls = (b) => {
+    if (!curCls) return true;
+    const bg = String(b.grade || '').trim();
+    const bc = String(b.class_name || '').trim();
+    const full = clsName(bg, bc);
+    if (full === curCls) return true;
+    if (bg && curCls.includes(bg)) return true;
+    if (bc && curCls.includes(bc)) return true;
+    return false;
+  };
+  const list = all.filter(matchCls).slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  $('#s-body').innerHTML = `<div class="card card-pad">
+    <div class="card-title">${ICON.chat} 留言板</div>
+    <div class="row wrap" style="gap:8px;margin:6px 0 12px">
+      <input class="input" id="bl-cls" value="${esc(curCls)}" placeholder="输入年级+班级，留空看全部（比如：高一 3 班）" style="flex:1;min-width:200px">
+      <button class="btn primary" id="bl-go">查看</button>
+      ${curCls ? '<button class="btn ghost" id="bl-clear">全部</button>' : ''}
+    </div>
+    ${list.length ? list.map((b) => `<div class="list-item" style="display:block;background:var(--bg-2,var(--primary-weak))">
+      <div class="row wrap" style="gap:6px">
+        <span class="chip blue">${esc(clsName(b.grade, b.class_name) || '未指定班级')}</span>
+        <span class="tiny muted" style="margin-left:auto">${esc(b.created_at ? new Date(b.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '')}</span>
+      </div>
+      <div style="margin-top:6px;font-size:15px;line-height:1.6;white-space:pre-wrap">${esc(b.content)}</div>
+    </div>`).join('') : `<div class="empty" style="padding:20px">${curCls ? `${esc(curCls)} 班暂时没有留言` : '老师还没有发布留言'}</div>`}
+  </div>`;
+  $('#bl-go')?.addEventListener('click', () => { savePref('bulletin_cls', $('#bl-cls').value.trim()); paintBulletin(); });
+  $('#bl-clear')?.addEventListener('click', () => { savePref('bulletin_cls', ''); paintBulletin(); });
+  $('#bl-cls')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { savePref('bulletin_cls', e.target.value.trim()); paintBulletin(); } });
+}
+
 init();
 </script>
 </body>

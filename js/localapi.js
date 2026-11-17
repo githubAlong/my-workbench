@@ -3796,7 +3796,7 @@ on('DELETE', '/attachments/:id', ({ params }) => {
 /* ---- 学生短链 ---- */
 /* 学生页「教材 / 点名 / 盲盒」三个模块的可见开关，存在 links.modules 上。
    默认全开：老链接没有这个字段时，学生看到的还是原来的样子。 */
-const LINK_MODULE_KEYS = ['material', 'roll', 'punish'];
+const LINK_MODULE_KEYS = ['material', 'roll', 'punish', 'misconduct', 'bulletin'];
 function linkModules(l) {
   let raw = {};
   try { raw = JSON.parse(l?.modules || '{}') || {}; } catch { raw = {}; }
@@ -3953,11 +3953,20 @@ on('GET', '/public/link/:code', ({ params, query }) => {
         subject: s.subject, expect: num(s.expect) || num(roster?.count),
       };
     });
+  /* 违纪和留言：只下发年级班级匹配或年级为空（=全部可见）的记录，
+     学生端按自己选的年级/班级过滤，这里下发时先按短链绑定的年级做第一层筛选。 */
+  const misconduct = rowsOf('misconduct_records')
+    .filter((m) => !grades.length || !m.grade || grades.includes(m.grade))
+    .map((m) => ({ id: m.id, grade: m.grade, class_name: m.class_name, student_name: m.student_name, student_no: m.student_no, content: m.content, created_at: m.created_at }));
+  const bulletin = rowsOf('bulletin_records')
+    .filter((b) => !grades.length || !b.grade || grades.includes(b.grade))
+    .map((b) => ({ id: b.id, grade: b.grade, class_name: b.class_name, content: b.content, created_at: b.created_at }));
   return {
     link: { code: l.code, title: l.title, grades, modules: linkModules(l) },
     teacher: { nickname: u.nickname, subject: u.subject, school: u.school },
     materials: mats, categories: cats, rosters, punishments: punish, roll, date,
     selfstudyTasks: publicSelfstudyTasks(),
+    misconduct, bulletin,
   };
 });
 /* 课表第六节的结束时间：与教师端自习页同一套解析顺序
@@ -4219,6 +4228,7 @@ const CRUD_TABLES = [
   'periods', 'courses', 'class_records', 'invigilations', 'trips', 'materials', 'notes', 'preps',
   'categories', 'homework', 'studies', 'students', 'rosters', 'punishments', 'exceptions',
   'selfstudy', 'selfstudy_tasks', 'repairs', 'teachers',
+  'misconduct_records', 'bulletin_records',
 ];
 
 for (const table of CRUD_TABLES) {
