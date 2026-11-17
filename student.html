@@ -197,22 +197,35 @@ import { taskImagePages, downloadCanvas } from './js/selfstudy-task-image.mjs';
 try { const uid = localStorage.getItem('wb_static_active_uid'); if (uid) setActiveAccount(uid); } catch {}
 /* 打包版没有 js/localapi.js 这个路径了，测试/调试统一从 window 取 */
 window.__wbLocalApi = { handle: localHandle };
-/* 找到 student-api Edge Function 的地址 */
+/* 找到 student-api 的两条通道：
+   1) 同源 /api/student-api —— Cloudflare Pages Functions 代理，避开 ngrok 警告页
+   2) 远端 ngrok Edge Function —— 本地开发 / Pages Functions 未部署时回退 */
 function studentApiBase() {
   try { return resolveEnvironmentProfile().supabaseUrl + '/functions/v1/student-api'; }
   catch { return ''; }
 }
 async function callCloudStudent(method, path, query, body) {
+  const joinedPath = path + (query ? '?' + new URLSearchParams(query).toString() : '');
+  const init = { method, headers: { 'Content-Type': 'application/json' } };
+  if (method === 'POST' && body !== undefined) init.body = JSON.stringify(body);
+  /* 先走同源代理（Cloudflare Pages 部署后就有这个 Functions） */
+  const localUrl = new URL('/api/student-api', location.origin);
+  localUrl.searchParams.set('path', joinedPath);
+  let lastErr = null;
+  try {
+    const res = await fetch(localUrl.toString(), init);
+    if (res.ok) return await res.json();
+    lastErr = (await res.json().catch(() => ({}))).error || ('HTTP ' + res.status);
+  } catch (e) { lastErr = e.message; }
+  /* 同源没有 → 直接打远端 ngrok（本地开发场景） */
   const base = studentApiBase();
   if (!base) throw new Error('学生服务地址未配置');
-  const url = new URL(base);
-  const joinedPath = path + (query ? '?' + new URLSearchParams(query).toString() : '');
-  url.searchParams.set('path', joinedPath);
-  const init = { method, headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' } };
-  if (method === 'POST' && body !== undefined) init.body = JSON.stringify(body);
-  const res = await fetch(url.toString(), init);
+  const remoteUrl = new URL(base);
+  remoteUrl.searchParams.set('path', joinedPath);
+  init.headers['ngrok-skip-browser-warning'] = '1';
+  const res = await fetch(remoteUrl.toString(), init);
   const result = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(result.error || '服务暂时不可用');
+  if (!res.ok) throw new Error(result.error || lastErr || '服务暂时不可用');
   return result;
 }
 const api = async (p, body) => {
