@@ -46,7 +46,9 @@ export const api = {
     if (body instanceof FormData) payload = await formDataToObject(body);
     const [p, qs] = String(path).split('?');
     const query = Object.fromEntries(new URLSearchParams(qs || ''));
-    const data = await localHandle(method, p, query, payload);
+    /* opts 继续往下传：上传进度（onProgress）这类回调没法塞进 FormData，
+       只能由接口层原样带给具体处理函数。 */
+    const data = await localHandle(method, p, query, payload, opts);
     if (data.ok === false) {
       const err = new Error(data.error || '请求失败');
       err.code = data.code || 500; err.extra = data;

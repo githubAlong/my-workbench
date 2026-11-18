@@ -3693,7 +3693,7 @@ function saveAttachment(ownerType, ownerId, name, mime, size, dataUrl) {
   save();
   return id;
 }
-on('POST', '/upload', async ({ body }) => {
+on('POST', '/upload', async ({ body, opts }) => {
   const files = body?.files || [];
   if (!files.length) fail(400, '没有收到文件');
   const ownerType = body?.fields?.owner_type || 'misc';
@@ -3706,7 +3706,7 @@ on('POST', '/upload', async ({ body }) => {
        不能掉进 handle() 的兜底拼成「本地处理失败：Failed to fetch」——
        那样既怪错了地方，也没告诉用户文件其实没传。 */
     try {
-      uploaded = await cloud.uploadMaterialFiles(files, ownerId);
+      uploaded = await cloud.uploadMaterialFiles(files, ownerId, opts?.onProgress);
     } catch (e) {
       fail(502, (e && e.message) || '教材上传服务暂时不可用，请稍后重试');
     }
@@ -4340,7 +4340,7 @@ on('DELETE', '/:table/:id', ({ params }) => {
 
 /* ============================ 统一入口 ============================ */
 /* 返回 { ok:true, data } 或抛 { code, error }，与 api.req 的期望一致。 */
-export async function handle(method, path, query = {}, body = undefined) {
+export async function handle(method, path, query = {}, body = undefined, opts = {}) {
   const clean = path.split('?')[0];
 
   /* ================= 【云端优先：已上云的表走 Supabase】 =================
@@ -4397,7 +4397,7 @@ export async function handle(method, path, query = {}, body = undefined) {
     const params = {};
     r.keys.forEach((k, i) => { params[k] = decodeURIComponent(m[i + 1]); });
     try {
-      const data = await r.fn({ params, query, body });
+      const data = await r.fn({ params, query, body, opts });
       return { ok: true, data: data === undefined ? null : data };
     } catch (e) {
       if (e instanceof ApiError) return { ok: false, error: e.message, code: e.code, extra: e.extra };

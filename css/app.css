@@ -1446,6 +1446,11 @@ html[data-theme="dark"] .lessons-page { --lesson-blue: #60a5fa; --lesson-blue-we
 .ls-progress-track span { display: block; height: 100%; background: var(--lesson-blue); border-radius: inherit; transition: width .2s ease; }
 .ls-progress-note { margin-top: 6px; color: var(--text-3); font-size: 11px; }
 
+/* 上传进度：读取文件阶段还不知道总进度，让占位条左右滑动表示"正在处理" */
+.up-progress { margin-top: 10px; }
+.up-progress.is-pending .ls-progress-track span { width: 32% !important; animation: up-progress-wait 1s ease-in-out infinite alternate; }
+@keyframes up-progress-wait { from { margin-left: 0; } to { margin-left: 68%; } }
+
 /* 跟谁结算 */
 .ls-settle { padding: 4px 14px 10px; margin-bottom: 14px; }
 .lss-head { font-size: 12.5px; font-weight: 700; color: var(--text-2); padding: 8px 0 6px; }

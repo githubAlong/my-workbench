@@ -3204,7 +3204,6 @@ async function materialEditor(m, catId, reload) {
     <div class="field"><label class="field-label">标题</label><input class="input" id="t" value="${esc(m?.title || '')}"></div>
     <div class="form-grid">
       <div class="field"><label class="field-label" for="cat">分类</label><input class="input" id="cat" type="text" value="${esc(initialCategory?.name || '')}" placeholder="手动输入分类名称，留空则为未分类"></div>
-      <div class="field"><label class="field-label">班级</label><input class="input" id="cls" value="${esc(m?.class_name || '')}"></div>
       <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(m?.grade || '')}"></div>
       <div class="field"><label class="field-label">学生可见</label><select class="input" id="pub"><option value="1" ${m?.public !== 0 ? 'selected' : ''}>是（短链可看）</option><option value="0" ${m?.public === 0 ? 'selected' : ''}>否</option></select></div>
     </div>
@@ -3215,6 +3214,10 @@ async function materialEditor(m, catId, reload) {
         <label class="btn ghost sm" style="cursor:pointer">选择文件夹<input type="file" id="fd" webkitdirectory directory multiple hidden></label>
       </div>
       <div class="field-hint" id="f-list" style="margin-top:6px"></div>
+      <div class="up-progress" id="up-box" hidden>
+        <div class="ls-progress-label"><span id="up-stage">正在准备…</span><b id="up-pct">0%</b></div>
+        <div class="ls-progress-track"><span id="up-bar"></span></div>
+      </div>
       <div class="field-hint">
         支持 WPS 全部文件格式，包括 .wps / .wpt、.et / .ett、.dps / .dpt，以及 Word、Excel、PPT、PDF、图片、音视频和压缩包。
         <br>不限文件数量和大小，保留原文件名与格式。
@@ -3252,16 +3255,40 @@ async function materialEditor(m, catId, reload) {
       categoryId = category.id;
     }
     const payload = { title: body.querySelector('#t').value.trim() || '未命名课件', category_id: categoryId,
-      class_name: body.querySelector('#cls').value, grade: body.querySelector('#grade').value,
+      grade: body.querySelector('#grade').value,
       descr: body.querySelector('#d').value, public: Number(body.querySelector('#pub').value) };
     const r = savedMaterial ? await api.patch('/materials/' + savedMaterial.id, { ...payload, public: savedMaterial.public }) : await api.post('/materials', { ...payload, public: 0 });
     savedMaterial = r;
     const files = selected.filter(file => !uploadedFiles.has(file));
     if (files.length) {
+      /* 上传进度：63 个文件时可能等好几分钟，不显示进度用户会以为卡死。
+         读取阶段（FileReader 转 ArrayBuffer）先在原地滑动占位条，进入网络上传后按真实字节走。 */
+      const upBox = body.querySelector('#up-box');
+      const upBar = body.querySelector('#up-bar');
+      const upPct = body.querySelector('#up-pct');
+      const upStage = body.querySelector('#up-stage');
+      const setPct = (value) => {
+        upBar.style.width = Math.max(0, Math.min(100, value)) + '%';
+        upPct.textContent = Math.round(Math.max(0, Math.min(100, value))) + '%';
+      };
+      upBox.hidden = false;
+      upBox.classList.add('is-pending');
+      upBar.style.width = '';
+      upStage.textContent = `正在读取 ${files.length} 个文件…`;
+      setPct(0);
       const fd = new FormData();
       for (const f of files) fd.append('files', f, f.name);
       fd.append('owner_type', 'material'); fd.append('owner_id', String(r.id));
-      await api.req('POST', '/upload', fd);
+      await api.req('POST', '/upload', fd, {
+        onProgress: (ratio) => {
+          upBox.classList.remove('is-pending');
+          upStage.textContent = `正在上传 ${files.length} 个文件…`;
+          setPct(Math.round(Number(ratio || 0) * 100));
+        },
+      });
+      upBox.classList.remove('is-pending');
+      upStage.textContent = '上传完成，正在同步学生端…';
+      setPct(100);
       files.forEach(file => uploadedFiles.add(file));
     }
     if (Number(r.public) !== payload.public) savedMaterial = await api.patch('/materials/' + r.id, { public: payload.public });

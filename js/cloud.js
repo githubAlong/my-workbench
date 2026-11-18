@@ -591,18 +591,34 @@ export async function saveWorkbenchSnapshot(payload, expectedRevision = 0, expec
   return row;
 }
 
-export async function uploadMaterialFiles(files, ownerId) {
+export async function uploadMaterialFiles(files, ownerId, onProgress) {
   const config = cfg(), token = await freshToken();
   if (!token) throw new Error('请先登录教师账号后上传教材');
   const form = new FormData();
   form.append('owner_id', String(ownerId));
   for (const file of files) form.append('files', new Blob([file.data], { type: file.mime || 'application/octet-stream' }), file.filename);
-  const response = await fetch(config.url + '/functions/v1/material-sharing', { method: 'POST', headers: { apikey: config.anon, Authorization: 'Bearer ' + token }, body: form })
-    .catch(() => { throw new Error('连不上云端教材服务，文件没有上传。请检查网络后重试'); });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || '教材上传失败，请稍后重试');
-  if (!Array.isArray(result.files) || result.files.length !== files.length) throw new Error('教材上传未完成，请重试');
-  return result.files;
+  /* 用 XHR 而不是 fetch：fetch 拿不到上传进度，几十个文件时会长时间没有任何反馈。
+     ratio 是 0~1 的上传字节占比，由调用方决定怎么展示。 */
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', config.url + '/functions/v1/material-sharing');
+    xhr.setRequestHeader('apikey', config.anon);
+    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    if (typeof onProgress === 'function') {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
+      };
+    }
+    xhr.onerror = () => reject(new Error('连不上云端教材服务，文件没有上传。请检查网络后重试'));
+    xhr.onload = () => {
+      let result = {};
+      try { result = JSON.parse(xhr.responseText || '{}'); } catch { /* 非 JSON 走下面的通用报错 */ }
+      if (xhr.status < 200 || xhr.status >= 300) return reject(new Error(result.error || '教材上传失败，请稍后重试'));
+      if (!Array.isArray(result.files) || result.files.length !== files.length) return reject(new Error('教材上传未完成，请重试'));
+      resolve(result.files);
+    };
+    xhr.send(form);
+  });
 }
 
 /* ---------------- 字段清洗与表配置 ---------------- */
