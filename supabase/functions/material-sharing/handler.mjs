@@ -1,4 +1,3 @@
-export const MAX_MATERIAL_SIZE = 50 * 1024 * 1024;
 const BUCKET = 'teaching-materials';
 /* ngrok-skip-browser-warning 必须放行：自建 Supabase 走 ngrok 固定域名，
    前端给所有 ngrok 请求都加了这个头（环境配置里的 fetch 补丁）。
@@ -10,9 +9,8 @@ const materialKeys = ['id', 'title', 'grade', 'class_name', 'descr', 'created_at
 const fileKeys = ['id', 'name', 'mime', 'size'];
 function failure(status, message) { return Object.assign(new Error(message), { status }); }
 export function validateFiles(files) {
-  if (!files.length || files.length > 20) throw failure(400, '请选择教材文件，每次最多 20 个');
-  if (files.some(file => !file.name || !Number.isFinite(file.size) || file.size < 0 || file.size > MAX_MATERIAL_SIZE)) throw failure(413, '教材单个文件不能超过 50 MB');
-  if (files.reduce((total, file) => total + file.size, 0) > MAX_MATERIAL_SIZE) throw failure(413, '每批文件合计不能超过 50 MB，请分批上传');
+  /* 课件要支持整文件夹上传，文件数量和大小不再设限（单文件上限由存储桶决定）。 */
+  if (!files.length) throw failure(400, '请选择教材文件');
 }
 export function previewType(name) {
   const extension = String(name || '').split('.').pop().toLowerCase();
@@ -55,16 +53,18 @@ export function createMaterialHandler({ backendUrl, serviceKey, fetchImpl = fetc
         const form = await request.formData();
         const ownerId = String(form.get('owner_id') || '');
         const files = form.getAll('files');
-        if (!/^\d+$/.test(ownerId) || !files.length || files.length > 20) throw failure(400, '请选择教材文件，每次最多 20 个');
-        for (const file of files) {
-          if (typeof file === 'string' || !file.name || file.size > MAX_MATERIAL_SIZE) throw failure(413, '教材单个文件不能超过 50 MB');
-        }
+        if (!/^\d+$/.test(ownerId) || !files.length) throw failure(400, '请选择教材文件');
         validateFiles(files);
         const bucketResponse = await backend('/storage/v1/bucket/' + BUCKET);
         if (bucketResponse.ok) {
-          if ((await bucketResponse.json()).public) throw failure(503, '教材存储配置异常');
+          const bucket = await bucketResponse.json();
+          if (bucket.public) throw failure(503, '教材存储配置异常');
+          /* 早期建桶时写死了 50 MB 的单文件上限，现在不限大小，遇到旧配置顺手清掉。 */
+          if (bucket.file_size_limit) {
+            await backend('/storage/v1/bucket/' + BUCKET, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false, file_size_limit: null, allowed_mime_types: null }) }).catch(() => {});
+          }
         } else if (bucketResponse.status === 404 || bucketResponse.status === 400) {
-          const created = await backend('/storage/v1/bucket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false, file_size_limit: MAX_MATERIAL_SIZE }) });
+          const created = await backend('/storage/v1/bucket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false }) });
           if (!created.ok && created.status !== 409) throw failure(503, '无法初始化教材存储，请稍后重试');
         } else throw failure(503, '教材存储暂时不可用');
         const uploaded = [];

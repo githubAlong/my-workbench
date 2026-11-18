@@ -1,6 +1,5 @@
 import { resolveEnvironmentProfile } from './environment-config.mjs';
 
-export const MAX_MATERIAL_SIZE = 50 * 1024 * 1024;
 export function materialEndpoint(code, materialId = '', fileId = '', mode = '') {
   const profile = resolveEnvironmentProfile(globalThis.location);
   const url = new URL(profile.supabaseUrl + '/functions/v1/material-sharing');

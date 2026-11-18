@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMaterialHandler, publicMaterials, previewType, validateFiles, MAX_MATERIAL_SIZE } from '../supabase/functions/material-sharing/handler.mjs';
+import { createMaterialHandler, publicMaterials, previewType, validateFiles } from '../supabase/functions/material-sharing/handler.mjs';
 
 const code = 'test-student-link';
 function fixture() {
@@ -98,7 +98,6 @@ test('file type handling supports native WPS formats without treating them as ex
   for (const extension of ['wps', 'wpt', 'et', 'ett', 'dps', 'dpt', 'docm', 'xlsx', 'pptx', 'html', 'svg']) assert.equal(previewType('文件.' + extension), 'application/octet-stream');
   assert.equal(previewType('文件.PDF'), 'application/pdf');
   assert.equal(previewType('图片.png'), 'image/png');
-  assert.equal(MAX_MATERIAL_SIZE, 52428800);
 });
 test('anonymous upload is rejected before touching storage', async () => {
   const { handler, calls } = service();
@@ -106,10 +105,10 @@ test('anonymous upload is rejected before touching storage', async () => {
   assert.equal(response.status, 401);
   assert.equal(calls.length, 0);
 });
-test('upload size limits are enforced before storing any batch file', () => {
-  assert.throws(() => validateFiles([{ name: '过大.wps', size: MAX_MATERIAL_SIZE + 1 }]), /单个文件/);
-  assert.throws(() => validateFiles([{ name: '一.et', size: MAX_MATERIAL_SIZE }, { name: '二.dps', size: 1 }]), /分批上传/);
-  assert.throws(() => validateFiles(Array.from({ length: 21 }, () => ({ name: '文件.wps', size: 1 }))), /20 个/);
+test('upload accepts any number and size of files for folder uploads', () => {
+  assert.doesNotThrow(() => validateFiles(Array.from({ length: 200 }, () => ({ name: '文件.wps', size: 1 }))));
+  assert.doesNotThrow(() => validateFiles([{ name: '大视频.mp4', size: 800 * 1024 * 1024 }]));
+  assert.throws(() => validateFiles([]), /请选择教材文件/);
 });
 test('authenticated teachers upload WPS files above the old 1.5 MB limit into private storage', async () => {
   const { handler, calls } = service({ bucketExists: false });

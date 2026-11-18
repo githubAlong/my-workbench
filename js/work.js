@@ -8,7 +8,7 @@ import { detectTimetable } from './ttimage.js';
 import { loginBanner, hookBanner } from './auth.js';
 import { renderPreps } from './prep.js';
 import { renderTripManagement } from './trips.js';
-import { MAX_MATERIAL_SIZE, syncMaterialSharing } from './material-sharing.mjs';
+import { syncMaterialSharing } from './material-sharing.mjs';
 
 const M = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 /* 备注字段统一生成器。
@@ -3209,21 +3209,40 @@ async function materialEditor(m, catId, reload) {
       <div class="field"><label class="field-label">学生可见</label><select class="input" id="pub"><option value="1" ${m?.public !== 0 ? 'selected' : ''}>是（短链可看）</option><option value="0" ${m?.public === 0 ? 'selected' : ''}>否</option></select></div>
     </div>
     <div class="field"><label class="field-label">说明</label><textarea class="input" id="d" rows="2">${esc(m?.descr || '')}</textarea></div>
-    <div class="field"><label class="field-label">文件（可多选）</label>
-      <input type="file" id="f" multiple class="small">
-      <div class="field-hint" style="margin-top:6px">
-        支持 WPS 全部文件格式，包括 .wps / .wpt、.et / .ett、.dps / .dpt，以及 Word、Excel、PPT、PDF、图片和压缩包。
-        <br>保留原文件名与格式，每次最多 20 个文件，单个文件最大 50 MB，每批合计不超过 50 MB。
+    <div class="field"><label class="field-label">文件（可多选，也可整个文件夹）</label>
+      <div class="row wrap" style="gap:8px">
+        <label class="btn ghost sm" style="cursor:pointer">选择文件<input type="file" id="f" multiple hidden></label>
+        <label class="btn ghost sm" style="cursor:pointer">选择文件夹<input type="file" id="fd" webkitdirectory directory multiple hidden></label>
+      </div>
+      <div class="field-hint" id="f-list" style="margin-top:6px"></div>
+      <div class="field-hint">
+        支持 WPS 全部文件格式，包括 .wps / .wpt、.et / .ett、.dps / .dpt，以及 Word、Excel、PPT、PDF、图片、音视频和压缩包。
+        <br>不限文件数量和大小，保留原文件名与格式。
       </div></div>
     <div class="field-hint">设为学生可见后，学生打开链接即可查看教材和下载原文件，无需账号密码。PDF、图片支持浏览器查看；WPS 文档下载后用 WPS 打开。</div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">保存</button></div></div>`);
   const s = sheet({ title: isNew ? '上传课件' : '编辑课件', body, wide: true });
   body.querySelector('#c').onclick = s.close;
+  /* 文件和文件夹两个入口都往同一个待上传列表里加，最后一次性提交。 */
+  let pendingFiles = [];
+  const fileList = body.querySelector('#f-list');
+  const paintFileList = () => {
+    fileList.innerHTML = pendingFiles.length
+      ? `已选 ${pendingFiles.length} 个文件：${pendingFiles.slice(0, 5).map((file) => esc(file.name)).join('、')}${pendingFiles.length > 5 ? ' …' : ''} <button class="chip-btn" type="button" id="f-clear">清空</button>`
+      : '还没选文件。';
+    fileList.querySelector('#f-clear')?.addEventListener('click', () => { pendingFiles = []; paintFileList(); });
+  };
+  paintFileList();
+  const addFiles = (list) => {
+    for (const file of list) {
+      if (!pendingFiles.some((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified)) pendingFiles.push(file);
+    }
+    paintFileList();
+  };
+  body.querySelector('#f').addEventListener('change', (event) => { addFiles(event.target.files); event.target.value = ''; });
+  body.querySelector('#fd').addEventListener('change', (event) => { addFiles(event.target.files); event.target.value = ''; });
   saving(body.querySelector('#k'), async () => {
-    const selected = [...body.querySelector('#f').files];
-    if (selected.length > 20) throw new Error('每次最多选择 20 个文件');
-    for (const file of selected) if (file.size > MAX_MATERIAL_SIZE) throw new Error('「' + file.name + '」超过 50 MB，请压缩后上传');
-    if (selected.reduce((total, file) => total + file.size, 0) > MAX_MATERIAL_SIZE) throw new Error('每批文件合计不能超过 50 MB，请分批上传');
+    const selected = pendingFiles;
     const categoryName = body.querySelector('#cat').value.trim();
     let categoryId = null;
     if (categoryName) {

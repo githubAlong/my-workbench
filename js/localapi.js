@@ -3700,7 +3700,6 @@ on('POST', '/upload', async ({ body }) => {
   const ownerId = Number(body?.fields?.owner_id || 0);
 
   if (ownerType === 'material' && await cloudReady()) {
-    for (const file of files) if (byteLen(file.data) > 50 * 1024 * 1024) fail(413, '教材单个文件不能超过 50 MB');
     const cloud = await import('./cloud.js');
     let uploaded;
     /* 云端教材服务（Edge Function）没部署或连不上时，错误要以云端服务不可用的口径报出来，
