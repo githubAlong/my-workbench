@@ -24,6 +24,12 @@
   .pick-num { display: inline-grid; place-items: center; min-width: 84px; height: 84px; border-radius: 22px; background: linear-gradient(135deg,#007aff,#af52de); color: #fff; font-size: 38px; font-weight: 700; font-family: var(--mono); margin: 6px; }
   .mat-card { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-bottom: 1px solid var(--line); }
   .mat-card:last-child { border-bottom: 0; }
+  /* 在线预览容器：PDF 用 iframe，图片/音视频用原生控件 */
+  .pv-wrap { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg-sunken); }
+  .pv-wrap iframe { display: block; width: 100%; height: 72vh; border: 0; }
+  .pv-wrap img { display: block; width: 100%; height: auto; }
+  .pv-wrap video { display: block; width: 100%; max-height: 72vh; background: #000; }
+  .pv-wrap audio { display: block; width: 100%; padding: 18px; box-sizing: border-box; }
   /* 签到 */
   .s-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff3b30; display: inline-block; margin-left: 2px; animation: sb 1.4s infinite; }
   @keyframes sb { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
@@ -486,6 +492,17 @@ function paintMaterials() {
   </div>`;
   document.querySelectorAll('[data-m]').forEach((d) => { d.onclick = () => { cur = Number(d.dataset.m); paintMaterialDetail(); }; });
 }
+/* 浏览器能直接显示的类型。其余（docx / xlsx / pptx / zip…）浏览器渲染不了：
+   以前点一下会新开空白页，再把 octet-stream 的 blob 当页面打开，
+   结果存成一个没有扩展名的 UUID 文件，下载完谁也打不开。
+   现在能预览的在页面内预览，不能预览的按原文件名下载。 */
+const PREVIEW_KIND = {
+  pdf: 'pdf',
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', svg: 'image',
+  mp4: 'video', webm: 'video', ogv: 'video',
+  mp3: 'audio', m4a: 'audio', wav: 'audio', ogg: 'audio',
+};
+const previewKind = (name) => PREVIEW_KIND[String(name || '').split('.').pop().toLowerCase()] || '';
 async function paintMaterialDetail() {
   $('#s-body').innerHTML = '<div class="card card-pad small muted">加载中…</div>';
   try {
@@ -495,50 +512,91 @@ async function paintMaterialDetail() {
       <h2 style="margin:12px 0 4px;font-size:19px">${esc(d.material.title)}</h2>
       <div class="tiny muted">${esc(d.material.descr || '')}</div>
       <div class="col" style="margin-top:14px">
-        ${d.files.length ? d.files.map((f) => `<button class="btn ghost block" data-view="${f.id}" data-name="${esc(f.name)}" style="justify-content:flex-start;gap:10px">
-          <span style="flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis">${esc(f.name)}</span>
-          <span class="tiny muted">${(f.size / 1024 / 1024).toFixed(1)} MB</span></button>`).join('')
+        ${d.files.length ? d.files.map((f) => {
+          const kind = previewKind(f.name);
+          return `<button class="btn ghost block" data-file="${f.id}" data-name="${esc(f.name)}" data-kind="${kind}" style="justify-content:flex-start;gap:10px">
+            <span style="flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis">${esc(f.name)}</span>
+            <span class="tiny muted">${kind ? '预览' : '下载'} · ${(f.size / 1024 / 1024).toFixed(1)} MB</span></button>`;
+        }).join('')
           : '<div class="muted small">这份资料还没有文件</div>'}
       </div>
       <div class="row wrap" style="gap:8px;margin-top:14px">
         ${d.files.map((f) => `<button class="btn soft sm" data-dl="${f.id}" data-name="${esc(f.name)}">${ICON.dl} 下载 ${esc(f.name).slice(0, 12)}</button>`).join('')}
       </div>
-      <div class="tiny muted" style="margin-top:14px">PDF、图片、音视频可在浏览器直接查看。WPS / Office 文档请下载原文件后打开；查看和下载均无需账号密码。</div>
+      <div class="tiny muted" style="margin-top:14px">PDF、图片、音视频点开即可在线预览；WPS / Office 文档浏览器无法预览，点击会按原文件名下载。</div>
     </div>`;
     /* 不能直接给 href 让浏览器跳转：文件地址在云端函数上，顶层导航会撞上 ngrok 提示页，
-       跨域时 download 属性也会被忽略。先 fetch 成 blob（请求自带跳过警告的请求头），再打开或保存。 */
-    const openFile = async (btn, mode) => {
-      const id = mode === 'view' ? btn.dataset.view : btn.dataset.dl;
-      const name = btn.dataset.name;
-      const html = btn.innerHTML;
-      const win = mode === 'view' ? window.open('', '_blank') : null;
+       跨域时 download 属性也会被忽略。先 fetch 成 blob 再预览或保存。 */
+    let pvURL = '';
+    const loadBlob = async (id, mode) => {
+      const res = await fetch(materialEndpoint(code, cur, id, mode)).catch(() => null);
+      if (!res || !res.ok) throw new Error('文件暂时打不开，请稍后重试');
+      return res.blob();
+    };
+    /* 不能预览的类型直接下载：保留原文件名，否则浏览器会把 blob 存成一串 UUID */
+    const saveAs = async (btn, id, name) => {
+      const label = btn.innerHTML;
       btn.disabled = true;
-      btn.textContent = mode === 'view' ? '打开中…' : '下载中…';
+      btn.textContent = '下载中…';
       try {
-        const res = await fetch(materialEndpoint(code, cur, id, mode)).catch(() => null);
-        if (!res || !res.ok) throw new Error('文件暂时打不开，请稍后重试');
-        const href = URL.createObjectURL(await res.blob());
-        if (mode === 'view') {
-          if (!win) throw new Error('浏览器拦截了新窗口，请允许弹窗后重试');
-          win.location.href = href;
-          setTimeout(() => URL.revokeObjectURL(href), 60000);
-        } else {
-          const a = document.createElement('a');
-          a.href = href; a.download = name;
-          document.body.appendChild(a); a.click(); a.remove();
-          setTimeout(() => URL.revokeObjectURL(href), 10000);
-        }
-        btn.innerHTML = mode === 'view' ? html : '已开始下载';
-        setTimeout(() => { btn.innerHTML = html; }, 1800);
+        const href = URL.createObjectURL(await loadBlob(id, 'download'));
+        const a = document.createElement('a');
+        a.href = href; a.download = name || '教材文件';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 10000);
+        btn.textContent = '已开始下载';
+        setTimeout(() => { btn.innerHTML = label; }, 1800);
       } catch (e) {
-        if (win) win.close();
         btn.textContent = e.message;
-        setTimeout(() => { btn.innerHTML = html; }, 2200);
+        setTimeout(() => { btn.innerHTML = label; }, 2400);
       }
       btn.disabled = false;
     };
-    document.querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => openFile(b, 'view'); });
-    document.querySelectorAll('[data-dl]').forEach((b) => { b.onclick = () => openFile(b, 'download'); });
+    /* 预览放在当前页里，不新开窗口：新窗口会先显示 about:blank，
+       手机上也容易被弹窗拦截。 */
+    const showPreview = async (btn, id, name, kind) => {
+      const label = btn.innerHTML;
+      btn.disabled = true;
+      btn.textContent = '加载中…';
+      try {
+        const blob = await loadBlob(id, 'view');
+        if (pvURL) URL.revokeObjectURL(pvURL);
+        pvURL = URL.createObjectURL(blob);
+        const media = kind === 'image' ? `<img src="${pvURL}" alt="${esc(name)}">`
+          : kind === 'video' ? `<video src="${pvURL}" controls playsinline preload="metadata"></video>`
+            : kind === 'audio' ? `<audio src="${pvURL}" controls preload="metadata"></audio>`
+              : `<iframe src="${pvURL}" title="${esc(name)}"></iframe>`;
+        $('#s-body').innerHTML = `<div class="card card-pad">
+          <div class="row wrap" style="gap:8px">
+            <button class="btn ghost sm" id="pv-back">‹ 返回资料</button>
+            <span style="flex:1"></span>
+            <button class="btn soft sm" id="pv-dl">${ICON.dl} 下载原文件</button>
+          </div>
+          <h2 style="margin:12px 0 4px;font-size:16px;word-break:break-all">${esc(name)}</h2>
+          <div class="pv-wrap">${media}</div>
+        </div>`;
+        $('#pv-back').onclick = () => {
+          if (pvURL) { URL.revokeObjectURL(pvURL); pvURL = ''; }
+          paintMaterialDetail();
+        };
+        $('#pv-dl').onclick = () => {
+          const a = document.createElement('a');
+          a.href = pvURL; a.download = name || '教材文件';
+          document.body.appendChild(a); a.click(); a.remove();
+        };
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = e.message;
+        setTimeout(() => { btn.innerHTML = label; }, 2400);
+      }
+    };
+    document.querySelectorAll('[data-file]').forEach((b) => {
+      b.onclick = () => {
+        if (b.dataset.kind) showPreview(b, b.dataset.file, b.dataset.name, b.dataset.kind);
+        else saveAs(b, b.dataset.file, b.dataset.name);
+      };
+    });
+    document.querySelectorAll('[data-dl]').forEach((b) => { b.onclick = () => saveAs(b, b.dataset.dl, b.dataset.name); });
     document.getElementById('back').onclick = () => { cur = null; paint(); };
   } catch (e) { $('#s-body').innerHTML = `<div class="card card-pad">${esc(e.message)}</div>`; }
 }
