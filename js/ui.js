@@ -438,14 +438,14 @@ export async function render() {
   if (previousRoute !== path) navGroupOverrides.clear();
   let [seg, tab, third] = path.split('/');
 
-  if (seg === 'materials' && ['selfstudy', 'textbook', 'pick', 'mystery'].includes(tab)) {
+  if (seg === 'materials' && ['selfstudy', 'textbook', 'pick', 'mystery', 'misconduct', 'bulletin'].includes(tab)) {
     path = path.split('/').slice(1).join('/'); location.replace('#/' + path); return render();
   }
   if (seg === 'work' && tab === 'materials') {
     path = third ? path.split('/').slice(2).join('/') : 'materials';
     location.replace('#/' + path); return render();
   }
-  if (seg === 'work' && ['selfstudy', 'textbook', 'pick', 'mystery'].includes(tab)) {
+  if (seg === 'work' && ['selfstudy', 'textbook', 'pick', 'mystery', 'misconduct', 'bulletin'].includes(tab)) {
     path = path.split('/').slice(1).join('/'); location.replace('#/' + path); return render();
   }
   // Keep bookmarks and in-app links working after promoting work modules.
@@ -459,7 +459,10 @@ export async function render() {
   let viewName = seg;
   const isWorkModule = WORK_TABS.some(item => item.id === seg);
   /* 自习管理是独立的一级页面（见 selfstudy.js），不再落到「课件」工具页 */
-  const isToolModule = ['textbook', 'pick', 'mystery'].includes(seg);
+  /* 违纪、留言板和教材/点名/盲盒一样，走「小助手」视图的 renderStudentModule。
+     漏进这个名单会落到下面的兜底：navNode 能找到节点但没有注册视图，
+     path 被重写成自身再 return render()，无限递归栈溢出（Maximum call stack size exceeded）。 */
+  const isToolModule = ['textbook', 'pick', 'mystery', 'misconduct', 'bulletin'].includes(seg);
   if (isWorkModule) viewName = 'work';
   if (isToolModule) viewName = 'materials';
   if (seg === 'daily') viewName = 'daily';

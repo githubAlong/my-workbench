@@ -173,6 +173,8 @@ registerView(async function materials(main, { tab }) {
     textbook: ['教材', '学生端「教材」：你勾了「学生可见」的资料，就是学生看到的全部'],
     pick: ['点名', '学生端「点名」：按号码或按名单，点过的不重复'],
     mystery: ['盲盒', '学生端「盲盒」：点一下随机弹一个任务，这一轮不重复'],
+    misconduct: ['违纪', '学生端「违纪」：录入的违纪内容，学生按班级查看'],
+    bulletin: ['留言板', '学生端「留言板」：发布的留言，学生按班级查看'],
   }[t] || ['小助手', '学生端互动工具统一管理：自习、教材、点名、盲盒'];
 
   main.innerHTML = '<div id="materials-body"></div>';
@@ -188,6 +190,8 @@ registerView(async function materials(main, { tab }) {
   if (t === 'textbook') return renderStudentModule(body, 'textbook');
   if (t === 'pick') return renderStudentModule(body, 'pick');
   if (t === 'mystery') return renderStudentModule(body, 'mystery');
+  if (t === 'misconduct') return renderStudentModule(body, 'misconduct');
+  if (t === 'bulletin') return renderStudentModule(body, 'bulletin');
   return renderMaterials(body);
 });
 
