@@ -9,6 +9,7 @@ import { loginBanner, hookBanner } from './auth.js';
 import { renderPreps } from './prep.js';
 import { renderTripManagement } from './trips.js';
 import { syncMaterialSharing } from './material-sharing.mjs';
+import { readXlsx, readDelimited } from './xlsx-lite.js';
 
 const M = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 /* 备注字段统一生成器。
@@ -173,8 +174,8 @@ registerView(async function materials(main, { tab }) {
     textbook: ['教材', '学生端「教材」：你勾了「学生可见」的资料，就是学生看到的全部'],
     pick: ['点名', '学生端「点名」：按号码或按名单，点过的不重复'],
     mystery: ['盲盒', '学生端「盲盒」：点一下随机弹一个任务，这一轮不重复'],
-    misconduct: ['违纪', '学生端「违纪」：录入的违纪内容，学生按班级查看'],
-    bulletin: ['留言板', '学生端「留言板」：发布的留言，学生按班级查看'],
+    misconduct: ['违纪', '学生端「违纪」：学生提交的违纪情况，这里查看与编辑'],
+    bulletin: ['留言板', '学生端「留言板」：学生提交的留言，这里查看与编辑'],
   }[t] || ['小助手', '学生端互动工具统一管理：自习、教材、点名、盲盒'];
 
   main.innerHTML = '<div id="materials-body"></div>';
@@ -2587,13 +2588,33 @@ const STUDENT_MOD = {
   },
   misconduct: {
     name: '违纪', icon: 'alert', tab: 'misconduct',
-    desc: '从课表选年级班级，录入违纪内容。学生端按班级查看。',
+    desc: '学生在学生端填写违纪情况提交，这里查看、编辑和删除。',
   },
   bulletin: {
     name: '留言板', icon: 'chat', tab: 'bulletin',
-    desc: '输入年级班级和留言内容，学生端按班级查看留言。',
+    desc: '学生在学生端留言，这里查看、编辑和删除。',
   },
 };
+
+/* 学生提交的违纪/留言写在云端快照里：进模块前先拉一次，
+   否则老师看到的是本机旧数据（学生刚提交的看不到）。 */
+async function pullStudentSubmissions() {
+  try {
+    const { pullNow } = await import('./cloudsync.js');
+    await pullNow();
+  } catch { /* 未登录云端或离线时，按本机数据展示 */ }
+}
+
+/* 「高一 · 1 班」这种用户输入 → { grade, class_name }：
+   先按课表名单精确匹配，匹配不到再按分隔符拆。 */
+function pairOfClassText(text, clsPairs) {
+  const s = String(text || '').trim();
+  if (!s) return { grade: '', class_name: '' };
+  if (clsPairs && clsPairs.has(s)) return { ...clsPairs.get(s) };
+  const parts = s.split(/[·.\s]+/).filter(Boolean);
+  if (parts.length >= 2) return { grade: parts[0], class_name: parts.slice(1).join('') };
+  return { grade: '', class_name: s };
+}
 
 /* 名单字段在库里可能是两种形态：JSON 数组（导入班级时写入）、
    或者「张一诺,李晨阳」这种逗号串（种子数据与手工录的一条就写成了这样）。
@@ -2609,6 +2630,7 @@ function parseNames(raw) {
 
 async function renderStudentModule(box, key) {
   const meta = STUDENT_MOD[key];
+  if (key === 'misconduct' || key === 'bulletin') await pullStudentSubmissions();
   const [links, mats, rosters, punishes, punRecs, rollSess, misconducts, bulletins, periods] = await Promise.all([
     api.get('/links').catch(() => []),
     api.get('/materials').catch(() => []),
@@ -2776,7 +2798,7 @@ async function renderStudentModule(box, key) {
     inner.querySelector('#pk-try')?.addEventListener('click', () => pickStudentDialog(rosters));
     inner.querySelector('#pk-ros')?.addEventListener('click', () => openRosterDialog(rosters, () => renderStudentModule(box, key)));
   } else if (key === 'misconduct') {
-    /* —— 违纪 —— */
+    /* —— 违纪：学生提交，老师这里查看与编辑 —— */
     const clsPairs = new Map();
     (rosters || []).forEach((r) => { if (r.grade || r.class_name) clsPairs.set(clsName(r.grade, r.class_name), { grade: r.grade, class_name: r.class_name }); });
     const todayYmd = ymd(new Date());
@@ -2791,58 +2813,73 @@ async function renderStudentModule(box, key) {
         <div class="card card-pad"><div class="tiny muted">涉及班级</div>
           <div style="font-size:24px;font-weight:700;color:var(--green)">${activeCls}</div></div>
       </div>
-      <div class="card card-pad" style="margin-top:14px">
-        <div class="card-title">${icon('alert', 15)} 登记违纪</div>
-        <div class="tiny muted" style="margin:4px 0 12px">选班级 → 填违纪内容 → 保存。学生会在自己班级页看到。</div>
-        <div class="field">
-          <label class="field-label">年级班级（从课表名单选）</label>
-          <input class="input" id="mc-cls" list="mc-cls-list" placeholder="比如：高一 · 1 班">
-          <datalist id="mc-cls-list">${[...clsPairs.keys()].map((n) => `<option>${esc(n)}</option>`).join('')}</datalist>
-        </div>
-        <div class="field">
-          <label class="field-label">违纪内容</label>
-          <textarea class="input" id="mc-text" rows="3" placeholder="简明扼要地描述违纪情况"></textarea>
-        </div>
-        <div class="row" style="justify-content:flex-end;gap:8px">
-          <button class="btn primary sm" id="mc-save">保存</button>
-        </div>
+      <div class="row wrap" style="gap:8px;margin:16px 0 10px">
+        <button class="btn ghost sm" id="mc-refresh">${icon('refresh', 15)} 刷新学生提交</button>
+        <span style="flex:1"></span>
+        <span class="tiny muted">学生在学生端提交后，这里点刷新就能看到</span>
       </div>
-      <div class="card card-pad" style="margin-top:14px" id="mc-list"></div>`;
+      <div class="card card-pad" id="mc-list"></div>`;
 
     const listBox = inner.querySelector('#mc-list');
     const paintMisList = () => {
       listBox.innerHTML = misconducts.length
         ? `<div class="pb-list">${misconducts.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).map((m) => `<div class="pb-row">
           <span class="chip ${clsName(m.grade, m.class_name) ? 'blue' : 'grey'}">${esc(clsName(m.grade, m.class_name) || '未选班级')}</span>
-          <span class="pb-text">${esc(m.content)}</span>
+          <span class="pb-text">${esc(m.content)}${m.student_name ? `<span class="tiny muted"> · ${esc(m.student_name)}</span>` : ''}</span>
           <span class="tiny muted">${esc(fmtTime(m.created_at))}</span>
+          <button class="icon-btn sm" data-mc-edit="${m.id}" title="编辑">${icon('edit', 13)}</button>
           <button class="icon-btn sm" data-mc-del="${m.id}" title="删除">${icon('close', 13)}</button>
         </div>`).join('')}</div>`
-        : '<div class="empty" style="padding:16px">还没有违纪记录</div>';
+        : '<div class="empty" style="padding:16px">还没有学生提交违纪</div>';
+      listBox.querySelectorAll('[data-mc-edit]').forEach((b) => {
+        b.onclick = () => {
+          const m = misconducts.find((x) => String(x.id) === b.dataset.mcEdit);
+          if (!m) return;
+          const body = el(`<div class="sheet-body">
+            <div class="field">
+              <label class="field-label">年级班级</label>
+              <input class="input" id="mc-e-cls" list="mc-e-cls-list" value="${esc(clsName(m.grade, m.class_name))}" placeholder="比如：高一 · 1 班">
+              <datalist id="mc-e-cls-list">${[...clsPairs.keys()].map((n) => `<option>${esc(n)}</option>`).join('')}</datalist>
+            </div>
+            <div class="field">
+              <label class="field-label">违纪内容</label>
+              <textarea class="input" id="mc-e-text" rows="4">${esc(m.content)}</textarea>
+            </div>
+            <div class="row" style="justify-content:flex-end;gap:8px">
+              <button class="btn ghost" id="mc-e-cancel">取消</button>
+              <button class="btn primary" id="mc-e-save">保存</button>
+            </div>
+          </div>`);
+          const s = sheet({ title: m.student_name ? `编辑违纪 · ${m.student_name}` : '编辑违纪记录', body });
+          body.querySelector('#mc-e-cancel').onclick = () => s.close();
+          saving(body.querySelector('#mc-e-save'), async () => {
+            const content = body.querySelector('#mc-e-text').value.trim();
+            if (!content) { toast('违纪内容不能为空', 'err'); return; }
+            const pair = pairOfClassText(body.querySelector('#mc-e-cls').value, clsPairs);
+            await api.patch('/misconduct_records/' + m.id, { grade: pair.grade, class_name: pair.class_name, content });
+            try { await syncMaterialSharing(); } catch { /* 未登录云端时只改本机 */ }
+            s.close(); toast('已保存，学生端同步更新'); renderStudentModule(box, key);
+          });
+        };
+      });
       listBox.querySelectorAll('[data-mc-del]').forEach((b) => {
         b.onclick = async () => {
           if (!(await confirmDialog('删掉这条违纪记录？学生端也会同步看不到。'))) return;
-          await api.del('/misconduct_records/' + b.dataset.mcDel); toast('已删除'); renderStudentModule(box, key);
+          await api.del('/misconduct_records/' + b.dataset.mcDel);
+          try { await syncMaterialSharing(); } catch { /* 未登录云端时只改本机 */ }
+          toast('已删除'); renderStudentModule(box, key);
         };
       });
     };
     paintMisList();
-    inner.querySelector('#mc-save')?.addEventListener('click', async () => {
-      const clsText = inner.querySelector('#mc-cls').value.trim();
-      const content = inner.querySelector('#mc-text').value.trim();
-      if (!content) { toast('违纪内容不能为空', 'err'); return; }
-      const pair = clsPairs.get(clsText) || { grade: '', class_name: '' };
-      if (!pair.grade && !pair.class_name && clsText) {
-        const parts = clsText.split(/[·.\s]+/);
-        if (parts.length >= 2) { pair.grade = parts[0]; pair.class_name = parts.slice(1).join(''); }
-        else { pair.class_name = clsText; }
-      }
-      const nextId = misconducts.reduce((mx, x) => Math.max(mx, Number(x.id) || 0), 0) + 1;
-      await api.post('/misconduct_records', { id: nextId, grade: pair.grade, class_name: pair.class_name, content, student_name: '', student_no: '' });
-      toast('已登记'); renderStudentModule(box, key);
+    inner.querySelector('#mc-refresh')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true; btn.textContent = '刷新中…';
+      await pullStudentSubmissions();
+      renderStudentModule(box, key);
     });
   } else if (key === 'bulletin') {
-    /* —— 留言板 —— */
+    /* —— 留言板：学生提交，老师这里查看与编辑 —— */
     const bToday = bulletins.filter((b) => (b.created_at || '').slice(0, 10) === ymd(new Date()));
     inner.innerHTML = `
       <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
@@ -2851,28 +2888,12 @@ async function renderStudentModule(box, key) {
         <div class="card card-pad"><div class="tiny muted">今日留言</div>
           <div style="font-size:24px;font-weight:700;color:var(--green)">${bToday.length}</div></div>
       </div>
-      <div class="card card-pad" style="margin-top:14px">
-        <div class="card-title">${icon('chat', 15)} 发布留言</div>
-        <div class="tiny muted" style="margin:4px 0 12px">手动输入年级和班级，留言会出现在对应班级的学生端留言板里。</div>
-        <div class="row wrap" style="gap:8px">
-          <div class="field" style="flex:1;min-width:120px">
-            <label class="field-label">年级</label>
-            <input class="input" id="bl-grade" placeholder="比如：高一">
-          </div>
-          <div class="field" style="flex:1;min-width:120px">
-            <label class="field-label">班级</label>
-            <input class="input" id="bl-class" placeholder="比如：3 班">
-          </div>
-        </div>
-        <div class="field">
-          <label class="field-label">留言内容</label>
-          <textarea class="input" id="bl-text" rows="3" placeholder="要对这个班级说的话"></textarea>
-        </div>
-        <div class="row" style="justify-content:flex-end;gap:8px">
-          <button class="btn primary sm" id="bl-save">发布</button>
-        </div>
+      <div class="row wrap" style="gap:8px;margin:16px 0 10px">
+        <button class="btn ghost sm" id="bl-refresh">${icon('refresh', 15)} 刷新学生留言</button>
+        <span style="flex:1"></span>
+        <span class="tiny muted">学生在学生端留言后，这里点刷新就能看到</span>
       </div>
-      <div class="card card-pad" style="margin-top:14px" id="bl-list"></div>`;
+      <div class="card card-pad" id="bl-list"></div>`;
 
     const listBox = inner.querySelector('#bl-list');
     const paintBlList = () => {
@@ -2881,26 +2902,63 @@ async function renderStudentModule(box, key) {
           <span class="chip blue">${esc(clsName(b.grade, b.class_name) || '未指定班级')}</span>
           <span class="pb-text">${esc(b.content)}</span>
           <span class="tiny muted">${esc(fmtTime(b.created_at))}</span>
+          <button class="icon-btn sm" data-bl-edit="${b.id}" title="编辑">${icon('edit', 13)}</button>
           <button class="icon-btn sm" data-bl-del="${b.id}" title="删除">${icon('close', 13)}</button>
         </div>`).join('')}</div>`
-        : '<div class="empty" style="padding:16px">还没有留言，发一条试试</div>';
+        : '<div class="empty" style="padding:16px">还没有学生留言</div>';
+      listBox.querySelectorAll('[data-bl-edit]').forEach((btn) => {
+        btn.onclick = () => {
+          const b = bulletins.find((x) => String(x.id) === btn.dataset.blEdit);
+          if (!b) return;
+          const body = el(`<div class="sheet-body">
+            <div class="row wrap" style="gap:8px">
+              <div class="field" style="flex:1;min-width:120px">
+                <label class="field-label">年级</label>
+                <input class="input" id="bl-e-grade" value="${esc(b.grade || '')}" placeholder="比如：高一">
+              </div>
+              <div class="field" style="flex:1;min-width:120px">
+                <label class="field-label">班级</label>
+                <input class="input" id="bl-e-class" value="${esc(b.class_name || '')}" placeholder="比如：3 班">
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label">留言内容</label>
+              <textarea class="input" id="bl-e-text" rows="4">${esc(b.content)}</textarea>
+            </div>
+            <div class="row" style="justify-content:flex-end;gap:8px">
+              <button class="btn ghost" id="bl-e-cancel">取消</button>
+              <button class="btn primary" id="bl-e-save">保存</button>
+            </div>
+          </div>`);
+          const s = sheet({ title: '编辑留言', body });
+          body.querySelector('#bl-e-cancel').onclick = () => s.close();
+          saving(body.querySelector('#bl-e-save'), async () => {
+            const grade = body.querySelector('#bl-e-grade').value.trim();
+            const class_name = body.querySelector('#bl-e-class').value.trim();
+            const content = body.querySelector('#bl-e-text').value.trim();
+            if (!content) { toast('留言内容不能为空', 'err'); return; }
+            if (!grade && !class_name) { toast('年级或班级至少填一个', 'err'); return; }
+            await api.patch('/bulletin_records/' + b.id, { grade, class_name, content });
+            try { await syncMaterialSharing(); } catch { /* 未登录云端时只改本机 */ }
+            s.close(); toast('已保存，学生端同步更新'); renderStudentModule(box, key);
+          });
+        };
+      });
       listBox.querySelectorAll('[data-bl-del]').forEach((b) => {
         b.onclick = async () => {
           if (!(await confirmDialog('删掉这条留言？学生端就看不到了。'))) return;
-          await api.del('/bulletin_records/' + b.dataset.blDel); toast('已删除'); renderStudentModule(box, key);
+          await api.del('/bulletin_records/' + b.dataset.blDel);
+          try { await syncMaterialSharing(); } catch { /* 未登录云端时只改本机 */ }
+          toast('已删除'); renderStudentModule(box, key);
         };
       });
     };
     paintBlList();
-    inner.querySelector('#bl-save')?.addEventListener('click', async () => {
-      const grade = inner.querySelector('#bl-grade').value.trim();
-      const class_name = inner.querySelector('#bl-class').value.trim();
-      const content = inner.querySelector('#bl-text').value.trim();
-      if (!content) { toast('留言内容不能为空', 'err'); return; }
-      if (!grade && !class_name) { toast('年级或班级至少填一个', 'err'); return; }
-      const nextId = bulletins.reduce((mx, x) => Math.max(mx, Number(x.id) || 0), 0) + 1;
-      await api.post('/bulletin_records', { id: nextId, grade, class_name, content });
-      toast('已发布'); renderStudentModule(box, key);
+    inner.querySelector('#bl-refresh')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true; btn.textContent = '刷新中…';
+      await pullStudentSubmissions();
+      renderStudentModule(box, key);
     });
   } else {
     /* —— 盲盒 —— */
@@ -2981,23 +3039,153 @@ async function renderStudentModule(box, key) {
 }
 
 /* 班级名单管理：本地版没有单独的名单页，就在点名下面开一个弹层改。
-   以前用户反馈「名单建好了没法改名字」，根因是根本没有编辑入口。 */
+   以前这里只让改已有班级，空名单时还提示「先去课件 → 上传资料建班」，
+   但课件页根本没有建班入口，等于把用户指到死路。
+   现在弹层里直接新建年级/班级，名单可以粘贴，也可以传 Excel / CSV 自动读姓名列。 */
+const ROSTER_NAME_HEAD = /^(姓名|名字|学生|学生姓名|name)$/i;
+const ROSTER_GRADE_HEAD = /^(年级|级部|grade)$/i;
+const ROSTER_CLASS_HEAD = /^(班级|班|class)$/i;
+
+/* 从表格里抽名单：优先认「姓名 / 名字 / 学生」表头；整个文件没有表头时按第一列读。
+   年级、班级列只有整列同值时才回填 —— 一张表里混着多个班时不能替用户猜。 */
+function pickRosterFromGrid(grid) {
+  const rows = Array.isArray(grid) ? grid : [];
+  let headRow = -1;
+  let cols = { name: 0 };
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const cells = (rows[i] || []).map((c) => String(c ?? '').trim());
+    const hit = {};
+    cells.forEach((c, j) => {
+      if (ROSTER_NAME_HEAD.test(c)) hit.name = j;
+      else if (ROSTER_GRADE_HEAD.test(c)) hit.grade = j;
+      else if (ROSTER_CLASS_HEAD.test(c)) hit.class = j;
+    });
+    if (hit.name !== undefined) { headRow = i; cols = hit; break; }
+  }
+  const names = [];
+  for (let i = headRow + 1; i < rows.length; i++) {
+    const name = String((rows[i] || [])[cols.name] ?? '').trim();
+    if (!name || name.length > 20) continue;
+    if (/^(合计|小计|总计|备注|说明|序号|姓名)$/.test(name)) continue;
+    names.push(name);
+  }
+  const only = (key) => {
+    if (cols[key] === undefined) return '';
+    const vals = new Set();
+    for (let i = headRow + 1; i < rows.length; i++) {
+      const v = String((rows[i] || [])[cols[key]] ?? '').trim();
+      if (v) vals.add(v);
+    }
+    return vals.size === 1 ? [...vals][0] : '';
+  };
+  return { names, grade: only('grade'), class_name: only('class') };
+}
+
+async function readRosterFile(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (ext === 'xlsx' || ext === 'xlsm') {
+    const wb = await readXlsx(file);
+    let best = { names: [], grade: '', class_name: '' };
+    for (const sh of wb.sheets) {
+      const got = pickRosterFromGrid(sh.rows || []);
+      if (got.names.length > best.names.length) best = got;
+    }
+    return best;
+  }
+  if (ext === 'csv' || ext === 'tsv' || ext === 'txt') {
+    return pickRosterFromGrid(readDelimited(await file.text()));
+  }
+  if (ext === 'xls') throw new Error('旧版 .xls 浏览器里读不了，请在 Excel / WPS 里「另存为 .xlsx」再传');
+  throw new Error('只支持 .xlsx / .xlsm / .csv，Excel 可以在「另存为」里换格式');
+}
+
 function openRosterDialog(rosters, reload) {
   const body = el(`<div class="sheet-body">
-    <div class="small muted" style="margin-bottom:10px">名字一行一个，或用逗号、顿号、空格分开都行。名称留空等于删掉这个班。</div>
+    <div class="card card-pad" style="margin-bottom:14px">
+      <div class="card-title">${icon('plus', 15)} 新建班级</div>
+      <div class="tiny muted" style="margin:4px 0 10px">填好年级和班级；名单可以手动粘贴，也可以传 Excel / CSV 自动读取姓名列。</div>
+      <div class="form-grid">
+        <div class="field"><label class="field-label">年级</label>
+          <input class="input" id="nr-grade" placeholder="如：高一"></div>
+        <div class="field"><label class="field-label">班级</label>
+          <input class="input" id="nr-class" placeholder="如：1 班"></div>
+      </div>
+      <div class="field">
+        <label class="field-label">学生名单</label>
+        <textarea class="input" id="nr-names" rows="4" placeholder="一行一个姓名；也可以从 Excel 复制整列粘进来"></textarea>
+      </div>
+      <div class="row wrap" style="gap:8px;align-items:center">
+        <input type="file" id="nr-file" accept=".xlsx,.xlsm,.csv,.tsv,.txt" hidden>
+        <button class="btn ghost sm" id="nr-pick">${icon('upload', 14)} 选择 Excel / CSV</button>
+        <span class="tiny muted" id="nr-count">已填 0 个姓名</span>
+        <span style="flex:1"></span>
+        <button class="btn primary sm" id="nr-add">新建这个班</button>
+      </div>
+    </div>
+    <div class="card-title">${icon('users', 15)} 已有班级</div>
+    <div class="small muted" style="margin:4px 0 10px">名字一行一个，或用逗号、顿号、空格分开都行。</div>
     ${rosters.map((r) => {
     const n = parseNames(r.names);
     return `<div class="field" data-rid="${r.id}">
         <label class="field-label">${esc(clsName(r.grade, r.class_name))}</label>
         <textarea class="input" rows="3" data-names="${r.id}">${esc(n.join('\n'))}</textarea>
       </div>`;
-  }).join('') || '<div class="empty">还没有班级名单。先在「课件 → 上传资料」里建班，或直接在学生页按号码点。</div>'}
+  }).join('') || '<div class="empty">还没有班级，先在上面新建一个</div>'}
     <div class="confirm-actions"><button class="btn ghost" id="rc">取消</button><button class="btn primary" id="ro">保存</button></div>
   </div>`);
   const s = sheet({ title: '班级名单', body });
-  body.querySelector('#rc').onclick = s.close;
-  body.querySelector('#ro').onclick = async () => {
-    const btn = body.querySelector('#ro'); btn.disabled = true; btn.textContent = '保存中…';
+  const $ = (q) => body.querySelector(q);
+
+  const countNewNames = () => {
+    const n = $('#nr-names').value.split(/[\n,，、;；\s]+/).map((x) => x.trim()).filter(Boolean).length;
+    $('#nr-count').textContent = `已填 ${n} 个姓名`;
+    return n;
+  };
+  $('#nr-names').oninput = countNewNames;
+
+  $('#nr-pick').onclick = () => $('#nr-file').click();
+  $('#nr-file').onchange = async () => {
+    const f = $('#nr-file').files?.[0];
+    if (!f) return;
+    $('#nr-count').textContent = `正在读取 ${f.name}…`;
+    try {
+      const got = await readRosterFile(f);
+      if (!got.names.length) throw new Error('这个文件里没找到姓名列，确认一下表头是不是写着「姓名」');
+      if (got.grade && !$('#nr-grade').value.trim()) $('#nr-grade').value = got.grade;
+      if (got.class_name && !$('#nr-class').value.trim()) $('#nr-class').value = got.class_name;
+      $('#nr-names').value = got.names.join('\n');
+      countNewNames();
+      toast(`从「${f.name}」读到 ${got.names.length} 个姓名`);
+    } catch (e) {
+      countNewNames();
+      toast(e.message || '文件读取失败', 'err', 5000);
+    } finally {
+      $('#nr-file').value = '';
+    }
+  };
+
+  $('#nr-add').onclick = async () => {
+    const grade = $('#nr-grade').value.trim();
+    const class_name = $('#nr-class').value.trim();
+    if (!grade || !class_name) return toast('年级和班级都要填', 'warn');
+    if (rosters.some((r) => r.grade === grade && r.class_name === class_name)) {
+      return toast('这个班级已经有了，请在下面直接改名单', 'warn');
+    }
+    const names = $('#nr-names').value.split(/[\n,，、;；\s]+/).map((x) => x.trim()).filter(Boolean);
+    const btn = $('#nr-add');
+    btn.disabled = true; btn.textContent = '新建中…';
+    try {
+      await api.post('/rosters', { grade, class_name, names, count: names.length });
+      s.close(); toast(`已新建「${clsName(grade, class_name)}」`); reload?.();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = '新建这个班';
+      toast(e.message || '新建失败', 'err');
+    }
+  };
+
+  $('#rc').onclick = s.close;
+  $('#ro').onclick = async () => {
+    const btn = $('#ro'); btn.disabled = true; btn.textContent = '保存中…';
     try {
       for (const r of rosters) {
         const ta = body.querySelector(`[data-names="${r.id}"]`);

@@ -450,6 +450,8 @@ const RECYCLE_TITLE = {
   rosters: (r) => r.class_name || r.grade,
   students_att: (r) => r.name,
   punish_records: (r) => r.text,
+  misconduct_records: (r) => r.content,
+  bulletin_records: (r) => r.content,
 };
 const RECYCLE_GROUP = {
   items: { group: 'task', at: '首页 → 今日事项' },
@@ -475,6 +477,8 @@ const RECYCLE_GROUP = {
   reminders: { group: 'other', at: '提醒' },
   rosters: { group: 'other', at: '班级 → 点名名单' },
   punish_records: { group: 'other', at: '课堂 → 惩罚记录' },
+  misconduct_records: { group: 'work', at: '小助手 → 违纪' },
+  bulletin_records: { group: 'work', at: '小助手 → 留言板' },
 };
 
 function recyclePut(table, id, extraTitle = '') {
@@ -4110,6 +4114,44 @@ on('POST', '/public/link/:code/punish', ({ params, body }) => {
     id, roster_id: body?.roster_id || null, grade: String(body?.grade || ''),
     class_name: String(body?.class_name || ''), stu_name: String(body?.stu_name || '').slice(0, 20),
     text, source: 'student', date: todayStr(), note: '', created_at: nowISO(),
+  });
+  save();
+  return { id };
+});
+
+/* ---- 学生提交违纪 / 留言 ---- */
+on('POST', '/public/link/:code/misconduct', ({ params, body }) => {
+  const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
+  if (!l) fail(404, '链接不存在或已关闭');
+  const grade = String(body?.grade || '').trim().slice(0, 20);
+  const class_name = String(body?.class_name || '').trim().slice(0, 20);
+  const content = String(body?.content || '').trim().slice(0, 500);
+  if (!content) fail(400, '请填写违纪内容');
+  if (!grade && !class_name) fail(400, '请选择年级和班级');
+  const id = T('misconduct_records').reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
+  T('misconduct_records').push({
+    id, grade, class_name,
+    student_name: String(body?.student_name || '').trim().slice(0, 20),
+    student_no: String(body?.student_no || '').trim().slice(0, 20),
+    content, source: 'student', created_at: nowISO(),
+  });
+  save();
+  return { id };
+});
+
+on('POST', '/public/link/:code/bulletin', ({ params, body }) => {
+  const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
+  if (!l) fail(404, '链接不存在或已关闭');
+  const grade = String(body?.grade || '').trim().slice(0, 20);
+  const class_name = String(body?.class_name || '').trim().slice(0, 20);
+  const content = String(body?.content || '').trim().slice(0, 500);
+  if (!content) fail(400, '请填写留言内容');
+  if (!grade && !class_name) fail(400, '请填写年级或班级');
+  const id = T('bulletin_records').reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
+  T('bulletin_records').push({
+    id, grade, class_name,
+    student_name: String(body?.student_name || '').trim().slice(0, 20),
+    content, source: 'student', created_at: nowISO(),
   });
   save();
   return { id };

@@ -68,6 +68,9 @@ export const TABLES = {
   invig_rules: ['name', 'amount', 'minutes', 'note'],
   trip_rules: ['name', 'km', 'rate', 'note'],
   punish_records: ['date', 'punish_id', 'student_no', 'class_name', 'text'],
+  /* 学生端提交、老师端查看与编辑：学生是输入端，老师是输出端 */
+  misconduct_records: ['grade', 'class_name', 'student_name', 'student_no', 'content', 'source'],
+  bulletin_records: ['grade', 'class_name', 'student_name', 'content', 'source'],
   homework_records: ['date', 'homework_id', 'student_no', 'class_name', 'status'],
 };
 
@@ -132,6 +135,7 @@ export function save() {
 const EXTRA_TABLES = [
   'items', 'todos', 'reminders', 'messages', 'links', 'roll_sessions', 'roll_records',
   'attachments', 'recycle', 'homework_records', 'punish_records', 'invig_rules', 'trip_rules',
+  'misconduct_records', 'bulletin_records',
 ];
 const ALL_TABLES = [...Object.keys(TABLES), ...EXTRA_TABLES];
 

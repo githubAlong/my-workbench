@@ -889,75 +889,98 @@ function paintPunish() {
   };
 }
 
-/* ---------- 违纪：学生按班级查看违纪记录 ---------- */
+/* ---------- 违纪：学生填报，教师端查看与编辑 ---------- */
 function paintMisconduct() {
-  const all = data?.misconduct || [];
   const clsChoices = new Set();
   (data?.rosters || []).forEach((r) => { if (r.grade || r.class_name) clsChoices.add(clsName(r.grade, r.class_name)); });
-  /* 违纪里出现过的班级也加进来（防止课表名单不全） */
-  all.forEach((m) => { if (m.grade || m.class_name) clsChoices.add(clsName(m.grade, m.class_name)); });
   const curCls = prefs().misconduct_cls || myClass();
-  const matchCls = (m) => {
-    if (!curCls) return true;
-    return clsName(m.grade, m.class_name) === curCls
-      || (m.grade + m.class_name) === curCls
-      || (m.class_name || '').includes(curCls.replace(/^[一二三四五六]年级?/, '').trim())
-      || m.content.includes(curCls);
-  };
-  const list = all.filter(matchCls).slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
   $('#s-body').innerHTML = `<div class="card card-pad">
     <div class="card-title">${ICON.alert} 违纪登记</div>
-    <div class="row wrap" style="gap:8px;margin:6px 0 12px">
-      <input class="input" id="mc-cls" list="mc-cls-list" value="${esc(curCls)}" placeholder="选班级，留空看全部" style="flex:1;min-width:160px">
+    <div class="tiny muted" style="margin:4px 0 12px">选择你所在的年级班级，填写违纪情况后提交，老师会在教师端看到。</div>
+    <div class="field">
+      <label class="field-label">年级班级</label>
+      <input class="input" id="mc-cls" list="mc-cls-list" value="${esc(curCls)}" placeholder="从课表班级里选">
       <datalist id="mc-cls-list">${[...clsChoices].map((n) => `<option>${esc(n)}</option>`).join('')}</datalist>
-      <button class="btn ghost" id="mc-clear">${curCls ? '看全部' : '按班级'}</button>
     </div>
-    ${list.length ? list.map((m) => `<div class="list-item" style="display:block">
-      <div class="row wrap" style="gap:6px">
-        <span class="chip blue">${esc(clsName(m.grade, m.class_name) || '未指定班级')}</span>
-        ${m.student_name ? `<span class="chip grey">${esc(m.student_name)}</span>` : ''}
-        <span class="tiny muted" style="margin-left:auto">${esc(m.created_at ? new Date(m.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '')}</span>
-      </div>
-      <div style="margin-top:6px;font-size:15px;line-height:1.5">${esc(m.content)}</div>
-    </div>`).join('') : `<div class="empty" style="padding:20px">${curCls ? `${esc(curCls)} 班目前没有违纪记录` : '老师还没有登记违纪'}</div>`}
+    <div class="field">
+      <label class="field-label">违纪情况</label>
+      <textarea class="input" id="mc-text" rows="4" placeholder="写清楚时间、地点和具体情节"></textarea>
+    </div>
+    <div class="row" style="justify-content:flex-end;align-items:center;gap:10px">
+      <span class="tiny" id="mc-tip" style="color:var(--green)"></span>
+      <button class="btn primary" id="mc-send">提交</button>
+    </div>
   </div>`;
-  $('#mc-cls')?.addEventListener('change', (e) => { savePref('misconduct_cls', e.target.value); paintMisconduct(); });
-  $('#mc-clear')?.addEventListener('click', () => { savePref('misconduct_cls', ''); paintMisconduct(); });
+  const tip = (msg, bad) => { const t = $('#mc-tip'); t.textContent = msg; t.style.color = bad ? 'var(--red)' : 'var(--green)'; };
+  const clsInput = $('#mc-cls');
+  clsInput?.addEventListener('change', () => savePref('misconduct_cls', clsInput.value.trim()));
+  $('#mc-send')?.addEventListener('click', async () => {
+    const clsText = clsInput.value.trim();
+    const content = $('#mc-text').value.trim();
+    if (!clsText) return tip('请先选择年级班级', true);
+    if (!content) return tip('请填写违纪情况', true);
+    let grade = '';
+    let class_name = clsText;
+    const hit = (data?.rosters || []).find((r) => clsName(r.grade, r.class_name) === clsText);
+    if (hit) { grade = hit.grade || ''; class_name = hit.class_name || ''; }
+    else {
+      const parts = clsText.split(/[·.\s]+/).filter(Boolean);
+      if (parts.length >= 2) { grade = parts[0]; class_name = parts.slice(1).join(''); }
+    }
+    const btn = $('#mc-send');
+    btn.disabled = true; btn.textContent = '提交中…';
+    try {
+      await api(`/public/link/${code}/misconduct`, { grade, class_name, content });
+      $('#mc-text').value = '';
+      tip('已提交，老师那边可以看到了');
+    } catch (error) {
+      tip(error.message || '提交失败，请稍后再试', true);
+    } finally { btn.disabled = false; btn.textContent = '提交'; }
+  });
 }
 
-/* ---------- 留言板：学生按班级查看老师发的留言 ---------- */
+/* ---------- 留言板：学生填报，教师端查看与编辑 ---------- */
 function paintBulletin() {
-  const all = data?.bulletin || [];
   const curCls = prefs().bulletin_cls || '';
-  const matchCls = (b) => {
-    if (!curCls) return true;
-    const bg = String(b.grade || '').trim();
-    const bc = String(b.class_name || '').trim();
-    const full = clsName(bg, bc);
-    if (full === curCls) return true;
-    if (bg && curCls.includes(bg)) return true;
-    if (bc && curCls.includes(bc)) return true;
-    return false;
-  };
-  const list = all.filter(matchCls).slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
   $('#s-body').innerHTML = `<div class="card card-pad">
     <div class="card-title">${ICON.chat} 留言板</div>
-    <div class="row wrap" style="gap:8px;margin:6px 0 12px">
-      <input class="input" id="bl-cls" value="${esc(curCls)}" placeholder="输入年级+班级，留空看全部（比如：高一 3 班）" style="flex:1;min-width:200px">
-      <button class="btn primary" id="bl-go">查看</button>
-      ${curCls ? '<button class="btn ghost" id="bl-clear">全部</button>' : ''}
-    </div>
-    ${list.length ? list.map((b) => `<div class="list-item" style="display:block;background:var(--bg-2,var(--primary-weak))">
-      <div class="row wrap" style="gap:6px">
-        <span class="chip blue">${esc(clsName(b.grade, b.class_name) || '未指定班级')}</span>
-        <span class="tiny muted" style="margin-left:auto">${esc(b.created_at ? new Date(b.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '')}</span>
+    <div class="tiny muted" style="margin:4px 0 12px">写下想说的话，老师会在教师端的留言板里看到。</div>
+    <div class="row wrap" style="gap:8px">
+      <div class="field" style="flex:1;min-width:120px">
+        <label class="field-label">年级</label>
+        <input class="input" id="bl-grade" placeholder="比如：高一">
       </div>
-      <div style="margin-top:6px;font-size:15px;line-height:1.6;white-space:pre-wrap">${esc(b.content)}</div>
-    </div>`).join('') : `<div class="empty" style="padding:20px">${curCls ? `${esc(curCls)} 班暂时没有留言` : '老师还没有发布留言'}</div>`}
+      <div class="field" style="flex:1;min-width:120px">
+        <label class="field-label">班级</label>
+        <input class="input" id="bl-class" placeholder="比如：3 班">
+      </div>
+    </div>
+    <div class="field">
+      <label class="field-label">留言内容</label>
+      <textarea class="input" id="bl-text" rows="4" placeholder="想对老师说的话"></textarea>
+    </div>
+    <div class="row" style="justify-content:flex-end;align-items:center;gap:10px">
+      <span class="tiny" id="bl-tip" style="color:var(--green)"></span>
+      <button class="btn primary" id="bl-send">提交</button>
+    </div>
   </div>`;
-  $('#bl-go')?.addEventListener('click', () => { savePref('bulletin_cls', $('#bl-cls').value.trim()); paintBulletin(); });
-  $('#bl-clear')?.addEventListener('click', () => { savePref('bulletin_cls', ''); paintBulletin(); });
-  $('#bl-cls')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { savePref('bulletin_cls', e.target.value.trim()); paintBulletin(); } });
+  const tip = (msg, bad) => { const t = $('#bl-tip'); t.textContent = msg; t.style.color = bad ? 'var(--red)' : 'var(--green)'; };
+  $('#bl-send')?.addEventListener('click', async () => {
+    const grade = $('#bl-grade').value.trim();
+    const class_name = $('#bl-class').value.trim();
+    const content = $('#bl-text').value.trim();
+    if (!grade && !class_name) return tip('请填写年级或班级', true);
+    if (!content) return tip('请填写留言内容', true);
+    const btn = $('#bl-send');
+    btn.disabled = true; btn.textContent = '提交中…';
+    try {
+      await api(`/public/link/${code}/bulletin`, { grade, class_name, content });
+      $('#bl-text').value = '';
+      tip('已提交，老师那边可以看到了');
+    } catch (error) {
+      tip(error.message || '提交失败，请稍后再试', true);
+    } finally { btn.disabled = false; btn.textContent = '提交'; }
+  });
 }
 
 init();

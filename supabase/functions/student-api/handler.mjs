@@ -74,7 +74,7 @@ export function createStudentApiHandler({ backendUrl, serviceKey, fetchImpl = fe
   async function lookupPayload(code) {
     if (!/^[A-Za-z0-9_-]{4,128}$/.test(code)) throw failure(404, '学生链接不存在或已关闭');
     const query = new URLSearchParams({
-      select: 'user_id,payload',
+      select: 'user_id,payload,revision',
       payload: 'cs.' + JSON.stringify({ links: [{ code }] }),
       limit: '2',
     });
@@ -89,14 +89,25 @@ export function createStudentApiHandler({ backendUrl, serviceKey, fetchImpl = fe
     return { account, payload, link };
   }
 
-  async function savePayload(account, payload) {
-    const body = JSON.stringify({ payload });
-    const res = await backend('/rest/v1/wb_user_data?user_id=eq.' + encodeURIComponent(account.user_id), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-      body,
-    });
-    if (!res.ok) throw failure(503, '数据保存失败，请稍后重试');
+  /* 学生端写入统一走这里：payload 改了，revision 必须一起 +1。
+     教师端靠 revision 判断「云端有新数据」——只改 payload 不推进 revision 的话，
+     老师刷新拉不到学生提交，下一次保存还会把这条记录覆盖掉。
+     并发提交用 revision 做乐观锁，冲突就重新读取再改一次。 */
+  async function mutatePayload(code, apply) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { account, payload } = await lookupPayload(code);
+      const result = apply(payload);
+      const rev = num(account.revision);
+      const res = await backend('/rest/v1/wb_user_data?user_id=eq.' + encodeURIComponent(account.user_id) + '&revision=eq.' + rev, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
+        body: JSON.stringify({ payload, revision: rev + 1 }),
+      });
+      if (!res.ok) throw failure(503, '数据保存失败，请稍后重试');
+      const rows = await res.json().catch(() => null);
+      if (Array.isArray(rows) && rows.length) return result;
+    }
+    throw failure(409, '同时提交的人太多，请再点一次提交');
   }
 
   /* 计算自习截止时间：简化版，用 payload 里的 periods 第六节结束时间 */
@@ -184,66 +195,108 @@ export function createStudentApiHandler({ backendUrl, serviceKey, fetchImpl = fe
 
   /* POST /public/link/:code/roll/:id —— 签到登记 */
   async function handleRollRecord(code, sessionId, body) {
-    const { account, payload } = await lookupPayload(code);
-    const sessions = payload.roll_sessions || [];
-    const s = sessions.find((x) => String(x.id) === String(sessionId) && live(x));
-    if (!s) throw failure(404, '这场点名不存在');
-    if (s.status !== 'open') throw failure(400, '这场点名已经结束了');
     const status = ROLL_STATUS.includes(body?.status) ? body.status : 'present';
     const name = String(body?.name || '').trim().slice(0, 20);
     const no = String(body?.stu_no || '').trim().slice(0, 20);
     const key = stuKey(no || name);
     if (!key) throw failure(400, '请先填写你的学号或姓名');
 
-    const all = payload.rosters || [];
-    const roster = s.roster_id ? all.find((r) => String(r.id) === String(s.roster_id)) : null;
-    const names = roster ? safeJSON(roster.names, []).filter(Boolean) : [];
-    let matched = '';
-    if (names.length) {
-      const hit = names.find((n) => stuKey(n) === key);
-      if (!hit) {
-        const fuzzy = names.filter((n) => stuKey(n).includes(key) || key.includes(stuKey(n)));
-        if (!fuzzy.length) throw failure(400, '名单里没有「' + (name || no) + '」，请核对姓名或学号');
-        if (fuzzy.length > 1) throw failure(400, '有 ' + fuzzy.length + ' 个相近的名字（' + fuzzy.slice(0, 3).join('、') + '），请填学号区分');
-        matched = fuzzy[0];
-      } else matched = hit;
-    }
-    const finalKey = matched ? stuKey(matched) : key;
+    return json(await mutatePayload(code, (payload) => {
+      const sessions = payload.roll_sessions || [];
+      const s = sessions.find((x) => String(x.id) === String(sessionId) && live(x));
+      if (!s) throw failure(404, '这场点名不存在');
+      if (s.status !== 'open') throw failure(400, '这场点名已经结束了');
 
-    if (!Array.isArray(payload.roll_records)) payload.roll_records = [];
-    const records = payload.roll_records;
-    const old = records.find((r) => String(r.session_id) === String(s.id) && r.stu_key === finalKey);
-    if (old) {
-      old.status = status;
-      old.stu_name = matched || name || old.stu_name;
-      old.stu_no = no || old.stu_no;
-      old.updated_at = nowISO();
-    } else {
-      const id = records.reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
-      records.push({
-        id, session_id: s.id, stu_key: finalKey, stu_name: matched || name, stu_no: no,
-        status, source: 'student', ip: '', created_at: nowISO(), updated_at: nowISO(),
-      });
-    }
-    await savePayload(account, payload);
-    const c = rollCount(payload, s.id);
-    return json({ ok: true, status, mine: status, total: c.total, present: c.present, late: c.late, leave: c.leave });
+      const all = payload.rosters || [];
+      const roster = s.roster_id ? all.find((r) => String(r.id) === String(s.roster_id)) : null;
+      const names = roster ? safeJSON(roster.names, []).filter(Boolean) : [];
+      let matched = '';
+      if (names.length) {
+        const hit = names.find((n) => stuKey(n) === key);
+        if (!hit) {
+          const fuzzy = names.filter((n) => stuKey(n).includes(key) || key.includes(stuKey(n)));
+          if (!fuzzy.length) throw failure(400, '名单里没有「' + (name || no) + '」，请核对姓名或学号');
+          if (fuzzy.length > 1) throw failure(400, '有 ' + fuzzy.length + ' 个相近的名字（' + fuzzy.slice(0, 3).join('、') + '），请填学号区分');
+          matched = fuzzy[0];
+        } else matched = hit;
+      }
+      const finalKey = matched ? stuKey(matched) : key;
+
+      if (!Array.isArray(payload.roll_records)) payload.roll_records = [];
+      const records = payload.roll_records;
+      const old = records.find((r) => String(r.session_id) === String(s.id) && r.stu_key === finalKey);
+      if (old) {
+        old.status = status;
+        old.stu_name = matched || name || old.stu_name;
+        old.stu_no = no || old.stu_no;
+        old.updated_at = nowISO();
+      } else {
+        const id = records.reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
+        records.push({
+          id, session_id: s.id, stu_key: finalKey, stu_name: matched || name, stu_no: no,
+          status, source: 'student', ip: '', created_at: nowISO(), updated_at: nowISO(),
+        });
+      }
+      const c = rollCount(payload, s.id);
+      return { ok: true, status, mine: status, total: c.total, present: c.present, late: c.late, leave: c.leave };
+    }));
   }
 
   /* POST /public/link/:code/punish —— 盲盒记录 */
   async function handlePunish(code, body) {
-    const { account, payload } = await lookupPayload(code);
     const text = String(body?.text || '').trim().slice(0, 200);
     if (!text) throw failure(400, '缺少任务内容');
-    if (!Array.isArray(payload.punish_records)) payload.punish_records = [];
-    const id = payload.punish_records.reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
-    payload.punish_records.push({
-      id, roster_id: body?.roster_id || null, grade: String(body?.grade || ''),
-      class_name: String(body?.class_name || ''), stu_name: String(body?.stu_name || '').slice(0, 20),
-      text, source: 'student', date: todayStr(), note: '', created_at: nowISO(),
-    });
-    await savePayload(account, payload);
-    return json({ id });
+    return json(await mutatePayload(code, (payload) => {
+      if (!Array.isArray(payload.punish_records)) payload.punish_records = [];
+      const id = payload.punish_records.reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
+      payload.punish_records.push({
+        id, roster_id: body?.roster_id || null, grade: String(body?.grade || ''),
+        class_name: String(body?.class_name || ''), stu_name: String(body?.stu_name || '').slice(0, 20),
+        text, source: 'student', date: todayStr(), note: '', created_at: nowISO(),
+      });
+      return { id };
+    }));
+  }
+
+  /* POST /public/link/:code/misconduct —— 学生提交违纪 */
+  async function handleMisconductSubmit(code, body) {
+    const grade = String(body?.grade || '').trim().slice(0, 20);
+    const className = String(body?.class_name || '').trim().slice(0, 20);
+    const content = String(body?.content || '').trim().slice(0, 500);
+    if (!content) throw failure(400, '请填写违纪内容');
+    if (!grade && !className) throw failure(400, '请选择年级和班级');
+    return json(await mutatePayload(code, (payload) => {
+      if (!Array.isArray(payload.misconduct_records)) payload.misconduct_records = [];
+      const records = payload.misconduct_records;
+      const id = records.reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
+      records.push({
+        id, grade, class_name: className,
+        student_name: String(body?.student_name || '').trim().slice(0, 20),
+        student_no: String(body?.student_no || '').trim().slice(0, 20),
+        content, source: 'student', created_at: nowISO(),
+      });
+      return { id };
+    }));
+  }
+
+  /* POST /public/link/:code/bulletin —— 学生提交留言 */
+  async function handleBulletinSubmit(code, body) {
+    const grade = String(body?.grade || '').trim().slice(0, 20);
+    const className = String(body?.class_name || '').trim().slice(0, 20);
+    const content = String(body?.content || '').trim().slice(0, 500);
+    if (!content) throw failure(400, '请填写留言内容');
+    if (!grade && !className) throw failure(400, '请填写年级或班级');
+    return json(await mutatePayload(code, (payload) => {
+      if (!Array.isArray(payload.bulletin_records)) payload.bulletin_records = [];
+      const records = payload.bulletin_records;
+      const id = records.reduce((mx, x) => Math.max(mx, num(x.id)), 0) + 1;
+      records.push({
+        id, grade, class_name: className,
+        student_name: String(body?.student_name || '').trim().slice(0, 20),
+        content, source: 'student', created_at: nowISO(),
+      });
+      return { id };
+    }));
   }
 
   /* GET /public/link/:code/selfstudy —— 自习任务 */
@@ -299,6 +352,8 @@ export function createStudentApiHandler({ backendUrl, serviceKey, fetchImpl = fe
         const body = await request.json().catch(() => ({}));
         if (sub[0] === 'roll' && sub[1]) return await handleRollRecord(code, sub[1], body);
         if (sub[0] === 'punish' && sub.length === 1) return await handlePunish(code, body);
+        if (sub[0] === 'misconduct' && sub.length === 1) return await handleMisconductSubmit(code, body);
+        if (sub[0] === 'bulletin' && sub.length === 1) return await handleBulletinSubmit(code, body);
         throw failure(404, '接口不存在');
       }
       throw failure(405, '不支持此操作');
