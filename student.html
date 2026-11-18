@@ -103,22 +103,10 @@
   /* ---------- 学生工作台顶部条（按设计稿） ---------- */
   .stu-headwrap { position: relative; }
   .stu-top { display: flex; align-items: center; gap: 12px; padding: 15px 22px;
-    background: linear-gradient(90deg, #1677ff 0%, #2f9dfb 45%, #36c66b 100%); color: #fff; }
+    background: #1677ff; color: #fff; }
   .stu-logo { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%;
     background: #fff; color: #1677ff; font-size: 18px; font-weight: 700; }
   .stu-title { font-size: 19px; font-weight: 700; letter-spacing: .5px; }
-  .stu-actions { display: flex; gap: 8px; margin-left: auto; }
-  .stu-ic { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 10px;
-    background: rgba(255,255,255,.18); color: #fff; cursor: pointer; }
-  .stu-ic:active { background: rgba(255,255,255,.32); }
-  .stu-panel, .stu-searchbar { position: absolute; right: 18px; top: 62px; z-index: 60;
-    width: min(320px, calc(100vw - 36px)); padding: 16px; border: 1px solid var(--line); border-radius: 12px;
-    background: var(--card); box-shadow: 0 14px 34px rgba(0,0,0,.16); }
-  .stu-panel .field { margin-bottom: 12px; }
-  .stu-panel .field:last-of-type { margin-bottom: 4px; }
-  .stu-searchbar { right: 50%; transform: translateX(50%); top: 66px; }
-  .stu-searchbar input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--line);
-    border-radius: 9px; background: var(--card); color: var(--text); font: inherit; font-size: 14px; }
   .stu-empty { max-width: 640px; margin: 60px auto; text-align: center; color: #98a2b3; }
 
   .stu-empty svg { opacity: .55; }
@@ -147,18 +135,6 @@
   <div class="stu-top">
     <div class="stu-logo">学</div>
     <div class="stu-title">学生工作台</div>
-    <div class="stu-actions">
-      <button class="stu-ic" id="stu-search" aria-label="搜索资料" title="搜索资料">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
-      </button>
-      <button class="stu-ic" id="stu-gear" aria-label="设置" title="班级与终端设置">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3 17 7M7 17l-1.7 1.7"/></svg>
-      </button>
-    </div>
-  </div>
-  <div class="stu-panel hidden" id="stu-panel"></div>
-  <div class="stu-searchbar hidden" id="stu-searchbar">
-    <input id="stu-q" placeholder="搜索资料标题…" autocomplete="off">
   </div>
 </div>
 <div class="s-wrap" id="s-app"><div class="empty">加载中…</div></div>
@@ -265,40 +241,17 @@ let data = null;
 let tab = null;   // 默认落到老师开放的第一个模块
 let availTabs = [];
 let cur = null;
-let searchOn = false;
-let searchQ = '';
-let panelOpen = false;
 
-/* 本机偏好：班级。学生（或老师）在右上角齿轮里选一次，记住本机即可。 */
+/* 本机偏好：班级从任务/名册自动带出，不再提供右上角设置入口。 */
 const PREF_KEY = 'wb_stu_pref_' + code;
 const prefs = () => { try { return JSON.parse(localStorage.getItem(PREF_KEY) || '{}'); } catch { return {}; } };
 const savePref = (k, v) => { try { localStorage.setItem(PREF_KEY, JSON.stringify({ ...prefs(), [k]: v })); } catch {} };
 function myClass() {
   const p = prefs();
   if (p.cls) return p.cls;
-  /* 第一次打开还没选过：默认用当前任务里的班级，保证学生一进来就能看到内容；
-     老师换班发布或多班共用设备时，在齿轮里改一次即可。 */
+  /* 没选过班级时用当前任务里的班级，保证学生一进来就能看到内容。 */
   const t = (data?.selfstudyTasks || [])[0];
   return t && t.class_scope !== 'all' ? (t.class_label || '') : '';
-}
-function classChoices() {
-  const set = new Set();
-  const label = (grade, cls) => {
-    const g = String(grade || '').trim();
-    const c = String(cls || '').trim();
-    if (!g) return c;
-    if (!c) return g;
-    /* 与教师端 ssClsLabel 保持完全一致，避免「高一1班」和「高一 1班」对不上 */
-    return c.startsWith(g) ? c : g + c;
-  };
-  for (const t of data?.selfstudyTasks || []) {
-    if (t.class_scope !== 'all' && t.class_label) set.add(t.class_label);
-  }
-  for (const r of data?.rosters || []) {
-    const name = label(r.grade, r.class_name);
-    if (name) set.add(name);
-  }
-  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
 }
 const todayStr = () => {
   const d = new Date();
@@ -331,7 +284,6 @@ async function init() {
      该模块被关掉时退回第一个可见页签。 */
   const wanted = new URLSearchParams(location.search).get('tab');
   tab = availTabs.includes(wanted) ? wanted : (availTabs[0] || null);
-  paintPanel();
   paint();
 }
 const TAB_DEF = {
@@ -371,49 +323,6 @@ function paint() {
   if (tab === 'misconduct') paintMisconduct();
   if (tab === 'bulletin') paintBulletin();
 }
-
-/* ---------- 本机设置：班级 ---------- */
-function paintPanel() {
-  const choices = classChoices();
-  const curCls = myClass();
-  $('#stu-panel').innerHTML = `
-    <div class="bold" style="margin-bottom:12px">本机设置</div>
-    <div class="field"><label class="field-label">班级</label>
-      <select class="input" id="stu-cls">
-        <option value="">未选择</option>
-        ${choices.map((c) => `<option value="${esc(c)}" ${c === curCls ? 'selected' : ''}>${esc(c)}</option>`).join('')}
-      </select>
-      <div class="tiny muted" style="margin-top:6px">${choices.length ? '班级从课表中获取' : '老师发布任务后，这里会出现班级'}</div>
-    </div>
-    <div class="tiny muted">设置会记住在本机，下次打开不用重选。</div>`;
-  $('#stu-cls').onchange = (e) => { savePref('cls', e.target.value); if (tab === 'selfstudy') paint(); };
-}
-$('#stu-gear').onclick = (e) => {
-  e.stopPropagation();
-  panelOpen = !panelOpen;
-  $('#stu-panel').classList.toggle('hidden', !panelOpen);
-  $('#stu-searchbar').classList.add('hidden');
-  searchOn = false;
-};
-$('#stu-search').onclick = (e) => {
-  e.stopPropagation();
-  searchOn = !searchOn;
-  $('#stu-searchbar').classList.toggle('hidden', !searchOn);
-  panelOpen = false;
-  $('#stu-panel').classList.add('hidden');
-  if (searchOn) {
-    tab = 'material';
-    cur = null;
-    paint();
-    $('#stu-q').focus();
-  }
-};
-$('#stu-q').oninput = (e) => { searchQ = e.target.value; if (tab === 'material') paintMaterials(); };
-$('#stu-panel').onclick = (e) => e.stopPropagation();
-$('#stu-searchbar').onclick = (e) => e.stopPropagation();
-document.addEventListener('click', () => {
-  if (panelOpen) { panelOpen = false; $('#stu-panel').classList.add('hidden'); }
-});
 
 /* ---------- 自习任务：与教材、点名一致的普通卡片 ---------- */
 function taskLines(t) {
@@ -565,16 +474,15 @@ function paintCheckin() {
 
 function paintMaterials() {
   if (cur) return paintMaterialDetail();
-  const q = searchQ.trim().toLowerCase();
-  const mats = q ? data.materials.filter((m) => String(m.title || '').toLowerCase().includes(q)) : data.materials;
+  const mats = data.materials;
   $('#s-body').innerHTML = `<div class="card">
-    <div class="card-pad" style="padding-bottom:6px"><div class="card-title">${q ? '搜索结果' : '全部资料'} <span class="chip blue">${mats.length}</span></div>
-      <div class="tiny muted" style="margin-top:4px">${q ? `关键词：「${esc(searchQ.trim())}」` : '无需账号密码，点开查看教材并下载原文件'}</div></div>
+    <div class="card-pad" style="padding-bottom:6px"><div class="card-title">全部资料 <span class="chip blue">${mats.length}</span></div>
+      <div class="tiny muted" style="margin-top:4px">无需账号密码，点开查看教材并下载原文件</div></div>
     ${mats.length ? mats.map((m) => `<div class="mat-card" data-m="${m.id}" style="cursor:pointer">
       <div class="doc-ico">${ICON.mat}</div>
       <div style="flex:1;min-width:0"><div class="bold small">${esc(m.title)}</div>
         <div class="tiny muted">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · '))}</div></div>
-      <span class="tiny muted">查看 ${ICON.more}</span></div>`).join('') : `<div class="empty">${q ? '没有匹配的资料' : '老师还没有上传资料'}</div>`}
+      <span class="tiny muted">查看 ${ICON.more}</span></div>`).join('') : `<div class="empty">老师还没有上传资料</div>`}
   </div>`;
   document.querySelectorAll('[data-m]').forEach((d) => { d.onclick = () => { cur = Number(d.dataset.m); paintMaterialDetail(); }; });
 }
