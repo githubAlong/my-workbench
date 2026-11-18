@@ -30,6 +30,15 @@
   .pv-wrap img { display: block; width: 100%; height: auto; }
   .pv-wrap video { display: block; width: 100%; max-height: 72vh; background: #000; }
   .pv-wrap audio { display: block; width: 100%; padding: 18px; box-sizing: border-box; }
+  /* docx 用 mammoth 转成网页后的排版，尽量还原 Word 的阅读观感 */
+  .pv-doc { padding: 22px 24px; background: #fff; color: #1f2430; line-height: 1.85; font-size: 15px; }
+  .pv-doc h1 { font-size: 22px; margin: 18px 0 10px; }
+  .pv-doc h2 { font-size: 19px; margin: 16px 0 8px; }
+  .pv-doc h3, .pv-doc h4, .pv-doc h5, .pv-doc h6 { font-size: 16px; margin: 14px 0 8px; }
+  .pv-doc p { margin: 8px 0; }
+  .pv-doc table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  .pv-doc th, .pv-doc td { border: 1px solid #d8dde6; padding: 6px 8px; text-align: left; }
+  .pv-doc img { max-width: 100%; height: auto; }
   /* 签到 */
   .s-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff3b30; display: inline-block; margin-left: 2px; animation: sb 1.4s infinite; }
   @keyframes sb { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
@@ -492,17 +501,49 @@ function paintMaterials() {
   </div>`;
   document.querySelectorAll('[data-m]').forEach((d) => { d.onclick = () => { cur = Number(d.dataset.m); paintMaterialDetail(); }; });
 }
-/* 浏览器能直接显示的类型。其余（docx / xlsx / pptx / zip…）浏览器渲染不了：
+/* 学生端能预览的类型。docx 由 mammoth 在本地转成网页（不走外网），
+   其余（xlsx / pptx / zip…）浏览器渲染不了：
    以前点一下会新开空白页，再把 octet-stream 的 blob 当页面打开，
    结果存成一个没有扩展名的 UUID 文件，下载完谁也打不开。
    现在能预览的在页面内预览，不能预览的按原文件名下载。 */
 const PREVIEW_KIND = {
-  pdf: 'pdf',
+  pdf: 'pdf', docx: 'docx',
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', svg: 'image',
   mp4: 'video', webm: 'video', ogv: 'video',
   mp3: 'audio', m4a: 'audio', wav: 'audio', ogg: 'audio',
 };
 const previewKind = (name) => PREVIEW_KIND[String(name || '').split('.').pop().toLowerCase()] || '';
+
+/* mammoth 只在真的打开 docx 时才加载：每个学生一进页面就多下 600KB 不值得。
+   放在 assets/ 下而不是 js/，因为 js/ 会被 Service Worker 全量预缓存。 */
+let mammothLoading = null;
+function loadMammoth() {
+  if (window.mammoth) return Promise.resolve(window.mammoth);
+  if (!mammothLoading) {
+    mammothLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = './assets/vendor/mammoth.browser.min.js';
+      s.onload = () => (window.mammoth ? resolve(window.mammoth) : reject(new Error('文档解析组件不可用')));
+      s.onerror = () => { mammothLoading = null; reject(new Error('文档解析组件加载失败，请检查网络')); };
+      document.head.appendChild(s);
+    });
+  }
+  return mammothLoading;
+}
+/* 文档内容来自上传的文件，渲染前去掉脚本类标签和内联事件，避免变成可执行页面。 */
+function sanitizeDoc(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  tpl.content.querySelectorAll('script,style,iframe,object,embed,link,meta,form').forEach((n) => n.remove());
+  tpl.content.querySelectorAll('*').forEach((n) => {
+    for (const attr of [...n.attributes]) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith('on')) n.removeAttribute(attr.name);
+      else if ((name === 'href' || name === 'src') && /^\s*javascript:/i.test(attr.value)) n.removeAttribute(attr.name);
+    }
+  });
+  return tpl.innerHTML;
+}
 async function paintMaterialDetail() {
   $('#s-body').innerHTML = '<div class="card card-pad small muted">加载中…</div>';
   try {
@@ -523,7 +564,7 @@ async function paintMaterialDetail() {
       <div class="row wrap" style="gap:8px;margin-top:14px">
         ${d.files.map((f) => `<button class="btn soft sm" data-dl="${f.id}" data-name="${esc(f.name)}">${ICON.dl} 下载 ${esc(f.name).slice(0, 12)}</button>`).join('')}
       </div>
-      <div class="tiny muted" style="margin-top:14px">PDF、图片、音视频点开即可在线预览；WPS / Office 文档浏览器无法预览，点击会按原文件名下载。</div>
+      <div class="tiny muted" style="margin-top:14px">PDF、图片、音视频和 Word 文档点开即可在线预览；Excel / PPT 等格式浏览器无法预览，点击会按原文件名下载。</div>
     </div>`;
     /* 不能直接给 href 让浏览器跳转：文件地址在云端函数上，顶层导航会撞上 ngrok 提示页，
        跨域时 download 属性也会被忽略。先 fetch 成 blob 再预览或保存。 */
@@ -565,7 +606,8 @@ async function paintMaterialDetail() {
         const media = kind === 'image' ? `<img src="${pvURL}" alt="${esc(name)}">`
           : kind === 'video' ? `<video src="${pvURL}" controls playsinline preload="metadata"></video>`
             : kind === 'audio' ? `<audio src="${pvURL}" controls preload="metadata"></audio>`
-              : `<iframe src="${pvURL}" title="${esc(name)}"></iframe>`;
+              : kind === 'docx' ? '<div class="pv-doc" id="pv-doc">正在解析文档…</div>'
+                : `<iframe src="${pvURL}" title="${esc(name)}"></iframe>`;
         $('#s-body').innerHTML = `<div class="card card-pad">
           <div class="row wrap" style="gap:8px">
             <button class="btn ghost sm" id="pv-back">‹ 返回资料</button>
@@ -584,6 +626,17 @@ async function paintMaterialDetail() {
           a.href = pvURL; a.download = name || '教材文件';
           document.body.appendChild(a); a.click(); a.remove();
         };
+        if (kind === 'docx') {
+          try {
+            const mammoth = await loadMammoth();
+            const out = await mammoth.convertToHtml({ arrayBuffer: await blob.arrayBuffer() });
+            const box = document.getElementById('pv-doc');
+            if (box) box.innerHTML = sanitizeDoc(out.value || '<p>（文档内容为空）</p>');
+          } catch (err) {
+            const box = document.getElementById('pv-doc');
+            if (box) box.innerHTML = `<p class="muted">文档解析失败：${esc(err.message)}。可以点右上角「下载原文件」。</p>`;
+          }
+        }
       } catch (e) {
         btn.disabled = false;
         btn.textContent = e.message;
