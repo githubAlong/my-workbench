@@ -617,27 +617,32 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     if(subtitle)headingBlocks.push({text:subtitle,font:'600 14px "Microsoft YaHei",sans-serif',color:'#16263c',gap:26});
     if(stats)headingBlocks.push({text:stats,font:'12.5px "Microsoft YaHei",sans-serif',color:'#2b3b53',gap:26});
     /* 抬头区高度按实际标题行数算：标题 46 起步，行距 28/26/26，底部留 6 */
-    const rowH=48,titleH=headingBlocks.length?46+headingBlocks.reduce((sum,block)=>sum+block.gap,0)+6:26,footH=44,rowsPerPage=120;
+    const rowH=48,titleH=headingBlocks.length?46+headingBlocks.reduce((sum,block)=>sum+block.gap,0)+6:26,footH=44,rowsPerPage=60;
     /* 表格字体：楷体 18 号（用户 11-19 要求），行高同步放大保证不挤压 */
     const tableFont='18px KaiTi,"KaiTi_GB2312","楷体",serif';
     const pages=[];
     for(const page of paginateExportGrid(grid, rowsPerPage)){
       const slice=page.rows, pageCount=page.pageCount, pageIndex=page.index;
       const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
-      canvas.width=Math.max(totalWidth,520);
-      canvas.height=titleH+(slice.length+1)*rowH+footH;
-      ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+      /* 以 2 倍像素渲染：导出图放大查看时文字仍清晰（用户 11-19 反馈放大后模糊） */
+      const pixelScale=2;
+      const W=Math.max(totalWidth,520);
+      const H=titleH+(slice.length+1)*rowH+footH;
+      canvas.width=Math.round(W*pixelScale);
+      canvas.height=Math.round(H*pixelScale);
+      ctx.scale(pixelScale,pixelScale);
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
       ctx.textAlign='center';
       let lineY=46;
       headingBlocks.forEach(block=>{
         ctx.fillStyle=block.color;ctx.font=block.font;
-        ctx.fillText(block.text,canvas.width/2,lineY);
-        if(block.rule){ctx.fillStyle='#2a6bf2';ctx.fillRect(canvas.width/2-58,lineY+13,116,2.5);}
+        ctx.fillText(block.text,W/2,lineY);
+        if(block.rule){ctx.fillStyle='#2a6bf2';ctx.fillRect(W/2-58,lineY+13,116,2.5);}
         lineY+=block.gap;
       });
       if(headingBlocks.length){
         ctx.strokeStyle='#dfe7f2';ctx.lineWidth=1;
-        ctx.beginPath();ctx.moveTo(0,titleH-1.5);ctx.lineTo(canvas.width,titleH-1.5);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(0,titleH-1.5);ctx.lineTo(W,titleH-1.5);ctx.stroke();
       }
       ctx.textAlign='left';
       let y=titleH,x=0;
@@ -661,14 +666,14 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         });
       });
       ctx.strokeStyle='#9fb1ca';ctx.lineWidth=2;
-      ctx.strokeRect(1,titleH+1,Math.min(totalWidth,canvas.width)-2,(slice.length+1)*rowH-2);
+      ctx.strokeRect(1,titleH+1,Math.min(totalWidth,W)-2,(slice.length+1)*rowH-2);
       ctx.fillStyle='#8290a5';ctx.font='11px "Microsoft YaHei",sans-serif';ctx.textAlign='left';
-      ctx.fillText((pageCount>1?'第 '+(pageIndex+1)+' / '+pageCount+' 页 · ':'')+'共 '+rowCount+' 条',20,canvas.height-16);
+      ctx.fillText((pageCount>1?'第 '+(pageIndex+1)+' / '+pageCount+' 页 · ':'')+'共 '+rowCount+' 条',20,H-16);
       if(exportTime){
         ctx.textAlign='right';
-        ctx.fillText('导出时间：'+exportTime,canvas.width-20,canvas.height-16);
+        ctx.fillText('导出时间：'+exportTime,W-20,H-16);
       }
-      paintWatermark(ctx,canvas.width,canvas.height,watermark);
+      paintWatermark(ctx,W,H,watermark);
       pages.push(canvas.toDataURL('image/png'));
     }
     return pages;
