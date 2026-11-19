@@ -308,7 +308,7 @@ const TAB_DEF = {
   roll: { icon: ICON.dice, label: '点名' },
   punish: { icon: ICON.target, label: '盲盒' },
   misconduct: { icon: ICON.alert, label: '违纪' },
-  bulletin: { icon: ICON.chat, label: '留言' },
+  bulletin: { icon: ICON.chat, label: '留言板' },
 };
 function paint() {
   if (!availTabs.length) {
@@ -899,8 +899,11 @@ function paintMisconduct() {
     <div class="tiny muted" style="margin:4px 0 12px">选择你所在的年级班级，填写违纪情况后提交，老师会在教师端看到。</div>
     <div class="field">
       <label class="field-label">年级班级</label>
-      <input class="input" id="mc-cls" list="mc-cls-list" value="${esc(curCls)}" placeholder="从课表班级里选">
-      <datalist id="mc-cls-list">${[...clsChoices].map((n) => `<option>${esc(n)}</option>`).join('')}</datalist>
+      <select class="input" id="mc-cls">
+        <option value="">请选择年级班级</option>
+        ${[...clsChoices].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')).map((n) => `<option${n === curCls ? ' selected' : ''}>${esc(n)}</option>`).join('')}
+        ${curCls && !clsChoices.has(curCls) ? `<option selected>${esc(curCls)}</option>` : ''}
+      </select>
     </div>
     <div class="field">
       <label class="field-label">违纪情况</label>
