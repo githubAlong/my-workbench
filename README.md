@@ -38,7 +38,7 @@ git commit -am "..." && git push  # 推 dev，线上不变
 安装并登录 Supabase CLI 后，在仓库根目录设置 Edge Function secrets 并部署：
 
 ```powershell
-supabase secrets set ADMIN_USER_ID=<管理员Supabase用户UUID> ADMIN_PHONE_E164=+8613071825243
+supabase secrets set ADMIN_USER_ID=<管理员Supabase用户UUID> ADMIN_PHONE_E164=<管理员手机号，E.164格式，如+86开头的完整号码>
 supabase functions deploy admin-reset-password
 ```
 

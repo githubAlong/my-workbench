@@ -9,8 +9,6 @@ import * as cloud from './cloud.js';
 import { load as loadLocalDB, save as saveLocalDB } from './localdb.js';
 import { hasDemoData, openCleanDemoSheet } from './clean-demo-data.js';
 
-const ADMIN_PHONE = '+8613071825243';
-
 registerView(async function me(main, { query }) {
   const { path } = parseHash();
   // 每次 render() 都会重建 main 节点，这里加类不会残留到别的页面。
