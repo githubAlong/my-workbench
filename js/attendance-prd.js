@@ -1316,17 +1316,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         +stateCells+'<td>'+remark+'</td>'
         +'<td>'+actionsOf(teacher)+'</td></tr>';
     }).join('');
-    /* 按学科加入本表（用户 11-15 要求）：教研/上课子表只列已登记的人，
-       新成员没有入口；这里选一个学科就能把该学科教师按本表状态登记进当前节次。 */
-    const batchKey = {seat:'sit', class:'class', research:'research'}[type];
-    const batchAdd = batchKey
-      ? '<span class="aprd-batch-add"><select id="aprd-batch-subject" aria-label="选择学科"><option value="">按学科加入</option>'
-        +teacherSubjects().map(item=>'<option value="'+esc(item)+'">'+esc(item)+'</option>').join('')
-        +'</select><button type="button" class="aprd-op" data-batch-add>加入本表</button></span>'
-      : '';
     const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
       +'<button type="button" class="aprd-op" data-roster-import>批量导入</button>'
-      +batchAdd
       +exportMenuHtml(teachers.length);
     const currentStates = editable ? listedTeachers.map(teacher=>statusOfTeacher(teacher)) : [];
     /* 设计稿的统计条：数字在上、文字在下，整条一个圆角边框，格子之间用竖线分隔。
@@ -1464,21 +1455,6 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       restoreSearchFocus(event.target);
     });
     root.querySelector('#aprd-subject')?.addEventListener('change',e=>{subject=e.target.value;paint();});
-    /* 选学科 → 批量把该学科教师加入本表（当前日期/节次），教研表、上课表、坐班表同一入口。 */
-    root.querySelector('[data-batch-add]')?.addEventListener('click', () => {
-      const subjectName = root.querySelector('#aprd-batch-subject')?.value || '';
-      const batchKey = {seat:'sit', class:'class', research:'research'}[tab];
-      if (!batchKey) return;
-      if (!subjectName) { toast('请先选择学科','warn'); return; }
-      const members = teachers.filter(item => String(item.subject||'').trim() === subjectName);
-      if (!members.length) { toast('该学科下暂无教师','warn'); return; }
-      for (const teacher of members) {
-        updateTeacherGrid(getDraftRows(tab), teacher, tab, period, batchKey, 'y', {leaveRecords,date});
-      }
-      paint();
-      scheduleAutoSave(tab);
-      toast('已加入'+({seat:'坐班表',class:'上课表',research:'教研表'}[tab])+'：'+subjectName+' '+members.length+' 人','ok',3000);
-    });
     root.querySelectorAll('[data-grid-person]').forEach(control => {
       const teacher = teachers.find(item => String(item.id) === control.dataset.gridPerson);
       if (!teacher || !TYPE[tab]) return;
