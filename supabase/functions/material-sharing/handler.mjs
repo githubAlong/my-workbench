@@ -39,6 +39,65 @@ export function createMaterialHandler({ backendUrl, serviceKey, fetchImpl = fetc
   const headers = { apikey: serviceKey, Authorization: 'Bearer ' + serviceKey };
   const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { ...cors, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
   const backend = (path, options = {}) => fetchImpl(base + path, { ...options, headers: { ...headers, ...options.headers }, signal: AbortSignal.timeout(90000) });
+
+  /* bucket 状态缓存：同一实例内 30 秒内只检查一次。
+     前端改成并行 4 个请求后，每个请求都调一次 bucket 检查是纯浪费。 */
+  let cachedBucketOk = null;
+  let cachedBucketAt = 0;
+  const BUCKET_CACHE_MS = 30000;
+  async function ensureBucket() {
+    if (cachedBucketOk && Date.now() - cachedBucketAt < BUCKET_CACHE_MS) return;
+    const bucketResponse = await backend('/storage/v1/bucket/' + BUCKET);
+    if (bucketResponse.ok) {
+      const bucket = await bucketResponse.json();
+      if (bucket.public) throw failure(503, '教材存储配置异常');
+      /* 早期建桶时写死了 50 MB 的单文件上限，现在不限大小，遇到旧配置顺手清掉。 */
+      if (bucket.file_size_limit) {
+        await backend('/storage/v1/bucket/' + BUCKET, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false, file_size_limit: null, allowed_mime_types: null }) }).catch(() => {});
+      }
+    } else if (bucketResponse.status === 404 || bucketResponse.status === 400) {
+      const created = await backend('/storage/v1/bucket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false }) });
+      if (!created.ok && created.status !== 409) throw failure(503, '无法初始化教材存储，请稍后重试');
+    } else throw failure(503, '教材存储暂时不可用');
+    cachedBucketOk = true;
+    cachedBucketAt = Date.now();
+  }
+
+  /* 并发上传：最多 4 个同时写 storage。
+     前端改成并行发多请求后，每个请求通常只带 1 个文件，
+     但保留并发 + 错误收集逻辑以兼容"旧版前端 / 内部测试"一次带多个文件。 */
+  const FILE_CONCURRENCY = 4;
+  async function uploadFiles(user, ownerId, files) {
+    const results = new Array(files.length).fill(null);
+    const errors = new Array(files.length).fill(null);
+    let idx = 0;
+    const runNext = async () => {
+      while (idx < files.length) {
+        const i = idx++;
+        const file = files[i];
+        const path = user.id + '/' + ownerId + '/' + crypto.randomUUID();
+        try {
+          const response = await backend('/storage/v1/object/' + BUCKET + '/' + path, { method: 'POST', headers: { 'Content-Type': previewType(file.name), 'x-upsert': 'false' }, body: file });
+          if (!response.ok) throw failure(502, '「' + file.name + '」上传失败，请检查网络后重试');
+          results[i] = { name: file.name, mime: previewType(file.name), size: file.size, url: 'wb-material:' + path };
+        } catch (err) {
+          errors[i] = err;
+        }
+      }
+    };
+    const workers = [];
+    for (let i = 0; i < Math.min(FILE_CONCURRENCY, files.length); i++) workers.push(runNext());
+    await Promise.all(workers);
+    const errIndex = errors.findIndex(Boolean);
+    if (errIndex >= 0) {
+      /* 清理成功的文件：已经写上去的别留孤儿，免得下次有人以为这是完整的 */
+      const prefixes = results.filter(Boolean).map(f => f.url.slice('wb-material:'.length));
+      if (prefixes.length) await backend('/storage/v1/object/' + BUCKET, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes }) }).catch(() => {});
+      throw errors[errIndex];
+    }
+    return results;
+  }
+
   return async request => {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
@@ -55,30 +114,8 @@ export function createMaterialHandler({ backendUrl, serviceKey, fetchImpl = fetc
         const files = form.getAll('files');
         if (!/^\d+$/.test(ownerId) || !files.length) throw failure(400, '请选择教材文件');
         validateFiles(files);
-        const bucketResponse = await backend('/storage/v1/bucket/' + BUCKET);
-        if (bucketResponse.ok) {
-          const bucket = await bucketResponse.json();
-          if (bucket.public) throw failure(503, '教材存储配置异常');
-          /* 早期建桶时写死了 50 MB 的单文件上限，现在不限大小，遇到旧配置顺手清掉。 */
-          if (bucket.file_size_limit) {
-            await backend('/storage/v1/bucket/' + BUCKET, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false, file_size_limit: null, allowed_mime_types: null }) }).catch(() => {});
-          }
-        } else if (bucketResponse.status === 404 || bucketResponse.status === 400) {
-          const created = await backend('/storage/v1/bucket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false }) });
-          if (!created.ok && created.status !== 409) throw failure(503, '无法初始化教材存储，请稍后重试');
-        } else throw failure(503, '教材存储暂时不可用');
-        const uploaded = [];
-        try {
-          for (const file of files) {
-            const path = user.id + '/' + ownerId + '/' + crypto.randomUUID();
-            const response = await backend('/storage/v1/object/' + BUCKET + '/' + path, { method: 'POST', headers: { 'Content-Type': previewType(file.name), 'x-upsert': 'false' }, body: file });
-            if (!response.ok) throw failure(502, '文件上传失败，请检查网络后重试');
-            uploaded.push({ name: file.name, mime: previewType(file.name), size: file.size, url: 'wb-material:' + path });
-          }
-        } catch (error) {
-          if (uploaded.length) await backend('/storage/v1/object/' + BUCKET, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: uploaded.map(file => file.url.slice('wb-material:'.length)) }) }).catch(() => {});
-          throw error;
-        }
+        await ensureBucket();
+        const uploaded = await uploadFiles(user, ownerId, files);
         return json({ files: uploaded });
       }
       if (request.method !== 'GET') throw failure(405, '不支持此操作');

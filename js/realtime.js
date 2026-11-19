@@ -373,13 +373,58 @@ async function connect() {
 }
 
 /* 登录/退出后调用：登录了就（重新）连，退出了就停。
-   放在这里而不是让调用方自己判断，是为了只有一个地方管这件事。 */
+   放在这里而不是让调用方自己判断，是为了只有一个地方管这件事。
+
+   额外维护一个 uid：同一个账号只 token 续期了，重连就行；
+   但如果是换了一个账号（uid 不同），要先停掉旧连接再建新的 ——
+   旧连接带着上一个账号的 access_token，重连也会被 RLS 挡，
+   而且 Phoenix 频道不支持运行时换 access_token。 */
+let _joinedUid = '';
 export function syncWithAuth() {
   const c = cfg();
   const t = tok();
-  if (c && t && t.access_token) start();
-  else stop();
+  if (c && t && t.access_token) {
+    if (_joinedUid !== (t.uid || '')) {
+      /* 换账号了，先停旧再开新；停的时候清掉 _joinedUid，start 里再加回来 */
+      if (_want) hardClose();
+      _joinedUid = t.uid || '';
+      start();
+    } else {
+      /* 同一个账号，只是 token 续期 / 网络闪断 —— 如果已经在连就不动，
+         如果当前没连上（用户中途退出又登录同一个账号），重新 start */
+      if (!_want) start();
+      else if (!st.ws) start();
+    }
+  } else {
+    stop();
+    _joinedUid = '';
+  }
 }
+
+/* 跨 tab 同步：localStorage 变了（另一个 tab 登录/退出/换账号/刷 token），
+   我们这里要立刻感知。否则"我在 tab B 登了另一个号，tab A 还带着旧 token 一直连"，
+   Phoenix 虽然会拒收旧 token 的推送，但连接不会主动关，一直挂着占资源。 */
+try {
+  window.addEventListener('storage', (ev) => {
+    if (ev.key !== SESSION_STORAGE_KEY) return;
+    syncWithAuth();
+  });
+} catch { }
+
+/* 浏览器网络从断网恢复时，WebSocket 自己不会自动重连（Phoenix Channels 默认不处理 online 事件）。
+   主动触发 reconnect 可以让用户不用手动刷新页面。
+   只在我们处于"应该连着"的状态才重连 —— 如果还没登录或没配云端，别瞎动。 */
+try {
+  window.addEventListener('online', () => {
+    if (!_want) return;
+    if (st.ws && st.ws.readyState === 1) {
+      /* 还在连，探活一下；心跳没响应才重连 */
+      if (st.lastBeat && Date.now() - st.lastBeat > HEARTBEAT_MS * 3) reconnect('网络恢复，但心跳过期');
+      return;
+    }
+    reconnect('网络恢复');
+  });
+} catch { }
 
 /* 页面重新可见时检查一下：手机锁屏、切后台，浏览器会把 WebSocket 挂起，
    回来时连接看着在、其实已经死了。主动探一下，死了就重连。 */

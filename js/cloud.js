@@ -591,31 +591,92 @@ export async function saveWorkbenchSnapshot(payload, expectedRevision = 0, expec
   return row;
 }
 
+/* 云端已不认这份登录态时统一用这个错误：
+   status 401 会被 api.req 转发成 wb:unauth，页面据此回登录页。 */
+function uploadAuthError(message) {
+  return Object.assign(new Error(message), { status: 401, code: 'AUTH_EXPIRED' });
+}
+
+/* 并行上传：每个文件一个 XHR，最多 CONCURRENCY 个同时飞。
+   以前 32 个文件打包成一个大 POST，后端串行存 storage，总耗时 ≈ 所有文件之和。
+   现在并行 4 个，总耗时 ≈ 最慢那个文件。
+   进度按文件大小加权平均 —— 1MB 的文件 100% 和 50MB 的文件 0% 不能各占 50%。 */
+const UPLOAD_CONCURRENCY = 4;
 export async function uploadMaterialFiles(files, ownerId, onProgress) {
   const config = cfg(), token = await freshToken();
-  if (!token) throw new Error('请先登录教师账号后上传教材');
+  if (!token) {
+    if (tok()) throw new Error('连不上云端登录服务，请检查网络后重试');
+    notifySignedOut();
+    throw uploadAuthError('登录状态已失效，请重新登录后再上传教材');
+  }
+  const at = token;
+  const totalBytes = files.reduce((sum, f) => sum + byteLen(f.data), 0);
+  const doneBytes = new Array(files.length).fill(0);   // 每个文件已上传字节
+  const donePct = new Array(files.length).fill(0);    // 每个文件进度 0-1
+
+  /* 并发池：始终保持最多 CONCURRENCY 个请求在飞 */
+  let nextIdx = 0;
+  const runNext = () => {
+    const idx = nextIdx++;
+    if (idx >= files.length) return null;
+    return uploadOne(idx, files[idx], ownerId, config, at, (loaded) => {
+      doneBytes[idx] = loaded;
+      donePct[idx] = files[idx].size ? loaded / byteLen(files[idx].data) : 1;
+      if (typeof onProgress === 'function') {
+        onProgress(totalBytes ? doneBytes.reduce((a, b) => a + b, 0) / totalBytes : 0);
+      }
+    });
+  };
+  const pool = [];
+  for (let i = 0; i < Math.min(UPLOAD_CONCURRENCY, files.length); i++) {
+    pool.push(runNext());
+  }
+  const results = [];
+  let anyError = null;
+  while (pool.length) {
+    // 等任意一个完成
+    const idx = await Promise.race(pool.map((p, i) => p.then(r => ({ i, ok: true, r }), e => ({ i, ok: false, e }))));
+    pool.splice(idx.i, 1);
+    if (idx.ok) {
+      results[idx.i] = idx.r;
+    } else {
+      anyError = idx.e;
+      /* 单个文件上传失败时，把错误往后抛。剩下的已经在飞的请求继续跑完 ——
+         让用户看到完整的"哪些成了、哪些没成"，而不是半路全停。 */
+    }
+    const next = runNext();
+    if (next) pool.push(next);
+  }
+  if (anyError) throw anyError;
+  return results;
+}
+
+function byteLen(blobLike) {
+  if (blobLike && typeof blobLike.size === 'number') return blobLike.size;
+  if (blobLike && blobLike.byteLength !== undefined) return blobLike.byteLength;
+  return 0;
+}
+
+function uploadOne(idx, file, ownerId, config, token, onProgress) {
   const form = new FormData();
   form.append('owner_id', String(ownerId));
-  for (const file of files) form.append('files', new Blob([file.data], { type: file.mime || 'application/octet-stream' }), file.filename);
-  /* 用 XHR 而不是 fetch：fetch 拿不到上传进度，几十个文件时会长时间没有任何反馈。
-     ratio 是 0~1 的上传字节占比，由调用方决定怎么展示。 */
+  form.append('files', new Blob([file.data], { type: file.mime || 'application/octet-stream' }), file.filename);
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', config.url + '/functions/v1/material-sharing');
     xhr.setRequestHeader('apikey', config.anon);
     xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-    if (typeof onProgress === 'function') {
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
-      };
-    }
-    xhr.onerror = () => reject(new Error('连不上云端教材服务，文件没有上传。请检查网络后重试'));
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) onProgress(ev.loaded);
+    };
+    xhr.onerror = () => reject(new Error('连不上云端教材服务，请检查网络后重试'));
     xhr.onload = () => {
       let result = {};
-      try { result = JSON.parse(xhr.responseText || '{}'); } catch { /* 非 JSON 走下面的通用报错 */ }
-      if (xhr.status < 200 || xhr.status >= 300) return reject(new Error(result.error || '教材上传失败，请稍后重试'));
-      if (!Array.isArray(result.files) || result.files.length !== files.length) return reject(new Error('教材上传未完成，请重试'));
-      resolve(result.files);
+      try { result = JSON.parse(xhr.responseText || '{}'); } catch { }
+      if (xhr.status === 401) { setTok(null); notifySignedOut(); return reject(uploadAuthError('登录状态已失效，请重新登录后再上传教材')); }
+      if (xhr.status < 200 || xhr.status >= 300) return reject(new Error(result.error || '「' + file.filename + '」上传失败'));
+      if (!Array.isArray(result.files) || !result.files.length) return reject(new Error('「' + file.filename + '」上传未完成，请重试'));
+      resolve(result.files[0]);
     };
     xhr.send(form);
   });
