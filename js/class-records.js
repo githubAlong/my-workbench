@@ -471,7 +471,7 @@ export async function renderClassRecords(root) {
         <div class="cr-field"><label>支付状态</label><input id="cr-status" list="cr-status-options" value="${esc(row?.pay_status || '')}" placeholder="选择或手动输入支付状态"><datalist id="cr-status-options">${PAY_OPTIONS.map((s) => '<option value="' + s + '"></option>').join('')}</datalist></div>
       </div>
       <div class="cr-field" style="margin-top:14px"><label>备注说明</label><textarea id="cr-remark" placeholder="换课说明、特殊情况备注等">${esc(row?.remark || '')}</textarea></div>
-      <div class="cr-form-foot"><button class="cr-btn" id="cr-cancel" type="button">关闭</button><button class="cr-btn primary" id="cr-save" type="button">${editing ? '保存修改' : '保存记录'}</button></div>
+      <div class="cr-form-foot"><button class="cr-btn" id="cr-cancel" type="button">关闭</button><button class="cr-btn primary" id="cr-save" type="button">${editing ? '保存修改' : '保存'}</button></div>
     </div>`);
     const sh = sheet({ title: editing ? '编辑上课记录' : '新增上课记录', body: form, cls: 'cr-record-drawer' });
     sh.wrap.classList.add('cr-record-drawer-mask');
