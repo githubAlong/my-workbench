@@ -127,9 +127,9 @@ test('实际四页签展示相同名单和列，花名册无考勤编辑入口�
     class:['序号','归属部门','归属年级','姓名','学科','上课','备注','操作'],
     research:['序号','归属部门','归属年级','姓名','学科','教研','备注','操作'],
   };
-  /* 用户 11-15 需求：上课表/教研表只出对应状态的人，没人听课时听课列也隐藏 */
-  const expectedNamesByType={seat:['李老师','王老师'],class:[],research:[]};
-  const expectedControls={seat:12,class:0,research:0};
+  /* 上课表/教研表显示筛选后的全部教师，未登记者也可直接补记；没人听课时听课列隐藏。 */
+  const expectedNamesByType={seat:['李老师','王老师'],class:['李老师','王老师'],research:['李老师','王老师']};
+  const expectedControls={seat:12,class:4,research:4};
   for(const type of ['seat','class','research']) {
     await root.querySelector('[data-tab="'+type+'"]').click();
     const current=headers();
@@ -156,10 +156,10 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   assert.equal(saved.class.rows.length,0);
   assert.equal(saved.research.rows.length,0);
   await root.querySelector('[data-tab="class"]').click();
-  /* 用户 11-15 需求：上课表只出上课/听课的人，只勾坐班的李老师不再出现在上课表 */
+  /* 只勾坐班不影响上课表显示全部教师；李老师仍可在这里直接补记上课。 */
   assert.equal(control(root,'sit'),undefined);
-  assert.equal(control(root,'class'),undefined);
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
+  assert.equal(control(root,'class').tag,'button');
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,4);
   await root.querySelector('[data-tab="roster"]').click();
   /* 花名册只保留名单与操作，不再展示任何考勤状态格 */
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
@@ -228,20 +228,19 @@ test('明细行真被别的设备改过时仍会拦下，并给出中文提示�
 
 test('切换节次和日期不串草稿；搜索后四页签共用同一花名册筛选',async()=>{
   const {root,saved}=await setup();
-  /* 新规则下教研表只出教研/请假的人，先在坐班表给李老师勾上教研 */
+  /* 先在坐班表给李老师勾上教研，再验证切换节次不会串用原节次草稿。 */
   await root.querySelector('[data-tab="seat"]').click();
   await control(root,'research').click();
   await root.querySelector('[data-tab="research"]').click();
   await root.querySelector('#aprd-period').change('2');
-  /* 该节次没有教研记录，教研表按状态筛人后不再补未登记行 */
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
+  /* 该节次没有教研记录，但两名教师仍可逐人补记（教研、备注各一个控件）。 */
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,4);
   /* 真实环境按日期分表，换日期就是另一张空表；这里清空桩数据来模拟 */
   Object.values(saved).forEach(table=>{table.rows=[];});
   await root.querySelector('#aprd-date').change('2026-10-01');
-  /* 源数据清空后，教研表按状态筛人，不再为未登记教师补行 */
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,4);
   await root.querySelector('#aprd-search').input('王老师');
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,2);
 });
 
 test('教师搜索支持中文输入法组合输入，组合期间不重绘，选字完成后再筛选',async()=>{
