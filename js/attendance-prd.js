@@ -614,8 +614,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const totalWidth=widths.reduce((sum,value)=>sum+value,0);
     const headingBlocks=[];
     if(title)headingBlocks.push({text:title,font:'bold 24px "Microsoft YaHei",sans-serif',color:'#10203a',gap:28,rule:true});
-    if(subtitle)headingBlocks.push({text:subtitle,font:'600 14px "Microsoft YaHei",sans-serif',color:'#1f3550',gap:26});
-    if(stats)headingBlocks.push({text:stats,font:'12.5px "Microsoft YaHei",sans-serif',color:'#40536e',gap:26});
+    if(subtitle)headingBlocks.push({text:subtitle,font:'600 14px "Microsoft YaHei",sans-serif',color:'#16263c',gap:26});
+    if(stats)headingBlocks.push({text:stats,font:'12.5px "Microsoft YaHei",sans-serif',color:'#2b3b53',gap:26});
     /* 抬头区高度按实际标题行数算：标题 46 起步，行距 28/26/26，底部留 6 */
     const rowH=42,titleH=headingBlocks.length?46+headingBlocks.reduce((sum,block)=>sum+block.gap,0)+6:26,footH=44,rowsPerPage=120;
     const pages=[];

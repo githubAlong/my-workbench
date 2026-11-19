@@ -599,11 +599,10 @@ export function buildAttendanceExportGrid({
     const rows = entries.map(entry => entry.row);
     const count = key => entries.filter(entry => entry.winner === key && entry.row[{ class: 6, sit: 5, listen: 7, research: 8 }[key]] === '✓').length;
     const leaveCount = rows.filter(row => row[9] !== '').length;
-    const unregistered = entries.filter(entry => !entry.winner && !entry.onLeave).length;
-    /* 用户 11-15 需求：导出统一去掉「应到人数」 */
+    /* 用户 11-19 需求：统计行不再展示「未登记 N 人」 */
     const statsLine = '坐班 ' + count('sit') + ' 人 · 上课 ' + count('class')
       + ' 人 · 听课 ' + count('listen') + ' 人 · 教研 ' + count('research') + ' 人'
-      + ' · 请假 ' + leaveCount + ' 人 · 未登记 ' + unregistered + ' 人';
+      + ' · 请假 ' + leaveCount + ' 人';
     return [...heading(statsLine), EXPORT_HEADERS[type], ...rows];
   }
 

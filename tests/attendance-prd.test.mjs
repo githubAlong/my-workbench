@@ -127,7 +127,7 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
   assert.match(seat[5][9],/0.5天/);
   /* 用户 11-15 需求：导出统一去掉应到人数 */
   assert.ok(!/应到/.test(seat[2][0]),'坐班表标题不应再出现应到');
-  assert.match(seat[2][0],/未登记 1 人/);
+  assert.ok(!/未登记/.test(seat[2][0]),'统计行不再出现未登记人数');
   assert.deepEqual(new Set(namesOf(seat)),new Set(allNames));
   /* 一次只能显示一个状态（11-15 裁决）：李老师上课优先于坐班，坐班/听课/教研留空 */
   const liSeat = rowByName(seat,'李老师');
@@ -141,7 +141,7 @@ test('四类导出都保留全量名单并显示对应状态（11-12 新裁决�
   const zhaoSeat = rowByName(seat,'赵老师');
   assert.equal(zhaoSeat[5],'未登记');
   assert.ok([6,7,8].every(index => zhaoSeat[index] === ''));
-  assert.match(seat[2][0],/未登记 1 人/);
+  assert.ok(!/未登记/.test(seat[2][0]),'统计行不再出现未登记人数');
 
   const classes = buildAttendanceExportGrid({...common,type:'class'});
   /* 上课表只出上课/听课的人（用户 11-15 需求），未登记和请假的人不再出现 */
@@ -260,7 +260,7 @@ test('全天录入的状态能原样导出（不会被判成未登记）', () =>
   assert.equal(rows[1][6], '');
   assert.match(grid[2][0], /上课 1 人/);
   assert.match(grid[2][0], /坐班 1 人/);
-  assert.match(grid[2][0], /未登记 0 人/);
+  assert.ok(!/未登记/.test(grid[2][0]), '统计行不再出现未登记人数');
 });
 
 test('五种状态互斥：同一人只显示一个状态，按 请假>上课>坐班>听课>教研 裁决', () => {
@@ -322,7 +322,7 @@ test('坐班表行内填写的请假和备注原样进入导出（11-15 反馈�
   assert.equal(rows[2][9], '');
   assert.equal(rows[2][5], '未登记');
   assert.match(grid[2][0], /请假 2 人/);
-  assert.match(grid[2][0], /未登记 1 人/);
+  assert.ok(!/未登记/.test(grid[2][0]), '统计行不再出现未登记人数');
   assert.match(grid[0][0], /高一教师坐班表/);
   assert.match(grid[1][0], /2026-11-15 星期日/);
   assert.match(grid[1][0], /08:00—08:45/);

@@ -139,7 +139,7 @@
 .attendance-prd .aprd-png-preview{width:min(1000px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;border-radius:16px;background:#fff;box-shadow:0 20px 70px rgba(15,35,70,.24)}
 .attendance-prd .aprd-png-preview>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #e8edf4}
 .attendance-prd .aprd-png-preview h3{margin:0;color:#172744;font-size:17px}
-.attendance-prd .aprd-png-preview header p{margin:5px 0 0;color:#8290a5;font-size:12px}
+.attendance-prd .aprd-png-preview header p{margin:5px 0 0;color:#5d6b80;font-size:12px}
 .attendance-prd .aprd-png-preview header button{width:32px;height:32px;border:0;border-radius:8px;background:#f2f5fa;color:#53627a;font-size:22px;cursor:pointer;line-height:1}
 .attendance-prd .aprd-png-scroll{padding:14px 20px;overflow:auto;-webkit-overflow-scrolling:touch;display:grid;gap:14px;background:#f6f8fc;flex:1 1 auto;min-height:0}
 .attendance-prd .aprd-png-scroll figure{margin:0;display:grid;gap:6px}
@@ -468,13 +468,13 @@
 .attendance-prd .aprd-import-preview-head b{font-size:13px;color:#172744}
 .attendance-prd .aprd-import-preview-head span{font-size:11px;color:#8492a6}
 .attendance-prd .aprd-import-summary{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
-.attendance-prd .aprd-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#eef3fb;color:#42536e;font-size:11.5px;line-height:1.5}
+.attendance-prd .aprd-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#eef3fb;color:#2d3f58;font-size:11.5px;line-height:1.5}
 .attendance-prd .aprd-chip b{color:#172744;font-weight:700}
 .attendance-prd .aprd-chip.add{background:#e9f8ee;color:#168448}
 .attendance-prd .aprd-chip.update{background:#eaf2ff;color:#165dff}
 .attendance-prd .aprd-chip.skip{background:#f2f4f7;color:#667085}
 .attendance-prd .aprd-chip.warn{background:#fff5e6;color:#a56b12}
-.attendance-prd .aprd-chip.muted{background:#f5f7fa;color:#7d8ba0}
+.attendance-prd .aprd-chip.muted{background:#f5f7fa;color:#5d6b80}
 
 .attendance-prd .aprd-import-table-wrap{max-height:300px;border:1px solid #e6ecf5;border-radius:10px;background:#fff}
 .attendance-prd .aprd-import-table-wrap thead th{position:sticky;top:0;z-index:1;background:#f7f9fc;color:#74839a;font-size:11.5px;padding:9px 10px}
