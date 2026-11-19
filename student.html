@@ -889,10 +889,9 @@ function paintPunish() {
   };
 }
 
-/* ---------- 违纪：学生填报，教师端查看与编辑 ---------- */
-function paintMisconduct() {
-  /* 年级 / 班级选项来自老师的课表（/public/link 下发的 classes）；
-     旧版后端还没下发时，退回到花名册，保证下拉框不会只剩一行提示。 */
+/* 年级 / 班级选项来自老师的课表（/public/link 下发的 classes）；
+   旧版后端还没下发时，退回到花名册，保证下拉框不会只剩一行提示。 */
+function classChoices() {
   const pairMap = new Map();
   [...(data?.classes || []), ...(data?.rosters || [])].forEach((r) => {
     const grade = String(r?.grade || '').trim();
@@ -913,6 +912,12 @@ function paintMisconduct() {
     const parts = t.split(/[·.\s]+/).filter(Boolean);
     return parts.length >= 2 ? { grade: parts[0], class_name: parts.slice(1).join(' ') } : { grade: '', class_name: t };
   };
+  return { classPairs, gradeList, classesOf, splitCls };
+}
+
+/* ---------- 违纪：学生填报，教师端查看与编辑 ---------- */
+function paintMisconduct() {
+  const { classPairs, gradeList, classesOf, splitCls } = classChoices();
   const saved = prefs();
   const pref = saved.misconduct_grade !== undefined
     ? { grade: String(saved.misconduct_grade || '').trim(), class_name: String(saved.misconduct_cls || '').trim() }
@@ -1009,18 +1014,40 @@ function paintMisconduct() {
 
 /* ---------- 留言板：学生填报，教师端查看与编辑 ---------- */
 function paintBulletin() {
-  const curCls = prefs().bulletin_cls || '';
+  /* 年级 / 班级同样取自课表（与违纪登记共用一份选项）；
+     没有匹配项时保留「其他（手动填写）」，避免课表还没排课时无法提交。 */
+  const { classPairs, gradeList, classesOf, splitCls } = classChoices();
+  const saved = prefs();
+  const pref = saved.bulletin_grade !== undefined
+    ? { grade: String(saved.bulletin_grade || '').trim(), class_name: String(saved.bulletin_cls || '').trim() }
+    : splitCls(saved.bulletin_cls);
+  const auto = splitCls(myClass());
+  const curGrade = pref.grade || auto.grade;
+  const curClass = pref.class_name || auto.class_name;
+  const otherGrade = !!curGrade && !gradeList.includes(curGrade);
+  const initialClasses = curGrade ? classesOf(curGrade) : [];
+  const otherClass = !!curClass && !initialClasses.includes(curClass);
   $('#s-body').innerHTML = `<div class="card card-pad">
     <div class="card-title">${ICON.chat} 留言板</div>
     <div class="tiny muted" style="margin:4px 0 12px">写下想说的话，老师会在教师端的留言板里看到。</div>
     <div class="row wrap" style="gap:8px">
-      <div class="field" style="flex:1;min-width:120px">
+      <div class="field" style="flex:1;min-width:140px">
         <label class="field-label">年级</label>
-        <input class="input" id="bl-grade" placeholder="比如：高一">
+        <select class="input" id="bl-grade">
+          <option value="">请选择年级</option>
+          ${gradeList.map((g) => `<option${g === curGrade ? ' selected' : ''}>${esc(g)}</option>`).join('')}
+          <option value="__other__"${otherGrade ? ' selected' : ''}>其他（手动填写）</option>
+        </select>
+        <input class="input" id="bl-grade-custom" placeholder="例如：高一" value="${otherGrade ? esc(curGrade) : ''}" style="display:none;margin-top:8px">
       </div>
-      <div class="field" style="flex:1;min-width:120px">
+      <div class="field" style="flex:1;min-width:140px">
         <label class="field-label">班级</label>
-        <input class="input" id="bl-class" placeholder="比如：3 班">
+        <select class="input" id="bl-class">
+          <option value="">请选择班级</option>
+          ${initialClasses.map((c) => `<option${c === curClass ? ' selected' : ''}>${esc(c)}</option>`).join('')}
+          <option value="__other__"${otherClass ? ' selected' : ''}>其他（手动填写）</option>
+        </select>
+        <input class="input" id="bl-class-custom" placeholder="例如：3 班" value="${otherClass ? esc(curClass) : ''}" style="display:none;margin-top:8px">
       </div>
     </div>
     <div class="field">
@@ -1033,16 +1060,49 @@ function paintBulletin() {
     </div>
   </div>`;
   const tip = (msg, bad) => { const t = $('#bl-tip'); t.textContent = msg; t.style.color = bad ? 'var(--red)' : 'var(--green)'; };
+  const gradeSelect = $('#bl-grade');
+  const gradeCustom = $('#bl-grade-custom');
+  const clsSelect = $('#bl-class');
+  const clsCustom = $('#bl-class-custom');
+  const syncCustom = () => {
+    const customGrade = gradeSelect.value === '__other__';
+    gradeCustom.style.display = customGrade ? '' : 'none';
+    clsSelect.style.display = customGrade ? 'none' : '';
+    clsCustom.style.display = (customGrade || clsSelect.value === '__other__') ? '' : 'none';
+  };
+  const fillClasses = (grade) => {
+    clsSelect.innerHTML = '<option value="">请选择班级</option>'
+      + classesOf(grade).map((c) => `<option>${esc(c)}</option>`).join('')
+      + '<option value="__other__">其他（手动填写）</option>';
+  };
+  gradeSelect?.addEventListener('change', () => {
+    if (gradeSelect.value === '__other__') {
+      savePref('bulletin_grade', '');
+    } else {
+      fillClasses(gradeSelect.value);
+      savePref('bulletin_grade', gradeSelect.value.trim());
+      savePref('bulletin_cls', '');
+    }
+    syncCustom();
+  });
+  clsSelect?.addEventListener('change', () => {
+    syncCustom();
+    if (clsSelect.value !== '__other__') savePref('bulletin_cls', clsSelect.value.trim());
+  });
+  syncCustom();
   $('#bl-send')?.addEventListener('click', async () => {
-    const grade = $('#bl-grade').value.trim();
-    const class_name = $('#bl-class').value.trim();
+    const customGrade = gradeSelect.value === '__other__';
+    const grade = (customGrade ? gradeCustom.value : gradeSelect.value).trim();
+    const class_name = (customGrade || clsSelect.value === '__other__' ? clsCustom.value : clsSelect.value).trim();
     const content = $('#bl-text').value.trim();
-    if (!grade && !class_name) return tip('请填写年级或班级', true);
+    if (!grade && !class_name) return tip('请选择年级或班级', true);
     if (!content) return tip('请填写留言内容', true);
+    const hit = classPairs.find((r) => r.grade === grade && r.class_name === class_name);
+    const cls = hit ? hit.class_name : class_name;
     const btn = $('#bl-send');
     btn.disabled = true; btn.textContent = '提交中…';
     try {
-      await api(`/public/link/${code}/bulletin`, { grade, class_name, content });
+      await api(`/public/link/${code}/bulletin`, { grade, class_name: cls, content });
       $('#bl-text').value = '';
       tip('已提交，老师那边可以看到了');
     } catch (error) {
