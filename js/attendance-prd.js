@@ -1261,17 +1261,11 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const activeStateKeys = (GRID_STATE_COLUMNS[type] || []).filter(key =>
       type === 'class' && key === 'listen' ? hasListen
         : type === 'research' && key === 'leave' ? hasLeave : true);
-    const listedTeachers = type === 'class'
-      ? list.filter(teacher => {
-        const state = statusOfTeacher(teacher);
-        return state.class === 'y' || state.listenStatus === 'y' || state.listen === true || state.listen === 'y';
-      })
-      : type === 'research'
-        ? list.filter(teacher => {
-          const state = statusOfTeacher(teacher);
-          return state.researchStatus === 'y' || state.research === true || !!state.leave;
-        })
-        : list;
+    /* 教研/上课子表现在直接显示筛选到的所有教师：
+       以前只在有记录时才出现一行，用户选完学科下拉后下方空白，
+       以为筛选没生效。现在每个筛到的老师都出现在表里，
+       状态格空白就是"未登记"，可以直接点勾选，操作更直观。 */
+    const listedTeachers = list;
     /* 花名册只维护教师名单：考勤状态不展示，但保留一列可直接填写的备注（用户 11-15 要求）。 */
     const columns = type === 'roster'
       ? ['序号','归属部门','归属年级','姓名','学科','备注','操作']
