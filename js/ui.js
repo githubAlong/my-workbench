@@ -115,7 +115,7 @@ export const NAV = [
   { id: 'pick', label: '点名', icon: 'dice' },
   { id: 'mystery', label: '盲盒', icon: 'gift' },
   { id: 'misconduct', label: '违纪', icon: 'alert' },
-  { id: 'bulletin', label: '留言板', icon: 'chat' },
+  { id: 'bulletin', label: '留言', icon: 'chat' },
   { id: 'recycle', label: '回收站', icon: 'trash' },
   { id: 'me', label: '我的', icon: 'me' },
 ];
@@ -1300,6 +1300,8 @@ export async function refreshUnread() {
    数字变了要跟着变，不然从 3 变成 1 还显示 3。 */
 export function paintUnread() {
   const n = Number(state.unread) || 0;
+  const messageStatus = document.getElementById('me-message-status');
+  if (messageStatus) messageStatus.textContent = n ? n + ' 条未读' : '无未读';
   document.querySelectorAll('.msg-bell').forEach(bell => {
     let dot = bell.querySelector('.msg-bell-dot');
     if (n <= 0) { dot?.remove(); return; }

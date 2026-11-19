@@ -45,229 +45,93 @@ async function renderMe(main) {
     return;
   }
 
-  main.classList.add('page-me-home');
-  const msgs = await api.get('/messages').catch(() => ({ unread: 0, counts: {} }));
+  main.classList.add('page-me-home', 'me-dashboard');
+  const msgs = await api.get('/messages').catch(() => ({ unread: 0 }));
   const unread = Number(msgs.unread) || 0;
-  const needProfile = !u.school || !u.subject;
-  const account = displayLoginAccount(u.account || u.phone, '暂未绑定登录账号');
-  const wideEnabled = isWideMode();
-  const meta = [u.school, u.subject].filter(Boolean).join(' · ')
-    || [u.title, u.grade_group].filter(Boolean).join(' · ')
-    || '完善个人资料，让工作台更懂你的工作';
-  const role = [u.title, u.grade_group].filter(Boolean).join(' · ');
-  const signature = u.signature || u.motto || u.bio || '';
-  const bindings = [
-    u.bindings?.wechat ? '<span class="chip green">微信已绑定</span>' : '',
-    u.bindings?.qq ? '<span class="chip blue">QQ已绑定</span>' : '',
-    u.bindings?.workbuddy ? '<span class="chip purple">WorkBuddy已绑定</span>' : '',
-    needProfile ? '<span class="chip amber">资料待完善</span>' : '<span class="chip green">资料已完善</span>'
-  ].filter(Boolean).join('');
-  /* 只有确实检测到系统灌入的示例数据时才显示清理入口，清完自动消失 */
-  const showDemoClean = hasDemoData();
-
+  const cards = [
+    ['profile', 'user', '个人信息', '头像、姓名与任教信息'],
+    ['account', 'shield', '账号安全', '登录账号与密码'],
+    ['messages', 'bell', '消息中心', '通知与消息记录'],
+    ['workbench', 'sliders', '工作台设置', '名称、标语与品牌图片'],
+    ['theme', 'sun', '主题外观', themeName(state.theme)],
+    ['layout', 'grid', '页面与布局', '显示宽度与首页卡片'],
+  ];
   main.innerHTML = `
-    <header class="me-home-head">
-      <div><div class="me-home-eyebrow">PERSONAL CENTER</div><h1>我的</h1>
-      <p>管理个人资料、工作台配置与消息通知</p></div>
-    </header>
-
-    <section class="me-identity-card is-collapsed" id="me-identity-card">
-      <div class="me-identity-main">
-        <button type="button" class="me-identity-avatar" id="avatar-btn" title="更换头像">
-          ${avatarHTML(u, 58, 'me-avatar-lg', true)}
-          <span class="me-identity-camera">${icon('camera', 13)}</span>
-        </button>
-        <div class="me-identity-copy">
-          <div class="me-identity-name" id="me-identity-name">${esc(u.nickname || '未设置昵称')}</div>
-          <div class="me-identity-meta" id="me-identity-meta">${esc(meta)}</div>
-          <div class="me-identity-account" id="me-identity-role">${esc(role || account)}</div>
-          ${signature ? `<div class="me-identity-signature">${esc(signature)}</div>` : ''}
-          <div class="me-identity-chips">${bindings}</div>
+    <div class="me-dashboard-content">
+      <header class="me-dashboard-head"><h1>我的</h1><p>管理个人资料与工作台偏好</p></header>
+      <section class="me-profile-card" aria-label="个人资料">
+        <button type="button" class="me-profile-avatar" id="avatar-btn" aria-label="更换头像">${avatarHTML(u, 88, 'me-avatar-lg', true)}</button>
+        <div class="me-profile-copy">
+          <h2 id="me-identity-name">${esc(u.nickname || '未设置昵称')}</h2>
+          <p id="me-identity-meta">${icon('home', 17)}<span>${esc(u.school || '尚未填写学校')}</span></p>
+          <p id="me-identity-role">${icon('briefcase', 17)}<span>${esc([u.subject, u.title, u.grade_group].filter(Boolean).join(' · ') || '完善任教信息')}</span></p>
         </div>
-      </div>
-      <span class="me-identity-compact" id="me-identity-compact">${esc(u.nickname || '未设置昵称')} · ${esc(meta)}</span>
-      <button type="button" class="me-identity-toggle" id="me-identity-toggle"
-        aria-expanded="false" aria-controls="me-identity-card">展开</button>
-    </section>
-
-    <div class="me-home-accordions" id="me-home-accordions">
-      <details class="me-accordion" data-me-accordion="profile">
-        <summary class="me-accordion-head">
-          <span class="me-accordion-icon">${icon('user', 19)}</span>
-          <span class="me-accordion-copy"><strong>个人信息</strong><small>头像、姓名、学校、学科及职务</small></span>
-          <span class="me-accordion-chevron">${icon('down', 17)}</span>
-        </summary>
-        <div class="me-accordion-panel page-me-profile" id="me-profile-panel"></div>
-      </details>
-
-      <details class="me-accordion" data-me-accordion="workbench">
-        <summary class="me-accordion-head">
-          <span class="me-accordion-icon">${icon('sliders', 19)}</span>
-          <span class="me-accordion-copy"><strong>工作台设置</strong><small>左上角名称、副标题和品牌图片</small></span>
-          <span class="me-accordion-chevron">${icon('down', 17)}</span>
-        </summary>
-        <div class="me-accordion-panel page-me-workbench-settings" id="me-workbench-panel"></div>
-      </details>
-
-      <details class="me-accordion" data-me-accordion="account">
-        <summary class="me-accordion-head">
-          <span class="me-accordion-icon">${icon('shield', 19)}</span>
-          <span class="me-accordion-copy"><strong>账号设置</strong><small>管理登录账号和修改密码</small></span>
-          <span class="me-accordion-chevron">${icon('down', 17)}</span>
-        </summary>
-        <div class="me-accordion-panel page-me-account-settings" id="me-account-panel"></div>
-      </details>
-
-      <details class="me-accordion" data-me-accordion="messages">
-        <summary class="me-accordion-head">
-          <span class="me-accordion-icon">${icon('bell', 19)}</span>
-          <span class="me-accordion-copy"><strong>消息中心</strong><small>${unread ? unread + ' 条未读消息' : '暂无未读消息'}</small></span>
-          ${unread ? `<span class="me-accordion-badge">${unread > 99 ? '99+' : unread}</span>` : ''}
-          <span class="me-accordion-chevron">${icon('down', 17)}</span>
-        </summary>
-        <div class="me-accordion-panel page-me-messages" id="me-messages-panel">
-          <div class="empty" style="padding:18px">正在加载消息…</div>
+        <button type="button" class="btn ghost me-edit-profile" data-me-action="profile">${icon('edit', 16)} 编辑资料</button>
+      </section>
+      <section class="me-settings-section" aria-labelledby="me-settings-title">
+        <h2 id="me-settings-title" class="me-section-title">常用设置</h2>
+        <div class="me-settings-grid">
+          ${cards.map(([id, glyph, title, description]) => `
+            <button type="button" class="me-setting-card" data-me-action="${id}">
+              <span class="me-setting-card-top"><span class="me-setting-icon">${icon(glyph, 25)}</span>
+                <span class="me-setting-trailing">${id === 'messages' ? '<span class="me-message-status" id="me-message-status">' + (unread ? unread + ' 条未读' : '无未读') + '</span>' : ''}${icon('right', 18)}</span></span>
+              <strong>${title}</strong><span class="me-setting-description">${id === 'theme' ? '<i class="me-theme-dot"></i><span id="me-theme-value">' + esc(description) + '</span>' : esc(description)}</span>
+            </button>`).join('')}
         </div>
-      </details>
-
-      <details class="me-accordion" data-me-accordion="theme">
-        <summary class="me-accordion-head">
-          <span class="me-accordion-icon">${icon('sun', 19)}</span>
-          <span class="me-accordion-copy"><strong>主题外观</strong><small>调整工作台整体颜色主题</small></span>
-          <span class="me-accordion-summary-extra" id="me-theme-value">${esc(themeName(state.theme))}</span>
-          <span class="me-accordion-chevron">${icon('down', 17)}</span>
-        </summary>
-        <div class="me-accordion-panel">
-          <div class="me-inline-setting">
-            <div><strong>当前主题：${esc(themeName(state.theme))}</strong><p>主题颜色会统一应用到首页、工作页面和个人中心。</p></div>
-            <button type="button" class="btn primary" id="me-theme-open">${icon('sun', 15)} 更改外观</button>
-          </div>
-        </div>
-      </details>
-
-      <details class="me-accordion" data-me-accordion="wide">
-        <summary class="me-accordion-head">
-          <span class="me-accordion-icon">${icon('expand', 19)}</span>
-          <span class="me-accordion-copy"><strong>页面显示</strong><small>设置工作台内容区域的显示宽度</small></span>
-          <span class="me-accordion-summary-extra" id="me-wide-value">${wideEnabled ? '已开启平铺' : '舒适宽度'}</span>
-          <span class="me-accordion-chevron">${icon('down', 17)}</span>
-        </summary>
-        <div class="me-accordion-panel">
-          <div class="me-inline-setting">
-            <div><strong>整页平铺</strong><p id="me-wide-description">${wideEnabled ? '当前已开启，页面内容铺满屏幕' : '当前已关闭，使用舒适内容宽度'}</p></div>
-            <button type="button" class="btn primary" id="me-wide-toggle">${wideEnabled ? '恢复舒适宽度' : '开启整页平铺'}</button>
-          </div>
-        </div>
-      </details>
-
-      <details class="me-accordion" data-me-accordion="layout">
-        <summary class="me-accordion-head">
-          <span class="me-accordion-icon">${icon('grid', 19)}</span>
-          <span class="me-accordion-copy"><strong>首页布局</strong><small>恢复首页卡片的默认排列</small></span>
-          <span class="me-accordion-chevron">${icon('down', 17)}</span>
-        </summary>
-        <div class="me-accordion-panel">
-          <div class="me-inline-setting">
-            <div><strong>重置首页布局</strong><p>只恢复首页卡片排列，不会删除课程、事项或其他业务数据。</p></div>
-            <button type="button" class="btn ghost" id="me-reset-layout">恢复默认布局</button>
-          </div>
-        </div>
-      </details>
-
-      ${showDemoClean ? `<details class="me-accordion" data-me-accordion="demo-data">
-        <summary class="me-accordion-head">
-          <span class="me-accordion-icon">${icon('trash', 19)}</span>
-          <span class="me-accordion-copy"><strong>数据管理</strong><small>清理系统预置的示例数据，保留自己录入的记录</small></span>
-          <span class="me-accordion-chevron">${icon('down', 17)}</span>
-        </summary>
-        <div class="me-accordion-panel">
-          <div class="me-inline-setting">
-            <div><strong>清理示例数据</strong><p>只删除系统自动灌入、且未改过标题/正文的演示课表与示例记录，连同消息中心里由它们生成的提醒；你自己录入的数据全部保留。执行前会先下载一份完整备份。</p></div>
-            <button type="button" class="btn ghost" id="me-clean-demo">查看并清理…</button>
-          </div>
-        </div>
-      </details>` : ''}
-
-      <details class="me-accordion" data-me-accordion="logout">
-        <summary class="me-accordion-head">
-          <span class="me-accordion-icon danger">${icon('logout', 19)}</span>
-          <span class="me-accordion-copy"><strong>退出登录</strong><small>安全退出当前工作台账号</small></span>
-          <span class="me-accordion-chevron">${icon('down', 17)}</span>
-        </summary>
-        <div class="me-accordion-panel">
-          <div class="me-inline-setting">
-            <div><strong>退出当前账号</strong><p>退出后需要重新登录才能继续使用工作台。</p></div>
-            <button type="button" class="btn danger" id="me-logout">退出登录</button>
-          </div>
-        </div>
-      </details>
+      </section>
+      <footer class="me-dashboard-footer">
+        <button type="button" class="btn ghost me-signout" id="me-logout">${icon('logout', 17)} 退出登录</button>
+        ${hasDemoData() ? '<button type="button" class="btn ghost" id="me-clean-demo">数据管理</button>' : ''}
+      </footer>
     </div>`;
 
-  // 各设置模块复用原有表单与业务处理，只把容器放进可展开面板。
-  renderProfile(main.querySelector('#me-profile-panel'), { inline: true });
-  renderWorkbenchSettings(main.querySelector('#me-workbench-panel'), { inline: true });
-  renderAccountSettings(main.querySelector('#me-account-panel'), { inline: true });
-  renderMessages(main.querySelector('#me-messages-panel'), { inline: true });
-
-  // 手动接管折叠行为：避免部分浏览器/页面样式下 details/summary 原生点击未切换。
-  // 整个标题栏（包括最右侧箭头）都可点击；再次点击恢复收起。
-  main.querySelectorAll('.me-accordion').forEach((section) => {
-    const summary = section.querySelector(':scope > summary.me-accordion-head');
-    if (!summary) return;
-    summary.setAttribute('aria-expanded', String(section.open));
-    summary.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      section.open = !section.open;
-      summary.setAttribute('aria-expanded', String(section.open));
-    });
+  const actions = {
+    profile: () => go('profile'),
+    account: () => go('me/account-settings'),
+    messages: () => go('messages'),
+    workbench: () => go('me/workbench-settings'),
+    theme: () => openThemeSheet(),
+    layout: () => openPageLayoutSettings(),
+  };
+  main.querySelectorAll('[data-me-action]').forEach(button => {
+    button.onclick = actions[button.dataset.meAction];
   });
-
-  const avatarButton = main.querySelector('#avatar-btn');
-  if (avatarButton) avatarButton.onclick = () => avatarSheet();
-
-  const identityCard = main.querySelector('#me-identity-card');
-  const identityToggle = main.querySelector('#me-identity-toggle');
-  if (identityToggle && identityCard) identityToggle.onclick = () => {
-    const collapsed = identityCard.classList.toggle('is-collapsed');
-    identityToggle.textContent = collapsed ? '展开' : '收起';
-    identityToggle.setAttribute('aria-expanded', String(!collapsed));
+  main.querySelector('#avatar-btn').onclick = () => avatarSheet();
+  main.querySelector('#me-clean-demo')?.addEventListener('click', () => openCleanDemoSheet());
+  main.querySelector('#me-logout').onclick = async () => {
+    if (await confirmDialog('确定退出登录？')) window.dispatchEvent(new Event('wb:signout'));
   };
+}
 
-  const themeButton = main.querySelector('#me-theme-open');
-  if (themeButton) themeButton.onclick = () => openThemeSheet();
-
-  const wideButton = main.querySelector('#me-wide-toggle');
-  if (wideButton) wideButton.onclick = async () => {
-    const openSections = Array.from(main.querySelectorAll('.me-accordion[open]'))
-      .map((section) => section.dataset.meAccordion);
-    const enabled = setWideMode(!isWideMode());
-    toast(enabled ? '已平铺整页，再点一次恢复舒适宽度' : '已恢复舒适宽度', 'ok', 3000);
-    await render();
-    const nextMain = document.getElementById('main');
-    nextMain?.querySelectorAll('.me-accordion').forEach((section) => {
-      section.open = openSections.includes(section.dataset.meAccordion);
-    });
+function openPageLayoutSettings() {
+  const body = el(`<div class="sheet-body me-layout-settings">
+    <section class="me-layout-setting"><div><h3>页面显示</h3><p>选择铺满窗口，或使用舒适的内容宽度。</p></div>
+      <button type="button" class="btn primary" id="me-wide-toggle" aria-pressed="${isWideMode()}"></button></section>
+    <section class="me-layout-setting"><div><h3>首页布局</h3><p>恢复首页卡片的默认排列，保留业务数据。</p></div>
+      <button type="button" class="btn ghost" id="me-reset-layout">恢复默认布局</button></section>
+  </div>`);
+  const modal = sheet({ title: '页面与布局', body });
+  const wideButton = body.querySelector('#me-wide-toggle');
+  const updateWidth = () => {
+    wideButton.textContent = isWideMode() ? '恢复舒适宽度' : '铺满窗口';
+    wideButton.setAttribute('aria-pressed', String(isWideMode()));
   };
-
-  const resetButton = main.querySelector('#me-reset-layout');
-  if (resetButton) resetButton.onclick = async () => {
+  updateWidth();
+  wideButton.onclick = () => {
+    setWideMode(!isWideMode());
+    updateWidth();
+  };
+  body.querySelector('#me-reset-layout').onclick = async () => {
+    if (!(await confirmDialog('恢复首页卡片的默认排列？现有业务数据会保留。'))) return;
     try {
-      const m = await import('./home.js');
-      await m.restoreHomeLayout();
+      const home = await import('./home.js');
+      await home.restoreHomeLayout();
+      modal.close();
       toast('首页布局已恢复默认', 'ok');
       go('home');
-    } catch (e) {
-      toast('重置首页布局失败：' + (e.message || e), 'err');
+    } catch (error) {
+      toast('恢复布局失败：' + (error.message || error), 'err');
     }
-  };
-
-  const cleanDemoButton = main.querySelector('#me-clean-demo');
-  if (cleanDemoButton) cleanDemoButton.onclick = () => openCleanDemoSheet();
-
-  const logoutButton = main.querySelector('#me-logout');
-  if (logoutButton) logoutButton.onclick = async () => {
-    if (await confirmDialog('确定退出登录？')) window.dispatchEvent(new Event('wb:signout'));
   };
 }
 
