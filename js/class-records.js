@@ -1,5 +1,5 @@
 import { api, esc, el, sheet, saving, confirmDialog, toast, download } from './core.js';
-import { cleanPeriodTime, normalizeTimetablePeriods } from './timetable-periods.mjs';
+import { cleanPeriodTime, resolveTimetablePeriods } from './timetable-periods.mjs';
 
 /* 上课类型：预设 + 可手动输入。预设用来带默认课时费与支付状态；
    手动输入或自定义类型按「课时费 0 / 已支付」兜底。
@@ -510,9 +510,17 @@ export async function renderClassRecords(root) {
       const scheduleType = preference.type === '冬令时课表' ? '冬令时课表' : '夏令时课表';
       const timetable = parseSettings(parseSettings(me?.settings).timetable);
       const periodTimes = parseSettings(timetable.periodTimes);
-      const configured = Array.isArray(periods) ? periods : [];
-      const normalized = normalizeTimetablePeriods(configured, { periodTimes, scheduleType });
-      timetableOptions = normalized.map((period) => {
+      /* 节次候选必须和课表用同一套解析：作息定义 → 秋季原件铺满 + 节次表额外编号 → 课程补齐。
+         只读节次表会出现「课表显示 9 节、这里只剩 2 节」，因为那 9 节在秋季原件常量里，
+         节次表只存了用户真正建过的第8、第9节。 */
+      const resolved = resolveTimetablePeriods({
+        periodDefinitions: parseSettings(timetable.periodDefinitions),
+        periods: Array.isArray(periods) ? periods : [],
+        courses: Array.isArray(courses) ? courses : [],
+        periodTimes,
+        scheduleType,
+      });
+      timetableOptions = resolved.map((period) => {
         const override = periodTimes[scheduleType]?.[String(period.period_no)] || {};
         const start = cleanPeriodTime(override.start_time) || cleanPeriodTime(period.start_time);
         const end = cleanPeriodTime(override.end_time) || cleanPeriodTime(period.end_time);

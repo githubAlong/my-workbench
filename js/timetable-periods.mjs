@@ -1,4 +1,5 @@
 /* 课表节次归一化：统一 1–9 节与晚自习，不修改或删除原始课程记录。 */
+import { AUTUMN_2026_SCHEDULE, resolveDefinitions } from './timetable-schedule.mjs';
 function parsePeriodLabel(value) {
   const text = String(value ?? '').trim();
   if (!text) return null;
@@ -199,4 +200,45 @@ export function completeTimetablePeriods(periods, courses = [], options = {}) {
     });
   }
   return rows;
+}
+
+/* 节次解析的唯一入口，课表页与上课记录对话框共用。
+   优先级：作息定义 → 2026 秋季原件铺满 + 节次表里原件没覆盖的编号 → 课程引用补齐。
+   以前两处各写一套兜底：课表按秋季原件铺满，记录对话框只读节次表，
+   于是节次表只有第8、第9节时下拉就只剩两节，和课表显示 9 节对不上。 */
+export function resolveTimetablePeriods(input = {}) {
+  const {
+    periodDefinitions = null,
+    periods = [],
+    courses = [],
+    periodTimes = {},
+    scheduleType = '',
+    grade = '全部',
+  } = input;
+  const options = { periodTimes, scheduleType };
+  const configured = resolveDefinitions(periodDefinitions, scheduleType, grade);
+  if (Array.isArray(configured) && configured.length) {
+    const rows = [...configured]
+      .sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0))
+      .map((item) => ({
+        id: item.id || 'custom-' + item.period_no,
+        period_no: Number(item.period_no),
+        name: String(item.name || ('第' + item.period_no + '节')),
+        start_time: cleanPeriodTime(item.start_time),
+        end_time: cleanPeriodTime(item.end_time),
+      }));
+    return completeTimetablePeriods(rows, courses, options);
+  }
+  /* 从没导入过作息定义时只铺 2026 秋季原件，再补节次表里原件没有的编号；
+     不凭空造早自习/晚一，那正是「上下自动冒出别的时间」的根源。 */
+  const real = normalizeTimetablePeriods(Array.isArray(periods) ? periods : [], options);
+  const byNo = new Map(AUTUMN_2026_SCHEDULE.map((row) => [
+    Number(row.period_no), { ...row, id: 'default-' + row.period_no },
+  ]));
+  for (const number of [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10]) {
+    if (byNo.has(number)) continue;
+    const found = real.find((period) => Number(period.period_no) === number);
+    if (found) byNo.set(number, found);
+  }
+  return completeTimetablePeriods([...byNo.values()], courses, options);
 }
