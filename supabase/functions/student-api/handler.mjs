@@ -169,10 +169,24 @@ export function createStudentApiHandler({ backendUrl, serviceKey, fetchImpl = fe
       .filter((b) => live(b) && (!grades.length || !b.grade || grades.includes(b.grade)))
       .map((b) => ({ id: b.id, grade: b.grade, class_name: b.class_name, content: b.content, created_at: b.created_at }));
 
+    /* 学生端「年级 / 班级」下拉：以老师课表里的班级为准，课表为空时退回花名册 */
+    const classPairs = new Map();
+    const addPair = (row) => {
+      const grade = String(row?.grade || '').trim();
+      const class_name = String(row?.class_name || '').trim();
+      if (!grade && !class_name) return;
+      if (grades.length && grade && !grades.includes(grade)) return;
+      classPairs.set(grade + '\u0000' + class_name, { grade, class_name });
+    };
+    (payload.courses || []).filter(live).forEach(addPair);
+    if (!classPairs.size) (payload.rosters || []).filter(live).forEach(addPair);
+    const classes = [...classPairs.values()]
+      .sort((a, b) => a.grade.localeCompare(b.grade, 'zh-Hans-CN') || a.class_name.localeCompare(b.class_name, 'zh-Hans-CN'));
+
     return json({
       link: { code: link.code, title: link.title, grades, modules: linkModules(link) },
       teacher: { nickname: u.nickname, subject: u.subject, school: u.school },
-      materials: mats, categories: cats, rosters, punishments: punish, roll, date,
+      materials: mats, categories: cats, rosters, classes, punishments: punish, roll, date,
       selfstudyTasks, misconduct, bulletin,
     });
   }

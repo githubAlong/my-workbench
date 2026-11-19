@@ -3930,6 +3930,22 @@ on('DELETE', '/roll/sessions/:id', ({ params }) => {
 });
 
 /* ---- 学生端（免登录） ---- */
+/* 学生端「年级 / 班级」下拉的数据源：以老师课表里的班级为准，
+   课表还没排时退回花名册，避免下拉框只剩一行提示。 */
+function publicClassOptions(grades) {
+  const out = new Map();
+  const add = (row) => {
+    const grade = String(row?.grade || '').trim();
+    const class_name = String(row?.class_name || '').trim();
+    if (!grade && !class_name) return;
+    if (grades.length && grade && !grades.includes(grade)) return;
+    out.set(grade + '\u0000' + class_name, { grade, class_name });
+  };
+  rowsOf('courses').forEach(add);
+  if (!out.size) rowsOf('rosters').forEach(add);
+  return [...out.values()].sort((a, b) => a.grade.localeCompare(b.grade, 'zh-Hans-CN') || a.class_name.localeCompare(b.class_name, 'zh-Hans-CN'));
+}
+
 on('GET', '/public/link/:code', ({ params, query }) => {
   const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
   if (!l) fail(404, '链接不存在或已关闭');
@@ -3967,7 +3983,7 @@ on('GET', '/public/link/:code', ({ params, query }) => {
   return {
     link: { code: l.code, title: l.title, grades, modules: linkModules(l) },
     teacher: { nickname: u.nickname, subject: u.subject, school: u.school },
-    materials: mats, categories: cats, rosters, punishments: punish, roll, date,
+    materials: mats, categories: cats, rosters, classes: publicClassOptions(grades), punishments: punish, roll, date,
     selfstudyTasks: publicSelfstudyTasks(),
     misconduct, bulletin,
   };
