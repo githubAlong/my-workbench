@@ -1446,11 +1446,6 @@ html[data-theme="dark"] .lessons-page { --lesson-blue: #60a5fa; --lesson-blue-we
 .ls-progress-track span { display: block; height: 100%; background: var(--lesson-blue); border-radius: inherit; transition: width .2s ease; }
 .ls-progress-note { margin-top: 6px; color: var(--text-3); font-size: 11px; }
 
-/* 上传进度：读取文件阶段还不知道总进度，让占位条左右滑动表示"正在处理" */
-.up-progress { margin-top: 10px; }
-.up-progress.is-pending .ls-progress-track span { width: 32% !important; animation: up-progress-wait 1s ease-in-out infinite alternate; }
-@keyframes up-progress-wait { from { margin-left: 0; } to { margin-left: 68%; } }
-
 /* 跟谁结算 */
 .ls-settle { padding: 4px 14px 10px; margin-bottom: 14px; }
 .lss-head { font-size: 12.5px; font-weight: 700; color: var(--text-2); padding: 8px 0 6px; }
@@ -4672,17 +4667,6 @@ textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:ver
    节次文案形如「第6节 · 14:00–14:40」，原来写死 112px 会被截成「第6节 · 14…」 */
 .ssm-time input[type="date"] { width:150px; flex:0 0 150px; }
 .ssm-time select { width:auto; flex:1 1 auto; min-width:0; }
-/* 适用班级：竖排单列下拉，底部固定一行不可点的小字 */
-.ssm-dd { position:relative; }
-.ssm-dd-btn { display:flex; align-items:center; justify-content:space-between; cursor:pointer; }
-.ssm-dd-panel { position:absolute; z-index:30; left:0; right:0; top:calc(100% + 6px); display:none;
-  max-height:280px; padding:6px; overflow:auto; background:var(--card);
-  border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.14); }
-.ssm-dd.open .ssm-dd-panel { display:block; }
-.ssm-dd-opt { padding:9px 12px; border-radius:8px; color:var(--text); font-size:14px; cursor:pointer; white-space:nowrap; }
-.ssm-dd-opt:hover { background:var(--bg-sunken); }
-.ssm-dd-opt.on { background:rgba(22,119,255,.1); color:#1677ff; font-weight:600; }
-.ssm-dd-foot { margin-top:6px; padding:8px 12px 4px; border-top:1px solid var(--line); color:#9ca3af; font-size:12px; cursor:default; }
 .ssm-imgs { display:flex; gap:16px; margin:4px 0 18px 108px; }
 @media (max-width:640px) { .ssm-imgs { margin-left:0; } }
 .ssm-img { position:relative; display:grid; place-items:center; width:128px; height:128px; overflow:hidden;
@@ -4737,6 +4721,7 @@ textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:ver
 .st-card-head { padding:26px 36px 24px; text-align:center; color:#fff;
   background:linear-gradient(90deg,#1677ff 0%,#2f9dfb 45%,#36c66b 100%); }
 .st-card-title { font-size:24px; font-weight:700; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.st-card-sub { margin-top:8px; font-size:14px; opacity:.92; }
 .st-card-body { padding:34px 48px 12px; font-size:18px; line-height:1.8; }
 .st-list { margin:0; padding-left:26px; }
 .st-list li { margin-bottom:14px; font-weight:650; }
@@ -5022,4 +5007,45 @@ textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:ver
   .lp-bulk-bar .btn { flex: 1 1 auto; }
   .lp-footer-actions { width: 100%; }
   .lp-footer-actions .btn { flex: 1 1 0; }
+}
+.class-picker {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+.class-picker > input {
+  flex: 1;
+  min-width: 0;
+}
+.class-picker:has(> .class-picker-options:not([hidden])) > input {
+  padding-inline-end: 34px;
+}
+.class-picker > select.class-picker-options {
+  position: absolute;
+  inset: 1px 1px 1px auto;
+  width: 32px;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  opacity: 0;
+  cursor: pointer;
+}
+.class-picker:has(> .class-picker-options:not([hidden]))::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: 13px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-inline-end: 1px solid currentColor;
+  border-block-end: 1px solid currentColor;
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+.class-picker:has(> .class-picker-options:focus-visible) {
+  outline: 2px solid var(--blue, #2563eb);
+  outline-offset: 2px;
+  border-radius: 6px;
 }

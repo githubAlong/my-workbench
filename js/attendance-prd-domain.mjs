@@ -480,7 +480,7 @@ const exportLeaveDuration = record => {
 export function buildAttendanceExportGrid({
   type = 'seat', grade = '', date = '', period = 1, teachers = [],
   seatRows = [], classRows = [], researchRows = [], leaveRecords = [],
-  teacherMeta = {}, resolvePeriodRange = () => [], includeUnlisted = true,
+  teacherMeta = {}, resolvePeriodRange = () => [], includeUnlisted = true, worksheetEntries = null,
 } = {}) {
   const people = (Array.isArray(teachers) ? teachers : [])
     .filter(teacher => teacher && Number(teacher.active ?? 1) !== 0);
@@ -543,6 +543,21 @@ export function buildAttendanceExportGrid({
   const subtitle = date + (weekdayText ? ' ' + weekdayText : '')
     + ' · ' + periodLabel(period) + '（' + rangeText(period) + '）';
   const heading = statsLine => [[titleHead], [subtitle], [statsLine]];
+
+  if (worksheetEntries && (type === 'class' || type === 'research')) {
+    const isClass = type === 'class';
+    const count = key => worksheetEntries.filter(({ state }) => state[key] === 'y').length;
+    const stats = isClass ? '上课 ' + count('class') + ' 人 · 听课 ' + count('listen') + ' 人'
+      : '教研 ' + count('research') + ' 人';
+    const headers = ['序号','归属部门','归属年级','姓名','学科',...(isClass?['上课','听课人']:['教研']),'备注'];
+    const mark = value => value === 'y' || value === 'n' ? exportStatusLabel(value) : '';
+    const rows = worksheetEntries.map(({teacher,state},index) => [
+      index+1,departmentOf(teacher),gradeOf(teacher),teacher.name,teacher.subject||'',
+      ...(isClass ? [mark(state.class),[mark(state.listen),...state.listeners].filter(Boolean).join(' ')]
+        : [mark(state.research)]),state.remark,
+    ]);
+    return [...heading(stats),headers,...rows];
+  }
 
   if (type === 'seat' || type === 'roster') {
     const activeLeaves = activeLeavesFor(scopedLeaveRecords, date);

@@ -6,6 +6,7 @@
    坏处：只有 localapi.js 实现了的接口能用；剩下的（扫码登录、第三方绑定）
          明确返回「静态版不支持」，而不是留个白屏让人以为坏了。 */
 import { handle as localHandle } from './localapi.js';
+import { setClassSuggestions } from './class-picker.mjs';
 
 export const STATIC = true;
 
@@ -68,6 +69,17 @@ export const api = {
 
 /* 直接暴露本地接口层，供少数需要原始返回的地方（PDF、导出）调用 */
 export const local = { handle: localHandle };
+
+export function classPicker(input, { courses, extra = [], ...options } = {}) {
+  if (!input) return;
+  const apply = (rows) => setClassSuggestions(input, [...(Array.isArray(rows) ? rows : []), ...extra], options);
+  apply(courses);
+  if (courses === undefined) {
+    api.get('/courses', null, { silent: true }).then((rows) => {
+      if (input.isConnected) apply(rows);
+    }).catch(() => {});
+  }
+}
 
 /* ---------- 时间 / 日期 ---------- */
 export const pad2 = (n) => String(n).padStart(2, '0');

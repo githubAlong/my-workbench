@@ -1,4 +1,4 @@
-import { api, esc, toast, confirmDialog, saveBlob } from './core.js';
+import { api, classPicker, esc, toast, confirmDialog, saveBlob } from './core.js';
 import { icon } from './ui.js';
 import { createSlot } from './attday.js';
 import { makeXlsx } from './attendance.js';
@@ -79,9 +79,9 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   let timetableSettings = {}, timetableCourses = [], timetablePeriods = [], periodTimeEdits = {};
   let showAddTeacher = false;
   /* 「生成班表」下拉里选中的表类型：确认生成时用它，不再用原生 select。 */
-  let generateType = 'seat';
+  let generateType = 'seat', generating = false;
   /* 生成请假表后，请假页只显示所选日期的请假记录；点「查看全部」恢复。 */
-  let leaveOnlyDate = '';
+  let leaveOnlyDate = date;
   let watermarkOn = false, watermarkText = '';
   const draftCache = new Map();
   const currentScheduleType = () => {
@@ -160,18 +160,18 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     } finally { busy = false; }
   };
   const savePrefs = async (patch) => {
-    prefs = {...prefs,...patch};
-    const result = await api.patch('/me',{settings:{attendanceWorkspace:prefs}});
-    if (result?.user?.settings?.attendanceWorkspace) prefs = result.user.settings.attendanceWorkspace;
+    const next = {...prefs,...patch};
+    const result = await api.patch('/me',{settings:{attendanceWorkspace:next}});
+    prefs = result?.user?.settings?.attendanceWorkspace || next;
   };
-  const getTable = async (type) => {
+  const getTable = async (type, { seedClass = true } = {}) => {
     let t = details[type];
     if (!t) {
       t = await createSlot({date,grade,type,period:String(period)});
       t = await api.get('/attendance/'+t.id);
       details[type] = t;
     }
-    if (type === 'class') {
+    if (type === 'class' && seedClass) {
       const rows = Array.isArray(t.rows) ? t.rows.slice() : [];
       let changed = false;
       for (const teacher of teachers) {
@@ -231,7 +231,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     }
     return text || '保存失败，请检查网络后重试';
   };
-  const saveRows = async (type, table, rows) => {
+  const saveRows = async (type, table, rows, { alignPeriod = true } = {}) => {
     /* 保存成功后把云端的最新版本回填到本地缓存。
        表头、每一行都有自己的 updated_at，写入一次就全变；不回填的话，
        下一次点击（或切回别的节次草稿）还拿旧版本去比对，
@@ -253,7 +253,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     };
     /* 写明细会让表头版本前进，所以表头节次要在写明细之前对齐，
        并且一律用云端最新版本号去比对。 */
-    if (String(table.periods || '') !== String(period)) {
+    if (alignPeriod && String(table.periods || '') !== String(period)) {
       const patchHeader = (expected) => api.patch('/attendance/'+table.id,
         {expected_updated_at:expected || '',periods:String(period)});
       let header;
@@ -420,75 +420,66 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   /* 表内登记的请假自动进请假总表：一个格子对应一条可追溯记录。
      清空格子删掉对应记录，手写的请假记录不受影响；同一个格子重复登记只更新不新增。 */
   const gridLeaveId = (tableId, person, atPeriod) => ['grid', tableId, atPeriod, String(person||'').trim()].join(':');
-  const syncGridLeave = async (teacher, leaveType) => {
-    /* 表可能还没生成（比如刚打开教研表就直接标请假），这里按需建表，避免同步被跳过。 */
-    const table=await getTable(tab);
-    if(!table?.id)return;
-    const id=gridLeaveId(table.id,teacher.name,period);
-    const existing=leaveRecords.find(item=>String(item.id)===id);
-    if(leaveType&&existing&&existing.type===leaveType)return;
-    if(!leaveType&&!existing)return;
-    leaveRecords=leaveType
-      ? [...leaveRecords.filter(item=>String(item.id)!==id),{
-        id,grade,name:teacher.name,subject:teacher.subject||'',type:leaveType,
-        start_date:date,end_date:date,days:1,duration_unit:'day',status:'已批',remark:'',
-        source:'grid',source_table:table.id,source_period:Number(period)||0,
-      }]
-      : leaveRecords.filter(item=>String(item.id)!==id);
-    await savePrefs({leaves:leaveRecords});
-  };
-  /* 兜底回填：本次改动前已经在表里标过的请假，生成请假表时一并补进总表。 */
-  const syncGridLeaves = async () => {
-    let changed=false;
-    const seen=new Set();
-    for(const type of ['seat','class','research']){
+  const leavesForSelection = (selectedDate = date) => activeLeavesFor(leaveRecords,selectedDate,grade).filter(record=>
+    period===0 || record.source!=='grid' || Number(record.source_period)===0 || Number(record.source_period)===period);
+  const syncGridLeaves = async (types) => {
+    const next = new Map(leaveRecords.map(record => [String(record.id),record]));
+    const seen = new Set(), sources = new Set();
+    let changed = false;
+    for(const type of types){
       const table=details[type];
       if(!table?.id)continue;
+      sources.add(String(table.id));
       for(const row of table.rows||[]){
         const data=rowData(row);
         if(data.__deleted)continue;
-        const teacher=teachers.find(item=>matchesGridTeacher(row,item));
+        const teacher=allTeachers.find(item=>matchesGridTeacher(row,item));
         if(!teacher)continue;
-        for(const [atPeriod,record] of Object.entries(data.__teacherGrid||{})){
-          const leaveType=String(record?.leave||'').trim();
-          if(!leaveType)continue;
-          const id=gridLeaveId(table.id,teacher.name,atPeriod);
-          seen.add(id);
-          if(leaveRecords.some(item=>String(item.id)===id))continue;
-          leaveRecords.push({
-            id,grade,name:teacher.name,subject:teacher.subject||'',type:leaveType,
-            start_date:date,end_date:date,days:1,duration_unit:'day',status:'已批',remark:'',
-            source:'grid',source_table:table.id,source_period:Number(atPeriod)||0,
-          });
-          changed=true;
-        }
+        const mark=data.__teacherGrid?.[String(period)];
+        const leaveType=String(mark?.leave||'').trim();
+        if(!leaveType)continue;
+        const id=gridLeaveId(table.id,teacher.name,period);
+        const existing=next.get(id);
+        seen.add(id);
+        if(existing?.type===leaveType)continue;
+        next.set(id, existing ? {...existing,type:leaveType} : {
+          id,grade,name:teacher.name,subject:teacher.subject||'',type:leaveType,
+          start_date:date,end_date:date,days:1,duration_unit:'day',status:'已批',remark:mark.remark||'',
+          source:'grid',source_table:table.id,source_period:period,
+        });
+        changed=true;
       }
     }
-    /* 只清理当前已加载表格里格子已清空的记录，避免误删别的日期的同步记录。 */
-    const loaded=new Set(['seat','class','research'].map(type=>String(details[type]?.id||'')).filter(Boolean));
-    const staleIds=new Set(leaveRecords.filter(item=>item.source==='grid'
-      && loaded.has(String(item.source_table)) && !seen.has(String(item.id))).map(item=>String(item.id)));
-    if(staleIds.size){
-      leaveRecords=leaveRecords.filter(item=>!staleIds.has(String(item.id)));
-      changed=true;
+    for (const [id,record] of next) {
+      if (record.source!=='grid' || Number(record.source_period)!==period || !sources.has(String(record.source_table)) || seen.has(id)) continue;
+      next.delete(id);
+      changed = true;
     }
-    if(changed)await savePrefs({leaves:leaveRecords});
+    if(changed){
+      const leaves=[...next.values()];
+      await savePrefs({leaves});
+      leaveRecords=leaves;
+    }
   };
   /* 在请假总表里改/删同步记录时，把表格格子一起改掉，避免下次回填又冒出来。 */
-  const setGridLeaveMark = async (record, leaveType) => {
+  const setGridLeaveMark = (record, leaveType) => queueSave(async () => {
     if(record?.source!=='grid')return;
     const type=['seat','class','research'].find(item=>String(details[item]?.id)===String(record.source_table));
-    const table=details[type],atPeriod=String(record.source_period??'');
-    if(!type||!table||!atPeriod)return;
+    const atPeriod=String(record.source_period??'');
+    if(!record.source_table||!atPeriod)return;
+    const table=details[type] || await api.get('/attendance/'+record.source_table);
     const rows=(table.rows||[]).map(row=>({...row,data:{...rowData(row)}}));
     const row=rows.find(item=>!rowData(item).__deleted&&String(item.teacher||'').trim()===String(record.name||'').trim());
     if(!row)return;
     const grid={...(rowData(row).__teacherGrid||{})};
     grid[atPeriod]={...(grid[atPeriod]||{}),leave:leaveType||''};
     row.data={...rowData(row),__teacherGrid:grid};
-    await saveRows(type,table,rows);
-    details[type]={...table,rows};
-  };
+    await saveRows(type,table,rows,{alignPeriod:false});
+    if(type){
+      details[type]={...table,rows};
+      draftCache.delete([grade,date,atPeriod,type].join('|'));
+    }
+  });
   const persistDraft = async (type,{reload=true,key:overrideKey=null}={}) => queueSave(async () => {
     /* overrideKey：自动保存可能在用户切了日期/节次之后才触发，必须写回点击时
        那张草稿，否则会把改动写进新节次的空草稿里、旧改动丢掉。 */
@@ -507,42 +498,60 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   });
   /* 用户 11-12 裁决：去掉「保存本表」，点一下单元格就自动落盘。成功静默，
      只在失败时提示，避免每点一次弹一次「已保存」。 */
-  let autoSaveTimer=null,autoSaveKey=null,autoSaveType=null;
+  let autoSaveTimer=null,pendingAutoSave=null,autoSaveInFlight=null;
+  const flushAutoSave = async () => {
+    clearTimeout(autoSaveTimer);
+    while(autoSaveInFlight || pendingAutoSave){
+      if(!autoSaveInFlight){
+        const pending=pendingAutoSave;
+        autoSaveInFlight=persistDraft(pending.type,{reload:false,key:pending.key})
+          .then(()=>{if(pendingAutoSave===pending)pendingAutoSave=null;})
+          .finally(()=>{autoSaveInFlight=null;});
+      }
+      await autoSaveInFlight;
+    }
+  };
+  const flushBeforeSwitch = async () => {
+    try{await flushAutoSave();return true;}
+    catch(error){toast(attendanceErrorText(error),'err',4000);return false;}
+  };
   const scheduleAutoSave = type => {
     clearTimeout(autoSaveTimer);
-    autoSaveKey=draftKey(type);autoSaveType=type;
-    autoSaveTimer=setTimeout(async()=>{
-      autoSaveTimer=null;
-      try{await persistDraft(type,{reload:false,key:autoSaveKey});}
-      catch(error){toast(attendanceErrorText(error),'err',4000);}
-    },350);
+    pendingAutoSave={type,key:draftKey(type)};
+    autoSaveTimer=setTimeout(()=>{void flushBeforeSwitch();},350);
   };
-  /* 切页签/节次/日期之前先把待写的内容落盘，避免刚点完就切换导致改动丢失 */
-  const flushAutoSave = async () => {
-    if(!autoSaveTimer)return;
-    clearTimeout(autoSaveTimer);autoSaveTimer=null;
-    try{await persistDraft(autoSaveType,{key:autoSaveKey});}
-    catch(error){toast(attendanceErrorText(error),'err',4000);}
+  const confirmTable = async type => {
+    const table=details[type] || await getTable(type,{seedClass:false});
+    const body={expected_updated_at:table.updated_at||''};
+    if(type==='seat'){
+      const rows=allTeachers.flatMap(teacher=>{
+        const state=deriveTableGridState(teacher,'seat',table.rows||[],{date,period});
+        if(!state.leave && !['sit','class','listen','research'].some(key=>state[key]==='y'||state[key]==='n'))return [];
+        return [{id:String(teacher.id),class:state.class,listen:state.listen,research:state.research,leave:state.leave,remark:state.remark}];
+      });
+      body.workspace_snapshot={period,rows};
+    }
+    syncHeader(type,table,await api.post('/attendance/'+table.id+'/confirm',body));
   };
   const generateTable = async type => {
-    /* 请假表不需要新建工作表：把所选日期的请假记录汇总出来即可。 */
+    await flushAutoSave();
+    const fromSeat=tab==='seat'||type==='seat';
+    if(fromSeat){await confirmTable('seat');leaveOnlyDate=date;}
     if (type === 'leave') {
-      /* 表里标过的请假先生成差量补进总表，再按所选日期汇总，避免「提示没有请假信息」。 */
-      await syncGridLeaves();
+      await queueSave(()=>syncGridLeaves(fromSeat?['seat']:['seat','research']));
       leaveOnlyDate = date;
       tab = 'leave';
-      search = '';
+      search = ''; subject = '';
       paint();
-      const count = activeLeavesFor(leaveRecords, date, grade).length;
-      toast('请假表已生成：'+grade+' · '+date+' · '+(count?count+' 人请假':'暂无请假记录'), count?'ok':'warn', 4000);
+      const count = leavesForSelection().length;
+      toast('请假表已生成：'+grade+' · '+date+' · '+(count?count+' 条请假记录':'暂无请假记录'), count?'ok':'warn', 4000);
       return;
     }
-    const existed=!!details[type];
-    await persistDraft(type,{reload:false});
-    await load();
-    tab=type;paint();
+    if(type!=='seat')await confirmTable(type);
+    await queueSave(()=>syncGridLeaves(fromSeat && type!=='seat'?['seat',type]:[type]));
+    tab=type;search='';subject='';paint();
     const label={seat:'坐班表',class:'上课表',research:'教研表'}[type]||'表格';
-    toast(label+(existed?'已更新成功':'已生成成功')+'：'+grade+' · '+date+' · '+(period===0?'全天':'第'+period+'节'),'ok',4000);
+    toast(label+'已确认生成：'+grade+' · '+date+' · '+(period===0?'全天':'第'+period+'节'),'ok',4000);
   };
   const teacherSubjects = () => [...new Set([...teachers, ...(tab === 'leave' ? leaveRecords : [])].map(item=>String(item.subject||'').trim()).filter(Boolean))].sort();
   /* 每个学科有多少位教师：科目下拉里直接带上人数，选之前就知道要记多少人。 */
@@ -769,15 +778,21 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     watermarkOn=!!watermarkBox?.checked;
     watermarkText=String(watermarkInput?.value||'').trim();
     const watermark=watermarkOn?(watermarkText||((grade||'')+typeLabel)):'';
+    const worksheetRows=exportType==='class'||exportType==='research' ? getDraftRows(exportType) : null;
+    const worksheetEntries=worksheetRows && list.flatMap(teacher=>{
+      const state=worksheetState(teacher,exportType,worksheetRows);
+      return includedInWorksheet(state,exportType) ? [{teacher,state}] : [];
+    });
     const grid=buildAttendanceExportGrid({
       type: exportType, grade, date, period, teachers: list,
       seatRows: tab === 'seat' ? getDraftRows('seat') : details.seat?.rows || [],
       classRows: tab === 'class' ? getDraftRows('class') : details.class?.rows || [],
       researchRows: tab === 'research' ? getDraftRows('research') : details.research?.rows || [],
-      leaveRecords: activeLeavesFor(leaveRecords, date),
+      leaveRecords: exportType==='leave' ? leavesForSelection() : activeLeavesFor(leaveRecords,date),
       teacherMeta: prefs.teacherMeta || {},
       resolvePeriodRange,
       includeUnlisted: true,
+      worksheetEntries,
     });
     const {headings, headers, rows} = splitAttendanceExportGrid(grid);
     const rowCount = rows.length;
@@ -1016,6 +1031,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       }).join('')+
       '<div class="aprd-foot"><button type="button" data-cancel>取消</button><button class="primary" type="submit">保存</button></div></form>';
     (root.querySelector('.attendance-prd') || root).append(dialog); const form=dialog.querySelector('form');
+    classPicker(form.elements.namedItem('class_name'), { courses: timetableCourses, qualified: true });
     /* 时长单位=天 时，时长换成「上午/下午/1天」选择；小时/月仍用数字（用户 11-15 要求） */
     const durationUnit=form.querySelector('[name="duration_unit"]');
     const durationInput=form.querySelector('[name="days"]');
@@ -1079,8 +1095,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
           ...duration,status:record?.status||'已批',remark:data.remark||'',
         });
       }
-      await savePrefs({leaves:next});
       await setGridLeaveMark(record,data.type||'');
+      await savePrefs({leaves:next});
       await load();
     });
   };
@@ -1220,6 +1236,40 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     + '<label class="aprd-export-field"><span>水印文案</span><input type="text" id="aprd-export-watermark-text" value="' + esc(watermarkText) + '" placeholder="留空默认：年级＋表名" ' + (watermarkOn ? '' : 'disabled') + '></label>'
     + '</div></div></div>';
   const currentExportType = () => ['seat', 'class', 'research', 'leave', 'summary'].includes(tab) ? tab : 'roster';
+  const worksheetState = (teacher,type,rows) => {
+    const published=objectValue(details.seat?.meta).workspace_confirmed?.[String(period)] || [];
+    const inherited=published.find(row=>row?.id===String(teacher.id)) || {};
+    const own=deriveTableGridState(teacher,type,rows,{leaveRecords,date,period});
+    const mark=rows.find(row=>!rowData(row).__deleted && matchesGridTeacher(row,teacher)
+      && rowData(row).__teacherGrid?.[String(period)]);
+    const overrides=rowData(mark).__teacherGrid?.[String(period)]?.workspaceFields || [];
+    const status = key => overrides.includes(key) || own[key]==='y' || own[key]==='n'
+      ? own[key] : inherited[key] || 'u';
+    const listeners=type==='class' ? [...new Set(rows.flatMap(row=>{
+      const data=rowData(row),record=data.__classRecord;
+      return !data.__deleted && record && Number(record.period??period)===period && matchesGridTeacher(row,teacher)
+        ? record.listeners || [] : [];
+    }))] : [];
+    return {
+      ...own,class:status('class'),listen:status('listen'),research:status('research'),
+      remark:overrides.includes('remark') ? own.remark : own.remark || inherited.remark || '',
+      leave:own.leave || '',listeners,
+    };
+  };
+  const includedInWorksheet = (state,type) => !state.leave && (type==='class'
+    ? state.class==='y' || state.listen==='y' : state.research==='y');
+  const updateWorksheet = (teacher,type,key,value) => {
+    const rows=getDraftRows(type);
+    const prior=rows.find(row=>!rowData(row).__deleted && matchesGridTeacher(row,teacher));
+    const mark=rowData(prior).__teacherGrid?.[String(period)];
+    const next=updateTeacherGrid(rows,teacher,type,period,key,value,{leaveRecords,date});
+    if(type!=='seat'){
+      const fields=mark?.workspaceFields || [...(GRID_STATE_COLUMNS[type]||[]),'remark'].filter(field=>
+        field==='leave'||field==='remark' ? !!mark?.[field] : mark?.[field]==='y'||mark?.[field]==='n');
+      next.workspaceFields=[...new Set([...fields,key])];
+    }
+    return next;
+  };
   const rosterHtml = (type = 'roster') => {
     const editable = type !== 'roster', list = visibleTeachers();
     const draftRows = editable ? getDraftRows(type) : [];
@@ -1245,32 +1295,28 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const statusOfTeacher = teacher => {
       const cacheKey = String(teacher.id);
       if (stateCache.has(cacheKey)) return stateCache.get(cacheKey);
+      if(type==='class'||type==='research'){
+        const state=worksheetState(teacher,type,draftRows);
+        stateCache.set(cacheKey,state);
+        return state;
+      }
       const merged = deriveRosterState(teacher, summaryContext);
       const own = ownStateOf(teacher);
       const state = own && ownHasRecord(teacher) ? {...merged, ...own, leave: merged.leave || own.leave || ''} : merged;
       stateCache.set(cacheKey, state);
       return state;
     };
-    const hasListen = list.some(teacher => {
-      const state = statusOfTeacher(teacher);
-      return state.listenStatus === 'y' || state.listen === true || state.listen === 'y';
-    });
-    const hasLeave = list.some(teacher => !!statusOfTeacher(teacher).leave);
-    /* 听课列有人才显示、请假列有人才显示（用户 11-15 需求）；
-       坐班表是数据源，永远展示全部状态列 */
-    const activeStateKeys = (GRID_STATE_COLUMNS[type] || []).filter(key =>
-      type === 'class' && key === 'listen' ? hasListen
-        : type === 'research' && key === 'leave' ? hasLeave : true);
-    /* 教研/上课子表现在直接显示筛选到的所有教师：
-       以前只在有记录时才出现一行，用户选完学科下拉后下方空白，
-       以为筛选没生效。现在每个筛到的老师都出现在表里，
-       状态格空白就是"未登记"，可以直接点勾选，操作更直观。 */
-    const listedTeachers = list;
+    const isWorksheet=type==='class'||type==='research';
+    const activeStateKeys=(GRID_STATE_COLUMNS[type]||[]).filter(key=>type!=='research'||key!=='leave');
+    const listedTeachers=isWorksheet ? list.filter(teacher=>includedInWorksheet(statusOfTeacher(teacher),type)) : list;
     /* 花名册只维护教师名单：考勤状态不展示，但保留一列可直接填写的备注（用户 11-15 要求）。 */
     const columns = type === 'roster'
       ? ['序号','归属部门','归属年级','姓名','学科','备注','操作']
-      : ['序号','归属部门','归属年级','姓名','学科',...activeStateKeys.map(key=>GRID_STATE_LABELS[key]),'备注','操作'];
-    const actionsOf = teacher => '<div class="aprd-actions"><button type="button" class="aprd-op" data-edit="'+esc(teacher.id)+'">编辑</button>'
+      : ['序号','归属部门','归属年级','姓名','学科',...activeStateKeys.map(key=>type==='class'&&key==='listen'?'听课人':GRID_STATE_LABELS[key]),'备注','操作'];
+    const actionsOf = teacher => isWorksheet
+      ? '<div class="aprd-actions"><button type="button" class="aprd-op" data-edit-work-record="'+esc(teacher.id)+'">编辑</button>'
+        +'<button type="button" class="aprd-op danger" data-delete-work-record="'+esc(teacher.id)+'">删除</button></div>'
+      : '<div class="aprd-actions"><button type="button" class="aprd-op" data-edit="'+esc(teacher.id)+'">编辑</button>'
       +'<button type="button" class="aprd-op danger" data-disable="'+esc(teacher.id)+'">删除</button></div>';
     const rows = listedTeachers.map((teacher,index) => {
       if (type === 'roster') {
@@ -1296,8 +1342,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         return '<button type="button" class="aprd-select '+value+'" data-grid-person="'+esc(teacher.id)+'" data-grid-key="'+key+'" '+aria
           +'><span>'+label+'</span><i class="aprd-caret"></i></button>';
       };
-      const listen = shown.listenStatus || (shown.listen === true || shown.listen === 'y' ? 'y' : 'u');
-      const research = shown.researchStatus || (shown.research === true || shown.research === 'y' ? 'y' : 'u');
+      const listen = shown.listenStatus || (shown.listen === true ? 'y' : shown.listen);
+      const research = shown.researchStatus || (shown.research === true ? 'y' : shown.research);
       const leave = editable ? '<span class="aprd-leave-wrap'+(state.leave?' on':'')+'"><select class="aprd-leave-select '+(state.leave?'on':'')+'" data-grid-person="'+esc(teacher.id)+'" data-grid-key="leave" aria-label="'+esc(teacher.name+' 请假')+'">'
         +['',...new Set([...LEAVE_TYPES,state.leave].filter(Boolean))].map(value=>'<option value="'+esc(value)+'" '+(state.leave===value?'selected':'')+'>'+esc(value||'无')+'</option>').join('')+'</select><i class="aprd-caret" aria-hidden="true"></i></span>'
         : (state.leave?'<span class="aprd-mark leave">'+esc(state.leave)+'</span>':'<span class="aprd-mark ap-placeholder">—</span>');
@@ -1307,7 +1353,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         : '<span class="aprd-remark" title="'+escAttr(noteOf(teacher))+'">'+esc(noteOf(teacher)||'—')+'</span>';
       const stateCells = activeStateKeys.map(key => {
         if (key === 'leave') return '<td>'+leave+'</td>';
-        if (key === 'listen') return '<td>'+mark('listen',listen)+'</td>';
+        if (key === 'listen') return '<td>'+mark('listen',listen)
+          +(type==='class' && shown.listeners?.length ? ' '+esc(shown.listeners.join('、')) : '')+'</td>';
         if (key === 'research') return '<td>'+mark('research',research)+'</td>';
         return '<td>'+mark(key,shown[key])+'</td>';
       }).join('');
@@ -1318,15 +1365,15 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     }).join('');
     const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
       +'<button type="button" class="aprd-op" data-roster-import>批量导入</button>'
-      +exportMenuHtml(teachers.length);
+      +exportMenuHtml(listedTeachers.length);
     const currentStates = editable ? listedTeachers.map(teacher=>statusOfTeacher(teacher)) : [];
     /* 设计稿的统计条：数字在上、文字在下，整条一个圆角边框，格子之间用竖线分隔。
        统计条跟着本表显示的列走：坐班表全量，上课表看上课/听课，教研表看教研/请假。 */
     const kpiOf = {
       sit:['正在坐班',state=>state.sit==='y'],
       class:['正在上课',state=>state.class==='y'],
-      listen:['听课教师',state=>!!state.listen],
-      research:['教研教师',state=>!!state.research],
+      listen:['听课教师',state=>state.listen===true || state.listen==='y'],
+      research:['教研教师',state=>state.research===true || state.research==='y'],
       leave:['请假教师',state=>!!state.leave],
     };
     const summaryItems = [
@@ -1341,12 +1388,12 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         '<div class="aprd-kpi'+(label==='请假教师'?' leave':'')+'"><b>'+value+'</b><span>'+label+'</span></div>').join('')+'</div>'
       : '';
     return '<div class="aprd-toolbar"><div class="aprd-toolbar-main">'+teacherFiltersHtml()+tools+'</div>'
-      +'<span class="aprd-filter-count">当前筛：'+esc(subject||'全部学科')+' · '+list.length+' 位教师</span></div>'+teacherAddCardHtml()+summaryStrip
+      +'<span class="aprd-filter-count">当前筛：'+esc(subject||'全部学科')+' · '+listedTeachers.length+' 位教师</span></div>'+teacherAddCardHtml()+summaryStrip
       +'<div class="aprd-table-wrap"><table><thead><tr>'+columns.map(column=>'<th>'+column+'</th>').join('')
-      +'</tr></thead><tbody>'+(rows||'<tr><td colspan="'+columns.length+'" class="aprd-empty">当前筛选下暂无在岗教师</td></tr>')+'</tbody></table></div>';
+      +'</tr></thead><tbody>'+(rows||'<tr><td colspan="'+columns.length+'" class="aprd-empty">'+(isWorksheet?'暂无记录，请在坐班表勾选后确认生成':'当前筛选下暂无在岗教师')+'</td></tr>')+'</tbody></table></div>';
   };
   const leaveHtml = () => {
-    const scope = leaveOnlyDate ? activeLeavesFor(leaveRecords, leaveOnlyDate, grade) : leaveRecords;
+    const scope = leaveOnlyDate ? leavesForSelection(leaveOnlyDate) : leaveRecords;
     const shown=scope.filter(x=>(!search||(x.name+' '+x.subject).includes(search))&&(!subject||x.subject===subject));
     /* 请假表按科目筛选时同样要能看到「这个科目有多少老师」，人数取花名册而不是请假条数。 */
     const matchedTeachers=teachers.filter(t=>(!subject||String(t.subject||'').trim()===subject)&&(!search||(t.name+' '+t.subject).includes(search)));
@@ -1394,11 +1441,16 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         if (item.classList) item.classList.toggle('on', item === button);
       });
     });
-    root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();tab=b.dataset.tab;search='';subject='';paint();});
+    root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{
+      if(generating || !await flushBeforeSwitch())return;
+      tab=b.dataset.tab;
+      if(GENERATE_LABELS[tab])generateType=tab;
+      search='';subject='';paint();
+    });
     root.querySelector('[data-leave-show-all]')?.addEventListener('click',()=>{leaveOnlyDate='';paint();});
-    root.querySelectorAll('[data-grade-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();grade=b.dataset.gradeTab;leaveOnlyDate='';await load();});
-    root.querySelector('#aprd-date').onchange=async e=>{await flushAutoSave();date=e.target.value;leaveOnlyDate='';await load();};
-    root.querySelector('#aprd-period').onchange=async e=>{await flushAutoSave();period=Number(e.target.value);paint();};
+    root.querySelectorAll('[data-grade-tab]').forEach(b=>b.onclick=async()=>{if(generating||!await flushBeforeSwitch())return;grade=b.dataset.gradeTab;leaveOnlyDate=date;await load();});
+    root.querySelector('#aprd-date').onchange=async e=>{if(generating||!await flushBeforeSwitch()){e.target.value=date;return;}date=e.target.value;leaveOnlyDate=date;await load();};
+    root.querySelector('#aprd-period').onchange=async e=>{if(generating||!await flushBeforeSwitch()){e.target.value=String(period);return;}period=Number(e.target.value);paint();};
     const rememberPeriodTime = () => {
       const start=root.querySelector('#aprd-start')?.value||'';
       const end=root.querySelector('#aprd-end')?.value||'';
@@ -1409,13 +1461,13 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     root.querySelector('#aprd-end')?.addEventListener('change',rememberPeriodTime);
     root.querySelector('[data-generate]').onclick=async()=>{
       const button=root.querySelector('[data-generate]');
-      if(button.disabled)return;
+      if(generating)return;
       const type=generateType;
       const label=button.textContent;
-      button.disabled=true;button.textContent='生成中…';
+      generating=true;button.disabled=true;button.textContent='生成中…';
       try{await generateTable(type);}
-      catch(e){toast(e.message||'生成失败','err');}
-      finally{if(button.isConnected){button.disabled=false;button.textContent=label;}}
+      catch(e){toast(attendanceErrorText(e),'err');}
+      finally{generating=false;if(button.isConnected){button.disabled=false;button.textContent=label;}}
     };
     root.querySelector('[data-workspace-voice]').onclick=()=>{
       const type=TYPE[tab]?tab:generateType;
@@ -1459,24 +1511,45 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const teacher = teachers.find(item => String(item.id) === control.dataset.gridPerson);
       if (!teacher || !TYPE[tab]) return;
       const key = control.dataset.gridKey;
-      const update = value => updateTeacherGrid(getDraftRows(tab),teacher,tab,period,key,value,{leaveRecords,date});
+      const update = value => updateWorksheet(teacher,tab,key,value);
       if (['class','sit','listen','research'].includes(key)) control.onclick = async () => {
-        const state = deriveTableGridState(teacher,tab,getDraftRows(tab),{leaveRecords,date,period});
+        if(generating)return;
+        const draft=getDraftRows(tab);
+        const state = tab==='seat' ? deriveTableGridState(teacher,tab,draft,{leaveRecords,date,period})
+          : worksheetState(teacher,tab,draft);
         const value = nextTriState(state[key]);
         update(value); paint(); scheduleAutoSave(tab);
       };
       /* 备注列直接用行内输入框，写完（回车或失焦）即保存到本表的 __teacherGrid。 */
       else if (key === 'remark') control.addEventListener('change', () => {
+        if(generating)return;
         update(String(control.value??'').trim()); paint(); scheduleAutoSave(tab);
       });
-      else if (key === 'leave') control.addEventListener('change', async () => {
-        try{
-          update(control.value);
-          await syncGridLeave(teacher, control.value);
-          scheduleAutoSave(tab); paint();
-        }catch(error){toast(error.message||'请假同步失败','err');}
+      else if (key === 'leave') control.addEventListener('change', () => {
+        if(generating)return;
+        update(control.value);scheduleAutoSave(tab);paint();
       });
       else control.addEventListener('change',() => {update(control.value);scheduleAutoSave(tab);});
+    });
+    root.querySelectorAll('[data-edit-work-record]').forEach(button=>button.onclick=()=>{
+      const type=tab, teacher=teachers.find(item=>String(item.id)===button.dataset.editWorkRecord);
+      if(!teacher||generating)return;
+      const state=worksheetState(teacher,type,getDraftRows(type));
+      const keys=type==='class'?['class','listen']:['research'];
+      const options=[{value:'u',label:'空白'},{value:'y',label:'√'},{value:'n',label:'×'}];
+      const fields=keys.map(key=>({key,label:key==='listen'?'听课人':GRID_STATE_LABELS[key],type:'select',options}));
+      openEditor('编辑考勤记录 · '+teacher.name,[...fields,{key:'remark',label:'备注'}],state,async data=>{
+        for(const key of [...keys,'remark'])if(data[key]!==state[key])updateWorksheet(teacher,type,key,data[key]);
+        await persistDraft(type,{reload:false});
+        paint();
+      });
+    });
+    root.querySelectorAll('[data-delete-work-record]').forEach(button=>button.onclick=async()=>{
+      const type=tab, teacher=teachers.find(item=>String(item.id)===button.dataset.deleteWorkRecord);
+      if(!teacher||generating||!await confirmDialog('删除这条考勤记录？'))return;
+      if(type!==tab)return;
+      for(const key of GRID_STATE_COLUMNS[type])if(key!=='leave')updateWorksheet(teacher,type,key,'u');
+      scheduleAutoSave(type);paint();
     });
     root.querySelectorAll('[data-person]').forEach(b=>b.onclick=async()=>{
       const teacher=teachers.find(x=>String(x.id)===b.dataset.person);
@@ -1619,36 +1692,6 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     root.querySelector('[data-save-class]')?.addEventListener('click',async()=>{try{await persistDraft('class');toast('上课表修改已保存','ok');}catch(error){toast(attendanceErrorText(error),'err');}});
 
 
-    root.querySelector('[data-add-class]')?.addEventListener('click',()=>openEditor('新增班级上课记录',[
-      {key:'class_name',label:'班级',required:true},
-      {key:'teacher',label:'任课教师',type:'select',options:teachers.map(item=>({value:item.name,label:item.name}))},
-      {key:'period',label:'节次',type:'select',options:DEFAULT_PERIODS.map(item=>({value:item.no,label:item.label}))},
-      {key:'status',label:'上课状态',type:'select',options:[{value:'u',label:'未登记'},{value:'y',label:'已上课'},{value:'n',label:'未上课'}]},
-      {key:'listeners',label:'听课教师'},{key:'remark',label:'备注',type:'textarea'},
-    ],{period:String(period),status:'u'},async data=>{
-      const teacher=teachers.find(item=>item.name===data.teacher);
-      if(!teacher)throw new Error('请先选择任课教师');
-      getDraftRows('class').push({teacher:teacher.name,subject:teacher.subject||'',__draftNew:true,data:{__classRecord:{
-        class_name:String(data.class_name||'').trim(),period:Number(data.period??period),status:data.status||'u',
-        listeners:String(data.listeners||'').split(/[、,，]/).map(item=>item.trim()).filter(Boolean),remark:data.remark||'',
-      }}});
-      paint();
-    }));
-    root.querySelectorAll('[data-class-index]').forEach(el=>el.addEventListener('change',()=>{
-      const row=getDraftRows('class')[Number(el.dataset.classIndex)];
-      if(!row)return;
-      const data={...rowData(row)},record={...(data.__classRecord||{period:Number(period),status:'u',listeners:[],remark:''})};
-      if(el.dataset.k==='listeners')record.listeners=el.value.split(/[、,，]/).map(item=>item.trim()).filter(Boolean);
-      else if(el.dataset.k==='period')record.period=Number(el.value);
-      else record[el.dataset.k]=el.value;
-      row.data={...data,__classRecord:record};
-    }));
-    root.querySelectorAll('[data-delete-class]').forEach(button=>button.addEventListener('click',()=>{
-      const row=getDraftRows('class')[Number(button.dataset.deleteClass)];
-      if(!row)return;
-      row.data={...rowData(row),__deleted:true};paint();
-    }));
-    root.querySelector('[data-save-class]')?.addEventListener('click',async()=>{try{await persistDraft('class');toast('上课表修改已保存','ok');}catch(error){toast(attendanceErrorText(error),'err');}});
 
 
     root.querySelectorAll('[data-seat]').forEach(el=>el.addEventListener('change',()=>{

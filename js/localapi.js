@@ -2478,10 +2478,20 @@ on('PATCH', '/attendance/:id', ({ params, body }) => {
 });
 /* 确认生成：点一下才算正式生效（PRD FR-TABLE-4）。
    确认之后仍然可以改，改完再点一次「重新确认」覆盖（FR-TABLE-5）。 */
-on('POST', '/attendance/:id/confirm', ({ params }) => {
+function workspaceConfirmation(meta, body) {
+  const snapshot = body?.workspace_snapshot;
+  if (!snapshot || !/^\d+$/.test(String(snapshot.period)) || !Array.isArray(snapshot.rows)) return meta;
+  return { ...meta, workspace_confirmed: {
+    ...meta.workspace_confirmed, [String(snapshot.period)]: snapshot.rows,
+  } };
+}
+on('POST', '/attendance/:id/confirm', ({ params, body }) => {
   const t = byId('attendance_tables', params.id);
   if (!t) fail(404, '考勤表不存在');
-  const meta = safeJSON(t.meta, {});
+  if (body?.expected_updated_at !== undefined && String(t.updated_at || '') !== String(body.expected_updated_at || '')) {
+    fail(409, 'WB_ATTENDANCE_CONFLICT: 表头已被另一台设备修改');
+  }
+  const meta = workspaceConfirmation(safeJSON(t.meta, {}), body);
   /* 留痕：确认过几次、每次是不是在改完以后重认的。
      老师最常问的就是「这张表什么时候认的、认完又动没动」，
      以前只有最新一个时间戳，问起来只能靠回忆。 */
@@ -3847,16 +3857,24 @@ on('PATCH', '/links/:id', ({ params, body }) => {
 
 /* ---- 点名 ---- */
 on('POST', '/roll/open', ({ body }) => {
-  const roster = byId('rosters', body?.roster_id);
-  if (!roster) fail(404, '班级不存在');
-  return openRollSession(roster, body);
+  if (body?.roster_id) {
+    const roster = byId('rosters', body.roster_id);
+    if (!roster) fail(404, '班级不存在');
+    return openRollSession(roster, body);
+  }
+  const className = String(body?.class_name || '').trim();
+  if (!className) fail(400, '请选择或填写班级');
+  return openRollSession({ id: null, class_name: className }, body);
 });
 function openRollSession(roster, b = {}) {
   const db = load();
   db.roll_sessions = db.roll_sessions || [];
   const date = String(b.date || todayStr());
   const period = Number(b.period_no) || 0;
-  const exist = T('roll_sessions').find((s) => !s.deleted_at && String(s.roster_id) === String(roster.id) && s.date === date && num(s.period_no) === period);
+  const sameClass = (s) => roster.id
+    ? String(s.roster_id) === String(roster.id)
+    : !s.roster_id && s.class_name === roster.class_name;
+  const exist = T('roll_sessions').find((s) => !s.deleted_at && sameClass(s) && s.date === date && num(s.period_no) === period);
   if (exist) {
     if (exist.status === 'closed' && b.reopen) {
       exist.status = 'open';
@@ -4895,8 +4913,10 @@ async function cloudRoute(method, clean, query, body) {
       /* 留痕，跟本地版一致：确认/重新确认各记一条，最多留 20 条 */
       const audit = Array.isArray(prevM.audit) ? prevM.audit.slice(-19) : [];
       audit.push({ at: nowISO(), action: prevM.confirmed_at ? 'reconfirm' : 'confirm', dirty: num(prevM.confirm_dirty) ? 1 : 0 });
-      const meta = { ...prevM, confirmed_at: nowISO(), confirm_dirty: 0, audit };
-      const row = await m.updateRow('attendance_tables', id, { meta });
+      const meta = { ...workspaceConfirmation(prevM, body), confirmed_at: nowISO(), confirm_dirty: 0, audit };
+      const row = body?.expected_updated_at === undefined
+        ? await m.updateRow('attendance_tables', id, { meta })
+        : await m.updateAttendanceTable(id, { meta }, body.expected_updated_at);
       return { ...row, columns: attCols(row), meta, confirm_state: 'confirmed' };
     }
 

@@ -65,18 +65,30 @@ async function setup() {
   const teachers=[{id:'1',name:'李老师',subject:'语文',grade:'高一',active:1},
     {id:'2',name:'王老师',subject:'数学',grade:'高一',active:1}];
   const calls=[],exportedGrids=[],toasts=[],patchCalls=[];
-  let version=0;
+  let version=0, settings={};
   const nextVersion=()=>String(++version);
   const api={
     async get(path) {
       if(path==='/grades') return {grades:['高一','高二']};
       if(path==='/teachers') return {list:structuredClone(teachers)};
-      if(path==='/me') return {user:{settings:{}}};
+      if(path==='/me') return {user:{settings:structuredClone(settings)}};
       if(path==='/attendance') return Object.values(saved).map(table=>({id:table.id,sheet_type:table.id}));
       return structuredClone(saved[path.split('/').pop()]);
     },
-    async post(path,{rows}) {
-      const type=path.split('/')[2];
+    async post(path,{rows,workspace_snapshot,expected_updated_at}) {
+      const [, ,type, action]=path.split('/');
+      if(action==='confirm'){
+        const table=saved[type];
+        assert.equal(expected_updated_at,table.updated_at||'');
+        if(workspace_snapshot){
+          table.meta ||= {};
+          table.meta.workspace_confirmed ||= {};
+          table.meta.workspace_confirmed[workspace_snapshot.period]=structuredClone(workspace_snapshot.rows);
+        }
+        table.confirm_state='confirmed';
+        table.updated_at=nextVersion();
+        return {id:table.id,meta:structuredClone(table.meta||{}),updated_at:table.updated_at};
+      }
       /* 和云端 RPC 一样做行级版本校验：别的设备先改过就抛冲突 */
       for(const row of rows||[]) {
         if(row.expected_updated_at===undefined) continue;
@@ -91,7 +103,7 @@ async function setup() {
     },
     async patch(path,body) {
       patchCalls.push({path,expected:body.expected_updated_at});
-      if(path==='/me') return {user:{settings:{}}};
+      if(path==='/me') { settings={...settings,...structuredClone(body.settings)}; return {user:{settings:structuredClone(settings)}}; }
       const table=saved[path.split('/').pop()];
       if(body.expected_updated_at!==undefined && body.expected_updated_at!==String(table.updated_at||'')) {
         throw Error('WB_ATTENDANCE_CONFLICT: stale header version');
@@ -104,11 +116,11 @@ async function setup() {
     createSlot(){throw Error('fixture tables already exist');},makeXlsx({grid}){exportedGrids.push(grid);},parseRosterFile(){},parseRosterText(){}};
   const render=new Function(...Object.keys(dependencies),source+'\nreturn renderAttendancePRD;')(...Object.values(dependencies));
   await render(root,{grade:'高一'});
-  return {root,saved,calls,exportedGrids,toasts,patchCalls};
+  return {root,saved,calls,exportedGrids,toasts,patchCalls,reopen:()=>render(root,{grade:'高一'})};
 }
 const control=(root,key,id='1')=>root.querySelectorAll('[data-grid-person]').find(element=>element.dataset.gridPerson===id&&element.dataset.gridKey===key);
 
-test('实际四页签展示相同名单和列，花名册无考勤编辑入口，工作表可操作',async()=>{
+test('花名册和坐班表保留完整名单，子表固定列并显示已登记记录',async()=>{
   const {root}=await setup();
   const headers=()=>[...root.innerHTML.matchAll(/<th>(.*?)<\/th>/g)].map(match=>match[1]);
   const names=()=>[...root.innerHTML.matchAll(/<td><b>(.*?)<\/b><\/td>/g)].map(match=>match[1]);
@@ -124,12 +136,11 @@ test('实际四页签展示相同名单和列，花名册无考勤编辑入口�
   /* 用户 11-15 规定：坐班表是数据源、全量显示；上课表只看上课/听课；教研表只看教研/请假。 */
   const expectedHeaders={
     seat:['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注','操作'],
-    class:['序号','归属部门','归属年级','姓名','学科','上课','备注','操作'],
+    class:['序号','归属部门','归属年级','姓名','学科','上课','听课人','备注','操作'],
     research:['序号','归属部门','归属年级','姓名','学科','教研','备注','操作'],
   };
-  /* 上课表/教研表显示筛选后的全部教师，未登记者也可直接补记；没人听课时听课列隐藏。 */
-  const expectedNamesByType={seat:['李老师','王老师'],class:['李老师','王老师'],research:['李老师','王老师']};
-  const expectedControls={seat:12,class:4,research:4};
+  const expectedNamesByType={seat:['李老师','王老师'],class:[],research:[]};
+  const expectedControls={seat:12,class:0,research:0};
   for(const type of ['seat','class','research']) {
     await root.querySelector('[data-tab="'+type+'"]').click();
     const current=headers();
@@ -156,10 +167,10 @@ test('真实操作链：草稿跨页签保留，自动保存仅写本表，重�
   assert.equal(saved.class.rows.length,0);
   assert.equal(saved.research.rows.length,0);
   await root.querySelector('[data-tab="class"]').click();
-  /* 只勾坐班不影响上课表显示全部教师；李老师仍可在这里直接补记上课。 */
+  /* 只勾坐班不会给上课表生成记录。 */
   assert.equal(control(root,'sit'),undefined);
-  assert.equal(control(root,'class').tag,'button');
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,4);
+  assert.equal(control(root,'class'),undefined);
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
   await root.querySelector('[data-tab="roster"]').click();
   /* 花名册只保留名单与操作，不再展示任何考勤状态格 */
   assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
@@ -176,6 +187,62 @@ test('生成请假表按所选日期汇总请假记录并切到请假页',async(
   assert.ok(toasts.some(item=>/请假表已生成/.test(item.message)),'要有生成成功提示');
   /* 请假表只汇总请假记录，不该凭空写入坐班/上课/教研工作表 */
   assert.deepEqual(calls,[]);
+});
+
+test('确认生成只同步已勾选的同节记录，刷新后仍可编辑和删除',async()=>{
+  const {root,saved,reopen}=await setup();
+  const select=tab=>root.querySelector('[data-tab="'+tab+'"]').click();
+  const confirm=()=>root.querySelector('[data-generate]').click();
+  await root.querySelector('#aprd-period').change('6');
+  await control(root,'class').click();
+  await control(root,'sit','2').click();
+  await select('class');
+  assert.equal(control(root,'class'),undefined,'自动保存的坐班草稿尚未生效');
+  await select('seat');
+  await confirm();
+  assert.equal(saved.seat.confirm_state,'confirmed');
+  await select('class');
+  assert.equal(control(root,'class','2'),undefined);
+  assert.match(control(root,'class').attributes.class,/ y$/);
+  await control(root,'remark').change('补充记录');
+  await select('seat');
+  await control(root,'research','2').click();
+  await select('research');
+  assert.equal(control(root,'research','2'),undefined);
+  await select('seat');
+  await confirm();
+  await select('research');
+  assert.match(control(root,'research','2').attributes.class,/ y$/);
+  await reopen();
+  await root.querySelector('#aprd-period').change('6');
+  await select('class');
+  assert.equal(control(root,'remark').value,'补充记录');
+  await root.querySelector('[data-delete-work-record="1"]').click();
+  assert.equal(control(root,'class'),undefined);
+  await select('seat');
+  assert.match(control(root,'class').attributes.class,/ y$/,'删除子表记录保留坐班表和教师');
+});
+
+test('确认后才生成当节请假记录，重新确认更新同一条',async()=>{
+  const {root}=await setup();
+  const select=tab=>root.querySelector('[data-tab="'+tab+'"]').click();
+  await root.querySelector('#aprd-period').change('6');
+  await control(root,'leave').change('事假');
+  await select('leave');
+  assert.equal(root.querySelectorAll('[data-edit-leave]').length,0);
+  await select('seat');
+  await root.querySelector('[data-generate]').click();
+  await select('leave');
+  assert.equal(root.querySelectorAll('[data-edit-leave]').length,1);
+  assert.match(root.innerHTML,/<td>事假<\/td>/);
+  await select('seat');
+  await control(root,'leave').change('病假');
+  await root.querySelector('[data-generate]').click();
+  await select('leave');
+  assert.equal(root.querySelectorAll('[data-edit-leave]').length,1);
+  assert.match(root.innerHTML,/<td>病假<\/td>/);
+  await root.querySelector('#aprd-period').change('7');
+  assert.equal(root.querySelectorAll('[data-edit-leave]').length,0);
 });
 
 test('表内登记的请假只作用在登记的那一节，不会被带到其他节次',async()=>{
@@ -226,21 +293,20 @@ test('明细行真被别的设备改过时仍会拦下，并给出中文提示�
   assert.ok(original);
 });
 
-test('切换节次和日期不串草稿；搜索后四页签共用同一花名册筛选',async()=>{
+test('切换节次和日期不会把之前的草稿带入教研表',async()=>{
   const {root,saved}=await setup();
   /* 先在坐班表给李老师勾上教研，再验证切换节次不会串用原节次草稿。 */
   await root.querySelector('[data-tab="seat"]').click();
   await control(root,'research').click();
   await root.querySelector('[data-tab="research"]').click();
   await root.querySelector('#aprd-period').change('2');
-  /* 该节次没有教研记录，但两名教师仍可逐人补记（教研、备注各一个控件）。 */
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,4);
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
   /* 真实环境按日期分表，换日期就是另一张空表；这里清空桩数据来模拟 */
   Object.values(saved).forEach(table=>{table.rows=[];});
   await root.querySelector('#aprd-date').change('2026-10-01');
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,4);
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
   await root.querySelector('#aprd-search').input('王老师');
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,2);
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
 });
 
 test('教师搜索支持中文输入法组合输入，组合期间不重绘，选字完成后再筛选',async()=>{
@@ -263,24 +329,24 @@ test('工作表导出和生成操作针对当前页签，导出的列及勾选�
   /* 上课表只出上课/听课的人：先在坐班表勾上上课，再切到上课表 */
   await root.querySelector('[data-tab="seat"]').click();
   await control(root,'class').click();
-  await root.querySelector('[data-tab="class"]').click();
+  await control(root,'listen','2').click();
   /* 「生成班表」改下拉菜单（11-15 设计稿）：先选上课表，确认生成按它走 */
   assert.equal(root.querySelector('[data-generate-menu]').attributes.hidden,'');
   await root.querySelector('[data-generate-type="class"]').click();
-  await control(root,'class').click();
+  await root.querySelector('[data-generate]').click();
   await root.querySelector('[data-roster-export="xlsx"]').click();
   const grid=exportedGrids[0];
   /* 三级标题（表名 / 日期节次时段 / 人数统计）占前 3 行，表头在第 4 行 */
   assert.match(grid[0][0],/上课表/);
   assert.match(grid[1][0],/星期/);
-  /* 上课表统计只保留上课/请假人数，听课有人才展示（用户 11-15 要求），不再有应到/未登记 */
   assert.match(grid[2][0],/上课 1 人/);
-  assert.ok(!/听课|请假/.test(grid[2][0]),'没人听课/请假时不应展示对应统计');
+  assert.match(grid[2][0],/听课 1 人/);
   assert.ok(!/应到|未登记/.test(grid[2][0]),'上课表标题不应出现应到/未登记');
-  /* 上课表导出与页面同一套列（用户 11-15 规定），没人听课时不导出听课列 */
-  assert.deepEqual(grid[3],['序号','归属部门','归属年级','姓名','学科','上课','备注']);
+  assert.deepEqual(grid[3],['序号','归属部门','归属年级','姓名','学科','上课','听课人','备注']);
   assert.equal(grid[4][3],'李老师');
   assert.equal(grid[4][5],'✓');
+  assert.equal(grid[5][3],'王老师');
+  assert.equal(grid[5][6],'✓');
   /* 右下角导出时间写在最后一行的最右列 */
   const last=grid.at(-1);
   assert.match(last.at(-1),/^导出时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
