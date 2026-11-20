@@ -235,6 +235,30 @@ test('教材服务与本机接口用同一套判断，口令不从字段白名�
   assert.match(shared, /needPasscode: !!result\.need_passcode/);
 });
 
+/* ====== 学生端真正发出去的那一跳：只看请求，不看源码写法 ====== */
+test('教材请求的 URL 里查不到口令，口令只在请求头上', async () => {
+  const shared = await import('../js/material-sharing.mjs');
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    seen.push({ url: String(url), headers: new Headers(init.headers || {}) });
+    return Response.json({ material: { id: 2, locked: true }, files: [] });
+  };
+  try {
+    const data = await shared.getStudentMaterials(CODE, '2', PASSWORD);
+    assert.equal(data.material.id, 2);
+    const sent = new URL(seen[0].url);
+    assert.equal(sent.searchParams.has('passcode'), false, '口令一旦进查询串，就会原样写进服务端访问日志');
+    assert.equal(sent.searchParams.get('material_id'), '2', '除了口令，其余参数照旧');
+    assert.equal(seen[0].headers.get('X-Material-Passcode'), PASSWORD);
+    await shared.getStudentMaterials(CODE, '2', '');
+    assert.equal(seen[1].headers.has('X-Material-Passcode'), false, '没口令就别带这个头，省一次预检');
+    assert.ok(!shared.materialEndpoint(CODE, '2', '21', 'download').includes(PASSWORD));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 /* ================= 学生端主视图：入口分给谁，取决于谁组装这份数据 ================= */
 const today = () => {
   const d = new Date();
