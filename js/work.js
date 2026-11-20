@@ -2739,6 +2739,7 @@ async function renderStudentModule(box, key) {
             <div class="tiny muted">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · ') || '没有填写说明')}</div>
           </div>
           <span class="chip ${isPub(m) ? 'green' : ''}">${isPub(m) ? '学生可见' : '仅自己'}</span>
+          ${m.passcode ? `<span class="chip amber" title="学生打开这份资料要先输这个口令">${icon('lock', 13)} 口令 ${esc(m.passcode)}</span>` : ''}
           <button class="btn ghost sm" data-toggle="${m.id}" data-pub="${isPub(m) ? 1 : 0}">${isPub(m) ? '收回' : '发布'}</button>
           <button class="icon-btn sm" data-edit="${m.id}" title="编辑《${esc(m.title)}》">${icon('edit', 15)}</button>
           <button class="icon-btn sm" data-del="${m.id}" title="删除《${esc(m.title)}》">${icon('trash', 15)}</button>
@@ -3416,7 +3417,8 @@ async function paintMats(list, reload) {
       <div style="flex:1;min-width:0">
         <div class="row wrap" style="gap:8px"><span class="bold">${esc(m.title)}</span>
           ${m.grade || m.class_name ? `<span class="chip">${esc(clsName(m.grade, m.class_name))}</span>` : ''}
-          ${m.public ? '<span class="chip green">学生可见</span>' : '<span class="chip">仅自己</span>'}</div>
+          ${m.public ? '<span class="chip green">学生可见</span>' : '<span class="chip">仅自己</span>'}
+          ${m.passcode ? `<span class="chip amber">${icon('lock', 13)} 口令 ${esc(m.passcode)}</span>` : ''}</div>
         <div class="tiny muted">${esc(m.descr || '')} · 浏览 ${m.views || 0} · 下载 ${m.downloads || 0}</div>
         <div class="row wrap" style="gap:6px;margin-top:6px">${files.map((f) => `<a class="chip blue" href="${f.url}?dl=1" download>${esc(f.name).slice(0, 18)}</a>`).join('') || '<button class="chip-btn" data-up="1">＋ 上传文件</button>'}</div>
       </div>
@@ -3441,6 +3443,7 @@ async function materialEditor(m, catId, reload) {
       <div class="field"><label class="field-label" for="cat">分类</label><input class="input" id="cat" type="text" value="${esc(initialCategory?.name || '')}" placeholder="手动输入分类名称，留空则为未分类"></div>
       <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(m?.grade || '')}"></div>
       <div class="field"><label class="field-label">学生可见</label><select class="input" id="pub"><option value="1" ${m?.public !== 0 ? 'selected' : ''}>是（短链可看）</option><option value="0" ${m?.public === 0 ? 'selected' : ''}>否</option></select></div>
+      <div class="field"><label class="field-label" for="pc">班级口令</label><input class="input" id="pc" type="text" maxlength="32" autocomplete="off" spellcheck="false" value="${esc(m?.passcode || '')}" placeholder="留空＝学生直接可看"></div>
     </div>
     <div class="field"><label class="field-label">说明</label><textarea class="input" id="d" rows="2">${esc(m?.descr || '')}</textarea></div>
     <div class="field"><label class="field-label">文件（可多选，也可整个文件夹）</label>
@@ -3457,7 +3460,7 @@ async function materialEditor(m, catId, reload) {
         支持 WPS 全部文件格式，包括 .wps / .wpt、.et / .ett、.dps / .dpt，以及 Word、Excel、PPT、PDF、图片、音视频和压缩包。
         <br>不限文件数量和大小，保留原文件名与格式。
       </div></div>
-    <div class="field-hint">设为学生可见后，学生打开链接即可查看教材和下载原文件，无需账号密码。PDF、图片支持浏览器查看；WPS 文档下载后用 WPS 打开。</div>
+    <div class="field-hint">设为学生可见后，学生打开链接即可查看教材和下载原文件。只发给某个班的资料就把「班级口令」填上：学生要先输对口令才看得到内容、才下得走文件，口令不对两个都不给。PDF、图片支持浏览器查看；WPS 文档下载后用 WPS 打开。</div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">保存</button></div></div>`);
   const s = sheet({ title: isNew ? '上传课件' : '编辑课件', body, wide: true });
   body.querySelector('#c').onclick = s.close;
@@ -3491,7 +3494,9 @@ async function materialEditor(m, catId, reload) {
     }
     const payload = { title: body.querySelector('#t').value.trim() || '未命名课件', category_id: categoryId,
       grade: body.querySelector('#grade').value,
-      descr: body.querySelector('#d').value, public: Number(body.querySelector('#pub').value) };
+      descr: body.querySelector('#d').value, public: Number(body.querySelector('#pub').value),
+      /* 口令按原文存（只去首尾空格）：老师要能照着这串念给学生。 */
+      passcode: body.querySelector('#pc').value.trim() };
     const r = savedMaterial ? await api.patch('/materials/' + savedMaterial.id, { ...payload, public: savedMaterial.public }) : await api.post('/materials', { ...payload, public: 0 });
     savedMaterial = r;
     const files = selected.filter(file => !uploadedFiles.has(file));

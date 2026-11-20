@@ -3969,6 +3969,25 @@ function publicClassOptions(grades) {
   return [...out.values()].sort((a, b) => a.grade.localeCompare(b.grade, 'zh-Hans-CN') || a.class_name.localeCompare(b.class_name, 'zh-Hans-CN'));
 }
 
+/* 资料口令：老师给某个班单独设的短码，空 = 不设口令。
+   比对时去掉首尾空格并忽略大小写 —— 学生在手机上打字，多一个空格或多按一次 Shift
+   不该被当成「口令不对」。 */
+const materialPasscode = (m) => String(m?.passcode || '').trim();
+function passcodeAccepted(m, input) {
+  const want = materialPasscode(m);
+  return !want || want.toLowerCase() === String(input || '').trim().toLowerCase();
+}
+/* 口令没过就别往下走：这一句同时挡住资料详情和文件内容。 */
+function requireMaterialPasscode(m, input) {
+  if (passcodeAccepted(m, input)) return;
+  fail(401, '这份资料需要口令，请输入老师给的班级口令', { need_passcode: true });
+}
+/* 下发给学生端的资料字段：白名单写法，passcode 不在里面，永远不会跟着列表跑出去。 */
+const studentMaterialRow = (m) => ({
+  id: m.id, seq: m.seq, title: m.title, grade: m.grade, class_name: m.class_name,
+  descr: m.descr, created_at: m.created_at, locked: !!materialPasscode(m),
+});
+
 on('GET', '/public/link/:code', ({ params, query }) => {
   const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
   if (!l) fail(404, '链接不存在或已关闭');
@@ -3977,7 +3996,7 @@ on('GET', '/public/link/:code', ({ params, query }) => {
   const grades = safeJSON(l.grades, []);
   const mats = rowsOf('materials').filter((m) => num(m.public) === 1)
     .sort((a, b) => b.id - a.id)
-    .map((m) => ({ id: m.id, seq: m.seq, title: m.title, grade: m.grade, class_name: m.class_name, descr: m.descr, created_at: m.created_at }));
+    .map(studentMaterialRow);
   const cats = rowsOf('categories').filter((c) => c.scope === 'material')
     .sort((a, b) => num(a.sort) - num(b.sort))
     .map((c) => ({ id: c.id, name: c.name }));
@@ -4065,26 +4084,29 @@ on('GET', '/public/link/:code/selfstudy', ({ params }) => {
   if (!l) fail(404, '链接不存在或已关闭');
   return { tasks: publicSelfstudyTasks() };
 });
-on('GET', '/public/link/:code/file/:id', ({ params }) => {
+on('GET', '/public/link/:code/file/:id', ({ params, query }) => {
   const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
   if (!l) fail(404, '链接不存在');
   const a = (load().attachments || []).find((x) => String(x.id) === String(params.id) && x.owner_type === 'material' && !x.deleted_at);
   if (!a) fail(404, '文件不存在');
   const m = byId('materials', a.owner_id);
+  requireMaterialPasscode(m, query.passcode);
   if (m) { m.views = num(m.views) + 1; save(); }
   return { file: a };
 });
-on('GET', '/public/link/:code/materials/:id', ({ params }) => {
+on('GET', '/public/link/:code/materials/:id', ({ params, query }) => {
   const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
   if (!l) fail(404, '链接不存在');
   const m = byId('materials', params.id);
   if (!m) fail(404, '资料不存在');
+  /* 口令没过不计数、不给文件，也不把整行原样发出去（整行里现在带着 passcode）。 */
+  requireMaterialPasscode(m, query.passcode);
   m.views = num(m.views) + 1;
   save();
   const files = (load().attachments || [])
     .filter((a) => !a.deleted_at && a.owner_type === 'material' && String(a.owner_id) === String(m.id))
     .map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, url: a.url || '' }));
-  return { material: m, files };
+  return { material: studentMaterialRow(m), files };
 });
 on('GET', '/public/link/:code/roll', ({ params, query }) => {
   const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
