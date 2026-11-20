@@ -44,3 +44,20 @@ test("筛选卡选中态样式落在 app.css", () => {
   assert.match(css, /\.tb-filter \{[^}]*cursor: pointer;/);
   assert.match(css, /\.tb-filter\.on \{[^}]*var\(--primary-weak\)/);
 });
+
+test("每行带编辑与删除入口，与课件列表走同一套编辑器和软删除", () => {
+  assert.match(block, /data-edit="\$\{m\.id\}"[\s\S]{0,90}icon\('edit', 15\)/);
+  assert.match(block, /data-del="\$\{m\.id\}"[\s\S]{0,90}icon\('trash', 15\)/);
+  assert.match(block, /materialEditor\(m, m\.category_id, \(\) => renderStudentModule\(box, key\)\)/);
+  assert.match(block, /api\.del\('\/materials\/' \+ m\.id\)/);
+  assert.match(block, /confirmDialog\(`删除《\$\{m\.title\}》？资料会进回收站/);
+});
+
+test("删除后同步学生短链，同步失败也不挡住列表重绘", () => {
+  const del = block.slice(block.indexOf("querySelectorAll('[data-del]')"));
+  assert.ok(del.length > 100, "没抓到删除处理器");
+  assert.match(del, /try \{ await syncMaterialSharing\(\); \} catch \(error\) \{ syncError = error; \}/);
+  assert.match(del, /toast\(syncError \? '已删除，但学生短链同步失败：' \+ syncError\.message : '已删除，可在回收站找回'/);
+  assert.match(del, /renderStudentModule\(box, key\);/);
+  assert.doesNotMatch(del, /await syncMaterialSharing\(\);\s*\n\s*toast\('已删除/);
+});

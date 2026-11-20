@@ -2740,6 +2740,8 @@ async function renderStudentModule(box, key) {
           </div>
           <span class="chip ${isPub(m) ? 'green' : ''}">${isPub(m) ? '学生可见' : '仅自己'}</span>
           <button class="btn ghost sm" data-toggle="${m.id}" data-pub="${isPub(m) ? 1 : 0}">${isPub(m) ? '收回' : '发布'}</button>
+          <button class="icon-btn sm" data-edit="${m.id}" title="编辑《${esc(m.title)}》">${icon('edit', 15)}</button>
+          <button class="icon-btn sm" data-del="${m.id}" title="删除《${esc(m.title)}》">${icon('trash', 15)}</button>
         </div>`;
     const paint = () => {
       const filter = box.dataset.tbFilter || 'all';
@@ -2785,6 +2787,24 @@ async function renderStudentModule(box, key) {
           try { await syncMaterialSharing(); } catch (error) { syncError = error; }
           const done = wasPub ? '已收回' : '已发布给学生';
           toast(syncError ? done + '，但学生短链同步失败：' + syncError.message : done, syncError ? 'warn' : 'ok');
+          renderStudentModule(box, key);
+        };
+      });
+      inner.querySelectorAll('[data-edit]').forEach((b) => {
+        const m = mats.find((x) => String(x.id) === b.dataset.edit);
+        b.onclick = () => materialEditor(m, m.category_id, () => renderStudentModule(box, key));
+      });
+      inner.querySelectorAll('[data-del]').forEach((b) => {
+        b.onclick = async () => {
+          const m = mats.find((x) => String(x.id) === b.dataset.del);
+          if (!(await confirmDialog(`删除《${m.title}》？资料会进回收站，随时能还原。`))) return;
+          await api.del('/materials/' + m.id);
+          /* 删掉的是已发布的资料，学生短链那边要跟着少一条。
+             同步失败只提示、不挡住重绘：本机已经删干净了，
+             抛错会让页面停在旧列表上，看着像没删掉。 */
+          let syncError = null;
+          try { await syncMaterialSharing(); } catch (error) { syncError = error; }
+          toast(syncError ? '已删除，但学生短链同步失败：' + syncError.message : '已删除，可在回收站找回', syncError ? 'warn' : 'ok');
           renderStudentModule(box, key);
         };
       });
