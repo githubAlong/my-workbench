@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installBrowser } from './test-browser.mjs';
 import { createMaterialHandler, passcodeAccepted, studentMaterial } from '../supabase/functions/material-sharing/handler.mjs';
+import { createStudentApiHandler } from '../supabase/functions/student-api/handler.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (file) => readFile(path.join(root, file), 'utf8');
@@ -179,7 +180,7 @@ test('学生端：口令记在当前标签页，取详情和取文件都要带�
   const src = await read('student.html');
   assert.match(src, /sessionStorage\.getItem\(PC_KEY\)/);
   assert.doesNotMatch(src, /localStorage\.setItem\(PC_KEY/, '存 localStorage 会让第一个学生把口令永久留给全班');
-  assert.match(src, /getStudentMaterials\(materialRoute\[1\], materialRoute\[2\] \|\| '', String\(ctx\.query\.passcode \|\| ''\)\)/);
+  assert.match(src, /getStudentMaterials\(materialRoute\[1\], materialRoute\[2\], String\(ctx\.query\.passcode \|\| ''\)\)/);
   assert.match(src, /if \(local\?\.extra\?\.need_passcode === true\) throw/, '本机已判定口令不对，不该再等云端一个来回');
   assert.match(src, /materialEndpoint\(code, cur, id, mode, passcodeFor\(cur\)\)/);
   assert.match(src, /function paintPasscodeGate/);
@@ -198,4 +199,73 @@ test('教材服务与本机接口用同一套判断，口令不从字段白名�
   assert.match(local, /function requireMaterialPasscode/);
   assert.match(shared, /if \(passcode\) url\.searchParams\.set\('passcode', passcode\)/);
   assert.match(shared, /needPasscode: !!result\.need_passcode/);
+});
+
+/* ================= 学生端主视图：入口分给谁，取决于谁组装这份数据 ================= */
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const scoped = () => ({
+  meta: { user: { nickname: '测试老师' } },
+  links: [{ code: CODE, enabled: 1, deleted_at: null, grades: ['高二'], title: '班级资料站' }],
+  materials: [
+    { id: 1, public: 1, grade: '高二', title: '班里都在看', descr: '' },
+    { id: 2, public: 1, grade: '高二', title: '只发五班', descr: '', passcode: PASSWORD },
+    { id: 3, public: 1, grade: '高一', title: '隔壁班的', descr: '' },
+    { id: 4, public: 0, grade: '高二', title: '仅自己可见', descr: '' },
+  ],
+  roll_sessions: [{ id: 5, status: 'open', grade: '高二', date: today(), deleted_at: null }],
+  selfstudy_tasks: [{ id: 7, status: 'published', grade: '高二', date: today(), title: '今晚自习任务', deleted_at: null }],
+});
+
+function apiService(payload = scoped()) {
+  const calls = [];
+  const handler = createStudentApiHandler({
+    backendUrl: 'https://backend.example', serviceKey: 'server-only-secret',
+    fetchImpl: async (url, options = {}) => {
+      calls.push({ url, method: options.method || 'GET' });
+      if (url.includes('/rest/v1/wb_user_data')) return Response.json([{ user_id: 'teacher-1', payload, revision: 3 }]);
+      throw new Error('Unexpected backend request: ' + url);
+    },
+  });
+  return { calls, handler };
+}
+const mainView = (handler) => handler(new Request('https://edge.example/student-api?path=' + encodeURIComponent('/public/link/' + CODE)));
+
+test('主视图：标出 locked、不泄露口令，也绝不提供文件与签名地址', async () => {
+  const { handler, calls } = apiService();
+  const response = await mainView(handler);
+  assert.equal(response.status, 200);
+  const text = await response.text();
+  const data = JSON.parse(text);
+  assert.deepEqual(data.materials.map((m) => [m.id, m.locked]), [[2, true], [1, false]], '按 id 倒序，带口令的标 locked');
+  for (const secret of [PASSWORD, 'server-only-secret', 'wb-material:']) assert.ok(!text.includes(secret));
+  assert.equal(text.includes('"files"'), false, '主视图不该出现文件清单字段');
+  assert.equal(calls.filter((c) => c.url.includes('/object/sign/')).length, 0);
+});
+
+test('主视图：点名/自习这些 material-sharing 给空的模块，学生页要能拿到', async () => {
+  const { handler } = apiService();
+  const data = await (await mainView(handler)).json();
+  assert.ok(data.roll.length, '没有 roll 就没有「签到」页签：visibleTabs 靠它判断');
+  assert.ok(data.selfstudyTasks.length, '自习任务同理');
+  assert.ok(Array.isArray(data.punishments) && Array.isArray(data.misconduct) && Array.isArray(data.bulletin));
+});
+
+test('主视图与教材服务的教材列表必须一模一样，不能列表里有、点开说不存在', async () => {
+  const fromApi = await (await mainView(apiService().handler)).json();
+  const fromSharing = await (await get(service(scoped()).handler, '')).json();
+  const ids = (list) => list.map((m) => m.id).sort((a, b) => a - b);
+  const lockedOf = (list) => list.slice().sort((a, b) => a.id - b.id).map((m) => m.locked);
+  assert.deepEqual(ids(fromApi.materials), ids(fromSharing.materials), '年级不对口或不该给学生看的，两边都要滤掉');
+  assert.deepEqual(lockedOf(fromApi.materials), lockedOf(fromSharing.materials));
+});
+
+test('入口分工：只有资料详情进教材服务，链接主视图归 student-api', async () => {
+  const src = await read('student.html');
+  assert.ok(src.includes('/^\\/public\\/link\\/([^/]+)\\/materials\\/(\\d+)$/'),
+    '匹配必须要求 /materials/:id，否则主视图会被一起送进只组装教材的 material-sharing');
+  assert.ok(!src.includes('(?:\\/materials'), '链接主视图不该落进这个分支');
+  assert.ok(!src.includes("new URL('/api/student-api'"), '同源代理那一跳指向已退役的 ngrok，只剩一个白等的 404');
 });

@@ -121,10 +121,12 @@ export function createStudentApiHandler({ backendUrl, serviceKey, fetchImpl = fe
   async function handleMain(code, query) {
     const { payload, link } = await lookupPayload(code);
     const grades = safeJSON(link.grades, []);
+    /* 教材列表的过滤规则与 material-sharing 保持一致：学生从哪个入口拿到的都是同一批资料，
+       不会出现「列表里有、点开说不存在」。口令只折算成一个 locked，原文不下发。 */
     const mats = (payload.materials || [])
-      .filter((m) => live(m) && num(m.public) === 1)
+      .filter((m) => live(m) && num(m.public) === 1 && (!grades.length || grades.includes(m.grade)))
       .sort((a, b) => b.id - a.id)
-      .map((m) => ({ id: m.id, seq: m.seq, title: m.title, grade: m.grade, class_name: m.class_name, descr: m.descr, created_at: m.created_at }));
+      .map((m) => ({ id: m.id, seq: m.seq, title: m.title, grade: m.grade, class_name: m.class_name, descr: m.descr, created_at: m.created_at, locked: !!String(m.passcode || '').trim() }));
     const cats = (payload.categories || [])
       .filter((c) => c.scope === 'material')
       .sort((a, b) => num(a.sort) - num(b.sort))

@@ -195,49 +195,47 @@ import { taskImagePages, downloadCanvas } from './js/selfstudy-task-image.mjs';
 try { const uid = localStorage.getItem('wb_static_active_uid'); if (uid) setActiveAccount(uid); } catch {}
 /* 打包版没有 js/localapi.js 这个路径了，测试/调试统一从 window 取 */
 window.__wbLocalApi = { handle: localHandle };
-/* 找到 student-api 的两条通道：
-   1) 同源 /api/student-api —— Cloudflare Pages Functions 代理，避开 ngrok 警告页
-   2) 远端 ngrok Edge Function —— 本地开发 / Pages Functions 未部署时回退 */
+/* student-api 只有一个通道：按当前环境配置直连 Supabase Edge Function。
+   早先这里先试同源 /api/student-api、失败再打远端 ngrok——那是数据库还挂在 ngrok 隧道上
+   时的临时绕行。隧道和 Cloudflare Pages 都不在线上路径上了，同源那一跳只剩一个 404，
+   学生每次签到/留言都要白等它一个来回。 */
 function studentApiBase() {
   try { return resolveEnvironmentProfile().supabaseUrl + '/functions/v1/student-api'; }
   catch { return ''; }
 }
 async function callCloudStudent(method, path, query, body) {
-  const joinedPath = path + (query ? '?' + new URLSearchParams(query).toString() : '');
-  const init = { method, headers: { 'Content-Type': 'application/json' } };
-  if (method === 'POST' && body !== undefined) init.body = JSON.stringify(body);
-  /* 先走同源代理（Cloudflare Pages 部署后就有这个 Functions） */
-  const localUrl = new URL('/api/student-api', location.origin);
-  localUrl.searchParams.set('path', joinedPath);
-  let lastErr = null;
-  try {
-    const res = await fetch(localUrl.toString(), init);
-    if (res.ok) return await res.json();
-    lastErr = (await res.json().catch(() => ({}))).error || ('HTTP ' + res.status);
-  } catch (e) { lastErr = e.message; }
-  /* 同源没有 → 直接打远端 ngrok（本地开发场景） */
   const base = studentApiBase();
   if (!base) throw new Error('学生服务地址未配置');
-  const remoteUrl = new URL(base);
-  remoteUrl.searchParams.set('path', joinedPath);
-  init.headers['ngrok-skip-browser-warning'] = '1';
-  const res = await fetch(remoteUrl.toString(), init);
+  const url = new URL(base);
+  /* path 里只放路径。以前顺手把 query 拼在它尾巴上，空 query 也会留一个 '?'，
+     函数按 '/' 切段时就把 'dmkobb?' 当成链接码，正则判不过 → 学生看到「链接不存在或已关闭」。
+     参数挂到外层 URL 上，正好是函数读 searchParams 的方式。 */
+  url.searchParams.set('path', path);
+  for (const [key, value] of Object.entries(query || {})) {
+    if (value !== undefined && value !== '') url.searchParams.set(key, String(value));
+  }
+  const init = { method, headers: { 'Content-Type': 'application/json' } };
+  if (method === 'POST' && body !== undefined) init.body = JSON.stringify(body);
+  const res = await fetch(url.toString(), init);
   const result = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(result.error || lastErr || '服务暂时不可用');
+  if (!res.ok) throw new Error(result.error || '服务暂时不可用，请稍后重试');
   return result;
 }
 const api = async (p, body) => {
   const [path, qs] = String(p).split('?');
   const method = body === undefined ? 'GET' : 'POST';
   const ctx = { query: Object.fromEntries(new URLSearchParams(qs || '')), body };
-  const materialRoute = path.match(/^\/public\/link\/([^/]+)(?:\/materials\/(\d+))?$/);
+  /* 只有资料详情走 material-sharing：它是唯一会吐文件清单和签名地址的地方，口令闸就设在那儿。
+     链接主视图不能跟着一起走——material-sharing 只组装教材，点名/自习/违纪/留言一律给空数组，
+     外网学生会因此丢掉「签到」「自习」页签。主视图交给 student-api，它才组装整页数据。 */
+  const materialRoute = path.match(/^\/public\/link\/([^/]+)\/materials\/(\d+)$/);
   if (method === 'GET' && materialRoute) {
     /* 教材：本地 → 云端 material-sharing */
     const local = await localHandle(method, path, ctx.query).catch(() => null);
     if (local?.ok) return local.data;
     /* 本机库已经判定「口令不对」，就别再去云端等一个来回：两个答案是同一句话。 */
     if (local?.extra?.need_passcode === true) throw Object.assign(new Error(local.error || '这份资料需要口令'), { needPasscode: true });
-    try { return await getStudentMaterials(materialRoute[1], materialRoute[2] || '', String(ctx.query.passcode || '')); }
+    try { return await getStudentMaterials(materialRoute[1], materialRoute[2], String(ctx.query.passcode || '')); }
     catch (error) {
       const need = error?.needPasscode === true;
       /* 云端判「要口令」时以云端那句为准：本机库为空的学生，local.error 只是
