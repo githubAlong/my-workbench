@@ -18,7 +18,7 @@ const TYPE_LABEL = Object.fromEntries(TYPES);
 /* 历史数据英文 key → 中文类型，列表渲染时优先查 TYPE_LABEL，回退这里。 */
 const TYPE_LABEL_ENG = { normal: '正常上课', i_substitute: '我代别人上课', substituted_for_me: '别人代我上课', swap: '换课', holiday: '假期', exam: '考试', other: '其他' };
 /* 上课类型 → 课时费 / 支付状态默认值。切换类型时自动带出，之后仍可手改。
-   预设 key 同时接受中文名和历史英文 key，保存时会归一到 TYPE_KEY_NORMALIZE。 */
+   预设 key 同时接受中文名和历史英文 key。 */
 const TYPE_DEFAULTS = {
   正常上课: { amount: 30, status: '学校支付' }, normal: { amount: 30, status: '学校支付' },
   我代别人上课: { amount: 40, status: '待支付' }, i_substitute: { amount: 40, status: '待支付' },
@@ -28,10 +28,18 @@ const TYPE_DEFAULTS = {
   考试: { amount: 0, status: '已支付' }, exam: { amount: 0, status: '已支付' },
   其他: { amount: 0, status: '已支付' }, other: { amount: 0, status: '已支付' },
 };
-/* 保存时归一：把历史英文 key 转成中文 key，自定义类型直接保留。 */
-const TYPE_KEY_NORMALIZE = Object.fromEntries(TYPES.map(([v]) => [v, v]));
-for (const [eng, chi] of Object.entries(TYPE_LABEL_ENG)) TYPE_KEY_NORMALIZE[eng] = chi;
-const normalizeTypeKey = (v) => TYPE_KEY_NORMALIZE[String(v || '').trim()] || String(v || '').trim();
+/* 表单和筛选统一显示中文。写入时，四种历史类型沿用数据库原有的值。 */
+const normalizeTypeKey = (value) => {
+  const type = String(value || '').trim();
+  return Object.hasOwn(TYPE_LABEL_ENG, type) ? TYPE_LABEL_ENG[type] : type;
+};
+const LEGACY_STORAGE_TYPE = new Map(
+  ['normal', 'i_substitute', 'substituted_for_me', 'swap'].map((type) => [TYPE_LABEL_ENG[type], type]),
+);
+const classTypeForStorage = (value) => {
+  const type = normalizeTypeKey(value) || '正常上课';
+  return LEGACY_STORAGE_TYPE.get(type) ?? type;
+};
 const CUSTOM_TYPE_DEFAULTS = { amount: 0, status: '已支付' };
 /* 「无需支付」已全局下线：历史数据里的旧值保留展示，但不再出现在下拉、
    也不会被新表单写入；空值/假期/考试统一走「已支付」表达「结清」语义。 */
@@ -114,7 +122,7 @@ const rowSortValue = (row) => {
   return Number(row.id) || 0;
 };
 const typeBadgeClass = (type) => {
-  const chi = TYPE_KEY_NORMALIZE[String(type || '').trim()];
+  const chi = normalizeTypeKey(type);
   return ({ '正常上课': 'normal', normal: 'normal',
     '我代别人上课': 'i-substitute', i_substitute: 'i-substitute',
     '别人代我上课': 'substituted', substituted_for_me: 'substituted',
@@ -539,7 +547,7 @@ export async function renderClassRecords(root) {
       if (!className) throw new Error('请填写上课班级');
       const classTime = joinClassTime(date, periodInput.value, autoTime);
       const data = {
-        class_type: normalizeTypeKey(type.value) || '正常上课',
+        class_type: classTypeForStorage(type.value),
         subject: form.querySelector('#cr-subject').value.trim(),
         class_name: className,
         grade: grade || null,
