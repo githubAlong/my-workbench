@@ -2726,43 +2726,70 @@ async function renderStudentModule(box, key) {
   const inner = box.querySelector('#sm-body');
 
   if (key === 'textbook') {
-    /* —— 教材：其实就是在管「哪些资料对学生可见」 —— */
-    inner.innerHTML = `
-      <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-        <div class="card card-pad"><div class="tiny muted">资料总数</div>
-          <div style="font-size:24px;font-weight:700">${mats.length}</div></div>
-        <div class="card card-pad"><div class="tiny muted">学生能看到的</div>
-          <div style="font-size:24px;font-weight:700;color:var(--green)">${pubMats.length}</div></div>
-        <div class="card card-pad"><div class="tiny muted">仅自己可见</div>
-          <div style="font-size:24px;font-weight:700;color:var(--amber)">${mats.length - pubMats.length}</div></div>
-      </div>
-      <div class="row wrap" style="gap:8px;margin:16px 0 10px">
-        <button class="btn primary sm" id="tb-up">${icon('upload', 15)} 上传资料</button>
-        <span style="flex:1"></span>
-        <span class="tiny muted">点标题右侧的开关可以随时收回</span>
-      </div>
-      <div class="card" style="overflow:hidden">
-        ${pubMats.length ? pubMats.map((m) => `<div class="list-item">
+    /* —— 教材：其实就是在管「哪些资料对学生可见」 ——
+       三张统计卡本身就是筛选器。以前列表只渲染 pubMats，
+       「资料总数 4」下面却一条都列不出来：没发布过的资料全在「仅自己可见」里，
+       而这一页没有任何入口能列出它们，也没有「发布」按钮可点。 */
+    const isPub = (m) => Number(m.public) !== 0;
+    const privMats = mats.filter((m) => !isPub(m));
+    const rowHtml = (m) => `<div class="list-item">
           <div class="doc-ico">${icon('book', 17)}</div>
           <div style="flex:1;min-width:0">
             <div class="bold">${esc(m.title)}</div>
             <div class="tiny muted">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · ') || '没有填写说明')}</div>
           </div>
-          <span class="chip green">学生可见</span>
-          <button class="btn ghost sm" data-unpub="${m.id}">收回</button>
-        </div>`).join('') : '<div class="empty">还没有对学生可见的资料，点「上传资料」开始</div>'}
-      </div>`;
+          <span class="chip ${isPub(m) ? 'green' : ''}">${isPub(m) ? '学生可见' : '仅自己'}</span>
+          <button class="btn ghost sm" data-toggle="${m.id}" data-pub="${isPub(m) ? 1 : 0}">${isPub(m) ? '收回' : '发布'}</button>
+        </div>`;
+    const paint = () => {
+      const filter = box.dataset.tbFilter || 'all';
+      const shown = filter === 'public' ? pubMats : filter === 'private' ? privMats : mats;
+      const empty = !mats.length ? '还没有资料，点「上传资料」开始'
+        : filter === 'public' ? '还没有学生能看到的资料，切到「仅自己可见」挑一份点「发布」'
+        : filter === 'private' ? '所有资料都已经对学生开放'
+        : '还没有资料，点「上传资料」开始';
+      inner.innerHTML = `
+        <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+          ${[['all', '资料总数', mats.length, ''], ['public', '学生能看到的', pubMats.length, 'var(--green)'], ['private', '仅自己可见', privMats.length, 'var(--amber)']]
+            .map(([k, label, n, color]) => `<button type="button" class="card card-pad tb-filter${filter === k ? ' on' : ''}" data-tb="${k}">
+              <div class="tiny muted">${label}</div>
+              <div style="font-size:24px;font-weight:700${color ? ';color:' + color : ''}">${n}</div>
+            </button>`).join('')}
+        </div>
+        <div class="row wrap" style="gap:8px;margin:16px 0 10px">
+          <button class="btn primary sm" id="tb-up">${icon('upload', 15)} 上传资料</button>
+          <span style="flex:1"></span>
+          <span class="tiny muted">${[['all', '全部资料'], ['public', '学生能看到的'], ['private', '仅自己可见']].find((f) => f[0] === filter)[1]} · 共 ${shown.length} 份</span>
+        </div>
+        <div class="card" style="overflow:hidden">
+          ${shown.length ? shown.map(rowHtml).join('') : `<div class="empty">${empty}</div>`}
+        </div>`;
 
-    inner.querySelector('#tb-up')?.addEventListener('click', () => materialEditor(null, 0, () => renderStudentModule(box, key)));
-    inner.querySelectorAll('[data-unpub]').forEach((b) => {
-      b.onclick = async () => {
-        const m = mats.find((x) => String(x.id) === b.dataset.unpub);
-        if (!(await confirmDialog(`把《${m.title}》从学生页面收回？学生就看不到了，文件本身还在。`))) return;
-        await api.patch('/materials/' + m.id, { public: 0 });
-        await syncMaterialSharing();
-        toast('已收回'); renderStudentModule(box, key);
-      };
-    });
+      inner.querySelectorAll('.tb-filter').forEach((c) => {
+        c.onclick = () => { box.dataset.tbFilter = c.dataset.tb; paint(); };
+      });
+      inner.querySelector('#tb-up')?.addEventListener('click', () => materialEditor(null, 0, () => renderStudentModule(box, key)));
+      inner.querySelectorAll('[data-toggle]').forEach((b) => {
+        b.onclick = async () => {
+          const m = mats.find((x) => String(x.id) === b.dataset.toggle);
+          const wasPub = b.dataset.pub === '1';
+          const ask = wasPub
+            ? `把《${m.title}》从学生页面收回？学生就看不到了，文件本身还在。`
+            : `把《${m.title}》发布给学生？学生打开短链的「教材」就能看到这份资料。`;
+          if (!(await confirmDialog(ask))) return;
+          await api.patch('/materials/' + m.id, { public: wasPub ? 0 : 1 });
+          /* 学生短链同步失败不能挡住重绘：资料可见性已经写进本机库，
+             一抛错就跳过后面的 renderStudentModule，页面会停在「仅自己」上，
+             看起来像点了没反应。原来的「收回」也是同一个写法。 */
+          let syncError = null;
+          try { await syncMaterialSharing(); } catch (error) { syncError = error; }
+          const done = wasPub ? '已收回' : '已发布给学生';
+          toast(syncError ? done + '，但学生短链同步失败：' + syncError.message : done, syncError ? 'warn' : 'ok');
+          renderStudentModule(box, key);
+        };
+      });
+    };
+    paint();
   } else if (key === 'pick') {
     /* —— 点名 —— */
     const totalNames = rosters.reduce((s, r) => s + (parseNames(r.names).length || Number(r.count) || 0), 0);

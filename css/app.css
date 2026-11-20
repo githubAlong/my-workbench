@@ -2938,6 +2938,11 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 /* ================= 自习（第 22 条） ================= */
 .ss-stats, .rp-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .rp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* 教材页三张统计卡兼作列表筛选器：卡片本身就是 button，选中态沿用主色描边的既有约定。 */
+.tb-filter { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.tb-filter:hover { border-color: var(--primary); }
+.tb-filter.on { border-color: var(--primary); background: var(--primary-weak); }
+.tb-filter.on .muted { color: var(--primary); }
 .ss-stat .ss-k, .rp-stat .rp-k { font-size: 12.5px; color: var(--text-3); font-weight: 600; }
 .ss-stat .ss-v, .rp-stat .rp-v { font-size: 26px; font-weight: 750; letter-spacing: -.6px; margin: 2px 0 1px; font-variant-numeric: tabular-nums; }
 .ss-stat .ss-u { font-size: 13px; font-weight: 600; color: var(--text-3); margin-left: 3px; }
