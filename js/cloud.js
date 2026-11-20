@@ -607,11 +607,23 @@ function uploadAuthError(message) {
    而且只要有一个文件失败就整批抛出：其余文件其实已经进了 storage，前端却不知道，
    重试时又把 32 个全传一遍 —— 用户看到的就是「进度 100% 但一直停在正在上传」。
    现在每个文件独立成败，成功的照常落库，失败的单独报出来，重试只补失败的那几个。 */
-const UPLOAD_CONCURRENCY = 4;
-const UPLOAD_ATTEMPTS = 3;         // 单文件最多试 3 次（网络抖动重试一次就够了，别死磕）
+/* 【并发数为什么是 2，而且大文件还要降到 1】
+   教材上传要经过边缘函数中转：浏览器传到函数，函数再转存对象存储。
+   函数本身有执行时长上限（网关侧约 150 秒就会断），而这条链路的耗时
+   = 上行时间 × 2（收一遍、存一遍）。4 个并发抢同一条上行，每个请求
+   拿到的带宽只有 1/4，单个大文件的耗时会翻四倍，直接撞上函数超时，
+   网关回 502 —— 用户看到的就是「有个文件上传错误」。
+   并行收益远小于它带来的超时风险，所以默认 2；只要这批里有大文件就串行，
+   让每个文件独占带宽，尽快在函数超时之前传完。 */
+const UPLOAD_CONCURRENCY = 2;
+const BIG_FILE_BYTES = 20 * 1048576; // 超过 20MB 视为大文件：独占带宽，且不重试
+const UPLOAD_ATTEMPTS = 3;         // 小文件最多试 3 次（网络抖动重试一次就够了）
 const UPLOAD_TIMEOUT_MS = 180000;  // 单请求 3 分钟封顶：卡住的连接会超时报错，不会永远挂着
 
-export async function uploadMaterialFiles(files, ownerId, onProgress) {
+export async function uploadMaterialFiles(files, ownerId, onProgress, onFileDone) {
+  /* onFileDone({ name, ok, message, status }) 每完成一个文件立刻回调一次。
+     界面上「已经传上去的那几个」必须当场显示成成功，不能等整批结束 ——
+     一批里有一个失败时，用户最想知道的就是「到底哪几个成了」。 */
   const config = cfg(), token = await freshToken();
   if (!token) {
     if (tok()) throw new Error('连不上云端登录服务，请检查网络后重试');
@@ -635,21 +647,26 @@ export async function uploadMaterialFiles(files, ownerId, onProgress) {
     while (cursor < files.length) {
       const index = cursor;
       cursor += 1;
+      const file = files[index];
       try {
-        results[index] = await uploadWithRetry(files[index], ownerId, config, at, (loaded) => {
+        results[index] = await uploadWithRetry(file, ownerId, config, at, (loaded) => {
           /* 重试会从 0 重新发，这里取最大值，进度条不会往回跳。 */
           doneBytes[index] = Math.max(doneBytes[index], loaded);
           report();
         });
+        if (typeof onFileDone === 'function') onFileDone({ index, name: file.filename || '文件', ok: true, size: byteLen(file.data) });
       } catch (error) {
         failures[index] = error;
         /* 这个文件放弃了，直接把这一个的字节记账，否则总进度永远差一截、看着像没传完。 */
-        doneBytes[index] = byteLen(files[index].data);
+        doneBytes[index] = byteLen(file.data);
         report();
+        if (typeof onFileDone === 'function') onFileDone({ index, name: file.filename || '文件', ok: false, message: error?.message || '上传失败', status: error?.status || 0 });
       }
     }
   };
-  const width = Math.min(UPLOAD_CONCURRENCY, files.length);
+  /* 有 20MB 以上的文件就串行：并行会把它拖到函数超时（见上面并发数的说明）。 */
+  const bigPresent = files.some((file) => byteLen(file.data) > BIG_FILE_BYTES);
+  const width = Math.min(bigPresent ? 1 : UPLOAD_CONCURRENCY, files.length);
   await Promise.all(Array.from({ length: width }, worker));
 
   return {
@@ -669,13 +686,16 @@ function retryable(error) {
 }
 
 async function uploadWithRetry(file, ownerId, config, token, onProgress) {
+  /* 大文件不重试：一次超时就是 3 分钟，试三次等于让用户干等 9 分钟，
+     而且服务端那边通常还是同样的结果。小文件（网络抖动居多）才值得再试。 */
+  const attempts = byteLen(file.data) > BIG_FILE_BYTES ? 1 : UPLOAD_ATTEMPTS;
   let lastError = null;
-  for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return await uploadOne(file, ownerId, config, token, onProgress);
     } catch (error) {
       lastError = error;
-      if (!retryable(error) || attempt >= UPLOAD_ATTEMPTS) break;
+      if (!retryable(error) || attempt >= attempts) break;
       await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
     }
   }

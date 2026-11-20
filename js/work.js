@@ -3464,14 +3464,33 @@ async function materialEditor(m, catId, reload) {
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">保存</button></div></div>`);
   const s = sheet({ title: isNew ? '上传课件' : '编辑课件', body, wide: true });
   body.querySelector('#c').onclick = s.close;
-  /* 文件和文件夹两个入口都往同一个待上传列表里加，最后一次性提交。 */
+  /* 文件和文件夹两个入口都往同一个待上传列表里加，最后一次性提交。
+     每个文件单独记状态：传一个显示一个，成功的立刻打勾。
+     用户最需要的信息是「哪几个成了」，而不是整批结束后一个总数。 */
   let pendingFiles = [];
+  const fileState = new Map();   // File -> { state: 'uploading'|'done'|'error', message }
   const fileList = body.querySelector('#f-list');
+  const stateOf = (file) => fileState.get(file) || { state: 'idle' };
   const paintFileList = () => {
-    fileList.innerHTML = pendingFiles.length
-      ? `已选 ${pendingFiles.length} 个文件：${pendingFiles.slice(0, 5).map((file) => esc(file.name)).join('、')}${pendingFiles.length > 5 ? ' …' : ''} <button class="chip-btn" type="button" id="f-clear">清空</button>`
-      : '还没选文件。';
-    fileList.querySelector('#f-clear')?.addEventListener('click', () => { pendingFiles = []; paintFileList(); });
+    if (!pendingFiles.length) { fileList.innerHTML = '还没选文件。'; return; }
+    const done = pendingFiles.filter((file) => stateOf(file).state === 'done').length;
+    const bad = pendingFiles.filter((file) => stateOf(file).state === 'error').length;
+    const head = `已选 ${pendingFiles.length} 个文件`
+      + (done ? ` · <b class="fl-ok">${done} 个已上传</b>` : '')
+      + (bad ? ` · <b class="fl-err">${bad} 个失败</b>` : '');
+    const rows = pendingFiles.map((file) => {
+      const st = stateOf(file);
+      const size = file.size ? (file.size > 1048576 ? (file.size / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(file.size / 1024)) + 'KB') : '';
+      /* 行内只写「失败」，具体原因放在下面的说明里：
+         这一行右边就是文件名，把「「xxx」上传失败，请检查网络」整句塞进来会挤成一团。 */
+      const mark = st.state === 'done' ? '<span class="fl-mark fl-ok">✓ 已上传</span>'
+        : st.state === 'uploading' ? '<span class="fl-mark">上传中…</span>'
+          : st.state === 'error' ? `<span class="fl-mark fl-err" title="${esc(st.message || '上传失败')}">✗ 失败</span>`
+            : '<span class="fl-mark muted">等待上传</span>';
+      return `<div class="fl-row">${mark}<span class="fl-name">${esc(file.name)}</span><span class="fl-size">${size}</span></div>`;
+    }).join('');
+    fileList.innerHTML = `<div class="fl-head">${head} <button class="chip-btn" type="button" id="f-clear">清空</button></div><div class="fl-rows">${rows}</div>`;
+    fileList.querySelector('#f-clear')?.addEventListener('click', () => { pendingFiles = []; fileState.clear(); paintFileList(); });
   };
   paintFileList();
   const addFiles = (list) => {
@@ -3517,28 +3536,51 @@ async function materialEditor(m, catId, reload) {
       upBar.style.width = '';
       upStage.textContent = `正在读取 ${files.length} 个文件…`;
       setPct(0);
+      files.forEach((file) => fileState.set(file, { state: 'uploading' }));
+      paintFileList();
       const fd = new FormData();
       for (const f of files) fd.append('files', f, f.name);
       fd.append('owner_type', 'material'); fd.append('owner_id', String(r.id));
+      /* 每传完一个文件就刷新一次列表：成功的当场打勾、失败的当场标红。
+         一批里只要有一个失败，用户最想知道的就是「哪几个已经上去了」，
+         而不是等整批结束再给一个总数 —— 那样等于逼着他整批重传。 */
+      const markFile = (info) => {
+        const file = files[info.index] || files.find((item) => item.name === info.name);
+        if (!file) return;
+        fileState.set(file, info.ok ? { state: 'done' } : { state: 'error', message: info.message || '上传失败' });
+        if (info.ok) uploadedFiles.add(file);
+        paintFileList();
+      };
       const finished = await api.req('POST', '/upload', fd, {
         onProgress: (ratio) => {
           upBox.classList.remove('is-pending');
-          upStage.textContent = `正在上传 ${files.length} 个文件…`;
+          const doneN = files.filter((file) => stateOf(file).state === 'done').length;
+          upStage.textContent = `正在上传 ${files.length} 个文件（已完成 ${doneN} 个）…`;
           setPct(Math.round(Number(ratio || 0) * 100));
         },
+        onFileDone: markFile,
       });
       upBox.classList.remove('is-pending');
       /* 成功的先记账，下一次点保存只补失败的 —— 不然 32 个文件要重传 32 个。
          失败的有明确的文字留在弹层里，不再只剩一个停在 100% 的进度条让人干等。 */
       const doneNames = new Set((finished?.files || []).map((file) => file?.name).filter(Boolean));
-      files.forEach(file => { if (doneNames.has(file.name)) uploadedFiles.add(file); });
+      files.forEach((file) => {
+        if (!doneNames.has(file.name)) return;
+        uploadedFiles.add(file);
+        if (stateOf(file).state !== 'done') fileState.set(file, { state: 'done' });
+      });
+      paintFileList();
       const failed = Array.isArray(finished?.failed) ? finished.failed : [];
       if (failed.length) {
         upBox.classList.add('is-error');
         setPct(100);
         const names = failed.slice(0, 3).map((item) => item.name).join('、') + (failed.length > 3 ? ` 等 ${failed.length} 个` : '');
-        upStage.textContent = `已上传 ${doneNames.size} 个，${failed.length} 个失败：${names}。点「保存」只补传失败的这几个。`;
+        const why = String(failed[0].message || '上传失败').replace(/「[^」]*」/g, '').replace(/^[，,、\s]+/, '').trim();
+        upStage.textContent = `已保存 ${doneNames.size} 个，${failed.length} 个没传上去：${names}（${why}）。点「保存」只补传这几个。`;
         toast(`${failed.length} 个文件没传上去：${failed[0].message || '请重试'}`, 'err');
+        /* 成功的那几个已经入库了，背后的课件列表必须立刻刷新出来。
+           以前这里直接 return，列表不重画，用户看到的就是「明明传上去了却什么都没有」。 */
+        reload();
         return;
       }
       upStage.textContent = '上传完成，正在同步学生端…';
