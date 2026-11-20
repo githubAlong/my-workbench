@@ -600,8 +600,17 @@ function uploadAuthError(message) {
 /* 并行上传：每个文件一个 XHR，最多 CONCURRENCY 个同时飞。
    以前 32 个文件打包成一个大 POST，后端串行存 storage，总耗时 ≈ 所有文件之和。
    现在并行 4 个，总耗时 ≈ 最慢那个文件。
-   进度按文件大小加权平均 —— 1MB 的文件 100% 和 50MB 的文件 0% 不能各占 50%。 */
+   进度按文件大小加权平均 —— 1MB 的文件 100% 和 50MB 的文件 0% 不能各占 50%。
+
+   【为什么改成 worker 循环 + 返回 { uploaded, failed }】
+   老实现用 Promise.race 挪池子，结果按下标写回，池子一 splice 下标就跟文件对不上，
+   而且只要有一个文件失败就整批抛出：其余文件其实已经进了 storage，前端却不知道，
+   重试时又把 32 个全传一遍 —— 用户看到的就是「进度 100% 但一直停在正在上传」。
+   现在每个文件独立成败，成功的照常落库，失败的单独报出来，重试只补失败的那几个。 */
 const UPLOAD_CONCURRENCY = 4;
+const UPLOAD_ATTEMPTS = 3;         // 单文件最多试 3 次（网络抖动重试一次就够了，别死磕）
+const UPLOAD_TIMEOUT_MS = 180000;  // 单请求 3 分钟封顶：卡住的连接会超时报错，不会永远挂着
+
 export async function uploadMaterialFiles(files, ownerId, onProgress) {
   const config = cfg(), token = await freshToken();
   if (!token) {
@@ -612,43 +621,65 @@ export async function uploadMaterialFiles(files, ownerId, onProgress) {
   const at = token;
   const totalBytes = files.reduce((sum, f) => sum + byteLen(f.data), 0);
   const doneBytes = new Array(files.length).fill(0);   // 每个文件已上传字节
-  const donePct = new Array(files.length).fill(0);    // 每个文件进度 0-1
+  const results = new Array(files.length).fill(null);
+  const failures = new Array(files.length).fill(null);
 
-  /* 并发池：始终保持最多 CONCURRENCY 个请求在飞 */
-  let nextIdx = 0;
-  const runNext = () => {
-    const idx = nextIdx++;
-    if (idx >= files.length) return null;
-    return uploadOne(idx, files[idx], ownerId, config, at, (loaded) => {
-      doneBytes[idx] = loaded;
-      donePct[idx] = files[idx].size ? loaded / byteLen(files[idx].data) : 1;
-      if (typeof onProgress === 'function') {
-        onProgress(totalBytes ? doneBytes.reduce((a, b) => a + b, 0) / totalBytes : 0);
-      }
-    });
+  const report = () => {
+    if (typeof onProgress !== 'function') return;
+    const loaded = doneBytes.reduce((a, b) => a + b, 0);
+    onProgress(totalBytes ? Math.min(1, loaded / totalBytes) : 1);
   };
-  const pool = [];
-  for (let i = 0; i < Math.min(UPLOAD_CONCURRENCY, files.length); i++) {
-    pool.push(runNext());
-  }
-  const results = [];
-  let anyError = null;
-  while (pool.length) {
-    // 等任意一个完成
-    const idx = await Promise.race(pool.map((p, i) => p.then(r => ({ i, ok: true, r }), e => ({ i, ok: false, e }))));
-    pool.splice(idx.i, 1);
-    if (idx.ok) {
-      results[idx.i] = idx.r;
-    } else {
-      anyError = idx.e;
-      /* 单个文件上传失败时，把错误往后抛。剩下的已经在飞的请求继续跑完 ——
-         让用户看到完整的"哪些成了、哪些没成"，而不是半路全停。 */
+
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < files.length) {
+      const index = cursor;
+      cursor += 1;
+      try {
+        results[index] = await uploadWithRetry(files[index], ownerId, config, at, (loaded) => {
+          /* 重试会从 0 重新发，这里取最大值，进度条不会往回跳。 */
+          doneBytes[index] = Math.max(doneBytes[index], loaded);
+          report();
+        });
+      } catch (error) {
+        failures[index] = error;
+        /* 这个文件放弃了，直接把这一个的字节记账，否则总进度永远差一截、看着像没传完。 */
+        doneBytes[index] = byteLen(files[index].data);
+        report();
+      }
     }
-    const next = runNext();
-    if (next) pool.push(next);
+  };
+  const width = Math.min(UPLOAD_CONCURRENCY, files.length);
+  await Promise.all(Array.from({ length: width }, worker));
+
+  return {
+    uploaded: results.filter(Boolean),
+    failed: failures
+      .map((error, index) => (error
+        ? { name: files[index]?.filename || '文件', message: error?.message || '上传失败', status: error?.status || 0 }
+        : null))
+      .filter(Boolean),
+  };
+}
+
+/* 登录失效、文件被服务端拒绝这类错误重试没用，其余的（网络中断、超时、5xx）再试两次。 */
+function retryable(error) {
+  const status = Number(error?.status || 0);
+  return status === 0 || status >= 500 || status === 429 || status === 408;
+}
+
+async function uploadWithRetry(file, ownerId, config, token, onProgress) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
+    try {
+      return await uploadOne(file, ownerId, config, token, onProgress);
+    } catch (error) {
+      lastError = error;
+      if (!retryable(error) || attempt >= UPLOAD_ATTEMPTS) break;
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
   }
-  if (anyError) throw anyError;
-  return results;
+  throw lastError;
 }
 
 function byteLen(blobLike) {
@@ -657,25 +688,33 @@ function byteLen(blobLike) {
   return 0;
 }
 
-function uploadOne(idx, file, ownerId, config, token, onProgress) {
+function uploadOne(file, ownerId, config, token, onProgress) {
   const form = new FormData();
   form.append('owner_id', String(ownerId));
   form.append('files', new Blob([file.data], { type: file.mime || 'application/octet-stream' }), file.filename);
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const failWith = (message, status) => reject(Object.assign(new Error(message), { status }));
     xhr.open('POST', config.url + '/functions/v1/material-sharing');
+    /* 不设 timeout 的话，一条半路卡死的连接既不会有 onload 也不会有 onerror，
+       Promise 永远不 settle —— 界面上就是进度 100% 卡在「正在上传」，只能刷新。 */
+    xhr.timeout = UPLOAD_TIMEOUT_MS;
     xhr.setRequestHeader('apikey', config.anon);
     xhr.setRequestHeader('Authorization', 'Bearer ' + token);
     xhr.upload.onprogress = (ev) => {
       if (ev.lengthComputable) onProgress(ev.loaded);
     };
-    xhr.onerror = () => reject(new Error('连不上云端教材服务，请检查网络后重试'));
+    xhr.onerror = () => failWith('连不上云端教材服务，请检查网络后重试', 0);
+    xhr.ontimeout = () => failWith('「' + file.filename + '」上传超时，请重试', 0);
+    xhr.onabort = () => failWith('「' + file.filename + '」上传被中断，请重试', 0);
     xhr.onload = () => {
       let result = {};
       try { result = JSON.parse(xhr.responseText || '{}'); } catch { }
       if (xhr.status === 401) { setTok(null); notifySignedOut(); return reject(uploadAuthError('登录状态已失效，请重新登录后再上传教材')); }
-      if (xhr.status < 200 || xhr.status >= 300) return reject(new Error(result.error || '「' + file.filename + '」上传失败'));
-      if (!Array.isArray(result.files) || !result.files.length) return reject(new Error('「' + file.filename + '」上传未完成，请重试'));
+      if (xhr.status < 200 || xhr.status >= 300) {
+        return failWith(result.error || '「' + file.filename + '」上传失败（' + xhr.status + '）', xhr.status);
+      }
+      if (!Array.isArray(result.files) || !result.files.length) return failWith('「' + file.filename + '」上传未完成，请重试', 0);
       resolve(result.files[0]);
     };
     xhr.send(form);

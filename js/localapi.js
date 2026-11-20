@@ -3720,16 +3720,22 @@ on('POST', '/upload', async ({ body, opts }) => {
 
   if (ownerType === 'material' && await cloudReady()) {
     const cloud = await import('./cloud.js');
-    let uploaded;
+    let result;
     /* 云端教材服务（Edge Function）没部署或连不上时，错误要以云端服务不可用的口径报出来，
        不能掉进 handle() 的兜底拼成「本地处理失败：Failed to fetch」——
        那样既怪错了地方，也没告诉用户文件其实没传。 */
     try {
-      uploaded = await cloud.uploadMaterialFiles(files, ownerId, opts?.onProgress);
+      result = await cloud.uploadMaterialFiles(files, ownerId, opts?.onProgress);
     } catch (e) {
       fail(502, (e && e.message) || '教材上传服务暂时不可用，请稍后重试');
     }
-    return uploaded.map(file => ({ ...file, id: saveAttachment(ownerType, ownerId, file.name, file.mime, file.size, file.url) }));
+    const uploaded = result?.uploaded || [];
+    const saved = uploaded.map(file => ({ ...file, id: saveAttachment(ownerType, ownerId, file.name, file.mime, file.size, file.url) }));
+    /* 部分成功也如实回：已经进了 storage 的文件必须落库。
+       老实现是一个文件失败就整批抛错，成功的那些前端不知道，重试时又全传一遍 ——
+       32 个文件重传一遍就是好几分钟，用户看到的就是「卡在正在上传」。
+       现在把 { files, failed } 一起回，前端只补失败的那几个。 */
+    return { files: saved, failed: result?.failed || [] };
   }
 
   /* 先把所有文件都量一遍再动手写。

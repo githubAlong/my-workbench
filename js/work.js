@@ -3513,13 +3513,14 @@ async function materialEditor(m, catId, reload) {
       };
       upBox.hidden = false;
       upBox.classList.add('is-pending');
+      upBox.classList.remove('is-error');
       upBar.style.width = '';
       upStage.textContent = `正在读取 ${files.length} 个文件…`;
       setPct(0);
       const fd = new FormData();
       for (const f of files) fd.append('files', f, f.name);
       fd.append('owner_type', 'material'); fd.append('owner_id', String(r.id));
-      await api.req('POST', '/upload', fd, {
+      const finished = await api.req('POST', '/upload', fd, {
         onProgress: (ratio) => {
           upBox.classList.remove('is-pending');
           upStage.textContent = `正在上传 ${files.length} 个文件…`;
@@ -3527,9 +3528,21 @@ async function materialEditor(m, catId, reload) {
         },
       });
       upBox.classList.remove('is-pending');
+      /* 成功的先记账，下一次点保存只补失败的 —— 不然 32 个文件要重传 32 个。
+         失败的有明确的文字留在弹层里，不再只剩一个停在 100% 的进度条让人干等。 */
+      const doneNames = new Set((finished?.files || []).map((file) => file?.name).filter(Boolean));
+      files.forEach(file => { if (doneNames.has(file.name)) uploadedFiles.add(file); });
+      const failed = Array.isArray(finished?.failed) ? finished.failed : [];
+      if (failed.length) {
+        upBox.classList.add('is-error');
+        setPct(100);
+        const names = failed.slice(0, 3).map((item) => item.name).join('、') + (failed.length > 3 ? ` 等 ${failed.length} 个` : '');
+        upStage.textContent = `已上传 ${doneNames.size} 个，${failed.length} 个失败：${names}。点「保存」只补传失败的这几个。`;
+        toast(`${failed.length} 个文件没传上去：${failed[0].message || '请重试'}`, 'err');
+        return;
+      }
       upStage.textContent = '上传完成，正在同步学生端…';
       setPct(100);
-      files.forEach(file => uploadedFiles.add(file));
     }
     if (Number(r.public) !== payload.public) savedMaterial = await api.patch('/materials/' + r.id, { public: payload.public });
     await syncMaterialSharing();
