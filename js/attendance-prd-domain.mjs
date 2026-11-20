@@ -204,8 +204,10 @@ export function deriveTableGridState(teacher, type, rows, context = {}) {
   });
   // Class listening records name the listener rather than the class teacher.
   if (type === 'class') legacy.listen = deriveLegacyRosterState(teacher, { ...context, classRows: rows }).listen;
-  const row = rows.find(item => !rowData(item).__deleted && matchesGridTeacher(item, teacher));
-  const saved = gridRecord(row, context.period ?? 1) || {};
+  const matchingRows = rows.filter(item => !rowData(item).__deleted && matchesGridTeacher(item, teacher));
+  const period = context.period ?? 1;
+  const row = matchingRows.find(item => gridRecord(item, period)) || matchingRows[0];
+  const saved = gridRecord(row, period) || {};
   const result = {
     class: legacy.class, sit: legacy.sit, listen: legacy.listen ? 'y' : 'u',
     research: legacy.research ? 'y' : 'u', leave: legacy.leave,
