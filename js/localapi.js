@@ -2990,17 +2990,22 @@ on('PATCH', '/invig/rules', ({ body }) => {
 on('GET', '/invig/summary', async ({ query }) => {
   const month = /^\d{4}-\d{2}$/.test(String(query.month || '')) ? String(query.month) : cnDate().slice(0, 7);
   let sourceRows = rowsOf('invigilations');
+  let source = 'local';
+  const requireCloud = globalThis.location?.hostname === 'githubalong.github.io';
 
   /* 监考 CRUD 已走云端 invigilations 表；列表汇总也必须读取同一数据源。
      否则云端删除成功后，本地 /invig/summary 仍会把旧副本显示出来。 */
-  if (await cloudReady()) {
+  const connected = await cloudReady();
+  if (!connected && requireCloud) fail(503, '监考云端会话未就绪，请重新登录后重试');
+  if (connected) {
     try {
       const cloud = await import('./cloud.js');
       sourceRows = await cloud.listRows('invigilations', { month });
+      source = 'cloud';
     } catch (error) {
       /* 测试库尚未迁移该表时，沿用本地数据；其他云端错误必须明确报出，
          不能静默回退到旧数据并误报删除成功。 */
-      if (!isCloudSchemaUnavailable(error)) throw error;
+      if (requireCloud || !isCloudSchemaUnavailable(error)) throw error;
     }
   }
 
@@ -3009,7 +3014,7 @@ on('GET', '/invig/summary', async ({ query }) => {
     .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.start_time || '').localeCompare(String(a.start_time || '')))
     .map(fillInvigTime);
   const rules = getInvigRules();
-  return { month, summary: buildInvSummary(rows, rules), rules, rows };
+  return { month, summary: buildInvSummary(rows, rules), rules, rows, source };
 });
 on('POST', '/invig/settle', ({ body }) => {
   const month = String(body?.month || '');
@@ -4414,7 +4419,13 @@ export async function handle(method, path, query = {}, body = undefined, opts = 
      还在本地实现，此时它返回 null。绝不能把这个 null 当成数据交给前端，
      否则点「学科统计」会看到一片空白。null 一律视为「没接云端」，
      掉到下面的本地循环里处理 —— 这也是本地数据还能救急的地方。 */
-  if (CLOUD_TABLES.has(clean.split('/')[1]) && await cloudReady()) {
+  const table = clean.split('/')[1];
+  const requireInvigCloud = table === 'invigilations' && globalThis.location?.hostname === 'githubalong.github.io';
+  const cloudConnected = CLOUD_TABLES.has(table) && await cloudReady();
+  if (requireInvigCloud && !cloudConnected) {
+    return { ok: false, code: 503, error: '监考云端会话未就绪，请重新登录后重试' };
+  }
+  if (cloudConnected) {
     let data;
     try {
       data = await cloudRoute(method, clean, query, body);
@@ -4432,7 +4443,7 @@ export async function handle(method, path, query = {}, body = undefined, opts = 
           ? '云端考勤保存服务尚未就绪，请联系管理员补齐保存函数；当前勾选仍保留，请勿刷新页面'
           : '云端：' + message, code: 502, cloud: true };
       }
-      if (!isCloudSchemaUnavailable(e)) {
+      if (requireInvigCloud || !isCloudSchemaUnavailable(e)) {
         return { ok: false, error: '云端：' + (e.message || e), code: 502, cloud: true };
       }
       /* 【诊断留痕】云端写入失败后静默退回本机会骗人：界面提示"已新增成功"，
