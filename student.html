@@ -185,7 +185,7 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 /* 静态版：优先调 localapi（同一个浏览器里演示时学生端能读到老师那份数据）；
    在外网独立访问时本地库为空，自动回退到云端 student-api Edge Function。 */
 import { handle as localHandle } from './js/localapi.js';
-import { getStudentMaterials, materialEndpoint } from './js/material-sharing.mjs';
+import { getStudentMaterials, materialEndpoint, passcodeHeaders } from './js/material-sharing.mjs';
 import { resolveEnvironmentProfile } from './js/environment-config.mjs';
 import { setActiveAccount } from './js/localdb.js';
 import { taskImagePages, downloadCanvas } from './js/selfstudy-task-image.mjs';
@@ -638,8 +638,9 @@ async function paintMaterialDetail() {
        跨域时 download 属性也会被忽略。先 fetch 成 blob 再预览或保存。 */
     let pvURL = '';
     const loadBlob = async (id, mode) => {
-      /* 带上口令：服务端不认就直接 401，拿不到文件内容。 */
-      const res = await fetch(materialEndpoint(code, cur, id, mode, passcodeFor(cur))).catch(() => null);
+      /* 口令放请求头再取文件：URL 会原样进服务端访问日志，不该带口令。
+         服务端不认就直接 401，一个字节都拿不到。 */
+      const res = await fetch(materialEndpoint(code, cur, id, mode), { headers: passcodeHeaders(passcodeFor(cur)) }).catch(() => null);
       if (!res) throw new Error('文件暂时打不开，请稍后重试');
       if (res.status === 401) { forgetPasscode(cur); throw new Error('口令已失效，请重新输入'); }
       if (!res.ok) throw new Error('文件暂时打不开，请稍后重试');

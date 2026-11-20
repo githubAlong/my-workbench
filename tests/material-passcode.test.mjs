@@ -46,6 +46,10 @@ function service(payload = fixture()) {
   return { calls, handler };
 }
 const get = (handler, query) => handler(new Request('https://edge.example/material-sharing?code=' + CODE + query));
+/* 口令改走请求头之后的发法：URL 里搜不到口令，等价于学生端的真实请求。
+   注意 Headers 会吃掉首尾空格，所以这一路测的是大小写而不是手滑多打的空格。 */
+const headed = (handler, query, passcode) => handler(new Request('https://edge.example/material-sharing?code=' + CODE + query,
+  passcode === undefined ? {} : { headers: { 'X-Material-Passcode': passcode } }));
 const signed = (calls) => calls.filter((c) => c.method === 'POST' && c.url.includes('/object/sign/')).length;
 
 test('口令比对：没设口令一律放行，设了就要忽略首尾空格与大小写对上', () => {
@@ -108,6 +112,33 @@ test('口令正确才放行详情与文件，预览和下载走同一道门', as
   assert.equal(response.status, 200);
   assert.equal(await response.text(), 'FILE-BYTES');
   assert.equal(signed(file.calls), 1);
+});
+
+test('口令放请求头一样过闸：对的放行详情与字节，错的照旧 401 且不签名', async () => {
+  const detail = service();
+  const detailResponse = await headed(detail.handler, '&material_id=2', PASSWORD.toUpperCase());
+  assert.equal(detailResponse.status, 200);
+  assert.equal(signed(detail.calls), 0, '只看清单不该去签名');
+  const file = service();
+  const bytes = await headed(file.handler, '&material_id=2&file_id=21&mode=download', PASSWORD);
+  assert.equal(bytes.status, 200);
+  assert.equal(await bytes.text(), 'FILE-BYTES');
+  assert.equal(signed(file.calls), 1);
+  for (const passcode of [undefined, '', 'wrong']) {
+    assert.equal((await headed(service().handler, '&material_id=2', passcode)).status, 401, `头里是「${passcode}」不该放行`);
+  }
+});
+
+test('函数与静态站不能原子换版：先认请求头，暂时也认旧页面的查询串', async () => {
+  assert.equal((await get(service().handler, '&material_id=2&passcode=' + PASSWORD)).status, 200,
+    '换版前就打开的学生页仍发 query，只认头会让它永远卡在「口令已失效」');
+  assert.equal((await get(service().handler, '&material_id=2&passcode=wrong')).status, 401, '兜底不等于放行');
+});
+
+test('自定义头必须先过 CORS 预检，否则学生浏览器根本发不出这个请求', async () => {
+  const response = await service().handler(new Request('https://edge.example/material-sharing', { method: 'OPTIONS' }));
+  assert.equal(response.status, 204);
+  assert.match(response.headers.get('Access-Control-Allow-Headers'), /x-material-passcode/i);
 });
 
 test('没设口令的资料照旧直接可看，设了口令但未发布的资料仍然查不到', async () => {
@@ -182,7 +213,8 @@ test('学生端：口令记在当前标签页，取详情和取文件都要带�
   assert.doesNotMatch(src, /localStorage\.setItem\(PC_KEY/, '存 localStorage 会让第一个学生把口令永久留给全班');
   assert.match(src, /getStudentMaterials\(materialRoute\[1\], materialRoute\[2\], String\(ctx\.query\.passcode \|\| ''\)\)/);
   assert.match(src, /if \(local\?\.extra\?\.need_passcode === true\) throw/, '本机已判定口令不对，不该再等云端一个来回');
-  assert.match(src, /materialEndpoint\(code, cur, id, mode, passcodeFor\(cur\)\)/);
+  assert.match(src, /fetch\(materialEndpoint\(code, cur, id, mode\), \{ headers: passcodeHeaders\(passcodeFor\(cur\)\) \}\)/);
+  assert.doesNotMatch(src, /materialEndpoint\([^)]*passcode/, '文件地址是要发出去的 URL，不能带口令');
   assert.match(src, /function paintPasscodeGate/);
   assert.match(src, /if \(m\?\.locked && !passcodeFor\(cur\)\) return paintPasscodeGate\(\)/);
   assert.match(src, /res\.status === 401/, '文件请求被口令挡住时要给出可恢复的提示');
@@ -195,9 +227,11 @@ test('教材服务与本机接口用同一套判断，口令不从字段白名�
   const shared = await read('js/material-sharing.mjs');
   assert.match(edge, /const materialKeys = \['id', 'title', 'grade', 'class_name', 'descr', 'created_at'\]/);
   assert.doesNotMatch(edge, /materialKeys[^\n]*passcode/);
-  assert.match(edge, /requireMaterialPasscode\(material, url\.searchParams\.get\('passcode'\)\)/);
+  assert.match(edge, /requireMaterialPasscode\(material, request\.headers\.get\('x-material-passcode'\) \|\| url\.searchParams\.get\('passcode'\)\)/);
   assert.match(local, /function requireMaterialPasscode/);
-  assert.match(shared, /if \(passcode\) url\.searchParams\.set\('passcode', passcode\)/);
+  assert.match(shared, /export const PASSCODE_HEADER = 'X-Material-Passcode'/);
+  assert.doesNotMatch(shared, /searchParams\.set\('passcode'/, '教材服务客户端一旦把口令写进查询串，它就会出现在服务端访问日志里');
+  assert.match(shared, /headers: passcodeHeaders\(passcode\)/);
   assert.match(shared, /needPasscode: !!result\.need_passcode/);
 });
 

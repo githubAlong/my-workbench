@@ -2,7 +2,7 @@ const BUCKET = 'teaching-materials';
 /* ngrok-skip-browser-warning 必须放行：自建 Supabase 走 ngrok 固定域名，
    前端给所有 ngrok 请求都加了这个头（环境配置里的 fetch 补丁）。
    少写它，预检就会失败，浏览器整条请求报 Failed to fetch，看不出是 CORS 问题。 */
-const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, ngrok-skip-browser-warning', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
+const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, x-material-passcode, ngrok-skip-browser-warning', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 const live = row => row && !row.deleted_at;
 const fields = (row, keys) => Object.fromEntries(keys.map(key => [key, row[key] ?? '']));
 const materialKeys = ['id', 'title', 'grade', 'class_name', 'descr', 'created_at'];
@@ -146,8 +146,11 @@ export function createMaterialHandler({ backendUrl, serviceKey, fetchImpl = fetc
       const material = materials.find(row => String(row.id) === materialId);
       if (!material) throw failure(404, '教材已收回或不存在');
       /* 口令卡在这里：详情、文件清单、文件字节三条路都从这一句后面走，
-         口令不对就换不到签名地址，学生拿不到原文件。 */
-      requireMaterialPasscode(material, url.searchParams.get('passcode'));
+         口令不对就换不到签名地址，学生拿不到原文件。
+         先读请求头 —— 查询串会原样落进服务端访问日志，口令不该躺在里面。
+         仍兜底读 query 是因为函数和静态站不能原子换版：换版前就打开的学生页还会发 query，
+         只认头会让那一页永远「口令已失效」。等缓存版本换过一轮可以再收回这句。 */
+      requireMaterialPasscode(material, request.headers.get('x-material-passcode') || url.searchParams.get('passcode'));
       const files = (Array.isArray(payload.attachments) ? payload.attachments : []).filter(row => live(row) && row.owner_type === 'material' && String(row.owner_id) === materialId);
       const fileId = url.searchParams.get('file_id');
       if (!fileId) return json({ material: studentMaterial(material), files: files.map(row => ({ ...fields(row, fileKeys), preview: previewType(row.name) !== 'application/octet-stream' })) });
