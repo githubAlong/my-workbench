@@ -160,9 +160,9 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     } finally { busy = false; }
   };
   const savePrefs = async (patch) => {
-    prefs = {...prefs,...patch};
-    const result = await api.patch('/me',{settings:{attendanceWorkspace:prefs}});
-    if (result?.user?.settings?.attendanceWorkspace) prefs = result.user.settings.attendanceWorkspace;
+    const next = {...prefs,...patch};
+    const result = await api.patch('/me',{settings:{attendanceWorkspace:next}});
+    prefs = result?.user?.settings?.attendanceWorkspace || next;
   };
   const getTable = async (type) => {
     let t = details[type];
@@ -420,59 +420,47 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
   /* 表内登记的请假自动进请假总表：一个格子对应一条可追溯记录。
      清空格子删掉对应记录，手写的请假记录不受影响；同一个格子重复登记只更新不新增。 */
   const gridLeaveId = (tableId, person, atPeriod) => ['grid', tableId, atPeriod, String(person||'').trim()].join(':');
-  const syncGridLeave = async (teacher, leaveType) => {
-    /* 表可能还没生成（比如刚打开教研表就直接标请假），这里按需建表，避免同步被跳过。 */
-    const table=await getTable(tab);
-    if(!table?.id)return;
-    const id=gridLeaveId(table.id,teacher.name,period);
-    const existing=leaveRecords.find(item=>String(item.id)===id);
-    if(leaveType&&existing&&existing.type===leaveType)return;
-    if(!leaveType&&!existing)return;
-    leaveRecords=leaveType
-      ? [...leaveRecords.filter(item=>String(item.id)!==id),{
-        id,grade,name:teacher.name,subject:teacher.subject||'',type:leaveType,
-        start_date:date,end_date:date,days:1,duration_unit:'day',status:'已批',remark:'',
-        source:'grid',source_table:table.id,source_period:Number(period)||0,
-      }]
-      : leaveRecords.filter(item=>String(item.id)!==id);
-    await savePrefs({leaves:leaveRecords});
-  };
-  /* 兜底回填：本次改动前已经在表里标过的请假，生成请假表时一并补进总表。 */
   const syncGridLeaves = async () => {
-    let changed=false;
-    const seen=new Set();
-    for(const type of ['seat','class','research']){
-      const table=details[type];
-      if(!table?.id)continue;
-      for(const row of table.rows||[]){
-        const data=rowData(row);
-        if(data.__deleted)continue;
-        const teacher=teachers.find(item=>matchesGridTeacher(row,item));
-        if(!teacher)continue;
-        for(const [atPeriod,record] of Object.entries(data.__teacherGrid||{})){
-          const leaveType=String(record?.leave||'').trim();
-          if(!leaveType)continue;
-          const id=gridLeaveId(table.id,teacher.name,atPeriod);
+    const existing = new Map(leaveRecords.map(record => [String(record.id), record]));
+    const seen = new Set();
+    const loaded = new Set();
+    let changed = false;
+    for (const type of ['seat','class','research']) {
+      const table = details[type];
+      if (!table?.id) continue;
+      loaded.add(String(table.id));
+      for (const row of table.rows || []) {
+        const data = rowData(row);
+        if (data.__deleted) continue;
+        const teacher = allTeachers.find(item => matchesGridTeacher(row, item));
+        if (!teacher) continue;
+        for (const [atPeriod, record] of Object.entries(data.__teacherGrid || {})) {
+          const leaveType = String(record?.leave || '').trim();
+          if (!leaveType) continue;
+          const id = gridLeaveId(table.id, teacher.name, atPeriod);
           seen.add(id);
-          if(leaveRecords.some(item=>String(item.id)===id))continue;
-          leaveRecords.push({
+          const saved = existing.get(id);
+          if (saved?.type === leaveType) continue;
+          existing.set(id, saved ? {...saved,type:leaveType} : {
             id,grade,name:teacher.name,subject:teacher.subject||'',type:leaveType,
             start_date:date,end_date:date,days:1,duration_unit:'day',status:'已批',remark:'',
             source:'grid',source_table:table.id,source_period:Number(atPeriod)||0,
           });
-          changed=true;
+          changed = true;
         }
       }
     }
-    /* 只清理当前已加载表格里格子已清空的记录，避免误删别的日期的同步记录。 */
-    const loaded=new Set(['seat','class','research'].map(type=>String(details[type]?.id||'')).filter(Boolean));
-    const staleIds=new Set(leaveRecords.filter(item=>item.source==='grid'
-      && loaded.has(String(item.source_table)) && !seen.has(String(item.id))).map(item=>String(item.id)));
-    if(staleIds.size){
-      leaveRecords=leaveRecords.filter(item=>!staleIds.has(String(item.id)));
-      changed=true;
+    for (const [id,record] of existing) {
+      if (record.source === 'grid' && loaded.has(String(record.source_table)) && !seen.has(id)) {
+        existing.delete(id);
+        changed = true;
+      }
     }
-    if(changed)await savePrefs({leaves:leaveRecords});
+    if (changed) {
+      const next = [...existing.values()];
+      await savePrefs({leaves:next});
+      leaveRecords = prefs.leaves || next;
+    }
   };
   /* 在请假总表里改/删同步记录时，把表格格子一起改掉，避免下次回填又冒出来。 */
   const setGridLeaveMark = async (record, leaveType) => {
@@ -495,43 +483,46 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const key=overrideKey||draftKey(type),draftRows=draftCache.get(key)||getDraftRows(type),table=await getTable(type);
     const rows=mergeDraftRows(type,table,draftRows);
     await saveRows(type,table,rows);
-    if(reload){
+    details[type] = {...table,rows};
+    await syncGridLeaves();
+    if (reload) {
       draftCache.delete(key);
       await load();
-    }else{
-      /* 自动保存：不重载页面（每点一次都闪一下没法用），但要把刚写入的行同步回
-         details 和草稿缓存，否则切页签回来会从旧数据重建草稿、刚点的状态丢掉。 */
-      if(details[type])details[type]={...details[type],rows};
-      draftCache.set(key,draftRows);
     }
   });
   /* 用户 11-12 裁决：去掉「保存本表」，点一下单元格就自动落盘。成功静默，
      只在失败时提示，避免每点一次弹一次「已保存」。 */
-  let autoSaveTimer=null,autoSaveKey=null,autoSaveType=null;
+  let autoSaveTimer = null, pendingAutoSave = null, autoSaveInFlight = null;
+  const flushAutoSave = async () => {
+    clearTimeout(autoSaveTimer);
+    while (autoSaveInFlight || pendingAutoSave) {
+      if (!autoSaveInFlight) {
+        const pending = pendingAutoSave;
+        autoSaveInFlight = persistDraft(pending.type,{reload:false,key:pending.key})
+          .then(() => { if (pendingAutoSave === pending) pendingAutoSave = null; })
+          .finally(() => { autoSaveInFlight = null; });
+      }
+      await autoSaveInFlight;
+    }
+  };
+  const flushBeforeSwitch = async () => {
+    try { await flushAutoSave(); return true; }
+    catch (error) { toast(attendanceErrorText(error),'err',4000); return false; }
+  };
   const scheduleAutoSave = type => {
     clearTimeout(autoSaveTimer);
-    autoSaveKey=draftKey(type);autoSaveType=type;
-    autoSaveTimer=setTimeout(async()=>{
-      autoSaveTimer=null;
-      try{await persistDraft(type,{reload:false,key:autoSaveKey});}
-      catch(error){toast(attendanceErrorText(error),'err',4000);}
-    },350);
-  };
-  /* 切页签/节次/日期之前先把待写的内容落盘，避免刚点完就切换导致改动丢失 */
-  const flushAutoSave = async () => {
-    if(!autoSaveTimer)return;
-    clearTimeout(autoSaveTimer);autoSaveTimer=null;
-    try{await persistDraft(autoSaveType,{key:autoSaveKey});}
-    catch(error){toast(attendanceErrorText(error),'err',4000);}
+    pendingAutoSave = {type,key:draftKey(type)};
+    autoSaveTimer = setTimeout(() => { void flushBeforeSwitch(); },350);
   };
   const generateTable = async type => {
+    await flushAutoSave();
     /* 请假表不需要新建工作表：把所选日期的请假记录汇总出来即可。 */
     if (type === 'leave') {
       /* 表里标过的请假先生成差量补进总表，再按所选日期汇总，避免「提示没有请假信息」。 */
-      await syncGridLeaves();
+      await queueSave(syncGridLeaves);
       leaveOnlyDate = date;
       tab = 'leave';
-      search = '';
+      search = ''; subject = '';
       paint();
       const count = activeLeavesFor(leaveRecords, date, grade).length;
       toast('请假表已生成：'+grade+' · '+date+' · '+(count?count+' 人请假':'暂无请假记录'), count?'ok':'warn', 4000);
@@ -539,8 +530,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     }
     const existed=!!details[type];
     await persistDraft(type,{reload:false});
-    await load();
-    tab=type;paint();
+    tab=type; search=''; subject=''; paint();
     const label={seat:'坐班表',class:'上课表',research:'教研表'}[type]||'表格';
     toast(label+(existed?'已更新成功':'已生成成功')+'：'+grade+' · '+date+' · '+(period===0?'全天':'第'+period+'节'),'ok',4000);
   };
@@ -1232,13 +1222,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       classRows:type==='class'?draftRows:(details.class?.rows||[]),
       researchRows:type==='research'?draftRows:(details.research?.rows||[]),
     };
-    /* 子表以本表为准：以前表格状态取跨表合并结果，坐班表里勾了坐班，
-       教研表里再点教研会被「请假>上课>坐班>听课>教研」的互斥规则立刻压回
-       空白，看起来就是「改了没用」。现在编辑页展示本表自己的状态，
-       互斥只保留给花名册/汇总的统一视角。 */
+    /* 子表有明确登记时显示本表状态；空白格可显示坐班表的对应登记。 */
     const ownStateOf = teacher => editable ? deriveTableGridState(teacher,type,draftRows,context) : null;
-    /* 本表这个节次有没有自己的登记：有就以本表为准，没有才沿用跨表结果
-       （坐班表勾了「上课」，切到上课表仍要能看到这个人）。 */
     const ownHasRecord = teacher => draftRows.some(row => !rowData(row).__deleted
       && matchesGridTeacher(row, teacher) && rowData(row).__teacherGrid?.[String(period)]);
     const stateCache = new Map();
@@ -1247,7 +1232,21 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       if (stateCache.has(cacheKey)) return stateCache.get(cacheKey);
       const merged = deriveRosterState(teacher, summaryContext);
       const own = ownStateOf(teacher);
-      const state = own && ownHasRecord(teacher) ? {...merged, ...own, leave: merged.leave || own.leave || ''} : merged;
+      let state = merged;
+      if (type === 'seat' && ownHasRecord(teacher)) {
+        state = {...merged,...own,leave:merged.leave || own.leave || ''};
+      } else if (type === 'class' || type === 'research') {
+        const keys = type === 'class' ? ['class','listen'] : ['research'];
+        const seat = deriveTableGridState(teacher,'seat',summaryContext.seatRows,context);
+        state = {...merged,remark:own.remark || ''};
+        for (const key of keys) {
+          const statusKey = key === 'class' ? key : key+'Status';
+          const status = [own[key],seat[key],merged[statusKey]].find(value => value === 'y' || value === 'n') || 'u';
+          state[statusKey] = status;
+          if (key !== 'class') state[key] = status === 'y';
+          if (!state.remark && status !== 'u' && seat[key] === status) state.remark = seat.remark || '';
+        }
+      }
       stateCache.set(cacheKey, state);
       return state;
     };
@@ -1319,7 +1318,10 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
     const tools = '<button class="primary aprd-add-btn" data-add>'+(showAddTeacher?'收起表单':'＋ 新增教师')+'</button>'
       +'<button type="button" class="aprd-op" data-roster-import>批量导入</button>'
       +exportMenuHtml(teachers.length);
-    const currentStates = editable ? listedTeachers.map(teacher=>statusOfTeacher(teacher)) : [];
+    const currentStates = editable ? listedTeachers.map(teacher=>{
+      const state = statusOfTeacher(teacher);
+      return state.leave ? {...state,class:'u',sit:'u',listen:false,research:false} : state;
+    }) : [];
     /* 设计稿的统计条：数字在上、文字在下，整条一个圆角边框，格子之间用竖线分隔。
        统计条跟着本表显示的列走：坐班表全量，上课表看上课/听课，教研表看教研/请假。 */
     const kpiOf = {
@@ -1394,11 +1396,11 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
         if (item.classList) item.classList.toggle('on', item === button);
       });
     });
-    root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();tab=b.dataset.tab;search='';subject='';paint();});
+    root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{if(!await flushBeforeSwitch())return;tab=b.dataset.tab;search='';subject='';paint();});
     root.querySelector('[data-leave-show-all]')?.addEventListener('click',()=>{leaveOnlyDate='';paint();});
-    root.querySelectorAll('[data-grade-tab]').forEach(b=>b.onclick=async()=>{await flushAutoSave();grade=b.dataset.gradeTab;leaveOnlyDate='';await load();});
-    root.querySelector('#aprd-date').onchange=async e=>{await flushAutoSave();date=e.target.value;leaveOnlyDate='';await load();};
-    root.querySelector('#aprd-period').onchange=async e=>{await flushAutoSave();period=Number(e.target.value);paint();};
+    root.querySelectorAll('[data-grade-tab]').forEach(b=>b.onclick=async()=>{if(!await flushBeforeSwitch())return;grade=b.dataset.gradeTab;leaveOnlyDate='';await load();});
+    root.querySelector('#aprd-date').onchange=async e=>{if(!await flushBeforeSwitch()){e.target.value=date;return;}date=e.target.value;leaveOnlyDate='';await load();};
+    root.querySelector('#aprd-period').onchange=async e=>{if(!await flushBeforeSwitch()){e.target.value=String(period);return;}period=Number(e.target.value);paint();};
     const rememberPeriodTime = () => {
       const start=root.querySelector('#aprd-start')?.value||'';
       const end=root.querySelector('#aprd-end')?.value||'';
@@ -1414,7 +1416,7 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       const label=button.textContent;
       button.disabled=true;button.textContent='生成中…';
       try{await generateTable(type);}
-      catch(e){toast(e.message||'生成失败','err');}
+      catch(e){toast(attendanceErrorText(e),'err');}
       finally{if(button.isConnected){button.disabled=false;button.textContent=label;}}
     };
     root.querySelector('[data-workspace-voice]').onclick=()=>{
@@ -1469,12 +1471,8 @@ export async function renderAttendancePRD(root, { grade: initialGrade = '' } = {
       else if (key === 'remark') control.addEventListener('change', () => {
         update(String(control.value??'').trim()); paint(); scheduleAutoSave(tab);
       });
-      else if (key === 'leave') control.addEventListener('change', async () => {
-        try{
-          update(control.value);
-          await syncGridLeave(teacher, control.value);
-          scheduleAutoSave(tab); paint();
-        }catch(error){toast(error.message||'请假同步失败','err');}
+      else if (key === 'leave') control.addEventListener('change', () => {
+        update(control.value); paint(); scheduleAutoSave(tab);
       });
       else control.addEventListener('change',() => {update(control.value);scheduleAutoSave(tab);});
     });
