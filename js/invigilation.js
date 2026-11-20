@@ -573,8 +573,10 @@ export async function renderInvigilation(box) {
       if (!exam && !room && !start) return toast('考试名称、考场或开始时间至少填写一项', 'warn');
       const duration = start && end ? calcDurationMinutes(start, end) : Number(q('iv-minutes').value) || 0;
       const amount = Number(q('iv-amount').value) || 0;
+      // 注意：oldState 必须在 if (row) 外面声明——后面拼 payload 时（第 621 行附近）
+      // 还要用它判断结构化收付，写在块内会变成 ReferenceError，编辑已有记录必挂。
+      const oldState = row ? settlementOf(row) : null;
       if (row) {
-        const oldState = settlementOf(row);
         if (oldState.legacy && Math.abs(amount - oldState.total) > 0.009) {
           return toast('这条旧版记录已结清。请先在「收付明细」撤销旧版结清标记，再修改金额。', 'warn');
         }
