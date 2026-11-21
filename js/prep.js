@@ -124,10 +124,11 @@ export async function renderPreps(box) {
 
   const paint = () => {
     const ordered = visibleRows();
-    const rows = ordered.map((record) => {
+    const rows = ordered.map((record, index) => {
       const id = esc(String(record.id));
       const clipped = truncateTwoLines(record.process, 60);
       return '<tr>' +
+        '<td class="prep-no">' + (index + 1) + '</td>' +
         '<td class="prep-col-date">' + esc(record.planDate || '—') + '</td>' +
         '<td>' + esc(record.subject || '—') + '</td>' +
         '<td>' + esc(record.grade || '—') + '</td>' +
@@ -179,8 +180,8 @@ export async function renderPreps(box) {
       '</div>' +
       '<div class="prep-card prep-table-card">' +
         '<div class="prep-table-wrap"><table class="prep-table" id="lp-record-table">' +
-        '<thead><tr><th>备课时间</th><th>学科</th><th>年级</th><th>标题</th><th>授课内容</th><th>备注</th><th>操作</th></tr></thead>' +
-        '<tbody>' + (rows || '<tr><td colspan="7" class="prep-empty">暂时还没有备课，点击「新建备课」开始填写。</td></tr>') + '</tbody>' +
+        '<thead><tr><th>序号</th><th>备课时间</th><th>学科</th><th>年级</th><th>标题</th><th>授课内容</th><th>备注</th><th>操作</th></tr></thead>' +
+        '<tbody>' + (rows || '<tr><td colspan="8" class="prep-empty">暂时还没有备课，点击「新建备课」开始填写。</td></tr>') + '</tbody>' +
         '</table></div>' +
         '<div class="prep-count">共 ' + ordered.length + ' 条记录</div>' +
       '</div>' +

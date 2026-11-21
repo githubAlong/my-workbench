@@ -4646,9 +4646,11 @@ body.is-wide .notes-grid { grid-template-columns: repeat(auto-fill, minmax(260px
 .prep-date-sep { color:#8a94a6; }
 .prep-table-card { overflow:hidden; }
 .prep-table-wrap { width:100%; overflow-x:auto; }
-.prep-table { width:100%; min-width:820px; border-collapse:collapse; table-layout:auto; }
+.prep-table { width:100%; min-width:860px; border-collapse:collapse; table-layout:auto; }
 .prep-table th { padding:14px 16px; color:#5b667a; background:#fff; border-bottom:1px solid #eef1f6; font-size:13px; font-weight:650; text-align:left; white-space:nowrap; }
 .prep-table td { padding:13px 16px; color:#2b3648; border-bottom:1px solid #f2f5f9; font-size:13px; vertical-align:middle; white-space:nowrap; }
+.prep-table th:first-child, .prep-table .prep-no { text-align:center; }
+.prep-table .prep-no { width:52px; padding-left:0; padding-right:0; color:#98a2b3; font-variant-numeric:tabular-nums; }
 .prep-table tbody tr:hover { background:#fafcff; }
 
 /* ================= 自习管理（教师端） ================= */
@@ -4706,6 +4708,7 @@ textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:ver
 .ssm-item:hover { background:var(--bg-sunken); }
 .ssm-item.on { border-color:#1677ff; background:rgba(22,119,255,.06); }
 .ssm-item.on:hover { background:rgba(22,119,255,.09); }
+.ssm-item-no { flex:0 0 auto; width:22px; color:#98a2b3; font-size:12px; text-align:center; font-variant-numeric:tabular-nums; }
 .ssm-item-ico { flex:0 0 auto; display:grid; place-items:center; width:30px; height:30px;
   border-radius:8px; background:rgba(22,119,255,.1); color:#1677ff; }
 .ssm-item-t { color:var(--text); font-size:14px; font-weight:650; }
@@ -4812,9 +4815,11 @@ textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:ver
 .kb-filter select:focus { border-color:#2f7dfa; }
 .kb-table-card { overflow:hidden; }
 .kb-table-wrap { width:100%; overflow-x:auto; }
-.kb-table { width:100%; min-width:900px; border-collapse:collapse; table-layout:auto; }
+.kb-table { width:100%; min-width:940px; border-collapse:collapse; table-layout:auto; }
 .kb-table th { padding:14px 16px; color:#5b667a; background:#fff; border-bottom:1px solid #eef1f6; font-size:13px; font-weight:650; text-align:left; white-space:nowrap; }
 .kb-table td { padding:13px 16px; color:#2b3648; border-bottom:1px solid #f2f5f9; font-size:13px; vertical-align:middle; white-space:nowrap; }
+.kb-table th:first-child, .kb-table .kb-no { text-align:center; }
+.kb-table .kb-no { width:52px; padding-left:0; padding-right:0; color:#98a2b3; font-variant-numeric:tabular-nums; }
 .kb-table tbody tr:hover { background:#fafcff; }
 .kb-date { color:#4a5568; white-space:nowrap; }
 .kb-title { max-width:230px; font-weight:600; overflow:hidden; text-overflow:ellipsis; }

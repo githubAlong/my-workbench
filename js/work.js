@@ -3586,11 +3586,12 @@ async function renderNotes(box) {
 
   const paint = () => {
     const list = visibleNotes();
-    const rows = list.map((note) => {
+    const rows = list.map((note, index) => {
       const tags = readTags(note);
       const id = esc(String(note.id));
       const summary = summaryOf(note);
       return '<tr>' +
+        '<td class="kb-no">' + (index + 1) + '</td>' +
         '<td class="kb-date">' + esc(dateText(note)) + '</td>' +
         '<td>' + esc(catName(note.category_id) || '—') + '</td>' +
         '<td class="kb-title" title="' + esc(note.title) + '">' + esc(note.title || '未命名笔记') + '</td>' +
@@ -3628,8 +3629,8 @@ async function renderNotes(box) {
       '</div>' +
       '<div class="kb-card kb-table-card">' +
         '<div class="kb-table-wrap"><table class="kb-table">' +
-          '<thead><tr><th>创建时间</th><th>分类</th><th>标题</th><th>标签</th><th>内容摘要</th><th>操作</th></tr></thead>' +
-          '<tbody>' + (rows || '<tr><td colspan="6" class="kb-empty">还没有笔记，点击「新增笔记」开始记录。</td></tr>') + '</tbody>' +
+          '<thead><tr><th>序号</th><th>创建时间</th><th>分类</th><th>标题</th><th>标签</th><th>内容摘要</th><th>操作</th></tr></thead>' +
+          '<tbody>' + (rows || '<tr><td colspan="7" class="kb-empty">还没有笔记，点击「新增笔记」开始记录。</td></tr>') + '</tbody>' +
         '</table></div>' +
         '<div class="kb-count">共 ' + list.length + ' 条记录</div>' +
       '</div>' +
