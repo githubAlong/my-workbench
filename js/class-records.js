@@ -131,9 +131,16 @@ const typeBadgeClass = (type) => {
     '考试': 'exam', exam: 'exam'
   })[chi] || 'other';
 };
+/* 一个状态一种颜色，扫一眼就知道哪些钱还没着落：绿色只留给真的已到账，
+   学校代付、待付、没付分开标；「无需支付」是已下线的历史值，用最弱的灰；
+   空值单独给虚线框，漏填的记录在表里要能一眼挑出来。 */
 const statusClass = (status) => {
-  if (status === '已支付' || status === '学校支付' || status === '无需支付') return 'paid';
-  if (status === '待支付' || status === '未支付') return 'unpaid';
+  if (status === '已支付') return 'paid';
+  if (status === '学校支付') return 'school';
+  if (status === '待支付') return 'pending';
+  if (status === '未支付') return 'unpaid';
+  if (status === '无需支付') return 'legacy';
+  if (status === '未填写') return 'blank';
   return 'custom';
 };
 const clip = (value, max = 26) => {
@@ -216,9 +223,12 @@ export async function renderClassRecords(root) {
         .cr-type-badge.other{color:var(--text-2,#4e5969);background:var(--surface-2,#f5f6f8)}
         .cr-status{display:inline-flex;align-items:center;max-width:135px;padding:5px 9px;border-radius:7px;font-size:11px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .cr-status.paid{color:#12835b;background:#e8f7f0}
-        .cr-status.unpaid{color:#b7791f;background:#fff4df}
+        .cr-status.school{color:#286fc5;background:#eaf3ff}
+        .cr-status.pending{color:#b7791f;background:#fff4df}
+        .cr-status.unpaid{color:#c23b3b;background:#fdeaea}
         .cr-status.custom{color:#5b55a5;background:#f0efff}
-        .cr-status.settled{color:var(--text-2,#4e5969);background:var(--surface-2,#f5f6f8)}
+        .cr-status.legacy{color:var(--text-2,#4e5969);background:var(--surface-2,#f5f6f8)}
+        .cr-status.blank{color:#86909c;background:none;border:1px dashed var(--line,#d3d6db);padding:4px 8px}
         .cr-row-actions{display:flex;align-items:center;gap:10px;white-space:nowrap}
         .cr-row-action{padding:0;border:0;background:none;color:var(--primary,#4f46e5);font:inherit;font-size:11.5px;cursor:pointer}
         .cr-row-action:hover{text-decoration:underline}

@@ -58,6 +58,28 @@ test('上课类型自动带出课时费与支付状态默认值，新类型假�
   }
 });
 
+test('支付状态一个状态一种颜色：同色就等于列里看不出谁没结', () => {
+  const body = /const statusClass = \(status\) => \{([\s\S]*?)\};/.exec(source)[1];
+  const classes = {};
+  for (const status of ['已支付', '学校支付', '待支付', '未支付', '无需支付', '未填写']) {
+    const found = new RegExp("status === '" + status + "'\\) return '(\\w+)'").exec(body);
+    assert.ok(found, 'statusClass 漏了「' + status + '」');
+    classes[status] = found[1];
+  }
+  /* 手填的自由值（课时支付状态已放开，见 20261109165000 迁移）走兜底分支。 */
+  const returns = [...body.matchAll(/return '(\w+)'/g)].map((m) => m[1]);
+  assert.equal(returns.length, Object.keys(classes).length + 1, 'statusClass 的分支数对不上');
+  classes['自定义值'] = returns[returns.length - 1];
+  assert.equal(new Set(Object.values(classes)).size, Object.keys(classes).length, '有状态共用了同一个 class：' + JSON.stringify(classes));
+  const colors = {};
+  for (const cls of Object.values(classes)) {
+    const rule = new RegExp('\\.cr-status\\.' + cls + '\\{([^}]*)\\}').exec(source);
+    assert.ok(rule, 'CSS 里缺少 .cr-status.' + cls + ' 的配色');
+    colors[cls] = /color:(?:var\([^,]+,\s*)?(#[0-9a-f]{3,6})/i.exec(rule[1])[1];
+  }
+  assert.equal(new Set(Object.values(colors)).size, Object.keys(colors).length, '有状态用了同一个字色：' + JSON.stringify(colors));
+});
+
 test('查看、编辑、删除是三个独立操作，打印操作已移除', () => {
   for (const marker of ['data-view=', 'data-edit=', 'data-delete=', 'openViewer', 'openEditor', 'removeRow', 'id="cr-view-close"', 'id="cr-cancel"']) {
     assert.ok(source.includes(marker), 'missing row action: ' + marker);
