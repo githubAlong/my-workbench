@@ -159,7 +159,7 @@ registerView(async function work(main, { tab, third }) {
     return m.renderRepairsBody(body);
   }
   if (t === 'notes') {
-    /* 笔记页自带「知识库」标题卡片，外层页头移除，避免同一标题出现两次 */
+    /* 笔记页自带「笔记」标题卡片，外层页头移除，避免同一标题出现两次 */
     headEl.remove();
     return renderNotes(body);
   }
@@ -3608,7 +3608,7 @@ async function renderNotes(box) {
 
     box.innerHTML = '<section class="kb-page">' +
       '<div class="kb-card kb-head">' +
-        '<div class="kb-head-text"><h2>知识库</h2><p>随手记录、分类归档、快速检索，简答留存信息</p></div>' +
+        '<div class="kb-head-text"><h2>笔记</h2><p>随手记录、分类归档、快速检索，简答留存信息</p></div>' +
         '<div class="kb-head-actions">' +
           '<label class="kb-search">' +
             '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="9" cy="9" r="5.6"></circle><path d="M13.2 13.2 17 17" stroke-linecap="round"></path></svg>' +
