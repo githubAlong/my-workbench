@@ -76,6 +76,19 @@ export function createMaterialHandler({ backendUrl, serviceKey, fetchImpl = fetc
     cachedBucketAt = Date.now();
   }
 
+  /* 以前所有非 2xx 都报成「请检查网络后重试」：超尺寸、权限不对、桶被删了，
+     老师听到的都是同一句话，于是反复重试、反复换网络，谁也猜不到是文件太大。
+     现在把存储那边的状态码和原话带出来（压掉换行、截到 160 字，别把整页 HTML 塞进提示）。
+     状态码原样透出去还有一层用处：客户端靠 413/尺寸字样决定要不要自动压缩重传。 */
+  async function storageFailure(name, response) {
+    const raw = await response.text().catch(() => '');
+    let detail = raw;
+    try { const parsed = JSON.parse(raw); detail = [parsed.error, parsed.message].filter(Boolean).join('：') || raw; } catch { }
+    detail = String(detail).replace(/\s+/g, ' ').trim().slice(0, 160);
+    const status = Number(response.status) || 502;
+    return failure(status, '「' + name + '」云端拒绝（HTTP ' + status + '）' + (detail ? '：' + detail : ''));
+  }
+
   /* 并发上传：最多 4 个同时写 storage。
      前端改成并行发多请求后，每个请求通常只带 1 个文件，
      但保留并发 + 错误收集逻辑以兼容"旧版前端 / 内部测试"一次带多个文件。 */
@@ -91,7 +104,7 @@ export function createMaterialHandler({ backendUrl, serviceKey, fetchImpl = fetc
         const path = user.id + '/' + ownerId + '/' + crypto.randomUUID();
         try {
           const response = await backend('/storage/v1/object/' + BUCKET + '/' + path, { method: 'POST', headers: { 'Content-Type': previewType(file.name), 'x-upsert': 'false' }, body: file });
-          if (!response.ok) throw failure(502, '「' + file.name + '」上传失败，请检查网络后重试');
+          if (!response.ok) throw await storageFailure(file.name, response);
           results[i] = { name: file.name, mime: previewType(file.name), size: file.size, url: 'wb-material:' + path };
         } catch (err) {
           errors[i] = err;
