@@ -3458,7 +3458,7 @@ async function materialEditor(m, catId, reload) {
       </div>
       <div class="field-hint">
         支持 WPS 全部文件格式，包括 .wps / .wpt、.et / .ett、.dps / .dpt，以及 Word、Excel、PPT、PDF、图片、音视频和压缩包。
-        <br>不限文件数量和大小，保留原文件名与格式。
+        <br>文件数量不限，保留原文件名与格式。单个文件超过 50MB 时，Word / Excel / PPT 里的图片会自动压小再传；视频、PDF 浏览器压不动，只能先自己删。
       </div></div>
     <div class="field-hint">设为学生可见后，学生打开链接即可查看教材和下载原文件。只发给某个班的资料就把「班级口令」填上：学生要先输对口令才看得到内容、才下得走文件，口令不对两个都不给。PDF、图片支持浏览器查看；WPS 文档下载后用 WPS 打开。</div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">保存</button></div></div>`);
@@ -3552,6 +3552,9 @@ async function materialEditor(m, catId, reload) {
         paintFileList();
       };
       const finished = await api.req('POST', '/upload', fd, {
+        /* 压缩是本地动作，发生在任何网络请求之前，进度条那时候还不会动，
+           所以这一句要写进「正在做什么」那一行，不写就看着像卡死。 */
+        onStage: (text) => { upStage.textContent = text; },
         onProgress: (ratio) => {
           upBox.classList.remove('is-pending');
           const doneN = files.filter((file) => stateOf(file).state === 'done').length;

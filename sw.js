@@ -91,6 +91,7 @@ const ASSETS = [
   './js/weather-view.mjs',
   './js/work.js',
   './js/material-sharing.mjs',
+  './js/material-compress.mjs',
   './student.html',
   './js/class-records.js',
   './js/prep.js',

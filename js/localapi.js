@@ -3725,7 +3725,7 @@ on('POST', '/upload', async ({ body, opts }) => {
        不能掉进 handle() 的兜底拼成「本地处理失败：Failed to fetch」——
        那样既怪错了地方，也没告诉用户文件其实没传。 */
     try {
-      result = await cloud.uploadMaterialFiles(files, ownerId, opts?.onProgress, opts?.onFileDone);
+      result = await cloud.uploadMaterialFiles(files, ownerId, opts?.onProgress, opts?.onFileDone, opts?.onStage);
     } catch (e) {
       fail(502, (e && e.message) || '教材上传服务暂时不可用，请稍后重试');
     }

@@ -42,7 +42,8 @@ test('每完成一个文件立刻回调，成功也报（界面才能当场打�
   assert.match(source, /onFileDone\(\{ index, name: file\.filename \|\| '文件', ok: true/);
   assert.match(source, /onFileDone\(\{ index, name: file\.filename \|\| '文件', ok: false/);
   /* 回调要带 index：同批里可能重名（不同文件夹），靠名字匹配会打错行 */
-  assert.match(source, /export async function uploadMaterialFiles\(files, ownerId, onProgress, onFileDone\)/);
+  /* onStage 是第 5 个参数：压一个大文件要十几秒，界面没有阶段文字就停在 0% 像卡死 */
+  assert.match(source, /export async function uploadMaterialFiles\(files, ownerId, onProgress, onFileDone, onStage\)/);
 });
 
 test('大文件串行上传且不重试，避免撞上边缘函数超时', () => {
@@ -50,7 +51,9 @@ test('大文件串行上传且不重试，避免撞上边缘函数超时', () =>
   assert.match(source, /const BIG_FILE_BYTES = \d+ \* 1048576;/);
   assert.match(source, /const bigPresent = files\.some\(\(file\) => byteLen\(file\.data\) > BIG_FILE_BYTES\);/);
   assert.match(source, /Math\.min\(bigPresent \? 1 : UPLOAD_CONCURRENCY, files\.length\)/);
-  assert.match(source, /const attempts = byteLen\(file\.data\) > BIG_FILE_BYTES \? 1 : UPLOAD_ATTEMPTS;/);
+  /* let 而不是 const：撞上「尺寸超限」时补压一次，得能再加一次重试机会 */
+  assert.match(source, /let attempts = byteLen\(file\.data\) > BIG_FILE_BYTES \? 1 : UPLOAD_ATTEMPTS;/);
+  assert.match(source, /attempts = attempt \+ 1;/);
 });
 
 test('接口层把成功的文件落库，并与失败清单一并返回', () => {
@@ -58,7 +61,7 @@ test('接口层把成功的文件落库，并与失败清单一并返回', () =>
   assert.match(source, /const uploaded = result\?\.uploaded \|\| \[\];/);
   assert.match(source, /return \{ files: saved, failed: result\?\.failed \|\| \[\] \};/);
   /* 逐文件回调要透传到云端上传：少这一句，界面就只能在整批结束后才知道结果 */
-  assert.match(source, /uploadMaterialFiles\(files, ownerId, opts\?\.onProgress, opts\?\.onFileDone\)/);
+  assert.match(source, /uploadMaterialFiles\(files, ownerId, opts\?\.onProgress, opts\?\.onFileDone, opts\?\.onStage\)/);
 });
 
 test('弹层逐文件显示状态，失败时保留成功清单并刷新背后列表', () => {

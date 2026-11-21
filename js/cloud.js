@@ -20,6 +20,7 @@
    ========================================================================== */
 import { resolveEnvironmentProfile, assertTrustedSupabaseConfig } from './environment-config.mjs';
 import { normalizeAccountIdentifier } from './auth-identifier.mjs';
+import { MATERIAL_MAX_BYTES, looksLikeSizeRejection, shrinkOversizedFile } from './material-compress.mjs';
 
 const ENV_PROFILE = resolveEnvironmentProfile(globalThis.location);
 
@@ -620,7 +621,7 @@ const BIG_FILE_BYTES = 20 * 1048576; // 超过 20MB 视为大文件：独占带�
 const UPLOAD_ATTEMPTS = 3;         // 小文件最多试 3 次（网络抖动重试一次就够了）
 const UPLOAD_TIMEOUT_MS = 180000;  // 单请求 3 分钟封顶：卡住的连接会超时报错，不会永远挂着
 
-export async function uploadMaterialFiles(files, ownerId, onProgress, onFileDone) {
+export async function uploadMaterialFiles(files, ownerId, onProgress, onFileDone, onStage) {
   /* onFileDone({ name, ok, message, status }) 每完成一个文件立刻回调一次。
      界面上「已经传上去的那几个」必须当场显示成成功，不能等整批结束 ——
      一批里有一个失败时，用户最想知道的就是「到底哪几个成了」。 */
@@ -649,12 +650,13 @@ export async function uploadMaterialFiles(files, ownerId, onProgress, onFileDone
       cursor += 1;
       const file = files[index];
       try {
-        results[index] = await uploadWithRetry(file, ownerId, config, at, (loaded) => {
+        const prepared = await shrinkBeforeUpload(file, onStage);
+        results[index] = await uploadWithRetry(prepared, ownerId, config, at, (loaded) => {
           /* 重试会从 0 重新发，这里取最大值，进度条不会往回跳。 */
           doneBytes[index] = Math.max(doneBytes[index], loaded);
           report();
-        });
-        if (typeof onFileDone === 'function') onFileDone({ index, name: file.filename || '文件', ok: true, size: byteLen(file.data) });
+        }, { onStage, shrunk: prepared !== file });
+        if (typeof onFileDone === 'function') onFileDone({ index, name: file.filename || '文件', ok: true, size: byteLen(prepared.data) });
       } catch (error) {
         failures[index] = error;
         /* 这个文件放弃了，直接把这一个的字节记账，否则总进度永远差一截、看着像没传完。 */
@@ -685,16 +687,36 @@ function retryable(error) {
   return status === 0 || status >= 500 || status === 429 || status === 408;
 }
 
-async function uploadWithRetry(file, ownerId, config, token, onProgress) {
+/* 超过云端单文件上限的文件，先在浏览器里压小再传。
+   压不动的（视频、PDF、zip64 包）当场报错并说明最大的几块是什么，
+   不再让人白等一整条上传、最后收到一句「请检查网络」。 */
+async function shrinkBeforeUpload(file, onStage) {
+  if (byteLen(file.data) <= MATERIAL_MAX_BYTES) return file;
+  const shrunk = await shrinkOversizedFile(file, { onStage });
+  return { ...file, data: shrunk.data };
+}
+
+async function uploadWithRetry(file, ownerId, config, token, onProgress, opts = {}) {
   /* 大文件不重试：一次超时就是 3 分钟，试三次等于让用户干等 9 分钟，
      而且服务端那边通常还是同样的结果。小文件（网络抖动居多）才值得再试。 */
-  const attempts = byteLen(file.data) > BIG_FILE_BYTES ? 1 : UPLOAD_ATTEMPTS;
+  let attempts = byteLen(file.data) > BIG_FILE_BYTES ? 1 : UPLOAD_ATTEMPTS;
+  let payload = file;
+  let shrunk = !!opts.shrunk;
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await uploadOne(file, ownerId, config, token, onProgress);
+      return await uploadOne(payload, ownerId, config, token, onProgress);
     } catch (error) {
       lastError = error;
+      /* 客户端这个 50MB 只是套餐默认值，项目全局上限可以被调得更低。
+         服务端明确说「太大」时补压一次再传，只补这一次。 */
+      if (!shrunk && looksLikeSizeRejection(error.status, error.message)) {
+        shrunk = true;
+        const again = await shrinkOversizedFile(payload, { force: true, onStage: opts.onStage });
+        payload = { ...payload, data: again.data };
+        attempts = attempt + 1;
+        continue;
+      }
       if (!retryable(error) || attempt >= attempts) break;
       await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
     }
