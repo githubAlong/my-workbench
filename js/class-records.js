@@ -208,9 +208,11 @@ export async function renderClassRecords(root) {
         .cr-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--text,#1d2129);font:inherit}
         .cr-filter-reset{height:38px;padding:0 12px;border:1px solid var(--line,#e5e6eb);border-radius:9px;background:var(--card,#fff);color:var(--text-2,#4e5969);font:inherit;font-size:12px;cursor:pointer}
         .cr-table-wrap{width:100%;overflow:auto;border:1px solid var(--line,#e5e6eb);border-radius:12px;background:var(--card,#fff);box-shadow:var(--shadow-s,0 2px 8px rgba(31,35,41,.035));-webkit-overflow-scrolling:touch}
-        .cr-table{width:100%;min-width:1380px;border-collapse:separate;border-spacing:0;font-size:12.5px}
+        .cr-table{width:100%;min-width:1424px;border-collapse:separate;border-spacing:0;font-size:12.5px}
         .cr-table th{height:43px;padding:10px 13px;background:var(--surface-2,#f5f6f8);border-bottom:1px solid var(--line,#e5e6eb);color:var(--text-2,#4e5969);font-weight:700;text-align:left;white-space:nowrap}
         .cr-table td{height:58px;padding:9px 13px;border-bottom:1px solid var(--line,#eef0f3);color:var(--text-2,#4e5969);vertical-align:middle}
+        .cr-table th:first-child,.cr-table .cr-no{text-align:center}
+        .cr-table .cr-no{width:44px;padding-left:0;padding-right:0;color:var(--text-3,#86909c);font-variant-numeric:tabular-nums}
         .cr-table tbody tr:last-child td{border-bottom:0}
         .cr-table tbody tr:hover td{background:color-mix(in srgb,var(--primary,#4f46e5) 3%,var(--card,#fff))}
         .cr-type-badge{display:inline-flex;align-items:center;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:650;white-space:nowrap}
@@ -325,8 +327,8 @@ export async function renderClassRecords(root) {
         </div>
         <div class="cr-table-wrap">
           <table class="cr-table" id="cr-record-table">
-            <thead><tr><th>上课日期</th><th>上课年级</th><th>上课班级</th><th>节次</th><th>学科</th><th>上课类型</th><th>上课人</th><th>代课人</th><th>课时费（元）</th><th>支付状态</th><th>备注说明</th><th>操作</th></tr></thead>
-            <tbody id="cr-record-tbody"><tr><td colspan="12"><div class="cr-empty-state">正在加载上课记录…</div></td></tr></tbody>
+            <thead><tr><th>序号</th><th>上课日期</th><th>上课年级</th><th>上课班级</th><th>节次</th><th>学科</th><th>上课类型</th><th>上课人</th><th>代课人</th><th>课时费（元）</th><th>支付状态</th><th>备注说明</th><th>操作</th></tr></thead>
+            <tbody id="cr-record-tbody"><tr><td colspan="13"><div class="cr-empty-state">正在加载上课记录…</div></td></tr></tbody>
           </table>
         </div>
         <div class="cr-pagination">
@@ -412,11 +414,14 @@ export async function renderClassRecords(root) {
     if (!filtered.length) {
       const message = rows.length ? monthLabel(month) + '没有符合条件的记录' : '还没有上课记录';
       const hint = rows.length ? '可以切换月份查看其它记录，或重置筛选条件。' : '点击右上角「新增上课记录」，开始登记授课、代课和换课情况。';
-      body.innerHTML = '<tr><td colspan="12"><div class="cr-empty-state"><div class="cr-empty-icon">＋</div><b>' + message + '</b><span>' + hint + '</span></div></td></tr>';
+      body.innerHTML = '<tr><td colspan="13"><div class="cr-empty-state"><div class="cr-empty-icon">＋</div><b>' + message + '</b><span>' + hint + '</span></div></td></tr>';
       return;
     }
 
-    body.innerHTML = visible.map((r) => {
+    /* 序号按当前筛选后的整月列表连续排：第 2 页从 11 开始，不重新数，
+       这样「第 14 条」在哪个页都是同一条记录。 */
+    body.innerHTML = visible.map((r, i) => {
+      const no = (page - 1) * pageSize + i + 1;
       const typeLabel = labelOf(r.class_type);
       const people = parseRelatedPeople(r.related_person, r.class_type);
       const classTime = splitClassTime(r.class_time);
@@ -424,6 +429,7 @@ export async function renderClassRecords(root) {
       const amount = r.amount == null || r.amount === '' ? '—' : money(r.amount);
       const remark = String(r.remark || '');
       return '<tr>' +
+        '<td class="cr-no">' + no + '</td>' +
         '<td>' + esc(classTime.date || '—') + '</td>' +
         '<td>' + esc(r.grade || '—') + '</td>' +
         '<td>' + esc(r.class_name || '—') + '</td>' +
