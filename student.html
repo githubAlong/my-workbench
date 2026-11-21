@@ -976,9 +976,11 @@ function classChoices() {
     pairMap.set(grade + '\u0000' + class_name, { grade, class_name });
   });
   const classPairs = [...pairMap.values()];
-  const gradeList = [...new Set(classPairs.map((r) => r.grade).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+  /* numeric: true 是关键：班号直接拼在年级后面（高二10班 / 高二5班），
+     不带它的话按字符比，10 班会排到 5 班前面，和学生手里的名单对不上。 */
+  const gradeList = [...new Set(classPairs.map((r) => r.grade).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
   const classesOf = (grade) => [...new Set(classPairs.filter((r) => r.grade === grade).map((r) => r.class_name).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+    .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
   /* 兼容旧偏好：以前只存了「高一 · 1 班」一整串 */
   const splitCls = (text) => {
     const t = String(text || '').trim();
