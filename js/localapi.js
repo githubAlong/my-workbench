@@ -2478,12 +2478,24 @@ on('PATCH', '/attendance/:id', ({ params, body }) => {
 });
 /* 确认生成：点一下才算正式生效（PRD FR-TABLE-4）。
    确认之后仍然可以改，改完再点一次「重新确认」覆盖（FR-TABLE-5）。 */
+const validWorkspaceSnapshot = record => record && /^\d+$/.test(String(record.period)) && Array.isArray(record.rows);
+const isChildWorkspaceConfirmation = body => validWorkspaceSnapshot(body?.workspace_result)
+  && ['class','research','leave'].includes(body.workspace_result.type);
+
 function workspaceConfirmation(meta, body) {
   const snapshot = body?.workspace_snapshot;
-  if (!snapshot || !/^\d+$/.test(String(snapshot.period)) || !Array.isArray(snapshot.rows)) return meta;
-  return { ...meta, workspace_confirmed: {
-    ...meta.workspace_confirmed, [String(snapshot.period)]: snapshot.rows,
-  } };
+  const result = body?.workspace_result;
+  let next = meta;
+  if (validWorkspaceSnapshot(snapshot)) {
+    next = { ...next, workspace_confirmed: { ...next.workspace_confirmed, [String(snapshot.period)]: snapshot.rows } };
+  }
+  if (validWorkspaceSnapshot(result) && ['seat','class','research','leave'].includes(result.type)) {
+    const sheets = safeJSON(next.workspace_results, {});
+    next = { ...next, workspace_results: { ...sheets, [result.type]: {
+      ...sheets[result.type], [String(result.period)]: { rows: result.rows },
+    } } };
+  }
+  return next;
 }
 on('POST', '/attendance/:id/confirm', ({ params, body }) => {
   const t = byId('attendance_tables', params.id);
@@ -2492,6 +2504,12 @@ on('POST', '/attendance/:id/confirm', ({ params, body }) => {
     fail(409, 'WB_ATTENDANCE_CONFLICT: 表头已被另一台设备修改');
   }
   const meta = workspaceConfirmation(safeJSON(t.meta, {}), body);
+  if (isChildWorkspaceConfirmation(body)) {
+    t.meta = JSON.stringify(meta);
+    t.updated_at = nowISO();
+    save();
+    return t;
+  }
   /* 留痕：确认过几次、每次是不是在改完以后重认的。
      老师最常问的就是「这张表什么时候认的、认完又动没动」，
      以前只有最新一个时间戳，问起来只能靠回忆。 */
@@ -4938,14 +4956,16 @@ async function cloudRoute(method, clean, query, body) {
       const t = await m.getRow('attendance_tables', id);
       if (!t) throw new Error('考勤表不存在');
       const prevM = safeJSON(t.meta, {});
-      /* 留痕，跟本地版一致：确认/重新确认各记一条，最多留 20 条 */
-      const audit = Array.isArray(prevM.audit) ? prevM.audit.slice(-19) : [];
-      audit.push({ at: nowISO(), action: prevM.confirmed_at ? 'reconfirm' : 'confirm', dirty: num(prevM.confirm_dirty) ? 1 : 0 });
-      const meta = { ...workspaceConfirmation(prevM, body), confirmed_at: nowISO(), confirm_dirty: 0, audit };
+      const meta = workspaceConfirmation(prevM, body);
+      if (!isChildWorkspaceConfirmation(body)) {
+        const audit = Array.isArray(prevM.audit) ? prevM.audit.slice(-19) : [];
+        audit.push({ at: nowISO(), action: prevM.confirmed_at ? 'reconfirm' : 'confirm', dirty: num(prevM.confirm_dirty) ? 1 : 0 });
+        Object.assign(meta, { confirmed_at: nowISO(), confirm_dirty: 0, audit });
+      }
       const row = body?.expected_updated_at === undefined
         ? await m.updateRow('attendance_tables', id, { meta })
         : await m.updateAttendanceTable(id, { meta }, body.expected_updated_at);
-      return { ...row, columns: attCols(row), meta, confirm_state: 'confirmed' };
+      return { ...row, columns: attCols(row), meta, confirm_state: attConfirmState(meta) };
     }
 
     /* ---- 粘贴导入：/attendance/:id/import ---- */

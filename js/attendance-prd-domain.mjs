@@ -482,7 +482,7 @@ const exportLeaveDuration = record => {
 export function buildAttendanceExportGrid({
   type = 'seat', grade = '', date = '', period = 1, teachers = [],
   seatRows = [], classRows = [], researchRows = [], leaveRecords = [],
-  teacherMeta = {}, resolvePeriodRange = () => [], includeUnlisted = true, worksheetEntries = null,
+  teacherMeta = {}, resolvePeriodRange = () => [], includeUnlisted = true, worksheetEntries = null, worksheetKeys = null,
 } = {}) {
   const people = (Array.isArray(teachers) ? teachers : [])
     .filter(teacher => teacher && Number(teacher.active ?? 1) !== 0);
@@ -546,17 +546,22 @@ export function buildAttendanceExportGrid({
     + ' · ' + periodLabel(period) + '（' + rangeText(period) + '）';
   const heading = statsLine => [[titleHead], [subtitle], [statsLine]];
 
-  if (worksheetEntries && (type === 'class' || type === 'research')) {
-    const isClass = type === 'class';
-    const count = key => worksheetEntries.filter(({ state }) => state[key] === 'y').length;
-    const stats = isClass ? '上课 ' + count('class') + ' 人 · 听课 ' + count('listen') + ' 人'
-      : '教研 ' + count('research') + ' 人';
-    const headers = ['序号','归属部门','归属年级','姓名','学科',...(isClass?['上课','听课人']:['教研']),'备注'];
-    const mark = value => value === 'y' || value === 'n' ? exportStatusLabel(value) : '';
-    const rows = worksheetEntries.map(({teacher,state},index) => [
-      index+1,departmentOf(teacher),gradeOf(teacher),teacher.name,teacher.subject||'',
-      ...(isClass ? [mark(state.class),[mark(state.listen),...state.listeners].filter(Boolean).join(' ')]
-        : [mark(state.research)]),state.remark,
+  const explicitWorksheetKeys = worksheetKeys || (type==='class' ? ['class','listen'] : type==='research' ? ['research'] : null);
+  if (worksheetEntries && explicitWorksheetKeys) {
+    const labels = {sit:'坐班',class:'上课',listen:'听课',research:'教研',leave:'请假'};
+    const showListenerNames = type==='class' && explicitWorksheetKeys.length===2;
+    const headers = ['序号','归属部门','归属年级','姓名','学科',
+      ...explicitWorksheetKeys.map(key=>showListenerNames&&key==='listen'?'听课人':labels[key]),'备注'];
+    const stats = explicitWorksheetKeys.map(key=>labels[key]+' '+worksheetEntries.filter(({state})=>
+      key==='leave' ? Boolean(state.leave) : state[key]==='y').length+' 人').join(' · ');
+    const mark = value => value==='y'||value==='n' ? exportStatusLabel(value) : worksheetKeys ? '未登记' : '';
+    const rows = worksheetEntries.map(({teacher,state},index)=>[
+      index+1,teacher.department||departmentOf(teacher),gradeOf(teacher),teacher.name,teacher.subject||'',
+      ...explicitWorksheetKeys.map(key=>{
+        if(key==='leave')return state.leave||'';
+        if(showListenerNames&&key==='listen'&&state.listeners?.length)return [mark(state.listen),...state.listeners].filter(Boolean).join(' ');
+        return mark(state[key]);
+      }),state.remark||'',
     ]);
     return [...heading(stats),headers,...rows];
   }

@@ -507,3 +507,8 @@
  .attendance-prd .aprd-import-foot-actions button{flex:1}
  .attendance-prd .aprd-png-hint{display:none}
 }
+
+.attendance-prd .aprd-result-state{margin:0 0 12px;color:var(--primary);font-size:13px;font-weight:650}
+.attendance-prd .aprd-toolbar-main .aprd-voice{display:inline-flex;gap:5px;align-items:center}
+.attendance-prd .aprd-subject-list{display:grid;gap:6px;max-height:45vh;overflow:auto}
+.attendance-prd .aprd-subject-list>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid var(--line)}
