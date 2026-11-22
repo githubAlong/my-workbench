@@ -1,162 +1,52 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>教师个人工作台</title>
+<title>教师个人工作台已迁移</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="教师个人工作台">
-<meta name="theme-color" content="#f2f2f7">
-<!-- 相对路径必须带 ./ ：线上挂在 /my-workbench/ 子路径下，
-     href="manifest.webmanifest" 会被解析成 /manifest.webmanifest → 404，
-     结果是「添加到主屏幕」拿不到图标和名称。 -->
-<link rel="manifest" href="./manifest.webmanifest">
-<!-- 补一个 favicon 声明：不写这一行，浏览器会自动请求 /favicon.ico，
-     而本仓库没有这个文件，控制台就常驻一条 404，排查真问题时容易误判。 -->
-<link rel="icon" type="image/png" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
-<!-- 首屏只下载全局、工作台和登录样式；其它样式等首屏完成后再加载，
-     避免慢网络下十多个 CSS 请求把启动模块一直排在后面。 -->
-<link rel="stylesheet" media="print" onload="this.media='all'" href="css/app.css">
-<link rel="stylesheet" media="print" onload="this.media='all'" href="css/teacher-ui.css">
-<link rel="stylesheet" media="print" onload="this.media='all'" href="css/auth-redesign.css">
-<script>
-  window.addEventListener('wb:booted', function () {
-    [
-      'css/attendance-workspace.css',
-      'css/attendance-prd.css',
-      'css/workbench-unified.css',
-      'css/timetable-redesign.css',
-      'css/sticky-notes.css',
-      './css/trips-redesign.css',
-      './css/study-records.css',
-      './css/sync-status.css',
-      'css/design-refresh.css',
-    ].forEach(function (href) {
-      var link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = href;
-      document.head.appendChild(link);
-    });
-  }, { once: true });
-</script>
-<script>
-  (function () {
-    try {
-      var OK = ['light', 'dark', 'green', 'warm', 'pink', 'ocean'];
-      var META = { light: '#f2f2f7', dark: '#000000', green: '#eaf2ea', warm: '#f7f1e6', pink: '#fbf0f4', ocean: '#eaf3f8' };
-      var t = localStorage.getItem('wb_theme');
-      try { t = JSON.parse(t); } catch (e) {}
-      if (OK.indexOf(t) < 0) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      document.documentElement.dataset.theme = t;
-      var m = document.querySelector('meta[name=theme-color]');
-      if (m && META[t]) m.content = META[t];
-    } catch (e) {}
-  })();
-</script>
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:,">
+<style>
+  html,body{height:100%;margin:0}
+  body{display:flex;align-items:center;justify-content:center;min-height:100vh;
+       font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+       background:#f5f6f8;color:#2a2f3a;padding:24px;box-sizing:border-box}
+  .box{max-width:340px;text-align:center}
+  .logo{width:52px;height:52px;border-radius:15px;margin:0 auto 16px;display:grid;place-items:center;
+        background:linear-gradient(135deg,#4f6ef7,#7b5cf0);color:#fff;font-size:22px;font-weight:700}
+  h1{font-size:17px;margin:0 0 8px;font-weight:700}
+  p{font-size:13.5px;line-height:1.65;color:#6b7280;margin:0 0 18px}
+  code{font-size:12px;background:#eceef2;padding:1px 5px;border-radius:5px}
+  a{display:inline-block;padding:11px 20px;border-radius:12px;background:#4f6ef7;color:#fff;
+    font-size:15px;font-weight:600;text-decoration:none}
+</style>
 </head>
 <body>
+<div class="box">
+  <div class="logo">台</div>
+  <h1 id="title">正在前往新地址…</h1>
+  <p>工作台已统一到 <code>mywork-master</code> 站点。本机资料和登录状态都在同一个域名下，不会丢。没有自动跳转请点下面按钮。</p>
+  <a id="go" href="./">立即前往</a>
+</div>
 <script>
-  /* localhost 开发环境清理历史 PWA 接管：必须放在主模块之前执行，
-     防止旧 Service Worker 把本地入口页和 JS 请求送进旧缓存。 */
-  (function () {
-    if (!['localhost', '127.0.0.1'].includes(location.hostname) || !('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.getRegistrations()
-      .then(function (regs) { return Promise.all(regs.map(function (reg) { return reg.unregister(); })); })
-      .then(function () {
-        if (!navigator.serviceWorker.controller) return;
-        var key = 'wb_local_sw_released';
-        if (sessionStorage.getItem(key) === '1') return;
-        sessionStorage.setItem(key, '1');
-        location.reload();
-      })
-      .catch(function (e) { console.warn('[sw] 本地开发环境清理旧注册失败', e); });
-  })();
-</script>
-<div id="app"></div>
-<div id="alarm-root"></div>
-<script>
-  /* TEST 启动前更新检查：即使旧 JS 模块无法加载，也能先发现并激活新版 SW。 */
-  (function () {
-    if (!('serviceWorker' in navigator)) return;
-    var hadController = !!navigator.serviceWorker.controller;
-    var reloadKey = 'wb_sw_controller_reloaded';
-    navigator.serviceWorker.addEventListener('controllerchange', function () {
-      if (!hadController) return;
-      try {
-        if (sessionStorage.getItem(reloadKey) === '1') return;
-        sessionStorage.setItem(reloadKey, '1');
-      } catch (e) { return; }
-      location.reload();
-    });
-    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
-      .then(function (registration) { return registration.update(); })
-      .catch(function (error) { console.warn('[sw] 启动前更新检查失败', error); });
-  })();
-</script>
-<script type="module" src="js/main.js"></script>
-<script>
-  /* 【加载失败兜底：别让人对着一片空白】
-     这个站点是静态页 + ES Module。模块还没下载完时先显示加载状态；
-     慢网络下也不能仅凭固定耗时断言启动失败，真实脚本错误仍会立即提示。 */
-  (function () {
-    var app = document.getElementById('app');
-    var t1, t2, tried = 0;
-    function box(text, showBtn) {
-      if (!app) return;
-      app.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;'
-        + 'font-family:-apple-system,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;padding:24px;box-sizing:border-box">'
-        + '<div style="max-width:340px;text-align:center">'
-        + '<div style="width:52px;height:52px;border-radius:15px;margin:0 auto 16px;display:grid;place-items:center;'
-        + 'background:linear-gradient(135deg,#4f6ef7,#7b5cf0);color:#fff;font-size:22px;font-weight:700">台</div>'
-        + '<div style="font-size:15px;color:#2a2f3a;line-height:1.7">' + text + '</div>'
-        + (showBtn ? '<button onclick="location.reload()" style="margin-top:18px;width:100%;height:44px;border:0;'
-            + 'border-radius:12px;background:#4f6ef7;color:#fff;font-size:15px;font-weight:600;'
-            + 'font-family:inherit;cursor:pointer">重新加载</button>' : '')
-        + '</div></div>';
-    }
-    function rendered() {
-      return app && app.children.length > 0 && app.innerText.trim().length > 20;
-    }
-    function showStartupError(message) {
-      if (rendered()) return;
-      var detail = String(message || '未知启动错误').slice(0, 220);
-      box('工作台启动遇到问题<br><span style="font-size:12px;color:#8b93a3">'
-        + detail.replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]; })
-        + '</span>', true);
-      console.error('[startup] 页面启动失败：', message);
-    }
-    window.addEventListener('error', function (event) {
-      if (event && (event.message || (event.target && event.target.tagName === 'SCRIPT'))) {
-        showStartupError(event.message || ('脚本加载失败：' + (event.target.src || '未知模块')));
-      }
-    }, true);
-    window.addEventListener('unhandledrejection', function (event) {
-      var reason = event && event.reason;
-      showStartupError(reason && (reason.message || reason) || '异步初始化失败');
-    });
-    window.addEventListener('wb:booted', function () {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    });
-    t1 = setTimeout(function () {
-      if (!rendered()) box('正在加载…', false);
-    }, 5000);
-    t2 = setTimeout(function () {
-      if (rendered()) return;
-      box('仍在加载，当前网络比较慢<br>可以继续等待，或点下面重新加载。', true);
-      /* 不要自动刷新：云端超时期间刷新会重复触发账户初始化请求，
-         造成请求风暴。让用户手动点击重试，避免放大 Supabase 压力。 */
-    }, 30000);
-    /* main.js 自己跑通了会调用 window.__wbBooted */
-    window.addEventListener('load', function () {
-      setTimeout(function () {
-        if (rendered()) { clearTimeout(t1); clearTimeout(t2); }
-      }, 800);
-    });
-  })();
+(function () {
+  /* 只保留一个对外地址：老的 /my-workbench/ 站点不再放应用代码。
+     这里必须带着 hash 和 query 一起跳——书签里的 #/attendance/高一
+     和学生端链接上的 ?cls= 参数都还要能用。
+     这一页原来是真实应用壳，所以教师端落到新站的 app.html（index.html 是设计稿登录页）。 */
+  var OLD = '/my-workbench/';
+  var NEW = '/mywork-master/';
+  var at = location.pathname.indexOf(OLD);
+  var link = document.getElementById('go');
+  if (at < 0) {
+    document.getElementById('title').textContent = '这里已经是正式地址';
+    link.href = './';
+    return;
+  }
+  var target = location.origin + NEW + 'app.html' + location.search + location.hash;
+  link.href = target;
+  location.replace(target);
+}());
 </script>
 </body>
 </html>
-
