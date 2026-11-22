@@ -4697,6 +4697,17 @@ textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:ver
    节次文案形如「第6节 · 14:00–14:40」，原来写死 112px 会被截成「第6节 · 14…」 */
 .ssm-time input[type="date"] { width:150px; flex:0 0 150px; }
 .ssm-time select { width:auto; flex:1 1 auto; min-width:0; }
+/* 适用班级：竖排单列下拉，底部固定一行不可点的小字 */
+.ssm-dd { position:relative; }
+.ssm-dd-btn { display:flex; align-items:center; justify-content:space-between; cursor:pointer; }
+.ssm-dd-panel { position:absolute; z-index:30; left:0; right:0; top:calc(100% + 6px); display:none;
+  max-height:280px; padding:6px; overflow:auto; background:var(--card);
+  border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.14); }
+.ssm-dd.open .ssm-dd-panel { display:block; }
+.ssm-dd-opt { padding:9px 12px; border-radius:8px; color:var(--text); font-size:14px; cursor:pointer; white-space:nowrap; }
+.ssm-dd-opt:hover { background:var(--bg-sunken); }
+.ssm-dd-opt.on { background:rgba(22,119,255,.1); color:#1677ff; font-weight:600; }
+.ssm-dd-foot { margin-top:6px; padding:8px 12px 4px; border-top:1px solid var(--line); color:#9ca3af; font-size:12px; cursor:default; }
 .ssm-imgs { display:flex; gap:16px; margin:4px 0 18px 108px; }
 @media (max-width:640px) { .ssm-imgs { margin-left:0; } }
 .ssm-img { position:relative; display:grid; place-items:center; width:128px; height:128px; overflow:hidden;
