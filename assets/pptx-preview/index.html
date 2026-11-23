@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob: data:; font-src blob: data:; connect-src blob: data:; base-uri 'none'; form-action 'none'">
+  <title>幻灯片浏览</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eef2f7; color: #16263a; font: 14px system-ui, sans-serif; }
+    nav { position: sticky; top: 0; z-index: 1; display: flex; justify-content: center; align-items: center; gap: 12px; padding: 10px; background: #fff; border-bottom: 1px solid #d7e1ef; }
+    nav[hidden] { display: none; }
+    button { min-height: 36px; padding: 0 12px; background: #fff; color: #1358a1; border: 1px solid #b7cce3; border-radius: 8px; font: inherit; cursor: pointer; }
+    button:disabled { color: #667688; cursor: default; opacity: .7; }
+    #page-number { min-width: 65px; text-align: center; }
+    #status { padding: 20px 14px; margin: 0; text-align: center; }
+    #slide { margin: 12px auto; width: calc(100% - 24px); }
+  </style>
+  <script defer src="./vendor/renderer-1.4.0.js"></script>
+  <script defer src="./viewer.js"></script>
+</head>
+<body>
+  <nav id="controls" aria-label="幻灯片翻页" hidden>
+    <button type="button" id="previous">上一页</button>
+    <span id="page-number" aria-live="polite"></span>
+    <button type="button" id="next">下一页</button>
+  </nav>
+  <p id="status" role="status">正在解析幻灯片…</p>
+  <main id="slide" aria-label="幻灯片内容"></main>
+</body>
+</html>

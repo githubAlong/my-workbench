@@ -19,3 +19,11 @@ test('标签页图标是「课」，不再让浏览器去要仓库里没有的 f
   assert.match(icon[1], /^data:image\/svg\+xml,/);
   assert.ok(decodeURIComponent(icon[1]).includes('课'), '图标里就是「课」这个字');
 });
+
+test('任务页签看教师端开关，不看这一节有没有发布过任务', () => {
+  assert.match(src, /if \(on\('selfstudy'\)\) list\.push\('selfstudy'\);/);
+  assert.doesNotMatch(src, /\(data\?\.selfstudyTasks \|\| \[\]\)\.length\) list\.push/,
+    '按「有没有任务」决定显不显示，等于老师一空发布就把整个模块藏掉');
+  assert.match(src, /availTabs\.find\(\(id\) => id !== 'selfstudy' \|\| data\.selfstudyTasks\?\.length\)/,
+    '通用链接仍优先落在有内容的模块，空任务只作默认页签的例外');
+});

@@ -83,3 +83,84 @@ button, input, textarea, select { font-family: inherit; }
 @media print {
   .me-dashboard-footer, .me-edit-profile { display: none; }
 }
+
+/* 输入框 + 右侧下拉箭头。
+   约束：箭头只是右侧 34px 的按钮，输入框主体必须能点击、能打字。
+   点击箭头展开的是自绘面板（js/choice-panel.mjs），不再用原生 select —— 原生弹层
+   归浏览器画，宽度、行高、hover、分组全都改不了。 */
+.editable-choice { position: relative; display: inline-grid; width: 100%; min-width: 0; }
+.editable-choice > input { box-sizing: border-box; min-width: 0; width: 100%; padding-inline-end: 36px; }
+.editable-choice > input[list]::-webkit-calendar-picker-indicator { display: none; }
+.editable-choice-arrow {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: 34px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  cursor: pointer;
+  border-radius: 0 9px 9px 0;
+}
+.editable-choice-arrow:hover { color: var(--text); }
+.editable-choice-arrow[hidden] { display: none; }
+.editable-choice:has(> input:focus) .editable-choice-arrow { color: var(--text-2); }
+
+/* 下拉面板 */
+.choice-panel {
+  position: fixed;
+  z-index: 400;
+  box-sizing: border-box;
+  padding: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 22, 40, .14);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.choice-panel-group {
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.choice-panel-group:first-child { padding-top: 4px; }
+.choice-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  margin: 1px 0;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.choice-panel-item[data-active="true"] { background: var(--bg-sunken, #ececf2); color: var(--text); }
+.choice-panel-item[aria-selected="true"] { background: var(--primary-weak); color: var(--primary); font-weight: 500; }
+.choice-panel-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.choice-panel-hint {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.choice-panel-item[aria-selected="true"] .choice-panel-hint { color: var(--primary); opacity: .8; }
+.choice-panel-empty {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--text-3);
+}

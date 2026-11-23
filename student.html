@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>学生工作台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#007aff">
+<meta name="theme-color" content="#2563eb">
 <!-- 标签页图标用「课」，配色和页内 .s-logo 那条蓝紫渐变一致。
      学生页原本没有 favicon 声明，浏览器会去请求仓库里不存在的 /favicon.ico，
      标签上只剩一个通用地球图标。内联 SVG 不用新增二进制文件，也不用进 sw 清单。 -->
@@ -34,6 +34,7 @@
   /* 在线预览容器：PDF 用 iframe，图片/音视频用原生控件 */
   .pv-wrap { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg-sunken); }
   .pv-wrap iframe { display: block; width: 100%; height: 72vh; border: 0; }
+  #pv-pptx:has(iframe) { padding: 0; }
   .pv-wrap img { display: block; width: 100%; height: auto; }
   .pv-wrap video { display: block; width: 100%; max-height: 72vh; background: #000; }
   .pv-wrap audio { display: block; width: 100%; padding: 18px; box-sizing: border-box; }
@@ -152,16 +153,18 @@
   }
 </style>
 <link rel="stylesheet" href="css/design-refresh.css">
+<link rel="stylesheet" href="css/student-workbench.css">
 </head>
-<body>
-<div class="stu-headwrap">
+<body class="stu-workbench">
+<header class="stu-headwrap">
   <div class="stu-top">
-    <div class="stu-logo">学</div>
-    <div class="stu-title">学生工作台</div>
+    <div class="stu-logo" aria-hidden="true">学</div>
+    <h1 class="stu-title">学生工作台</h1>
   </div>
-</div>
-<div class="s-wrap" id="s-app"><div class="empty">加载中…</div></div>
+</header>
+<main class="s-wrap" id="s-app"><div class="empty" role="status">加载中…</div></main>
 <script type="module">
+import './js/editable-choices.js';
 /* 短链编码：有服务端时是 /s/<code>，从路径第二段取。
    静态版在 GitHub Pages 上，/s/<code> 这种「服务端路由」不存在（会 404），
    所以退一步：支持 ?code=xxx，以及 sessionStorage 记住上次的 code。
@@ -191,7 +194,7 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 import { handle as localHandle } from './js/localapi.js';
 import { getStudentMaterials, materialEndpoint, passcodeHeaders } from './js/material-sharing.mjs';
 import { resolveEnvironmentProfile } from './js/environment-config.mjs';
-import { setActiveAccount } from './js/localdb.js';
+import { replaceMemFromDisk, setActiveAccount } from './js/localdb.js';
 import { taskImagePages, downloadCanvas } from './js/selfstudy-task-image.mjs';
 /* 同一个浏览器里演示时，学生端要读老师那份账号库。
    localdb 会记住最后登录的账号，这里先恢复，否则读到默认空库，
@@ -287,14 +290,12 @@ const todayStr = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-/* 老师在「教材 / 点名 / 盲盒」页里可以逐个关掉学生端模块；
-   自习没有单独的开关，发布了任务就相当于这个模块存在。
-   全部关掉且没有任务/签到时，整页只显示「正在来的路上」。 */
+/* 教师端的显示开关决定模块页签，签到页签随进行中的场次出现。 */
 function visibleTabs() {
   const mods = data?.link?.modules || {};
   const on = (k) => Number(mods[k]) !== 0;
   const list = [];
-  if ((data?.selfstudyTasks || []).length) list.push('selfstudy');
+  if (on('selfstudy')) list.push('selfstudy');
   if (data?.roll && data.roll.length) list.push('checkin');
   if (on('material')) list.push('material');
   if (on('roll')) list.push('roll');
@@ -309,10 +310,10 @@ async function init() {
   catch (e) { $('#s-app').innerHTML = `<div class="card card-pad empty"><div class="em">${ICON.lock}</div>${esc(e.message)}</div>`; return; }
   document.title = '学生工作台';
   availTabs = visibleTabs();
-  /* 老师端各模块的链接会带 ?tab=，直接落到对应页签（教材/点名/盲盒/自习）；
-     该模块被关掉时退回第一个可见页签。 */
+  /* 带 tab 的链接直接打开对应页签。通用链接优先打开有内容的模块。 */
   const wanted = new URLSearchParams(location.search).get('tab');
-  tab = availTabs.includes(wanted) ? wanted : (availTabs[0] || null);
+  const landing = availTabs.find((id) => id !== 'selfstudy' || data.selfstudyTasks?.length);
+  tab = availTabs.includes(wanted) ? wanted : (landing || availTabs[0] || null);
   paint();
 }
 const TAB_DEF = {
@@ -336,12 +337,12 @@ function paint() {
   }
   if (!availTabs.includes(tab)) tab = availTabs[0];
   $('#s-app').innerHTML = `
-    <div class="s-tabs">
+    <nav class="s-tabs" aria-label="学生工作台功能">
       ${availTabs.map((t) => {
         const d = TAB_DEF[t];
-        return `<button data-t="${t}" class="${tab === t ? 'on' : ''}">${d.icon} ${d.label}${d.dot ? ' <span class="s-dot"></span>' : ''}</button>`;
+        return `<button type="button" data-t="${t}" class="${tab === t ? 'on' : ''}" aria-pressed="${tab === t}">${d.icon} ${d.label}${d.dot ? ' <span class="s-dot"></span>' : ''}</button>`;
       }).join('')}
-    </div>
+    </nav>
     <div id="s-body"></div>`;
   document.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { tab = b.dataset.t; cur = null; paint(); }; });
   if (tab === 'selfstudy') paintSelfstudy();
@@ -366,9 +367,11 @@ function studentCardHtml(t) {
   const img = t.task_image || t.generated_image;
   const day = t.date === todayStr() ? '今日' : (t.date || '');
   const deadline = [day, t.deadline_time || t.end_time || t.period].filter(Boolean).join(' ');
-  return `<div class="card card-pad">
-    <div class="card-title" style="text-align:center">${esc(t.title || '今日任务')}</div>
-    <div class="st-card-body" style="padding:20px 0 12px;font-size:16px">${body}${img ? `<img class="st-img" src="${esc(img)}" alt="任务图">` : ''}</div>
+  return `<div class="card card-pad stu-task-card">
+    <div class="stu-section-head">
+      <div class="card-title">${esc(t.title || '今日任务')}</div>
+    </div>
+    <div class="st-card-body">${body}${img ? `<img class="st-img" src="${esc(img)}" alt="任务图">` : ''}</div>
     <div class="row wrap tiny muted" style="gap:8px 22px;padding:14px 0;border-top:1px solid var(--line)">
       <span>教师：${esc(t.creator || '老师')}</span>
       <span>任务类型：课堂自习</span>
@@ -386,10 +389,12 @@ function paintSelfstudy() {
   const t = mine[0];
   if (!t) {
     /* 和教材 / 点名 / 盲盒保持一致：都放在一张普通卡片里，不再用整页居中的空白块 */
-    $('#s-body').innerHTML = `<div class="card card-pad">
-      <div class="card-title">${ICON.clock} 今日任务</div>
-      <div class="tiny muted" style="margin-top:4px">${myClass() ? `当前设备班级：${esc(myClass())} · ` : ''}老师发布后会自动出现在这里</div>
-      <div class="stu-empty" style="margin:26px auto 6px">
+    $('#s-body').innerHTML = `<div class="card card-pad stu-task-card">
+      <div class="stu-section-head">
+        <div class="card-title">${ICON.clock} 今日任务</div>
+        <div class="tiny muted" style="margin-top:4px">${myClass() ? `当前设备班级：${esc(myClass())} · ` : ''}老师发布后会自动出现在这里</div>
+      </div>
+      <div class="stu-empty stu-task-empty">
         <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h5M8 16h3"/></svg>
         <b>暂无任务</b>
       </div>
@@ -422,11 +427,13 @@ function openTaskModal(t) {
 /* 学生端 60 秒轮询一次：任务或模块开关有变化才重绘，避免大屏上闪白 */
 setInterval(async () => {
   try {
+    replaceMemFromDisk();
     const d = await api(`/public/link/${code}`);
     const before = JSON.stringify(data?.selfstudyTasks || []);
     const after = JSON.stringify(d.selfstudyTasks || []);
     if (data) { data.selfstudyTasks = d.selfstudyTasks || []; if (d.link) data.link = d.link; }
     const next = visibleTabs();
+    if (!next.includes('selfstudy')) $('.stu-modal')?.remove();
     const tabsChanged = next.join(',') !== availTabs.join(',');
     availTabs = next;
     if (tabsChanged) paint();
@@ -519,16 +526,16 @@ function openMaterial() {
 function paintMaterials() {
   if (cur) return openMaterial();
   const mats = data.materials;
-  $('#s-body').innerHTML = `<div class="card">
-    <div class="card-pad" style="padding-bottom:6px"><div class="card-title">全部资料 <span class="chip blue">${mats.length}</span></div>
+  $('#s-body').innerHTML = `<div class="card stu-materials">
+    <div class="stu-section-head"><div class="card-title">全部资料 <span class="chip blue">${mats.length}</span></div>
       <div class="tiny muted" style="margin-top:4px">点开即可查看和下载；标了「需要口令」的，要输入老师给的班级口令</div></div>
     ${mats.length ? mats.map((m) => {
     const locked = m.locked && !passcodeFor(m.id);
-    return `<div class="mat-card" data-m="${m.id}" style="cursor:pointer">
-      <div class="doc-ico">${locked ? ICON.lockSm : ICON.mat}</div>
-      <div style="flex:1;min-width:0"><div class="bold small">${esc(m.title)}</div>
-        <div class="tiny muted">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · '))}${locked ? ' · 需要口令' : ''}</div></div>
-      <span class="tiny muted">${locked ? '输口令' : '查看'} ${ICON.more}</span></div>`;
+    return `<button type="button" class="mat-card" data-m="${esc(m.id)}">
+      <span class="doc-ico">${locked ? ICON.lockSm : ICON.mat}</span>
+      <span class="stu-material-details"><span class="bold small stu-material-title">${esc(m.title)} ${locked ? '<span class="chip amber">需要口令</span>' : ''}</span>
+        <span class="tiny muted stu-material-meta">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · '))}</span></span>
+      <span class="tiny muted stu-material-action">${locked ? '输口令' : '查看'} ${ICON.more}</span></button>`;
   }).join('') : `<div class="empty">老师还没有上传资料</div>`}
   </div>`;
   document.querySelectorAll('[data-m]').forEach((d) => { d.onclick = () => { cur = Number(d.dataset.m); openMaterial(); }; });
@@ -573,12 +580,12 @@ function paintPasscodeGate(tip) {
   input.focus();
 }
 /* 学生端能预览的类型。docx 由 mammoth 在本地转成网页（不走外网），
-   其余（xlsx / pptx / zip…）浏览器渲染不了：
+   PPTX 由浏览器在独立的预览框里渲染；其他格式按原文件名下载。
    以前点一下会新开空白页，再把 octet-stream 的 blob 当页面打开，
    结果存成一个没有扩展名的 UUID 文件，下载完谁也打不开。
    现在能预览的在页面内预览，不能预览的按原文件名下载。 */
 const PREVIEW_KIND = {
-  pdf: 'pdf', docx: 'docx',
+  pdf: 'pdf', docx: 'docx', pptx: 'pptx',
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', svg: 'image',
   mp4: 'video', webm: 'video', ogv: 'video',
   mp3: 'audio', m4a: 'audio', wav: 'audio', ogg: 'audio',
@@ -629,14 +636,14 @@ async function paintMaterialDetail() {
           const kind = previewKind(f.name);
           return `<button class="btn ghost block" data-file="${f.id}" data-name="${esc(f.name)}" data-kind="${kind}" style="justify-content:flex-start;gap:10px">
             <span style="flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis">${esc(f.name)}</span>
-            <span class="tiny muted">${kind ? '预览' : '下载'} · ${(f.size / 1024 / 1024).toFixed(1)} MB</span></button>`;
+            <span class="tiny muted">${kind === 'pptx' ? '浏览' : kind ? '预览' : '下载'} · ${(f.size / 1024 / 1024).toFixed(1)} MB</span></button>`;
         }).join('')
           : '<div class="muted small">这份资料还没有文件</div>'}
       </div>
       <div class="row wrap" style="gap:8px;margin-top:14px">
         ${d.files.map((f) => `<button class="btn soft sm" data-dl="${f.id}" data-name="${esc(f.name)}">${ICON.dl} 下载 ${esc(f.name).slice(0, 12)}</button>`).join('')}
       </div>
-      <div class="tiny muted" style="margin-top:14px">PDF、图片、音视频和 Word 文档点开即可在线预览；Excel / PPT 等格式浏览器无法预览，点击会按原文件名下载。</div>
+      <div class="tiny muted" style="margin-top:14px">PPTX、PDF、图片、音视频和 DOCX 可在线浏览。其他格式可以下载原文件。</div>
     </div>`;
     /* 不能直接给 href 让浏览器跳转：文件地址在云端函数上，顶层导航会撞上 ngrok 提示页，
        跨域时 download 属性也会被忽略。先 fetch 成 blob 再预览或保存。 */
@@ -677,9 +684,12 @@ async function paintMaterialDetail() {
       btn.textContent = '加载中…';
       try {
         const blob = await loadBlob(id, 'view');
+        const pptx = kind === 'pptx' ? await import('./assets/pptx-preview/mount.js') : null;
+        if (!btn.isConnected) return;
         if (pvURL) URL.revokeObjectURL(pvURL);
         pvURL = URL.createObjectURL(blob);
-        const media = kind === 'image' ? `<img src="${pvURL}" alt="${esc(name)}">`
+        const media = pptx ? '<div class="pv-doc" id="pv-pptx" role="status">正在打开幻灯片…</div>'
+          : kind === 'image' ? `<img src="${pvURL}" alt="${esc(name)}">`
           : kind === 'video' ? `<video src="${pvURL}" controls playsinline preload="metadata"></video>`
             : kind === 'audio' ? `<audio src="${pvURL}" controls preload="metadata"></audio>`
               : kind === 'docx' ? '<div class="pv-doc" id="pv-doc">正在解析文档…</div>'
@@ -702,6 +712,7 @@ async function paintMaterialDetail() {
           a.href = pvURL; a.download = name || '教材文件';
           document.body.appendChild(a); a.click(); a.remove();
         };
+        if (pptx) pptx.mountPptxPreview($('#pv-pptx'), blob, name);
         if (kind === 'docx') {
           try {
             const mammoth = await loadMammoth();
@@ -757,21 +768,21 @@ function paintRoll() {
 
   $('#s-body').innerHTML = `<div class="card card-pad">
     <div class="pk-grid">
-      <div class="field"><label class="field-label">人数</label>
+      <div class="field"><label class="field-label" for="pk-total">总人数</label>
         <input class="input" id="pk-total" type="number" inputmode="numeric" min="1" max="200" value="${cnt0}"></div>
-      <div class="field"><label class="field-label">点几个</label>
+      <div class="field"><label class="field-label" for="pk-num">抽取人数</label>
         <input class="input" id="pk-num" type="number" inputmode="numeric" min="1" max="20" value="1"></div>
     </div>
     <div class="field" style="margin-top:4px">
-      <label class="field-label">怎么点</label>
-      <div class="seg pk-mode">
+      <div class="field-label" id="pk-mode-label">抽取方式</div>
+      <div class="seg pk-mode" role="group" aria-labelledby="pk-mode-label">
         <button class="on" data-mode="no">按号码</button>
         <button data-mode="name" ${hasNames ? '' : 'disabled title="还没有名单，导入名单后才能按名字点"'}>按名单名字</button>
       </div>
     </div>
     <label class="pk-nr"><input type="checkbox" id="pk-norepeat"><span>不重复点同一人 <span class="tiny muted">（点完一轮前不会再出现）</span></span></label>
     <button class="btn primary block" id="go" style="height:56px;font-size:17px;margin-top:14px">${ICON.dice} 开始点名</button>
-    <div class="pick-stage"><div class="pick-roll" id="stage">填好人数和点几个，点「开始点名」</div></div>
+    <div class="pick-stage"><div class="pick-roll" id="stage"></div></div>
     <div id="history" class="tiny muted" style="text-align:center;min-height:18px"></div>
   </div>`;
 
@@ -880,8 +891,10 @@ function paintPunish() {
   const list = data.punishments || [];
   const me = recall();
   $('#s-body').innerHTML = `<div class="card card-pad" style="text-align:center">
-    <div class="card-title" style="justify-content:center">${ICON.target} 惩罚盲盒</div>
-    <div class="tiny muted">点一下开箱，点到什么就做什么</div>
+    <div class="stu-section-head">
+      <div class="card-title" style="justify-content:center">${ICON.target} 惊喜盲盒</div>
+      <div class="tiny muted">点一下开箱，点到什么就做什么</div>
+    </div>
     <div class="box-stage" id="box">
       <div>
         <div class="box-icon" id="bico">${BOX_ICO.closed}</div>
@@ -1011,28 +1024,32 @@ function paintMisconduct() {
   const initialClasses = curGrade ? classesOf(curGrade) : [];
   const otherClass = !!curClass && !initialClasses.includes(curClass);
   $('#s-body').innerHTML = `<div class="card card-pad">
-    <div class="card-title">${ICON.alert} 违纪登记</div>
-    <div class="tiny muted" style="margin:4px 0 12px">选择你所在的年级班级，填写违纪情况后提交，老师会在教师端看到。</div>
-    <div class="field">
-      <label class="field-label">年级</label>
-      <select class="input" id="mc-grade">
-        <option value="">请选择年级</option>
-        ${gradeList.map((g) => `<option${g === curGrade ? ' selected' : ''}>${esc(g)}</option>`).join('')}
-        <option value="__other__"${otherGrade ? ' selected' : ''}>其他（手动填写）</option>
-      </select>
-      <input class="input" id="mc-grade-custom" placeholder="例如：高一" value="${otherGrade ? esc(curGrade) : ''}" style="display:none;margin-top:8px">
+    <div class="stu-section-head">
+      <div class="card-title">${ICON.alert} 违纪登记</div>
+      <div class="tiny muted">选择你所在的年级班级，填写违纪情况后提交，老师会在教师端看到。</div>
+    </div>
+    <div class="stu-form-grid">
+      <div class="field">
+        <label class="field-label" for="mc-grade">年级</label>
+        <select class="input" id="mc-grade">
+          <option value="">请选择年级</option>
+          ${gradeList.map((g) => `<option${g === curGrade ? ' selected' : ''}>${esc(g)}</option>`).join('')}
+          <option value="__other__"${otherGrade ? ' selected' : ''}>其他（手动填写）</option>
+        </select>
+        <input class="input" id="mc-grade-custom" placeholder="例如：高一" value="${otherGrade ? esc(curGrade) : ''}" style="display:none;margin-top:8px">
+      </div>
+      <div class="field">
+        <label class="field-label" for="mc-cls">班级</label>
+        <select class="input" id="mc-cls">
+          <option value="">请选择班级</option>
+          ${initialClasses.map((c) => `<option${c === curClass ? ' selected' : ''}>${esc(c)}</option>`).join('')}
+          <option value="__other__"${otherClass ? ' selected' : ''}>其他（手动填写）</option>
+        </select>
+        <input class="input" id="mc-cls-custom" placeholder="例如：1 班" value="${otherClass ? esc(curClass) : ''}" style="display:none;margin-top:8px">
+      </div>
     </div>
     <div class="field">
-      <label class="field-label">班级</label>
-      <select class="input" id="mc-cls">
-        <option value="">请选择班级</option>
-        ${initialClasses.map((c) => `<option${c === curClass ? ' selected' : ''}>${esc(c)}</option>`).join('')}
-        <option value="__other__"${otherClass ? ' selected' : ''}>其他（手动填写）</option>
-      </select>
-      <input class="input" id="mc-cls-custom" placeholder="例如：1 班" value="${otherClass ? esc(curClass) : ''}" style="display:none;margin-top:8px">
-    </div>
-    <div class="field">
-      <label class="field-label">违纪情况</label>
+      <label class="field-label" for="mc-text">违纪情况</label>
       <textarea class="input" id="mc-text" rows="4" placeholder="写清楚时间、地点和具体情节"></textarea>
     </div>
     <div class="row" style="justify-content:flex-end;align-items:center;gap:10px">
@@ -1110,11 +1127,13 @@ function paintBulletin() {
   const initialClasses = curGrade ? classesOf(curGrade) : [];
   const otherClass = !!curClass && !initialClasses.includes(curClass);
   $('#s-body').innerHTML = `<div class="card card-pad">
-    <div class="card-title">${ICON.chat} 留言板</div>
-    <div class="tiny muted" style="margin:4px 0 12px">写下想说的话，老师会在教师端的留言板里看到。</div>
-    <div class="row wrap" style="gap:8px">
+    <div class="stu-section-head">
+      <div class="card-title">${ICON.chat} 留言板</div>
+      <div class="tiny muted">留言提交后，可在下方查看教师回复。</div>
+    </div>
+    <div class="stu-form-grid">
       <div class="field" style="flex:1;min-width:140px">
-        <label class="field-label">年级</label>
+        <label class="field-label" for="bl-grade">年级</label>
         <select class="input" id="bl-grade">
           <option value="">请选择年级</option>
           ${gradeList.map((g) => `<option${g === curGrade ? ' selected' : ''}>${esc(g)}</option>`).join('')}
@@ -1123,7 +1142,7 @@ function paintBulletin() {
         <input class="input" id="bl-grade-custom" placeholder="例如：高一" value="${otherGrade ? esc(curGrade) : ''}" style="display:none;margin-top:8px">
       </div>
       <div class="field" style="flex:1;min-width:140px">
-        <label class="field-label">班级</label>
+        <label class="field-label" for="bl-class">班级</label>
         <select class="input" id="bl-class">
           <option value="">请选择班级</option>
           ${initialClasses.map((c) => `<option${c === curClass ? ' selected' : ''}>${esc(c)}</option>`).join('')}
@@ -1133,15 +1152,45 @@ function paintBulletin() {
       </div>
     </div>
     <div class="field">
-      <label class="field-label">留言内容</label>
+      <label class="field-label" for="bl-text">留言内容</label>
       <textarea class="input" id="bl-text" rows="4" placeholder="想对老师说的话"></textarea>
     </div>
     <div class="row" style="justify-content:flex-end;align-items:center;gap:10px">
       <span class="tiny" id="bl-tip" style="color:var(--green)"></span>
       <button class="btn primary" id="bl-send">提交</button>
     </div>
-  </div>`;
-  const tip = (msg, bad) => { const t = $('#bl-tip'); t.textContent = msg; t.style.color = bad ? 'var(--red)' : 'var(--green)'; };
+  </div><section class="card card-pad stu-replies">
+    <div class="row stu-section-head" style="justify-content:space-between;align-items:center;gap:8px">
+      <div class="card-title">教师回复</div>
+      <button type="button" class="btn" id="bl-refresh-replies">刷新回复</button>
+    </div>
+    <div id="bl-replies" aria-live="polite"></div>
+  </section>`;
+  const status = $('#bl-tip');
+  const tip = (msg, bad) => { status.textContent = msg; status.style.color = bad ? 'var(--red)' : 'var(--green)'; };
+  const repliesBox = $('#bl-replies');
+  const paintReplies = (entries) => {
+    const replies = (Array.isArray(entries) ? entries : []).filter((item) => item.reply)
+      .sort((a, b) => String(b.replied_at || '').localeCompare(String(a.replied_at || '')));
+    repliesBox.innerHTML = replies.length ? replies.map((item) => `
+      <article class="stu-reply">
+        <div class="tiny muted">${esc(clsName(item.grade, item.class_name))} ${esc(item.replied_at ? new Date(item.replied_at).toLocaleString('zh-CN', { hour12: false }) : '')}</div>
+        <p>${esc(item.reply)}</p>
+      </article>`).join('') : '<div class="tiny muted" style="padding:12px 0">暂无教师回复</div>';
+  };
+  paintReplies(data?.bulletin);
+  const refreshReplies = $('#bl-refresh-replies');
+  refreshReplies.onclick = async () => {
+    refreshReplies.disabled = true;
+    try {
+      const latest = await api(`/public/link/${code}`);
+      data.bulletin = latest.bulletin;
+      paintReplies(latest.bulletin);
+      tip('');
+    } catch (error) {
+      tip(error.message || '回复加载失败，请稍后再试', true);
+    } finally { refreshReplies.disabled = false; }
+  };
   const gradeSelect = $('#bl-grade');
   const gradeCustom = $('#bl-grade-custom');
   const clsSelect = $('#bl-class');
