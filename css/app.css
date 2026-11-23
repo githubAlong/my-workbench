@@ -5093,3 +5093,46 @@ textarea.ssm-input { height:auto; padding:10px 12px; line-height:1.6; resize:ver
   outline-offset: 2px;
   border-radius: 6px;
 }
+
+/* ============ 班级名单弹窗：左边选班、右边改一个班 ============ */
+.sheet.rm-sheet { max-width: 920px; }
+.rm-wrap { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 16px; }
+.rm-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rm-side-top { display: flex; gap: 6px; }
+.rm-side-top .input { flex: 1; min-width: 0; height: 32px; font-size: 13px; }
+.rm-classes { display: flex; flex-direction: column; gap: 2px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-2); max-height: 56vh; overflow: auto; }
+.rm-item { width: 100%; display: grid; gap: 1px; text-align: left; padding: 7px 10px; border: 0; border-radius: 9px; background: transparent; cursor: pointer; }
+.rm-item:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.rm-item.on { background: var(--primary-weak); }
+.rm-item-name { font-size: 13px; font-weight: 650; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rm-item.on .rm-item-name { color: var(--primary); }
+.rm-item.dirty .rm-item-name::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--amber); margin-right: 6px; vertical-align: 1px; }
+.rm-item-sub { font-size: 11.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rm-side-foot { font-size: 11.5px; color: var(--text-3); padding: 0 4px; }
+.rm-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.rm-head { display: grid; grid-template-columns: 96px 120px minmax(0, 1fr); gap: 10px; align-items: end; }
+.rm-head .field { margin-bottom: 0; }
+.rm-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.rm-num { font-family: var(--mono); font-size: 22px; font-weight: 700; line-height: 1.1; letter-spacing: -.5px; }
+.rm-num span { font-size: 12px; font-weight: 500; color: var(--text-3); margin-left: 3px; }
+.rm-dup { display: inline-flex; align-items: center; gap: 4px; border: 0; background: var(--amber-weak); color: #b57608; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 20px; cursor: pointer; }
+.rm-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.rm-tools .input { flex: 1 1 160px; min-width: 0; height: 32px; }
+.rm-names { flex: 1; min-height: 170px; max-height: 42vh; overflow: auto; padding: 9px 9px 3px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.rm-chip { display: inline-flex; align-items: center; gap: 1px; height: 27px; padding: 0 3px 0 10px; margin: 0 5px 6px 0; border-radius: 14px; background: var(--bg-sunken); color: var(--text); font-size: 12.5px; font-weight: 550; }
+.rm-chip-x { width: 19px; height: 19px; border: 0; border-radius: 50%; background: transparent; color: var(--text-3); font-size: 15px; line-height: 1; cursor: pointer; }
+.rm-chip-x:hover { background: var(--red-weak); color: var(--red); }
+.rm-text { display: block; width: 100%; min-height: 170px; border: 0; outline: 0; background: transparent; font: inherit; font-size: 13px; line-height: 1.95; resize: none; }
+.rm-none { color: var(--text-3); font-size: 12.5px; padding: 14px 10px; text-align: center; line-height: 1.8; }
+.rm-start { padding: 44px 18px; }
+.rm-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rm-state { color: var(--text-3); }
+.rm-state.on { color: #b57608; font-weight: 650; }
+.rm-del { color: var(--red); }
+@media (max-width: 720px) {
+  .sheet.rm-sheet { max-width: 100%; }
+  .rm-wrap { grid-template-columns: 1fr; gap: 12px; }
+  .rm-classes { max-height: 148px; }
+  .rm-head { grid-template-columns: 1fr 1fr; }
+  .rm-meta { grid-column: 1 / -1; flex-direction: row; align-items: baseline; justify-content: space-between; width: 100%; }
+}

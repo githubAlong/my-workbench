@@ -351,7 +351,7 @@ if (typeof window !== 'undefined') {
    表现就是「点了确认没反应」（第 2 条）。
    改成每开一层 +1，永远保证最后打开的在最上面。 */
 let zBase = 200;
-export function sheet({ title = '', body = '', footer = '', wide = false, onMount, onClose, cls = '' }) {
+export function sheet({ title = '', body = '', footer = '', wide = false, onMount, onClose, onBeforeClose, cls = '' }) {
   const wrap = el(`<div class="sheet-mask">
     <div class="sheet ${wide ? 'sheet-wide' : ''} ${cls}">
       <div class="sheet-head">
@@ -371,7 +371,11 @@ export function sheet({ title = '', body = '', footer = '', wide = false, onMoun
   let closed = false;
   let onKey = null;
   const close = () => {
-    if (closed) return; closed = true;
+    if (closed) return;
+    /* 关窗前给调用方一次否决权（名单改了一半被手滑关掉，得能拦一下）。
+       只认严格的 false，其它返回值一律放行，免得没传钩子时把弹层锁死。 */
+    if (onBeforeClose?.() === false) return;
+    closed = true;
     if (onKey) document.removeEventListener('keydown', onKey);
     wrap.classList.remove('in');
     setTimeout(() => {

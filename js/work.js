@@ -3086,10 +3086,10 @@ async function renderStudentModule(box, key) {
   }
 }
 
-/* 班级名单管理：本地版没有单独的名单页，就在点名下面开一个弹层改。
-   以前这里只让改已有班级，空名单时还提示「先去课件 → 上传资料建班」，
-   但课件页根本没有建班入口，等于把用户指到死路。
-   现在弹层里直接新建年级/班级，名单可以粘贴，也可以传 Excel / CSV 自动读姓名列。 */
+/* 班级名单管理：左边选班、右边只管那一个班，改完单独保存。
+   旧版是「每个班挂一个大文本框 + 底部一次性全存」：6 个班 300 人就得一路滚到底，
+   看不出哪个班被动过，没改的班也跟着被 PATCH 一遍。
+   名单用姓名卡片呈现 —— 删谁点谁后面的 ×；要整批灌的时候切「批量粘贴」。 */
 const ROSTER_NAME_HEAD = /^(姓名|名字|学生|学生姓名|name)$/i;
 const ROSTER_GRADE_HEAD = /^(年级|级部|grade)$/i;
 const ROSTER_CLASS_HEAD = /^(班级|班|class)$/i;
@@ -3148,109 +3148,318 @@ async function readRosterFile(file) {
 }
 
 function openRosterDialog(rosters, reload) {
-  const body = el(`<div class="sheet-body">
-    <div class="card card-pad" style="margin-bottom:14px">
-      <div class="card-title">${icon('plus', 15)} 新建班级</div>
-      <div class="tiny muted" style="margin:4px 0 10px">填好年级和班级；名单可以手动粘贴，也可以传 Excel / CSV 自动读取姓名列。</div>
-      <div class="form-grid">
-        <div class="field"><label class="field-label">年级</label>
-          <input class="input" id="nr-grade" placeholder="如：高一"></div>
-        <div class="field"><label class="field-label">班级</label>
-          <input class="input" id="nr-class" placeholder="如：1 班"></div>
+  const splitNames = (text) => String(text ?? '').split(/[\n,，、;；\s]+/).map((x) => x.trim()).filter(Boolean);
+  const label = (it) => clsName(it.grade, it.class_name) || '未命名班级';
+  const sameNames = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  const isDirty = (it) => it.grade !== it.orig.grade || it.class_name !== it.orig.class_name || !sameNames(it.names, it.orig.names);
+  const dupCount = (names) => names.length - new Set(names).size;
+
+  const items = (rosters || []).map((r) => {
+    const names = parseNames(r.names);
+    return {
+      id: String(r.id), grade: r.grade || '', class_name: r.class_name || '',
+      fallback: Number(r.count) || 0, names, orig: { grade: r.grade || '', class_name: r.class_name || '', names: names.slice() },
+    };
+  });
+  let curId = items.length ? items[0].id : '';
+  let mode = 'chip';
+  let seq = 0;
+  let savedAny = false;
+  let okToClose = false;
+  const cur = () => items.find((x) => x.id === curId);
+
+  const body = el(`<div class="rm-wrap">
+    <div class="rm-side">
+      <div class="rm-side-top">
+        <input class="input" id="rm-q" placeholder="搜班级，或直接搜学生名">
+        <button class="btn primary sm" id="rm-new">${icon('plus', 14)} 新建</button>
       </div>
-      <div class="field">
-        <label class="field-label">学生名单</label>
-        <textarea class="input" id="nr-names" rows="4" placeholder="一行一个姓名；也可以从 Excel 复制整列粘进来"></textarea>
-      </div>
-      <div class="row wrap" style="gap:8px;align-items:center">
-        <input type="file" id="nr-file" accept=".xlsx,.xlsm,.csv,.tsv,.txt" hidden>
-        <button class="btn ghost sm" id="nr-pick">${icon('upload', 14)} 选择 Excel / CSV</button>
-        <span class="tiny muted" id="nr-count">已填 0 个姓名</span>
-        <span style="flex:1"></span>
-        <button class="btn primary sm" id="nr-add">新建这个班</button>
-      </div>
+      <div class="rm-classes" id="rm-classes"></div>
+      <div class="rm-side-foot" id="rm-foot"></div>
     </div>
-    <div class="card-title">${icon('users', 15)} 已有班级</div>
-    <div class="small muted" style="margin:4px 0 10px">名字一行一个，或用逗号、顿号、空格分开都行。</div>
-    ${rosters.map((r) => {
-    const n = parseNames(r.names);
-    return `<div class="field" data-rid="${r.id}">
-        <label class="field-label">${esc(clsName(r.grade, r.class_name))}</label>
-        <textarea class="input" rows="3" data-names="${r.id}">${esc(n.join('\n'))}</textarea>
-      </div>`;
-  }).join('') || '<div class="empty">还没有班级，先在上面新建一个</div>'}
-    <div class="confirm-actions"><button class="btn ghost" id="rc">取消</button><button class="btn primary" id="ro">保存</button></div>
+    <div class="rm-main" id="rm-main"></div>
   </div>`);
-  const s = sheet({ title: '班级名单', body });
   const $ = (q) => body.querySelector(q);
 
-  const countNewNames = () => {
-    const n = $('#nr-names').value.split(/[\n,，、;；\s]+/).map((x) => x.trim()).filter(Boolean).length;
-    $('#nr-count').textContent = `已填 ${n} 个姓名`;
-    return n;
-  };
-  $('#nr-names').oninput = countNewNames;
-
-  $('#nr-pick').onclick = () => $('#nr-file').click();
-  $('#nr-file').onchange = async () => {
-    const f = $('#nr-file').files?.[0];
-    if (!f) return;
-    $('#nr-count').textContent = `正在读取 ${f.name}…`;
-    try {
-      const got = await readRosterFile(f);
-      if (!got.names.length) throw new Error('这个文件里没找到姓名列，确认一下表头是不是写着「姓名」');
-      if (got.grade && !$('#nr-grade').value.trim()) $('#nr-grade').value = got.grade;
-      if (got.class_name && !$('#nr-class').value.trim()) $('#nr-class').value = got.class_name;
-      $('#nr-names').value = got.names.join('\n');
-      countNewNames();
-      toast(`从「${f.name}」读到 ${got.names.length} 个姓名`);
-    } catch (e) {
-      countNewNames();
-      toast(e.message || '文件读取失败', 'err', 5000);
-    } finally {
-      $('#nr-file').value = '';
-    }
+  /* 搜索：班级名匹配就直接进列表；班级名对不上时再查学生名，
+     老师记得的是「那个班有个张三」而不是「高二十八班」。 */
+  const matchNote = (it) => {
+    const t = $('#rm-q').value.trim();
+    if (!t) return '';
+    if (label(it).includes(t) || it.grade.includes(t) || it.class_name.includes(t)) return '';
+    const kid = it.names.find((n) => n.includes(t));
+    return kid ? `名单里有 ${kid}` : null;
   };
 
-  $('#nr-add').onclick = async () => {
-    const grade = $('#nr-grade').value.trim();
-    const class_name = $('#nr-class').value.trim();
-    if (!grade || !class_name) return toast('年级和班级都要填', 'warn');
-    if (rosters.some((r) => r.grade === grade && r.class_name === class_name)) {
-      return toast('这个班级已经有了，请在下面直接改名单', 'warn');
-    }
-    const names = $('#nr-names').value.split(/[\n,，、;；\s]+/).map((x) => x.trim()).filter(Boolean);
-    const btn = $('#nr-add');
-    btn.disabled = true; btn.textContent = '新建中…';
-    try {
-      await api.post('/rosters', { grade, class_name, names, count: names.length });
-      s.close(); toast(`已新建「${clsName(grade, class_name)}」`); reload?.();
-    } catch (e) {
-      btn.disabled = false; btn.textContent = '新建这个班';
-      toast(e.message || '新建失败', 'err');
-    }
+  const paintList = () => {
+    const rows = items.map((it) => ({ it, note: matchNote(it) })).filter((x) => x.note !== null);
+    $('#rm-classes').innerHTML = rows.length
+      ? rows.map(({ it, note }) => `<button class="rm-item${it.id === curId ? ' on' : ''}${isDirty(it) ? ' dirty' : ''}" data-pick="${esc(it.id)}">
+          <span class="rm-item-name">${esc(label(it))}</span>
+          <span class="rm-item-sub">${esc(note || (it.names.length ? `${it.names.length} 人` : `按号码点 ${it.fallback || 40} 人`))}</span>
+        </button>`).join('')
+      : '<div class="rm-none">没有匹配的班级</div>';
+    $('#rm-foot').textContent = `共 ${items.length} 个班 · ${items.reduce((s, it) => s + it.names.length, 0)} 人`;
   };
 
-  $('#rc').onclick = s.close;
-  $('#ro').onclick = async () => {
-    const btn = $('#ro'); btn.disabled = true; btn.textContent = '保存中…';
-    try {
-      for (const r of rosters) {
-        const ta = body.querySelector(`[data-names="${r.id}"]`);
-        if (!ta) continue;
-        const names = ta.value.split(/[\n,，、\s]+/).map((x) => x.trim()).filter(Boolean);
-        /* /rosters 的 PATCH 接口约定 names 是数组（不是字符串），
-           count 不给时会自动用数组长度；这里显式给，防止空名单把人数冲成 0。 */
-        await api.patch('/rosters/' + r.id, { names, count: names.length || Number(r.count) || 0 });
+  const metaHtml = (it) => {
+    const d = dupCount(it.names);
+    return `<div class="rm-num">${it.names.length}<span>人</span></div>`
+      + (d
+        ? `<button class="rm-dup" data-act="dedup">${icon('alert', 13)} 有 ${d} 个重名，点这里去掉</button>`
+        : `<div class="tiny muted">${it.names.length
+          ? '删人点名字后面的 ×；整批灌名单用下面「批量粘贴」'
+          : `还没导入姓名，学生按 1~${it.fallback || 40} 号点名`}</div>`);
+  };
+
+  const namesHtml = (it) => {
+    if (mode === 'text') {
+      return `<textarea class="rm-text" id="rm-text" spellcheck="false" placeholder="一行一个姓名，也可以从 Excel 复制整列粘进来">${esc(it.names.join('\n'))}</textarea>`;
+    }
+    return it.names.length
+      ? it.names.map((n, i) => `<span class="rm-chip">${esc(n)}<button class="rm-chip-x" data-act="chip-x" data-i="${i}" aria-label="移除 ${esc(n)}">×</button></span>`).join('')
+      : '<div class="rm-none">这个班还没有姓名。用下面「批量粘贴」整批灌、导入 Excel / CSV，或者一个名字一个名字敲都行。</div>';
+  };
+
+  const paintState = () => {
+    const it = cur();
+    if (!it) return;
+    const st = $('#rm-state');
+    if (!st) return;
+    const d = isDirty(it);
+    st.textContent = it.isNew ? '新建 · 还没保存' : d ? '改动未保存' : '已保存';
+    st.classList.toggle('on', d);
+    $('#rm-revert').hidden = !d;
+    $('#rm-save').textContent = it.isNew ? '创建这个班' : '保存这个班';
+  };
+
+  /* 只重画名单区和人数，不重画整块 —— 免得输入框丢焦点 */
+  const paintNames = () => {
+    const it = cur();
+    if (!it) return;
+    $('#rm-names').innerHTML = namesHtml(it);
+    $('#rm-meta').innerHTML = metaHtml(it);
+    paintList();
+    paintState();
+  };
+
+  const paintMain = () => {
+    const it = cur();
+    const main = $('#rm-main');
+    if (!it) {
+      main.innerHTML = '<div class="rm-none rm-start">还没有班级名单。<br>点左上「新建」建一个班，学生就能按名字点名；不建也能按 1~50 号点。</div>';
+      paintList();
+      return;
+    }
+    main.innerHTML = `
+      <div class="rm-head">
+        <div class="field"><label class="field-label">年级</label>
+          <input class="input" id="rm-grade" value="${esc(it.grade)}" placeholder="如：高二"></div>
+        <div class="field"><label class="field-label">班级</label>
+          <input class="input" id="rm-class" value="${esc(it.class_name)}" placeholder="如：11 班"></div>
+        <div class="rm-meta" id="rm-meta">${metaHtml(it)}</div>
+      </div>
+      <div class="rm-tools">
+        <input class="input" id="rm-addn" placeholder="输入姓名，回车加一个">
+        <button class="btn ghost sm" data-act="mode">${mode === 'chip' ? icon('edit', 14) + ' 批量粘贴' : icon('check', 14) + ' 应用这批名字'}</button>
+        <button class="btn ghost sm" data-act="xlsx">${icon('upload', 14)} 导入 Excel / CSV</button>
+        <input type="file" id="rm-file" accept=".xlsx,.xlsm,.csv,.tsv,.txt" hidden>
+      </div>
+      <div class="rm-names" id="rm-names">${namesHtml(it)}</div>
+      <div class="rm-foot">
+        ${it.isNew ? '' : `<button class="btn ghost sm rm-del" data-act="del">${icon('trash', 14)} 删除这个班</button>`}
+        <span style="flex:1"></span>
+        <span class="tiny rm-state" id="rm-state"></span>
+        <button class="btn ghost sm" id="rm-revert" data-act="revert" hidden>放弃改动</button>
+        <button class="btn primary sm" id="rm-save" data-act="save">保存这个班</button>
+      </div>`;
+    /* 输入时不 trim：班级要打成「11 班」，边打边删空格就打不出来。
+       保存那一刻再去 trim，脏判定用的是原始值，不影响。 */
+    $('#rm-grade').oninput = () => { it.grade = $('#rm-grade').value; paintList(); paintState(); };
+    $('#rm-class').oninput = () => { it.class_name = $('#rm-class').value; paintList(); paintState(); };
+    $('#rm-file').onchange = async () => {
+      const f = $('#rm-file').files?.[0];
+      const it = cur();
+      $('#rm-file').value = '';
+      if (!f || !it) return;
+      try {
+        const got = await readRosterFile(f);
+        if (!got.names.length) throw new Error('这个文件里没找到姓名列，确认一下表头是不是写着「姓名」');
+        if (it.isNew) {
+          if (got.grade && !it.grade) it.grade = got.grade;
+          if (got.class_name && !it.class_name) it.class_name = got.class_name;
+        }
+        /* 直接覆盖工作副本，不写库：不满意点「放弃改动」就回到原样。 */
+        it.names = got.names.slice();
+        paintMain();
+        toast(`从「${f.name}」读到 ${got.names.length} 个姓名，点「保存这个班」才生效`);
+      } catch (e) {
+        toast(e.message || '文件读取失败', 'err', 5000);
       }
-      s.close(); toast('名单已保存'); reload?.();
+    };
+
+    $('#rm-addn').onkeydown = (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      addNames($('#rm-addn').value);
+      $('#rm-addn').value = '';
+    };
+    paintList();
+    paintState();
+  };
+
+  const addNames = (text) => {
+    const it = cur();
+    if (!it) return;
+    const typed = splitNames(text);
+    if (!typed.length) return;
+    const have = new Set(it.names);
+    const fresh = typed.filter((n) => !have.has(n));
+    const dup = typed.length - fresh.length;
+    if (!fresh.length) { toast(`「${dup[0] || typed[0]}」已经在这个班了`, 'warn'); return; }
+    it.names = it.names.concat(fresh);
+    paintNames();
+    if (dup) toast(`加了 ${fresh.length} 个，${dup} 个重名没有重复加`, 'warn');
+  };
+
+  /* 卡片 ⇄ 批量文本：文本框只是录入的另一种形态，落回卡片时才并进名单 */
+  const toggleMode = () => {
+    const it = cur();
+    if (!it) return;
+    if (mode === 'chip') {
+      mode = 'text';
+      paintMain();
+      $('#rm-text').focus();
+      return;
+    }
+    it.names = splitNames($('#rm-text').value);
+    mode = 'chip';
+    paintMain();
+    const d = dupCount(it.names);
+    toast(d ? `读到 ${it.names.length} 个姓名，其中 ${d} 个重名，点人数旁边的提示能去掉` : `名单已填好，点「保存这个班」才生效`, d ? 'warn' : 'ok');
+  };
+
+  const saveOne = async (it) => {
+    const grade = it.grade.trim();
+    const class_name = it.class_name.trim();
+    if (!grade || !class_name) { toast('年级和班级都要填', 'warn'); return; }
+    const twin = items.find((x) => x !== it && x.grade.trim() === grade && x.class_name.trim() === class_name);
+    if (twin) { toast(`「${clsName(grade, class_name)}」已经有了，去那个班改就行`, 'warn'); return; }
+    const btn = $('#rm-save');
+    const label0 = btn.textContent;
+    btn.disabled = true; btn.textContent = '保存中…';
+    const names = it.names.slice();
+    try {
+      if (it.isNew) {
+        const created = await api.post('/rosters', { grade, class_name, names, count: names.length });
+        if (!created || created.id === undefined) {
+          /* 拿不到新 id 就别让后面 PATCH 打空：关掉重开，让外层重新拉一遍。 */
+          savedAny = true;
+          okToClose = true;
+          s.close();
+          reload?.();
+          return;
+        }
+        it.isNew = false;
+        it.id = String(created.id);
+        curId = it.id;
+      } else {
+        /* count 显式给：空名单时不让接口把「按号码点的人数」冲成 0。 */
+        await api.patch('/rosters/' + it.id, { grade, class_name, names, count: names.length || it.fallback || 0 });
+      }
+      it.grade = grade;
+      it.class_name = class_name;
+      it.orig = { grade, class_name, names };
+      savedAny = true;
+      toast(`「${clsName(grade, class_name)}」已保存${names.length ? '' : '，这个班还是按号码点'}`);
+      paintMain();
     } catch (e) {
-      btn.disabled = false; btn.textContent = '保存';
-      toast(e.message || '保存失败', 'err');
+      toast(e.message || '保存失败', 'err', 5000);
+      btn.disabled = false; btn.textContent = label0;
     }
   };
-}
 
+  const delOne = async (it) => {
+    if (!(await confirmDialog(`删除「${label(it)}」的名单？班级会进回收站，随时能还原；这个班先改回按号码点名。`, { title: '删除这个班', okText: '删除', danger: true }))) return;
+    const btn = body.querySelector('[data-act="del"]');
+    if (btn) btn.disabled = true;
+    try {
+      await api.del('/rosters/' + it.id);
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      toast(e.message || '删除失败', 'err', 5000);
+      return;
+    }
+    const at = items.indexOf(it);
+    items.splice(at, 1);
+    curId = items.length ? items[Math.min(at, items.length - 1)].id : '';
+    savedAny = true;
+    mode = 'chip';
+    paintMain();
+    toast('已删除，可在回收站还原');
+  };
+
+  body.addEventListener('click', async (e) => {
+    const pick = e.target.closest('[data-pick]');
+    if (pick) {
+      curId = pick.dataset.pick;
+      mode = 'chip';
+      paintMain();
+      return;
+    }
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const it = cur();
+    if (!it) return;
+    const act = btn.dataset.act;
+    if (act === 'chip-x') { it.names.splice(Number(btn.dataset.i), 1); paintNames(); return; }
+    if (act === 'mode') { toggleMode(); return; }
+    if (act === 'xlsx') { $('#rm-file').click(); return; }
+    if (act === 'dedup') {
+      const before = it.names.length;
+      it.names = [...new Set(it.names)];
+      paintNames();
+      toast(`去掉了 ${before - it.names.length} 个重名`);
+      return;
+    }
+    if (act === 'revert') {
+      if (!(await confirmDialog(`丢掉「${label(it)}」这次没保存的改动？`, { title: '放弃改动', okText: '丢掉' }))) return;
+      it.grade = it.orig.grade;
+      it.class_name = it.orig.class_name;
+      it.names = it.orig.names.slice();
+      mode = 'chip';
+      paintMain();
+      return;
+    }
+    if (act === 'del') { await delOne(it); return; }
+    if (act === 'save') { await saveOne(it); return; }
+  });
+
+  $('#rm-q').oninput = paintList;
+  $('#rm-new').onclick = () => {
+    const it = { id: 'new-' + (++seq), isNew: true, grade: '', class_name: '', fallback: 40, names: [], orig: { grade: '', class_name: '', names: [] } };
+    items.unshift(it);
+    curId = it.id;
+    mode = 'chip';
+    paintMain();
+    $('#rm-grade').focus();
+  };
+  /* 关窗前拦一道：名单是整批粘进来的，手滑按 Esc 就全没了。
+     onBeforeClose 返回 false 表示这次关闭被拦下，确认之后才放行。 */
+  const askClose = () => {
+    const n = items.filter(isDirty).length;
+    if (!n || okToClose) return true;
+    confirmDialog(`有 ${n} 个班的改动还没保存，关掉就找不回来了。`, { title: '确定关闭？', okText: '丢掉改动', danger: true })
+      .then((ok) => { if (ok) { okToClose = true; s.close(); } });
+    return false;
+  };
+  const s = sheet({
+    title: '班级名单', body, wide: true, cls: 'rm-sheet',
+    onBeforeClose: askClose,
+    onClose: () => { if (savedAny) reload?.(); },
+  });
+  paintMain();
+}
 /* ================= 课件 + 课堂签到 ================= */
 async function renderMaterials(box) {
   let currentCat = 0;
