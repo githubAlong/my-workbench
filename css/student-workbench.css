@@ -1,6 +1,22 @@
+/* 学生工作台（student.html）
+   版式按设计稿重做：顶部品牌条 + 宽屏左侧竖向导航 / 窄屏底部 tabbar + 卡片式内容区。
+   功能相关样式（教材、点名、盲盒、留言板）保持原有结构，只统一圆角、描边和按钮观感。 */
 .stu-workbench {
   --stu-header: #2563eb;
-  --bg: #f4f7fb;
+  --stu-bg: #f4f7fc;
+  --stu-card: #fff;
+  --stu-ink: #1c2433;
+  --stu-ink-2: #556176;
+  --stu-ink-3: #3a4558;
+  --stu-line: #dde5f1;
+  --stu-line-2: #c3d0e6;
+  --stu-line-3: #e8edf5;
+  --stu-surface: #f4f7fc;
+  --stu-tag-bg: #e6eeff;
+  --stu-tag-fg: #1740a8;
+  --stu-tag-warm-bg: #fff0d6;
+  --stu-tag-warm-fg: #7a3f00;
+  --bg: #f4f7fc;
   --bg-sunken: #f1f5f9;
   --card: #fff;
   --text: #1e293b;
@@ -11,18 +27,31 @@
   --primary: #2563eb;
   --primary-deep: #1d4ed8;
   --primary-weak: #eff6ff;
-  --stu-surface: #f8fafc;
   --stu-stage: linear-gradient(125deg, #fffbeb, #faf5ff 56%, #eff6ff);
   --stu-stage-border: #fcd34d;
   --stu-stage-text: #92400e;
   margin: 0;
   min-height: 100vh;
-  background: var(--bg);
-  color: var(--text);
-  font-family: Inter, "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  background: var(--stu-bg);
+  color: var(--stu-ink);
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", Inter, system-ui, sans-serif;
+  font-size: 15px;
 }
 
 html[data-theme="dark"] .stu-workbench {
+  --stu-bg: #101a2c;
+  --stu-card: #162236;
+  --stu-ink: #eef4ff;
+  --stu-ink-2: #b6c6dd;
+  --stu-ink-3: #cfdcee;
+  --stu-line: #2c3b52;
+  --stu-line-2: #445672;
+  --stu-line-3: #27364c;
+  --stu-surface: #132035;
+  --stu-tag-bg: #1e3358;
+  --stu-tag-fg: #9dc0ff;
+  --stu-tag-warm-bg: #3b2b16;
+  --stu-tag-warm-fg: #f5c877;
   --bg: #101a2c;
   --bg-sunken: #111c2e;
   --card: #162236;
@@ -32,22 +61,25 @@ html[data-theme="dark"] .stu-workbench {
   --line: #2c3b52;
   --line-2: #445672;
   --primary-weak: #203867;
-  --stu-surface: #132035;
   --stu-stage: linear-gradient(125deg, #332518, #302238 56%, #192b42);
   --stu-stage-border: #a8772e;
   --stu-stage-text: #fcd58a;
-  background: var(--bg);
+  background: var(--stu-bg);
 }
 
+/* ---------- 顶部品牌条 ---------- */
 .stu-workbench .stu-headwrap {
   background: var(--stu-header);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 12%);
+  box-shadow: none;
 }
 
 .stu-workbench .stu-top {
-  max-width: 1152px;
-  margin: auto;
-  padding: 14px clamp(16px, 3vw, 32px);
+  max-width: 1120px;
+  margin: 0 auto;
+  height: 60px;
+  padding: 0 24px;
+  box-sizing: border-box;
+  gap: 10px;
   background: transparent;
   color: #fff;
 }
@@ -56,9 +88,11 @@ html[data-theme="dark"] .stu-workbench {
   flex: 0 0 32px;
   width: 32px;
   height: 32px;
+  border-radius: 50%;
   background: #fff;
   color: var(--stu-header);
   font-size: 16px;
+  font-weight: 800;
 }
 
 .stu-workbench .stu-title {
@@ -68,77 +102,135 @@ html[data-theme="dark"] .stu-workbench {
   line-height: 1.4;
 }
 
-.stu-workbench .s-wrap {
-  max-width: 1024px;
+/* ---------- 外壳：宽屏左栏 + 内容 ---------- */
+.stu-workbench .stu-shell {
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 24px clamp(16px, 2.5vw, 24px) 48px;
-  font-family: inherit;
+  padding: 24px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
 }
 
-.stu-workbench .s-tabs {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+.stu-workbench .stu-side {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  padding: 6px;
-  margin-bottom: 24px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--card);
-  box-shadow: var(--shadow-s);
+  position: sticky;
+  top: 24px;
 }
 
-.stu-workbench .s-tabs button {
-  min-width: 0;
-  height: 40px;
-  gap: 6px;
-  border-radius: 11px;
-  font-weight: 550;
-  color: var(--text-2);
+.stu-workbench .stu-navbtn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #2b3548;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s, color .15s;
 }
 
-.stu-workbench .s-tabs button:hover {
-  background: var(--stu-surface);
-  color: var(--text);
+.stu-workbench .stu-navbtn svg {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
 }
 
-.stu-workbench .s-tabs button.on {
+/* 签到红点：挂在图标右上角，窄屏变成底栏图标上的小红点 */
+.stu-workbench .stu-nicon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.stu-workbench .stu-nicon .s-dot {
+  position: absolute;
+  top: -1px;
+  right: -3px;
+  margin: 0;
+}
+
+/* student.html 只加载 design-refresh 与本文件，app.css 的 .hidden 用不上，这里补一条 */
+.stu-workbench .hidden { display: none !important; }
+
+.stu-workbench .stu-navbtn:hover { background: #e8effd; }
+
+.stu-workbench .stu-navbtn.on {
   background: var(--stu-header);
   color: #fff;
-  font-weight: 650;
-  box-shadow: 0 3px 8px rgb(37 99 235 / 23%);
 }
 
-.stu-workbench :is(.s-tabs button, .btn, .mat-card):focus-visible {
-  outline: 2px solid var(--primary);
+.stu-workbench .stu-navbtn:focus-visible {
+  outline: 2px solid var(--stu-header);
   outline-offset: 2px;
+}
+
+html[data-theme="dark"] .stu-workbench .stu-navbtn { color: var(--stu-ink-2); }
+html[data-theme="dark"] .stu-workbench .stu-navbtn:hover { background: #1c2b44; }
+html[data-theme="dark"] .stu-workbench .stu-navbtn.on { background: var(--stu-header); color: #fff; }
+
+.stu-workbench .stu-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stu-workbench .stu-page-head h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.stu-workbench .stu-page-head p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--stu-ink-2);
 }
 
 .stu-workbench #s-body {
   display: grid;
   min-width: 0;
-  gap: 24px;
+  gap: 16px;
 }
 
-.stu-workbench .s-wrap .card,
-.stu-workbench .stu-modal-card {
-  min-width: 0;
+/* ---------- 卡片 / 按钮：统一成设计稿的白底描边 ---------- */
+.stu-workbench .card {
+  background: var(--stu-card);
+  border: 1px solid var(--stu-line);
   border-radius: 16px;
+  box-shadow: none;
+  color: var(--stu-ink);
 }
 
-.stu-workbench #s-body > .card-pad {
-  padding: clamp(18px, 3vw, 32px);
+.stu-workbench #s-body > .card-pad,
+.stu-workbench .stu-materials {
+  padding: clamp(18px, 3vw, 24px);
 }
 
 .stu-workbench .card-title {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
+  color: var(--stu-ink);
 }
 
 .stu-workbench .stu-section-head {
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--stu-line-3);
 }
 
 .stu-workbench .stu-section-head .tiny {
@@ -146,67 +238,295 @@ html[data-theme="dark"] .stu-workbench {
   line-height: 1.55;
 }
 
-.stu-workbench .stu-task-card {
-  min-height: 420px;
-}
-
-.stu-workbench .stu-task-empty {
-  margin: 54px auto 16px;
-}
-
-.stu-workbench .stu-task-card .stu-empty svg {
-  display: block;
-  box-sizing: border-box;
-  width: 78px;
-  height: 78px;
-  margin-inline: auto;
-  padding: 18px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--stu-surface);
-  color: var(--text-3);
-  opacity: 1;
-}
-
-.stu-workbench .stu-empty b {
-  color: var(--text);
-}
-
-.stu-workbench .st-card-body,
-.stu-workbench .stu-reply {
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--line);
+.stu-workbench .btn {
   border-radius: 12px;
+  font-weight: 700;
+}
+
+.stu-workbench .btn:not(.sm) {
+  height: 48px;
+  padding: 0 22px;
+  font-size: 15px;
+}
+
+.stu-workbench .btn.primary {
+  background: var(--stu-header);
+  color: #fff;
+  box-shadow: none;
+}
+
+.stu-workbench .btn.primary:hover:not(:disabled) { background: #1d4ed8; }
+
+.stu-workbench .btn.ghost {
+  background: var(--stu-card);
+  border: 1px solid var(--stu-line-2);
+  color: #1f2a44;
+}
+
+.stu-workbench .btn.ghost:hover:not(:disabled) { background: #eef3fc; }
+
+html[data-theme="dark"] .stu-workbench .btn.ghost { color: var(--stu-ink); }
+html[data-theme="dark"] .stu-workbench .btn.ghost:hover:not(:disabled) { background: #1c2b44; }
+
+.stu-workbench :is(.stu-navbtn, .btn, .mat-card):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* 分段控件（点名页「按名字 / 按号码」）：选中用浅蓝底，跟导航的选中态呼应 */
+.stu-workbench .seg {
   background: var(--stu-surface);
+  border: 1px solid var(--stu-line);
+  border-radius: 12px;
+  padding: 3px;
+}
+
+.stu-workbench .seg button {
+  border-radius: 9px;
+  font-weight: 700;
+  color: var(--stu-ink-2);
+}
+
+.stu-workbench .seg button.on {
+  background: var(--stu-tag-bg);
+  color: var(--stu-tag-fg);
+  box-shadow: none;
+}
+
+/* ---------- 任务卡（设计稿主体） ---------- */
+.stu-workbench .stu-task {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 24px;
+  background: var(--stu-card);
+  border: 1px solid var(--stu-line);
+  border-radius: 16px;
+}
+
+.stu-workbench .stu-task-main {
+  flex: 1 1 320px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stu-workbench .stu-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.stu-workbench .stu-tag {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--stu-tag-bg);
+  color: var(--stu-tag-fg);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.stu-workbench .stu-tag.warm {
+  background: var(--stu-tag-warm-bg);
+  color: var(--stu-tag-warm-fg);
+}
+
+.stu-workbench .stu-task-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--stu-ink-3);
   overflow-wrap: anywhere;
 }
 
-.stu-workbench .stu-task-card .st-card-body {
-  margin-bottom: 16px;
-  line-height: 1.65;
+.stu-workbench .stu-task-lead {
+  font-size: 28px;
+  line-height: 1.5;
+  font-weight: 800;
+  color: var(--stu-ink);
+  overflow-wrap: anywhere;
 }
 
-.stu-workbench .stu-materials {
-  padding: clamp(18px, 3vw, 32px);
+.stu-workbench .stu-task-rest {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--stu-ink-2);
+  overflow-wrap: anywhere;
 }
 
+.stu-workbench .stu-task-rest li { position: relative; padding-left: 14px; }
+
+.stu-workbench .stu-task-rest li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: .72em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--stu-line-2);
+}
+
+.stu-workbench .stu-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--stu-line-3);
+  font-size: 14px;
+  color: var(--stu-ink-2);
+}
+
+.stu-workbench .stu-task-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stu-workbench .stu-task-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.stu-workbench .stu-task-side {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.stu-workbench .stu-shot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  aspect-ratio: 4 / 3;
+  padding: 16px;
+  border-radius: 12px;
+  border: 2px dashed var(--stu-line-2);
+  background: var(--stu-surface);
+  color: var(--stu-ink-2);
+  text-align: center;
+  overflow: hidden;
+}
+
+.stu-workbench .stu-shot img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+/* 有图就不是「虚线占位」了，换成实线相框 */
+.stu-workbench .stu-shot:has(img) {
+  border: 1px solid var(--stu-line);
+  background: var(--stu-card);
+  padding: 8px;
+}
+
+.stu-workbench .stu-shot b {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--stu-ink-3);
+}
+
+.stu-workbench .stu-shot .tiny { font-size: 13px; color: var(--stu-ink-2); }
+
+.stu-workbench .stu-task-foot {
+  font-size: 14px;
+  color: var(--stu-ink-2);
+}
+
+.stu-workbench .stu-linkbtn {
+  margin-left: 4px;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--stu-tag-fg);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.stu-workbench .stu-linkbtn:hover { background: #eef3fc; }
+
+html[data-theme="dark"] .stu-workbench .stu-linkbtn:hover { background: #1c2b44; }
+
+/* ---------- 空态 ---------- */
+.stu-workbench .stu-empty {
+  margin: 0;
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--stu-ink-2);
+}
+
+.stu-workbench .stu-empty svg { opacity: .55; }
+
+.stu-workbench .stu-empty b {
+  display: block;
+  margin-top: 14px;
+  color: var(--stu-ink);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.stu-workbench .stu-lock {
+  max-width: 560px;
+  margin: 60px auto;
+  padding: 34px 30px;
+  border: 1px solid var(--stu-line);
+  border-radius: 16px;
+  background: var(--stu-card);
+  text-align: center;
+}
+
+.stu-workbench .stu-lock b {
+  display: block;
+  margin-top: 14px;
+  color: var(--stu-ink);
+  font-size: 17px;
+  font-weight: 650;
+}
+
+/* ---------- 任务详情弹层 ---------- */
+.stu-modal { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center;
+  padding: 20px; background: rgba(15, 23, 42, .45); }
+
+.stu-modal-card { width: min(680px, 100%); max-height: 86vh; overflow: auto; border-radius: 16px;
+  background: #fff; color: #1f2937; box-shadow: 0 24px 60px rgba(0, 0, 0, .25); }
+
+.stu-modal-head { display: flex; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid #eef1f6; }
+.stu-modal-head b { flex: 1; font-size: 17px; }
+.stu-modal-head button { border: 0; background: transparent; color: #98a2b3; cursor: pointer; font-size: 22px; line-height: 1; }
+.stu-modal-body { padding: 20px 22px 24px; font-size: 15.5px; line-height: 1.85; white-space: pre-wrap; }
+.stu-modal-body img { width: 100%; border-radius: 10px; margin-top: 14px; }
+
+.stu-workbench .stu-modal-card { border-radius: 16px; }
+
+/* ---------- 教材 ---------- */
 .stu-workbench .stu-materials .mat-card {
   width: 100%;
   min-height: 64px;
   padding: 12px 8px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--stu-line);
   border-radius: 10px;
   text-align: left;
 }
 
-.stu-workbench .mat-card:hover {
-  background: var(--stu-surface);
-}
-
-.stu-workbench .mat-card:last-child {
-  border-bottom: 0;
-}
+.stu-workbench .mat-card:hover { background: var(--stu-surface); }
+.stu-workbench .mat-card:last-child { border-bottom: 0; }
 
 .stu-workbench .doc-ico {
   flex: 0 0 40px;
@@ -225,10 +545,7 @@ html[data-theme="dark"] .stu-workbench {
   overflow-wrap: anywhere;
 }
 
-.stu-workbench .stu-material-details {
-  flex: 1;
-  min-width: 0;
-}
+.stu-workbench .stu-material-details { flex: 1; min-width: 0; }
 
 .stu-workbench .stu-material-meta {
   display: block;
@@ -250,26 +567,34 @@ html[data-theme="dark"] .stu-workbench {
 }
 
 .stu-workbench :is(.input, select.input, textarea.input) {
-  border-color: var(--line-2);
+  border-color: var(--stu-line-2);
   border-radius: 12px;
-  color: var(--text);
+  color: var(--stu-ink);
+  background: var(--stu-card);
 }
 
-.stu-workbench textarea.input {
-  min-height: 120px;
-  resize: vertical;
-}
+.stu-workbench textarea.input { min-height: 120px; resize: vertical; }
 
-.stu-workbench .btn:not(.sm) {
+.stu-workbench .st-card-body,
+.stu-workbench .stu-reply {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--stu-line);
   border-radius: 12px;
+  background: var(--stu-surface);
+  overflow-wrap: anywhere;
 }
 
+/* ---------- 点名 / 盲盒 / 签到 ---------- */
 .stu-workbench .pick-stage {
   min-height: 160px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--stu-line);
   border-radius: 16px;
   background: var(--stu-surface);
 }
+
+.stu-workbench .pick-roll { color: var(--stu-ink-2); }
+.stu-workbench .pick-win { color: var(--stu-header); }
 
 .stu-workbench .box-stage {
   min-height: 220px;
@@ -279,45 +604,126 @@ html[data-theme="dark"] .stu-workbench {
   color: var(--stu-stage-text);
 }
 
-.stu-workbench .box-stage.open {
-  border-color: transparent;
-}
+.stu-workbench .box-stage.open { border-color: transparent; }
 
 .stu-workbench #spin.primary:not(:disabled) {
   background: linear-gradient(95deg, #b45309, #a24108);
-  box-shadow: 0 4px 12px rgb(180 83 9 / 20%);
+  box-shadow: none;
 }
 
-.stu-workbench .stu-replies #bl-replies {
-  display: grid;
-  gap: 10px;
+.stu-workbench .ck-b { border-radius: 14px; border: 1.5px solid var(--stu-line); background: var(--stu-card); }
+.stu-workbench .ck-me { border-radius: 12px; background: var(--stu-tag-bg); color: var(--stu-tag-fg); }
+
+.stu-workbench .stu-replies #bl-replies { display: grid; gap: 10px; }
+.stu-workbench .stu-reply p { margin: 6px 0 0; white-space: pre-wrap; }
+
+/* ---------- 窄屏：底部 tabbar（设计稿手机版） ---------- */
+@media (max-width: 760px) {
+  .stu-workbench .stu-top {
+    height: 56px;
+    padding: 0 16px;
+  }
+
+  .stu-workbench .stu-logo {
+    flex: 0 0 30px;
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+  }
+
+  .stu-workbench .stu-title { font-size: 17px; }
+
+  .stu-workbench .stu-shell {
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 16px calc(88px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .stu-workbench .stu-side {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 60;
+    flex: none;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: var(--stu-card);
+    border-top: 1px solid var(--stu-line);
+    box-shadow: 0 -2px 12px rgb(15 23 42 / 6%);
+  }
+
+  .stu-workbench .stu-navbtn {
+    flex-direction: column;
+    height: auto;
+    min-height: 52px;
+    gap: 3px;
+    padding: 6px 0;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    justify-content: center;
+    border-radius: 12px;
+  }
+
+  .stu-workbench .stu-navbtn.on,
+  html[data-theme="dark"] .stu-workbench .stu-navbtn.on {
+    background: var(--stu-tag-bg);
+    color: var(--stu-tag-fg);
+  }
+
+  .stu-workbench .stu-page-head h1 { font-size: 22px; }
+  .stu-workbench .stu-page-head p { font-size: 13px; }
+
+  .stu-workbench .stu-task {
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px;
+  }
+
+  .stu-workbench .stu-task-main { gap: 14px; }
+  .stu-workbench .stu-task-name { font-size: 16px; }
+  .stu-workbench .stu-task-lead { font-size: 24px; }
+
+  /* 竖向排列时 flex-basis 会变成高度，不清零就会在卡片底部留一块空白 */
+  .stu-workbench .stu-task-side { flex: 0 0 auto; }
+
+  .stu-workbench .stu-task-meta {
+    padding-top: 12px;
+    gap: 6px;
+  }
+
+  .stu-workbench .stu-task-acts { flex-direction: column; align-items: stretch; gap: 10px; }
+
+  .stu-workbench .stu-task-acts .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .stu-workbench .stu-task-acts .btn.primary {
+    height: 52px;
+    border-radius: 14px;
+    font-size: 16px;
+  }
+
+  .stu-workbench .stu-task-acts .btn.ghost {
+    height: 48px;
+    border-radius: 14px;
+    font-size: 15px;
+  }
+
+  .stu-workbench .stu-form-grid { grid-template-columns: 1fr; gap: 0; }
+
+  /* 手机版照设计稿：没图就不占位，卡片只留文案和按钮 */
+  .stu-workbench .stu-shot.is-empty { display: none; }
+
+  .stu-workbench .stu-task-foot { text-align: center; }
+
+  .stu-workbench .stu-empty { padding: 28px 12px; }
 }
 
-.stu-workbench .stu-reply p {
-  margin: 6px 0 0;
-  white-space: pre-wrap;
+@media (prefers-reduced-motion: reduce) {
+  .stu-workbench .stu-navbtn { transition: none; }
 }
 
-@media (max-width: 620px) {
-  .stu-workbench .s-wrap {
-    padding-top: 18px;
-  }
-
-  .stu-workbench .s-tabs {
-    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-    margin-bottom: 16px;
-  }
-
-  .stu-workbench #s-body {
-    gap: 16px;
-  }
-
-  .stu-workbench .stu-task-card {
-    min-height: 350px;
-  }
-
-  .stu-workbench .stu-form-grid {
-    grid-template-columns: 1fr;
-    gap: 0;
-  }
-}
