@@ -2478,10 +2478,38 @@ on('PATCH', '/attendance/:id', ({ params, body }) => {
 });
 /* 确认生成：点一下才算正式生效（PRD FR-TABLE-4）。
    确认之后仍然可以改，改完再点一次「重新确认」覆盖（FR-TABLE-5）。 */
-on('POST', '/attendance/:id/confirm', ({ params }) => {
+const validWorkspaceSnapshot = record => record && /^\d+$/.test(String(record.period)) && Array.isArray(record.rows);
+const isChildWorkspaceConfirmation = body => validWorkspaceSnapshot(body?.workspace_result)
+  && ['class','research','leave'].includes(body.workspace_result.type);
+
+function workspaceConfirmation(meta, body) {
+  const snapshot = body?.workspace_snapshot;
+  const result = body?.workspace_result;
+  let next = meta;
+  if (validWorkspaceSnapshot(snapshot)) {
+    next = { ...next, workspace_confirmed: { ...next.workspace_confirmed, [String(snapshot.period)]: snapshot.rows } };
+  }
+  if (validWorkspaceSnapshot(result) && ['seat','class','research','leave'].includes(result.type)) {
+    const sheets = safeJSON(next.workspace_results, {});
+    next = { ...next, workspace_results: { ...sheets, [result.type]: {
+      ...sheets[result.type], [String(result.period)]: { rows: result.rows },
+    } } };
+  }
+  return next;
+}
+on('POST', '/attendance/:id/confirm', ({ params, body }) => {
   const t = byId('attendance_tables', params.id);
   if (!t) fail(404, '考勤表不存在');
-  const meta = safeJSON(t.meta, {});
+  if (body?.expected_updated_at !== undefined && String(t.updated_at || '') !== String(body.expected_updated_at || '')) {
+    fail(409, 'WB_ATTENDANCE_CONFLICT: 表头已被另一台设备修改');
+  }
+  const meta = workspaceConfirmation(safeJSON(t.meta, {}), body);
+  if (isChildWorkspaceConfirmation(body)) {
+    t.meta = JSON.stringify(meta);
+    t.updated_at = nowISO();
+    save();
+    return t;
+  }
   /* 留痕：确认过几次、每次是不是在改完以后重认的。
      老师最常问的就是「这张表什么时候认的、认完又动没动」，
      以前只有最新一个时间戳，问起来只能靠回忆。 */
@@ -2990,17 +3018,22 @@ on('PATCH', '/invig/rules', ({ body }) => {
 on('GET', '/invig/summary', async ({ query }) => {
   const month = /^\d{4}-\d{2}$/.test(String(query.month || '')) ? String(query.month) : cnDate().slice(0, 7);
   let sourceRows = rowsOf('invigilations');
+  let source = 'local';
+  const requireCloud = globalThis.location?.hostname === 'githubalong.github.io';
 
   /* 监考 CRUD 已走云端 invigilations 表；列表汇总也必须读取同一数据源。
      否则云端删除成功后，本地 /invig/summary 仍会把旧副本显示出来。 */
-  if (await cloudReady()) {
+  const connected = await cloudReady();
+  if (!connected && requireCloud) fail(503, '监考云端会话未就绪，请重新登录后重试');
+  if (connected) {
     try {
       const cloud = await import('./cloud.js');
       sourceRows = await cloud.listRows('invigilations', { month });
+      source = 'cloud';
     } catch (error) {
       /* 测试库尚未迁移该表时，沿用本地数据；其他云端错误必须明确报出，
          不能静默回退到旧数据并误报删除成功。 */
-      if (!isCloudSchemaUnavailable(error)) throw error;
+      if (requireCloud || !isCloudSchemaUnavailable(error)) throw error;
     }
   }
 
@@ -3009,7 +3042,7 @@ on('GET', '/invig/summary', async ({ query }) => {
     .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.start_time || '').localeCompare(String(a.start_time || '')))
     .map(fillInvigTime);
   const rules = getInvigRules();
-  return { month, summary: buildInvSummary(rows, rules), rules, rows };
+  return { month, summary: buildInvSummary(rows, rules), rules, rows, source };
 });
 on('POST', '/invig/settle', ({ body }) => {
   const month = String(body?.month || '');
@@ -3705,16 +3738,22 @@ on('POST', '/upload', async ({ body, opts }) => {
 
   if (ownerType === 'material' && await cloudReady()) {
     const cloud = await import('./cloud.js');
-    let uploaded;
+    let result;
     /* 云端教材服务（Edge Function）没部署或连不上时，错误要以云端服务不可用的口径报出来，
        不能掉进 handle() 的兜底拼成「本地处理失败：Failed to fetch」——
        那样既怪错了地方，也没告诉用户文件其实没传。 */
     try {
-      uploaded = await cloud.uploadMaterialFiles(files, ownerId, opts?.onProgress);
+      result = await cloud.uploadMaterialFiles(files, ownerId, opts?.onProgress, opts?.onFileDone, opts?.onStage);
     } catch (e) {
       fail(502, (e && e.message) || '教材上传服务暂时不可用，请稍后重试');
     }
-    return uploaded.map(file => ({ ...file, id: saveAttachment(ownerType, ownerId, file.name, file.mime, file.size, file.url) }));
+    const uploaded = result?.uploaded || [];
+    const saved = uploaded.map(file => ({ ...file, id: saveAttachment(ownerType, ownerId, file.name, file.mime, file.size, file.url) }));
+    /* 部分成功也如实回：已经进了 storage 的文件必须落库。
+       老实现是一个文件失败就整批抛错，成功的那些前端不知道，重试时又全传一遍 ——
+       32 个文件重传一遍就是好几分钟，用户看到的就是「卡在正在上传」。
+       现在把 { files, failed } 一起回，前端只补失败的那几个。 */
+    return { files: saved, failed: result?.failed || [] };
   }
 
   /* 先把所有文件都量一遍再动手写。
@@ -3842,16 +3881,24 @@ on('PATCH', '/links/:id', ({ params, body }) => {
 
 /* ---- 点名 ---- */
 on('POST', '/roll/open', ({ body }) => {
-  const roster = byId('rosters', body?.roster_id);
-  if (!roster) fail(404, '班级不存在');
-  return openRollSession(roster, body);
+  if (body?.roster_id) {
+    const roster = byId('rosters', body.roster_id);
+    if (!roster) fail(404, '班级不存在');
+    return openRollSession(roster, body);
+  }
+  const className = String(body?.class_name || '').trim();
+  if (!className) fail(400, '请选择或填写班级');
+  return openRollSession({ id: null, class_name: className }, body);
 });
 function openRollSession(roster, b = {}) {
   const db = load();
   db.roll_sessions = db.roll_sessions || [];
   const date = String(b.date || todayStr());
   const period = Number(b.period_no) || 0;
-  const exist = T('roll_sessions').find((s) => !s.deleted_at && String(s.roster_id) === String(roster.id) && s.date === date && num(s.period_no) === period);
+  const sameClass = (s) => roster.id
+    ? String(s.roster_id) === String(roster.id)
+    : !s.roster_id && s.class_name === roster.class_name;
+  const exist = T('roll_sessions').find((s) => !s.deleted_at && sameClass(s) && s.date === date && num(s.period_no) === period);
   if (exist) {
     if (exist.status === 'closed' && b.reopen) {
       exist.status = 'open';
@@ -3946,6 +3993,25 @@ function publicClassOptions(grades) {
   return [...out.values()].sort((a, b) => a.grade.localeCompare(b.grade, 'zh-Hans-CN') || a.class_name.localeCompare(b.class_name, 'zh-Hans-CN'));
 }
 
+/* 资料口令：老师给某个班单独设的短码，空 = 不设口令。
+   比对时去掉首尾空格并忽略大小写 —— 学生在手机上打字，多一个空格或多按一次 Shift
+   不该被当成「口令不对」。 */
+const materialPasscode = (m) => String(m?.passcode || '').trim();
+function passcodeAccepted(m, input) {
+  const want = materialPasscode(m);
+  return !want || want.toLowerCase() === String(input || '').trim().toLowerCase();
+}
+/* 口令没过就别往下走：这一句同时挡住资料详情和文件内容。 */
+function requireMaterialPasscode(m, input) {
+  if (passcodeAccepted(m, input)) return;
+  fail(401, '这份资料需要口令，请输入老师给的班级口令', { need_passcode: true });
+}
+/* 下发给学生端的资料字段：白名单写法，passcode 不在里面，永远不会跟着列表跑出去。 */
+const studentMaterialRow = (m) => ({
+  id: m.id, seq: m.seq, title: m.title, grade: m.grade, class_name: m.class_name,
+  descr: m.descr, created_at: m.created_at, locked: !!materialPasscode(m),
+});
+
 on('GET', '/public/link/:code', ({ params, query }) => {
   const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
   if (!l) fail(404, '链接不存在或已关闭');
@@ -3954,7 +4020,7 @@ on('GET', '/public/link/:code', ({ params, query }) => {
   const grades = safeJSON(l.grades, []);
   const mats = rowsOf('materials').filter((m) => num(m.public) === 1)
     .sort((a, b) => b.id - a.id)
-    .map((m) => ({ id: m.id, seq: m.seq, title: m.title, grade: m.grade, class_name: m.class_name, descr: m.descr, created_at: m.created_at }));
+    .map(studentMaterialRow);
   const cats = rowsOf('categories').filter((c) => c.scope === 'material')
     .sort((a, b) => num(a.sort) - num(b.sort))
     .map((c) => ({ id: c.id, name: c.name }));
@@ -4042,26 +4108,29 @@ on('GET', '/public/link/:code/selfstudy', ({ params }) => {
   if (!l) fail(404, '链接不存在或已关闭');
   return { tasks: publicSelfstudyTasks() };
 });
-on('GET', '/public/link/:code/file/:id', ({ params }) => {
+on('GET', '/public/link/:code/file/:id', ({ params, query }) => {
   const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
   if (!l) fail(404, '链接不存在');
   const a = (load().attachments || []).find((x) => String(x.id) === String(params.id) && x.owner_type === 'material' && !x.deleted_at);
   if (!a) fail(404, '文件不存在');
   const m = byId('materials', a.owner_id);
+  requireMaterialPasscode(m, query.passcode);
   if (m) { m.views = num(m.views) + 1; save(); }
   return { file: a };
 });
-on('GET', '/public/link/:code/materials/:id', ({ params }) => {
+on('GET', '/public/link/:code/materials/:id', ({ params, query }) => {
   const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
   if (!l) fail(404, '链接不存在');
   const m = byId('materials', params.id);
   if (!m) fail(404, '资料不存在');
+  /* 口令没过不计数、不给文件，也不把整行原样发出去（整行里现在带着 passcode）。 */
+  requireMaterialPasscode(m, query.passcode);
   m.views = num(m.views) + 1;
   save();
   const files = (load().attachments || [])
     .filter((a) => !a.deleted_at && a.owner_type === 'material' && String(a.owner_id) === String(m.id))
     .map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, url: a.url || '' }));
-  return { material: m, files };
+  return { material: studentMaterialRow(m), files };
 });
 on('GET', '/public/link/:code/roll', ({ params, query }) => {
   const l = (load().links || []).find((x) => x.code === params.code && num(x.enabled) === 1 && !x.deleted_at);
@@ -4414,7 +4483,13 @@ export async function handle(method, path, query = {}, body = undefined, opts = 
      还在本地实现，此时它返回 null。绝不能把这个 null 当成数据交给前端，
      否则点「学科统计」会看到一片空白。null 一律视为「没接云端」，
      掉到下面的本地循环里处理 —— 这也是本地数据还能救急的地方。 */
-  if (CLOUD_TABLES.has(clean.split('/')[1]) && await cloudReady()) {
+  const table = clean.split('/')[1];
+  const requireInvigCloud = table === 'invigilations' && globalThis.location?.hostname === 'githubalong.github.io';
+  const cloudConnected = CLOUD_TABLES.has(table) && await cloudReady();
+  if (requireInvigCloud && !cloudConnected) {
+    return { ok: false, code: 503, error: '监考云端会话未就绪，请重新登录后重试' };
+  }
+  if (cloudConnected) {
     let data;
     try {
       data = await cloudRoute(method, clean, query, body);
@@ -4432,7 +4507,7 @@ export async function handle(method, path, query = {}, body = undefined, opts = 
           ? '云端考勤保存服务尚未就绪，请联系管理员补齐保存函数；当前勾选仍保留，请勿刷新页面'
           : '云端：' + message, code: 502, cloud: true };
       }
-      if (!isCloudSchemaUnavailable(e)) {
+      if (requireInvigCloud || !isCloudSchemaUnavailable(e)) {
         return { ok: false, error: '云端：' + (e.message || e), code: 502, cloud: true };
       }
       /* 【诊断留痕】云端写入失败后静默退回本机会骗人：界面提示"已新增成功"，
@@ -4881,12 +4956,16 @@ async function cloudRoute(method, clean, query, body) {
       const t = await m.getRow('attendance_tables', id);
       if (!t) throw new Error('考勤表不存在');
       const prevM = safeJSON(t.meta, {});
-      /* 留痕，跟本地版一致：确认/重新确认各记一条，最多留 20 条 */
-      const audit = Array.isArray(prevM.audit) ? prevM.audit.slice(-19) : [];
-      audit.push({ at: nowISO(), action: prevM.confirmed_at ? 'reconfirm' : 'confirm', dirty: num(prevM.confirm_dirty) ? 1 : 0 });
-      const meta = { ...prevM, confirmed_at: nowISO(), confirm_dirty: 0, audit };
-      const row = await m.updateRow('attendance_tables', id, { meta });
-      return { ...row, columns: attCols(row), meta, confirm_state: 'confirmed' };
+      const meta = workspaceConfirmation(prevM, body);
+      if (!isChildWorkspaceConfirmation(body)) {
+        const audit = Array.isArray(prevM.audit) ? prevM.audit.slice(-19) : [];
+        audit.push({ at: nowISO(), action: prevM.confirmed_at ? 'reconfirm' : 'confirm', dirty: num(prevM.confirm_dirty) ? 1 : 0 });
+        Object.assign(meta, { confirmed_at: nowISO(), confirm_dirty: 0, audit });
+      }
+      const row = body?.expected_updated_at === undefined
+        ? await m.updateRow('attendance_tables', id, { meta })
+        : await m.updateAttendanceTable(id, { meta }, body.expected_updated_at);
+      return { ...row, columns: attCols(row), meta, confirm_state: attConfirmState(meta) };
     }
 
     /* ---- 粘贴导入：/attendance/:id/import ---- */

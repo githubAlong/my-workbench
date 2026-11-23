@@ -1,5 +1,5 @@
 import { api, esc, el, sheet, saving, confirmDialog, toast, download } from './core.js';
-import { cleanPeriodTime, normalizeTimetablePeriods } from './timetable-periods.mjs';
+import { cleanPeriodTime, resolveTimetablePeriods } from './timetable-periods.mjs';
 
 /* 上课类型：预设 + 可手动输入。预设用来带默认课时费与支付状态；
    手动输入或自定义类型按「课时费 0 / 已支付」兜底。
@@ -18,7 +18,7 @@ const TYPE_LABEL = Object.fromEntries(TYPES);
 /* 历史数据英文 key → 中文类型，列表渲染时优先查 TYPE_LABEL，回退这里。 */
 const TYPE_LABEL_ENG = { normal: '正常上课', i_substitute: '我代别人上课', substituted_for_me: '别人代我上课', swap: '换课', holiday: '假期', exam: '考试', other: '其他' };
 /* 上课类型 → 课时费 / 支付状态默认值。切换类型时自动带出，之后仍可手改。
-   预设 key 同时接受中文名和历史英文 key，保存时会归一到 TYPE_KEY_NORMALIZE。 */
+   预设 key 同时接受中文名和历史英文 key。 */
 const TYPE_DEFAULTS = {
   正常上课: { amount: 30, status: '学校支付' }, normal: { amount: 30, status: '学校支付' },
   我代别人上课: { amount: 40, status: '待支付' }, i_substitute: { amount: 40, status: '待支付' },
@@ -28,10 +28,18 @@ const TYPE_DEFAULTS = {
   考试: { amount: 0, status: '已支付' }, exam: { amount: 0, status: '已支付' },
   其他: { amount: 0, status: '已支付' }, other: { amount: 0, status: '已支付' },
 };
-/* 保存时归一：把历史英文 key 转成中文 key，自定义类型直接保留。 */
-const TYPE_KEY_NORMALIZE = Object.fromEntries(TYPES.map(([v]) => [v, v]));
-for (const [eng, chi] of Object.entries(TYPE_LABEL_ENG)) TYPE_KEY_NORMALIZE[eng] = chi;
-const normalizeTypeKey = (v) => TYPE_KEY_NORMALIZE[String(v || '').trim()] || String(v || '').trim();
+/* 表单和筛选统一显示中文。写入时，四种历史类型沿用数据库原有的值。 */
+const normalizeTypeKey = (value) => {
+  const type = String(value || '').trim();
+  return Object.hasOwn(TYPE_LABEL_ENG, type) ? TYPE_LABEL_ENG[type] : type;
+};
+const LEGACY_STORAGE_TYPE = new Map(
+  ['normal', 'i_substitute', 'substituted_for_me', 'swap'].map((type) => [TYPE_LABEL_ENG[type], type]),
+);
+const classTypeForStorage = (value) => {
+  const type = normalizeTypeKey(value) || '正常上课';
+  return LEGACY_STORAGE_TYPE.get(type) ?? type;
+};
 const CUSTOM_TYPE_DEFAULTS = { amount: 0, status: '已支付' };
 /* 「无需支付」已全局下线：历史数据里的旧值保留展示，但不再出现在下拉、
    也不会被新表单写入；空值/假期/考试统一走「已支付」表达「结清」语义。 */
@@ -114,7 +122,7 @@ const rowSortValue = (row) => {
   return Number(row.id) || 0;
 };
 const typeBadgeClass = (type) => {
-  const chi = TYPE_KEY_NORMALIZE[String(type || '').trim()];
+  const chi = normalizeTypeKey(type);
   return ({ '正常上课': 'normal', normal: 'normal',
     '我代别人上课': 'i-substitute', i_substitute: 'i-substitute',
     '别人代我上课': 'substituted', substituted_for_me: 'substituted',
@@ -123,9 +131,16 @@ const typeBadgeClass = (type) => {
     '考试': 'exam', exam: 'exam'
   })[chi] || 'other';
 };
+/* 一个状态一种颜色，扫一眼就知道哪些钱还没着落：绿色只留给真的已到账，
+   学校代付、待付、没付分开标；「无需支付」是已下线的历史值，用最弱的灰；
+   空值单独给虚线框，漏填的记录在表里要能一眼挑出来。 */
 const statusClass = (status) => {
-  if (status === '已支付' || status === '学校支付' || status === '无需支付') return 'paid';
-  if (status === '待支付' || status === '未支付') return 'unpaid';
+  if (status === '已支付') return 'paid';
+  if (status === '学校支付') return 'school';
+  if (status === '待支付') return 'pending';
+  if (status === '未支付') return 'unpaid';
+  if (status === '无需支付') return 'legacy';
+  if (status === '未填写') return 'blank';
   return 'custom';
 };
 const clip = (value, max = 26) => {
@@ -193,9 +208,11 @@ export async function renderClassRecords(root) {
         .cr-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--text,#1d2129);font:inherit}
         .cr-filter-reset{height:38px;padding:0 12px;border:1px solid var(--line,#e5e6eb);border-radius:9px;background:var(--card,#fff);color:var(--text-2,#4e5969);font:inherit;font-size:12px;cursor:pointer}
         .cr-table-wrap{width:100%;overflow:auto;border:1px solid var(--line,#e5e6eb);border-radius:12px;background:var(--card,#fff);box-shadow:var(--shadow-s,0 2px 8px rgba(31,35,41,.035));-webkit-overflow-scrolling:touch}
-        .cr-table{width:100%;min-width:1380px;border-collapse:separate;border-spacing:0;font-size:12.5px}
+        .cr-table{width:100%;min-width:1424px;border-collapse:separate;border-spacing:0;font-size:12.5px}
         .cr-table th{height:43px;padding:10px 13px;background:var(--surface-2,#f5f6f8);border-bottom:1px solid var(--line,#e5e6eb);color:var(--text-2,#4e5969);font-weight:700;text-align:left;white-space:nowrap}
         .cr-table td{height:58px;padding:9px 13px;border-bottom:1px solid var(--line,#eef0f3);color:var(--text-2,#4e5969);vertical-align:middle}
+        .cr-table th:first-child,.cr-table .cr-no{text-align:center}
+        .cr-table .cr-no{width:44px;padding-left:0;padding-right:0;color:var(--text-3,#86909c);font-variant-numeric:tabular-nums}
         .cr-table tbody tr:last-child td{border-bottom:0}
         .cr-table tbody tr:hover td{background:color-mix(in srgb,var(--primary,#4f46e5) 3%,var(--card,#fff))}
         .cr-type-badge{display:inline-flex;align-items:center;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:650;white-space:nowrap}
@@ -208,9 +225,12 @@ export async function renderClassRecords(root) {
         .cr-type-badge.other{color:var(--text-2,#4e5969);background:var(--surface-2,#f5f6f8)}
         .cr-status{display:inline-flex;align-items:center;max-width:135px;padding:5px 9px;border-radius:7px;font-size:11px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .cr-status.paid{color:#12835b;background:#e8f7f0}
-        .cr-status.unpaid{color:#b7791f;background:#fff4df}
+        .cr-status.school{color:#286fc5;background:#eaf3ff}
+        .cr-status.pending{color:#b7791f;background:#fff4df}
+        .cr-status.unpaid{color:#c23b3b;background:#fdeaea}
         .cr-status.custom{color:#5b55a5;background:#f0efff}
-        .cr-status.settled{color:var(--text-2,#4e5969);background:var(--surface-2,#f5f6f8)}
+        .cr-status.legacy{color:var(--text-2,#4e5969);background:var(--surface-2,#f5f6f8)}
+        .cr-status.blank{color:#86909c;background:none;border:1px dashed var(--line,#d3d6db);padding:4px 8px}
         .cr-row-actions{display:flex;align-items:center;gap:10px;white-space:nowrap}
         .cr-row-action{padding:0;border:0;background:none;color:var(--primary,#4f46e5);font:inherit;font-size:11.5px;cursor:pointer}
         .cr-row-action:hover{text-decoration:underline}
@@ -307,8 +327,8 @@ export async function renderClassRecords(root) {
         </div>
         <div class="cr-table-wrap">
           <table class="cr-table" id="cr-record-table">
-            <thead><tr><th>上课日期</th><th>上课年级</th><th>上课班级</th><th>节次</th><th>学科</th><th>上课类型</th><th>上课人</th><th>代课人</th><th>课时费（元）</th><th>支付状态</th><th>备注说明</th><th>操作</th></tr></thead>
-            <tbody id="cr-record-tbody"><tr><td colspan="12"><div class="cr-empty-state">正在加载上课记录…</div></td></tr></tbody>
+            <thead><tr><th>序号</th><th>上课日期</th><th>上课年级</th><th>上课班级</th><th>节次</th><th>学科</th><th>上课类型</th><th>上课人</th><th>代课人</th><th>课时费（元）</th><th>支付状态</th><th>备注说明</th><th>操作</th></tr></thead>
+            <tbody id="cr-record-tbody"><tr><td colspan="13"><div class="cr-empty-state">正在加载上课记录…</div></td></tr></tbody>
           </table>
         </div>
         <div class="cr-pagination">
@@ -394,11 +414,14 @@ export async function renderClassRecords(root) {
     if (!filtered.length) {
       const message = rows.length ? monthLabel(month) + '没有符合条件的记录' : '还没有上课记录';
       const hint = rows.length ? '可以切换月份查看其它记录，或重置筛选条件。' : '点击右上角「新增上课记录」，开始登记授课、代课和换课情况。';
-      body.innerHTML = '<tr><td colspan="12"><div class="cr-empty-state"><div class="cr-empty-icon">＋</div><b>' + message + '</b><span>' + hint + '</span></div></td></tr>';
+      body.innerHTML = '<tr><td colspan="13"><div class="cr-empty-state"><div class="cr-empty-icon">＋</div><b>' + message + '</b><span>' + hint + '</span></div></td></tr>';
       return;
     }
 
-    body.innerHTML = visible.map((r) => {
+    /* 序号按当前筛选后的整月列表连续排：第 2 页从 11 开始，不重新数，
+       这样「第 14 条」在哪个页都是同一条记录。 */
+    body.innerHTML = visible.map((r, i) => {
+      const no = (page - 1) * pageSize + i + 1;
       const typeLabel = labelOf(r.class_type);
       const people = parseRelatedPeople(r.related_person, r.class_type);
       const classTime = splitClassTime(r.class_time);
@@ -406,6 +429,7 @@ export async function renderClassRecords(root) {
       const amount = r.amount == null || r.amount === '' ? '—' : money(r.amount);
       const remark = String(r.remark || '');
       return '<tr>' +
+        '<td class="cr-no">' + no + '</td>' +
         '<td>' + esc(classTime.date || '—') + '</td>' +
         '<td>' + esc(r.grade || '—') + '</td>' +
         '<td>' + esc(r.class_name || '—') + '</td>' +
@@ -471,7 +495,7 @@ export async function renderClassRecords(root) {
         <div class="cr-field"><label>支付状态</label><input id="cr-status" list="cr-status-options" value="${esc(row?.pay_status || '')}" placeholder="选择或手动输入支付状态"><datalist id="cr-status-options">${PAY_OPTIONS.map((s) => '<option value="' + s + '"></option>').join('')}</datalist></div>
       </div>
       <div class="cr-field" style="margin-top:14px"><label>备注说明</label><textarea id="cr-remark" placeholder="换课说明、特殊情况备注等">${esc(row?.remark || '')}</textarea></div>
-      <div class="cr-form-foot"><button class="cr-btn" id="cr-cancel" type="button">关闭</button><button class="cr-btn primary" id="cr-save" type="button">${editing ? '保存修改' : '保存记录'}</button></div>
+      <div class="cr-form-foot"><button class="cr-btn" id="cr-cancel" type="button">关闭</button><button class="cr-btn primary" id="cr-save" type="button">${editing ? '保存修改' : '保存'}</button></div>
     </div>`);
     const sh = sheet({ title: editing ? '编辑上课记录' : '新增上课记录', body: form, cls: 'cr-record-drawer' });
     sh.wrap.classList.add('cr-record-drawer-mask');
@@ -510,9 +534,17 @@ export async function renderClassRecords(root) {
       const scheduleType = preference.type === '冬令时课表' ? '冬令时课表' : '夏令时课表';
       const timetable = parseSettings(parseSettings(me?.settings).timetable);
       const periodTimes = parseSettings(timetable.periodTimes);
-      const configured = Array.isArray(periods) ? periods : [];
-      const normalized = normalizeTimetablePeriods(configured, { periodTimes, scheduleType });
-      timetableOptions = normalized.map((period) => {
+      /* 节次候选必须和课表用同一套解析：作息定义 → 秋季原件铺满 + 节次表额外编号 → 课程补齐。
+         只读节次表会出现「课表显示 9 节、这里只剩 2 节」，因为那 9 节在秋季原件常量里，
+         节次表只存了用户真正建过的第8、第9节。 */
+      const resolved = resolveTimetablePeriods({
+        periodDefinitions: parseSettings(timetable.periodDefinitions),
+        periods: Array.isArray(periods) ? periods : [],
+        courses: Array.isArray(courses) ? courses : [],
+        periodTimes,
+        scheduleType,
+      });
+      timetableOptions = resolved.map((period) => {
         const override = periodTimes[scheduleType]?.[String(period.period_no)] || {};
         const start = cleanPeriodTime(override.start_time) || cleanPeriodTime(period.start_time);
         const end = cleanPeriodTime(override.end_time) || cleanPeriodTime(period.end_time);
@@ -531,7 +563,7 @@ export async function renderClassRecords(root) {
       if (!className) throw new Error('请填写上课班级');
       const classTime = joinClassTime(date, periodInput.value, autoTime);
       const data = {
-        class_type: normalizeTypeKey(type.value) || '正常上课',
+        class_type: classTypeForStorage(type.value),
         subject: form.querySelector('#cr-subject').value.trim(),
         class_name: className,
         grade: grade || null,

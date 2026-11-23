@@ -20,6 +20,7 @@
    ========================================================================== */
 import { resolveEnvironmentProfile, assertTrustedSupabaseConfig } from './environment-config.mjs';
 import { normalizeAccountIdentifier } from './auth-identifier.mjs';
+import { MATERIAL_MAX_BYTES, looksLikeSizeRejection, shrinkOversizedFile } from './material-compress.mjs';
 
 const ENV_PROFILE = resolveEnvironmentProfile(globalThis.location);
 
@@ -591,31 +592,172 @@ export async function saveWorkbenchSnapshot(payload, expectedRevision = 0, expec
   return row;
 }
 
-export async function uploadMaterialFiles(files, ownerId, onProgress) {
+/* 云端已不认这份登录态时统一用这个错误：
+   status 401 会被 api.req 转发成 wb:unauth，页面据此回登录页。 */
+function uploadAuthError(message) {
+  return Object.assign(new Error(message), { status: 401, code: 'AUTH_EXPIRED' });
+}
+
+/* 并行上传：每个文件一个 XHR，最多 CONCURRENCY 个同时飞。
+   以前 32 个文件打包成一个大 POST，后端串行存 storage，总耗时 ≈ 所有文件之和。
+   现在并行 4 个，总耗时 ≈ 最慢那个文件。
+   进度按文件大小加权平均 —— 1MB 的文件 100% 和 50MB 的文件 0% 不能各占 50%。
+
+   【为什么改成 worker 循环 + 返回 { uploaded, failed }】
+   老实现用 Promise.race 挪池子，结果按下标写回，池子一 splice 下标就跟文件对不上，
+   而且只要有一个文件失败就整批抛出：其余文件其实已经进了 storage，前端却不知道，
+   重试时又把 32 个全传一遍 —— 用户看到的就是「进度 100% 但一直停在正在上传」。
+   现在每个文件独立成败，成功的照常落库，失败的单独报出来，重试只补失败的那几个。 */
+/* 【并发数为什么是 2，而且大文件还要降到 1】
+   教材上传要经过边缘函数中转：浏览器传到函数，函数再转存对象存储。
+   函数本身有执行时长上限（网关侧约 150 秒就会断），而这条链路的耗时
+   = 上行时间 × 2（收一遍、存一遍）。4 个并发抢同一条上行，每个请求
+   拿到的带宽只有 1/4，单个大文件的耗时会翻四倍，直接撞上函数超时，
+   网关回 502 —— 用户看到的就是「有个文件上传错误」。
+   并行收益远小于它带来的超时风险，所以默认 2；只要这批里有大文件就串行，
+   让每个文件独占带宽，尽快在函数超时之前传完。 */
+const UPLOAD_CONCURRENCY = 2;
+const BIG_FILE_BYTES = 20 * 1048576; // 超过 20MB 视为大文件：独占带宽，且不重试
+const UPLOAD_ATTEMPTS = 3;         // 小文件最多试 3 次（网络抖动重试一次就够了）
+const UPLOAD_TIMEOUT_MS = 180000;  // 单请求 3 分钟封顶：卡住的连接会超时报错，不会永远挂着
+
+export async function uploadMaterialFiles(files, ownerId, onProgress, onFileDone, onStage) {
+  /* onFileDone({ name, ok, message, status }) 每完成一个文件立刻回调一次。
+     界面上「已经传上去的那几个」必须当场显示成成功，不能等整批结束 ——
+     一批里有一个失败时，用户最想知道的就是「到底哪几个成了」。 */
   const config = cfg(), token = await freshToken();
-  if (!token) throw new Error('请先登录教师账号后上传教材');
+  if (!token) {
+    if (tok()) throw new Error('连不上云端登录服务，请检查网络后重试');
+    notifySignedOut();
+    throw uploadAuthError('登录状态已失效，请重新登录后再上传教材');
+  }
+  const at = token;
+  const totalBytes = files.reduce((sum, f) => sum + byteLen(f.data), 0);
+  const doneBytes = new Array(files.length).fill(0);   // 每个文件已上传字节
+  const results = new Array(files.length).fill(null);
+  const failures = new Array(files.length).fill(null);
+
+  const report = () => {
+    if (typeof onProgress !== 'function') return;
+    const loaded = doneBytes.reduce((a, b) => a + b, 0);
+    onProgress(totalBytes ? Math.min(1, loaded / totalBytes) : 1);
+  };
+
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < files.length) {
+      const index = cursor;
+      cursor += 1;
+      const file = files[index];
+      try {
+        const prepared = await shrinkBeforeUpload(file, onStage);
+        results[index] = await uploadWithRetry(prepared, ownerId, config, at, (loaded) => {
+          /* 重试会从 0 重新发，这里取最大值，进度条不会往回跳。 */
+          doneBytes[index] = Math.max(doneBytes[index], loaded);
+          report();
+        }, { onStage, shrunk: prepared !== file });
+        if (typeof onFileDone === 'function') onFileDone({ index, name: file.filename || '文件', ok: true, size: byteLen(prepared.data) });
+      } catch (error) {
+        failures[index] = error;
+        /* 这个文件放弃了，直接把这一个的字节记账，否则总进度永远差一截、看着像没传完。 */
+        doneBytes[index] = byteLen(file.data);
+        report();
+        if (typeof onFileDone === 'function') onFileDone({ index, name: file.filename || '文件', ok: false, message: error?.message || '上传失败', status: error?.status || 0 });
+      }
+    }
+  };
+  /* 有 20MB 以上的文件就串行：并行会把它拖到函数超时（见上面并发数的说明）。 */
+  const bigPresent = files.some((file) => byteLen(file.data) > BIG_FILE_BYTES);
+  const width = Math.min(bigPresent ? 1 : UPLOAD_CONCURRENCY, files.length);
+  await Promise.all(Array.from({ length: width }, worker));
+
+  return {
+    uploaded: results.filter(Boolean),
+    failed: failures
+      .map((error, index) => (error
+        ? { name: files[index]?.filename || '文件', message: error?.message || '上传失败', status: error?.status || 0 }
+        : null))
+      .filter(Boolean),
+  };
+}
+
+/* 登录失效、文件被服务端拒绝这类错误重试没用，其余的（网络中断、超时、5xx）再试两次。 */
+function retryable(error) {
+  const status = Number(error?.status || 0);
+  return status === 0 || status >= 500 || status === 429 || status === 408;
+}
+
+/* 超过云端单文件上限的文件，先在浏览器里压小再传。
+   压不动的（视频、PDF、zip64 包）当场报错并说明最大的几块是什么，
+   不再让人白等一整条上传、最后收到一句「请检查网络」。 */
+async function shrinkBeforeUpload(file, onStage) {
+  if (byteLen(file.data) <= MATERIAL_MAX_BYTES) return file;
+  const shrunk = await shrinkOversizedFile(file, { onStage });
+  return { ...file, data: shrunk.data };
+}
+
+async function uploadWithRetry(file, ownerId, config, token, onProgress, opts = {}) {
+  /* 大文件不重试：一次超时就是 3 分钟，试三次等于让用户干等 9 分钟，
+     而且服务端那边通常还是同样的结果。小文件（网络抖动居多）才值得再试。 */
+  let attempts = byteLen(file.data) > BIG_FILE_BYTES ? 1 : UPLOAD_ATTEMPTS;
+  let payload = file;
+  let shrunk = !!opts.shrunk;
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await uploadOne(payload, ownerId, config, token, onProgress);
+    } catch (error) {
+      lastError = error;
+      /* 客户端这个 50MB 只是套餐默认值，项目全局上限可以被调得更低。
+         服务端明确说「太大」时补压一次再传，只补这一次。 */
+      if (!shrunk && looksLikeSizeRejection(error.status, error.message)) {
+        shrunk = true;
+        const again = await shrinkOversizedFile(payload, { force: true, onStage: opts.onStage });
+        payload = { ...payload, data: again.data };
+        attempts = attempt + 1;
+        continue;
+      }
+      if (!retryable(error) || attempt >= attempts) break;
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+  throw lastError;
+}
+
+function byteLen(blobLike) {
+  if (blobLike && typeof blobLike.size === 'number') return blobLike.size;
+  if (blobLike && blobLike.byteLength !== undefined) return blobLike.byteLength;
+  return 0;
+}
+
+function uploadOne(file, ownerId, config, token, onProgress) {
   const form = new FormData();
   form.append('owner_id', String(ownerId));
-  for (const file of files) form.append('files', new Blob([file.data], { type: file.mime || 'application/octet-stream' }), file.filename);
-  /* 用 XHR 而不是 fetch：fetch 拿不到上传进度，几十个文件时会长时间没有任何反馈。
-     ratio 是 0~1 的上传字节占比，由调用方决定怎么展示。 */
+  form.append('files', new Blob([file.data], { type: file.mime || 'application/octet-stream' }), file.filename);
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const failWith = (message, status) => reject(Object.assign(new Error(message), { status }));
     xhr.open('POST', config.url + '/functions/v1/material-sharing');
+    /* 不设 timeout 的话，一条半路卡死的连接既不会有 onload 也不会有 onerror，
+       Promise 永远不 settle —— 界面上就是进度 100% 卡在「正在上传」，只能刷新。 */
+    xhr.timeout = UPLOAD_TIMEOUT_MS;
     xhr.setRequestHeader('apikey', config.anon);
     xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-    if (typeof onProgress === 'function') {
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
-      };
-    }
-    xhr.onerror = () => reject(new Error('连不上云端教材服务，文件没有上传。请检查网络后重试'));
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) onProgress(ev.loaded);
+    };
+    xhr.onerror = () => failWith('连不上云端教材服务，请检查网络后重试', 0);
+    xhr.ontimeout = () => failWith('「' + file.filename + '」上传超时，请重试', 0);
+    xhr.onabort = () => failWith('「' + file.filename + '」上传被中断，请重试', 0);
     xhr.onload = () => {
       let result = {};
-      try { result = JSON.parse(xhr.responseText || '{}'); } catch { /* 非 JSON 走下面的通用报错 */ }
-      if (xhr.status < 200 || xhr.status >= 300) return reject(new Error(result.error || '教材上传失败，请稍后重试'));
-      if (!Array.isArray(result.files) || result.files.length !== files.length) return reject(new Error('教材上传未完成，请重试'));
-      resolve(result.files);
+      try { result = JSON.parse(xhr.responseText || '{}'); } catch { }
+      if (xhr.status === 401) { setTok(null); notifySignedOut(); return reject(uploadAuthError('登录状态已失效，请重新登录后再上传教材')); }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        return failWith(result.error || '「' + file.filename + '」上传失败（' + xhr.status + '）', xhr.status);
+      }
+      if (!Array.isArray(result.files) || !result.files.length) return failWith('「' + file.filename + '」上传未完成，请重试', 0);
+      resolve(result.files[0]);
     };
     xhr.send(form);
   });

@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <title>学生工作台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#007aff">
+<meta name="theme-color" content="#2563eb">
+<!-- 标签页图标用「课」，配色和页内 .s-logo 那条蓝紫渐变一致。
+     学生页原本没有 favicon 声明，浏览器会去请求仓库里不存在的 /favicon.ico，
+     标签上只剩一个通用地球图标。内联 SVG 不用新增二进制文件，也不用进 sw 清单。 -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23007aff'/%3E%3Cstop offset='1' stop-color='%23af52de'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Ctext x='32' y='45' font-size='34' font-weight='700' font-family='PingFang SC,Microsoft YaHei,sans-serif' text-anchor='middle' fill='%23fff'%3E%E8%AF%BE%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" media="print" onload="this.media='all'" href="css/app.css">
 <style>
   body { background: linear-gradient(170deg, #eef4ff 0%, #f7f9ff 42%, #f5f7fb 100%); min-height: 100vh; }
@@ -24,9 +28,13 @@
   .pick-num { display: inline-grid; place-items: center; min-width: 84px; height: 84px; border-radius: 22px; background: linear-gradient(135deg,#007aff,#af52de); color: #fff; font-size: 38px; font-weight: 700; font-family: var(--mono); margin: 6px; }
   .mat-card { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-bottom: 1px solid var(--line); }
   .mat-card:last-child { border-bottom: 0; }
+  /* 口令资料：一把锁放在标题上方，一眼看出这份和别的不一样 */
+  .pc-em { display: grid; place-items: center; width: 62px; height: 62px; margin: 14px auto 8px;
+    border-radius: 20px; background: rgba(0, 122, 255, .09); color: var(--primary); }
   /* 在线预览容器：PDF 用 iframe，图片/音视频用原生控件 */
   .pv-wrap { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg-sunken); }
   .pv-wrap iframe { display: block; width: 100%; height: 72vh; border: 0; }
+  #pv-pptx:has(iframe) { padding: 0; }
   .pv-wrap img { display: block; width: 100%; height: auto; }
   .pv-wrap video { display: block; width: 100%; max-height: 72vh; background: #000; }
   .pv-wrap audio { display: block; width: 100%; padding: 18px; box-sizing: border-box; }
@@ -144,16 +152,19 @@
     .stu-logo { width: 34px; height: 34px; font-size: 16px; }
   }
 </style>
+<link rel="stylesheet" href="css/design-refresh.css">
+<link rel="stylesheet" href="css/student-workbench.css">
 </head>
-<body>
-<div class="stu-headwrap">
+<body class="stu-workbench">
+<header class="stu-headwrap">
   <div class="stu-top">
-    <div class="stu-logo">学</div>
-    <div class="stu-title">学生工作台</div>
+    <div class="stu-logo" aria-hidden="true">学</div>
+    <h1 class="stu-title">学生工作台</h1>
   </div>
-</div>
-<div class="s-wrap" id="s-app"><div class="empty">加载中…</div></div>
+</header>
+<main class="s-wrap" id="s-app"><div class="empty" role="status">加载中…</div></main>
 <script type="module">
+import './js/editable-choices.js';
 /* 短链编码：有服务端时是 /s/<code>，从路径第二段取。
    静态版在 GitHub Pages 上，/s/<code> 这种「服务端路由」不存在（会 404），
    所以退一步：支持 ?code=xxx，以及 sessionStorage 记住上次的 code。
@@ -171,6 +182,7 @@ const ICON = { mat: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"
   dice: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1.2"/><circle cx="15" cy="15" r="1.2"/></svg>',
   target: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
   lock: '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/></svg>',
+  lockSm: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/></svg>',
   check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg>',
   clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
   more: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9.5 6 6 6-6 6"/></svg>',
@@ -180,9 +192,9 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 /* 静态版：优先调 localapi（同一个浏览器里演示时学生端能读到老师那份数据）；
    在外网独立访问时本地库为空，自动回退到云端 student-api Edge Function。 */
 import { handle as localHandle } from './js/localapi.js';
-import { getStudentMaterials, materialEndpoint } from './js/material-sharing.mjs';
+import { getStudentMaterials, materialEndpoint, passcodeHeaders } from './js/material-sharing.mjs';
 import { resolveEnvironmentProfile } from './js/environment-config.mjs';
-import { setActiveAccount } from './js/localdb.js';
+import { replaceMemFromDisk, setActiveAccount } from './js/localdb.js';
 import { taskImagePages, downloadCanvas } from './js/selfstudy-task-image.mjs';
 /* 同一个浏览器里演示时，学生端要读老师那份账号库。
    localdb 会记住最后登录的账号，这里先恢复，否则读到默认空库，
@@ -190,48 +202,53 @@ import { taskImagePages, downloadCanvas } from './js/selfstudy-task-image.mjs';
 try { const uid = localStorage.getItem('wb_static_active_uid'); if (uid) setActiveAccount(uid); } catch {}
 /* 打包版没有 js/localapi.js 这个路径了，测试/调试统一从 window 取 */
 window.__wbLocalApi = { handle: localHandle };
-/* 找到 student-api 的两条通道：
-   1) 同源 /api/student-api —— Cloudflare Pages Functions 代理，避开 ngrok 警告页
-   2) 远端 ngrok Edge Function —— 本地开发 / Pages Functions 未部署时回退 */
+/* student-api 只有一个通道：按当前环境配置直连 Supabase Edge Function。
+   早先这里先试同源 /api/student-api、失败再打远端 ngrok——那是数据库还挂在 ngrok 隧道上
+   时的临时绕行。隧道和 Cloudflare Pages 都不在线上路径上了，同源那一跳只剩一个 404，
+   学生每次签到/留言都要白等它一个来回。 */
 function studentApiBase() {
   try { return resolveEnvironmentProfile().supabaseUrl + '/functions/v1/student-api'; }
   catch { return ''; }
 }
 async function callCloudStudent(method, path, query, body) {
-  const joinedPath = path + (query ? '?' + new URLSearchParams(query).toString() : '');
-  const init = { method, headers: { 'Content-Type': 'application/json' } };
-  if (method === 'POST' && body !== undefined) init.body = JSON.stringify(body);
-  /* 先走同源代理（Cloudflare Pages 部署后就有这个 Functions） */
-  const localUrl = new URL('/api/student-api', location.origin);
-  localUrl.searchParams.set('path', joinedPath);
-  let lastErr = null;
-  try {
-    const res = await fetch(localUrl.toString(), init);
-    if (res.ok) return await res.json();
-    lastErr = (await res.json().catch(() => ({}))).error || ('HTTP ' + res.status);
-  } catch (e) { lastErr = e.message; }
-  /* 同源没有 → 直接打远端 ngrok（本地开发场景） */
   const base = studentApiBase();
   if (!base) throw new Error('学生服务地址未配置');
-  const remoteUrl = new URL(base);
-  remoteUrl.searchParams.set('path', joinedPath);
-  init.headers['ngrok-skip-browser-warning'] = '1';
-  const res = await fetch(remoteUrl.toString(), init);
+  const url = new URL(base);
+  /* path 里只放路径。以前顺手把 query 拼在它尾巴上，空 query 也会留一个 '?'，
+     函数按 '/' 切段时就把 'dmkobb?' 当成链接码，正则判不过 → 学生看到「链接不存在或已关闭」。
+     参数挂到外层 URL 上，正好是函数读 searchParams 的方式。 */
+  url.searchParams.set('path', path);
+  for (const [key, value] of Object.entries(query || {})) {
+    if (value !== undefined && value !== '') url.searchParams.set(key, String(value));
+  }
+  const init = { method, headers: { 'Content-Type': 'application/json' } };
+  if (method === 'POST' && body !== undefined) init.body = JSON.stringify(body);
+  const res = await fetch(url.toString(), init);
   const result = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(result.error || lastErr || '服务暂时不可用');
+  if (!res.ok) throw new Error(result.error || '服务暂时不可用，请稍后重试');
   return result;
 }
 const api = async (p, body) => {
   const [path, qs] = String(p).split('?');
   const method = body === undefined ? 'GET' : 'POST';
   const ctx = { query: Object.fromEntries(new URLSearchParams(qs || '')), body };
-  const materialRoute = path.match(/^\/public\/link\/([^/]+)(?:\/materials\/(\d+))?$/);
+  /* 只有资料详情走 material-sharing：它是唯一会吐文件清单和签名地址的地方，口令闸就设在那儿。
+     链接主视图不能跟着一起走——material-sharing 只组装教材，点名/自习/违纪/留言一律给空数组，
+     外网学生会因此丢掉「签到」「自习」页签。主视图交给 student-api，它才组装整页数据。 */
+  const materialRoute = path.match(/^\/public\/link\/([^/]+)\/materials\/(\d+)$/);
   if (method === 'GET' && materialRoute) {
     /* 教材：本地 → 云端 material-sharing */
     const local = await localHandle(method, path, ctx.query).catch(() => null);
     if (local?.ok) return local.data;
-    try { return await getStudentMaterials(materialRoute[1], materialRoute[2] || ''); }
-    catch (error) { throw new Error(local?.error || error?.message || '教材加载失败'); }
+    /* 本机库已经判定「口令不对」，就别再去云端等一个来回：两个答案是同一句话。 */
+    if (local?.extra?.need_passcode === true) throw Object.assign(new Error(local.error || '这份资料需要口令'), { needPasscode: true });
+    try { return await getStudentMaterials(materialRoute[1], materialRoute[2], String(ctx.query.passcode || '')); }
+    catch (error) {
+      const need = error?.needPasscode === true;
+      /* 云端判「要口令」时以云端那句为准：本机库为空的学生，local.error 只是
+         「链接不存在或已关闭」，拿它当提示会把「请输入口令」这一步盖掉。 */
+      throw Object.assign(new Error(need ? error.message : (local?.error || error?.message || '教材加载失败')), { needPasscode: need });
+    }
   }
   /* 非教材路由：本地 → 云端 student-api */
   const local = await localHandle(method, path, ctx.query, ctx.body).catch(() => null);
@@ -273,14 +290,12 @@ const todayStr = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-/* 老师在「教材 / 点名 / 盲盒」页里可以逐个关掉学生端模块；
-   自习没有单独的开关，发布了任务就相当于这个模块存在。
-   全部关掉且没有任务/签到时，整页只显示「正在来的路上」。 */
+/* 教师端的显示开关决定模块页签，签到页签随进行中的场次出现。 */
 function visibleTabs() {
   const mods = data?.link?.modules || {};
   const on = (k) => Number(mods[k]) !== 0;
   const list = [];
-  if ((data?.selfstudyTasks || []).length) list.push('selfstudy');
+  if (on('selfstudy')) list.push('selfstudy');
   if (data?.roll && data.roll.length) list.push('checkin');
   if (on('material')) list.push('material');
   if (on('roll')) list.push('roll');
@@ -295,14 +310,14 @@ async function init() {
   catch (e) { $('#s-app').innerHTML = `<div class="card card-pad empty"><div class="em">${ICON.lock}</div>${esc(e.message)}</div>`; return; }
   document.title = '学生工作台';
   availTabs = visibleTabs();
-  /* 老师端各模块的链接会带 ?tab=，直接落到对应页签（教材/点名/盲盒/自习）；
-     该模块被关掉时退回第一个可见页签。 */
+  /* 带 tab 的链接直接打开对应页签。通用链接优先打开有内容的模块。 */
   const wanted = new URLSearchParams(location.search).get('tab');
-  tab = availTabs.includes(wanted) ? wanted : (availTabs[0] || null);
+  const landing = availTabs.find((id) => id !== 'selfstudy' || data.selfstudyTasks?.length);
+  tab = availTabs.includes(wanted) ? wanted : (landing || availTabs[0] || null);
   paint();
 }
 const TAB_DEF = {
-  selfstudy: { icon: ICON.clock, label: '自习' },
+  selfstudy: { icon: ICON.clock, label: '任务' },
   checkin: { icon: ICON.check, label: '签到', dot: true },
   material: { icon: ICON.mat, label: '教材' },
   roll: { icon: ICON.dice, label: '点名' },
@@ -322,12 +337,12 @@ function paint() {
   }
   if (!availTabs.includes(tab)) tab = availTabs[0];
   $('#s-app').innerHTML = `
-    <div class="s-tabs">
+    <nav class="s-tabs" aria-label="学生工作台功能">
       ${availTabs.map((t) => {
         const d = TAB_DEF[t];
-        return `<button data-t="${t}" class="${tab === t ? 'on' : ''}">${d.icon} ${d.label}${d.dot ? ' <span class="s-dot"></span>' : ''}</button>`;
+        return `<button type="button" data-t="${t}" class="${tab === t ? 'on' : ''}" aria-pressed="${tab === t}">${d.icon} ${d.label}${d.dot ? ' <span class="s-dot"></span>' : ''}</button>`;
       }).join('')}
-    </div>
+    </nav>
     <div id="s-body"></div>`;
   document.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { tab = b.dataset.t; cur = null; paint(); }; });
   if (tab === 'selfstudy') paintSelfstudy();
@@ -352,9 +367,11 @@ function studentCardHtml(t) {
   const img = t.task_image || t.generated_image;
   const day = t.date === todayStr() ? '今日' : (t.date || '');
   const deadline = [day, t.deadline_time || t.end_time || t.period].filter(Boolean).join(' ');
-  return `<div class="card card-pad">
-    <div class="card-title" style="text-align:center">${esc(t.title || '今日自习任务')}</div>
-    <div class="st-card-body" style="padding:20px 0 12px;font-size:16px">${body}${img ? `<img class="st-img" src="${esc(img)}" alt="任务图">` : ''}</div>
+  return `<div class="card card-pad stu-task-card">
+    <div class="stu-section-head">
+      <div class="card-title">${esc(t.title || '今日任务')}</div>
+    </div>
+    <div class="st-card-body">${body}${img ? `<img class="st-img" src="${esc(img)}" alt="任务图">` : ''}</div>
     <div class="row wrap tiny muted" style="gap:8px 22px;padding:14px 0;border-top:1px solid var(--line)">
       <span>教师：${esc(t.creator || '老师')}</span>
       <span>任务类型：课堂自习</span>
@@ -372,12 +389,14 @@ function paintSelfstudy() {
   const t = mine[0];
   if (!t) {
     /* 和教材 / 点名 / 盲盒保持一致：都放在一张普通卡片里，不再用整页居中的空白块 */
-    $('#s-body').innerHTML = `<div class="card card-pad">
-      <div class="card-title">${ICON.clock} 今日自习任务</div>
-      <div class="tiny muted" style="margin-top:4px">${myClass() ? `当前设备班级：${esc(myClass())} · ` : ''}老师发布后会自动出现在这里</div>
-      <div class="stu-empty" style="margin:26px auto 6px">
+    $('#s-body').innerHTML = `<div class="card card-pad stu-task-card">
+      <div class="stu-section-head">
+        <div class="card-title">${ICON.clock} 今日任务</div>
+        <div class="tiny muted" style="margin-top:4px">${myClass() ? `当前设备班级：${esc(myClass())} · ` : ''}老师发布后会自动出现在这里</div>
+      </div>
+      <div class="stu-empty stu-task-empty">
         <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h5M8 16h3"/></svg>
-        <b>本时段暂无自习任务</b>
+        <b>暂无任务</b>
       </div>
     </div>`;
     return;
@@ -396,7 +415,7 @@ function openTaskModal(t) {
   const wrap = document.createElement('div');
   wrap.className = 'stu-modal';
   wrap.innerHTML = `<div class="stu-modal-card">
-    <div class="stu-modal-head"><b>${esc(t.title || '今日自习任务')}</b><button aria-label="关闭">×</button></div>
+    <div class="stu-modal-head"><b>${esc(t.title || '今日任务')}</b><button aria-label="关闭">×</button></div>
     <div class="stu-modal-body">${esc(t.content || '')}${(t.task_image || t.generated_image) ? `<img src="${esc(t.task_image || t.generated_image)}" alt="任务图">` : ''}</div>
   </div>`;
   const close = () => wrap.remove();
@@ -408,11 +427,13 @@ function openTaskModal(t) {
 /* 学生端 60 秒轮询一次：任务或模块开关有变化才重绘，避免大屏上闪白 */
 setInterval(async () => {
   try {
+    replaceMemFromDisk();
     const d = await api(`/public/link/${code}`);
     const before = JSON.stringify(data?.selfstudyTasks || []);
     const after = JSON.stringify(d.selfstudyTasks || []);
     if (data) { data.selfstudyTasks = d.selfstudyTasks || []; if (d.link) data.link = d.link; }
     const next = visibleTabs();
+    if (!next.includes('selfstudy')) $('.stu-modal')?.remove();
     const tabsChanged = next.join(',') !== availTabs.join(',');
     availTabs = next;
     if (tabsChanged) paint();
@@ -487,27 +508,84 @@ function paintCheckin() {
   }).catch(() => {});
 }
 
+/* 资料口令记在 sessionStorage（不是 localStorage）：
+   班里共用一台电脑时，localStorage 会把第一个学生输的口令永久留给后面所有人，
+   关掉标签页就作废才符合「这个班的口令只在这节课有效」。 */
+const PC_KEY = 'wb_stu_pc_' + code;
+const unlockedMats = () => { try { return JSON.parse(sessionStorage.getItem(PC_KEY) || '{}'); } catch { return {}; } };
+const passcodeFor = (id) => String(unlockedMats()[id] || '');
+const rememberPasscode = (id, value) => { try { sessionStorage.setItem(PC_KEY, JSON.stringify({ ...unlockedMats(), [id]: value })); } catch {} };
+const forgetPasscode = (id) => { const all = unlockedMats(); delete all[id]; try { sessionStorage.setItem(PC_KEY, JSON.stringify(all)); } catch {} };
+/* 列表只说「这份要不要口令」，真开不开得起来由服务端判：
+   所以这里点进去先探一次详情，口令缺失就直接弹输入框，不去猜本地那份准不准。 */
+function openMaterial() {
+  const m = (data.materials || []).find((x) => String(x.id) === String(cur));
+  if (m?.locked && !passcodeFor(cur)) return paintPasscodeGate();
+  return paintMaterialDetail();
+}
 function paintMaterials() {
-  if (cur) return paintMaterialDetail();
+  if (cur) return openMaterial();
   const mats = data.materials;
-  $('#s-body').innerHTML = `<div class="card">
-    <div class="card-pad" style="padding-bottom:6px"><div class="card-title">全部资料 <span class="chip blue">${mats.length}</span></div>
-      <div class="tiny muted" style="margin-top:4px">无需账号密码，点开查看教材并下载原文件</div></div>
-    ${mats.length ? mats.map((m) => `<div class="mat-card" data-m="${m.id}" style="cursor:pointer">
-      <div class="doc-ico">${ICON.mat}</div>
-      <div style="flex:1;min-width:0"><div class="bold small">${esc(m.title)}</div>
-        <div class="tiny muted">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · '))}</div></div>
-      <span class="tiny muted">查看 ${ICON.more}</span></div>`).join('') : `<div class="empty">老师还没有上传资料</div>`}
+  $('#s-body').innerHTML = `<div class="card stu-materials">
+    <div class="stu-section-head"><div class="card-title">全部资料 <span class="chip blue">${mats.length}</span></div>
+      <div class="tiny muted" style="margin-top:4px">点开即可查看和下载；标了「需要口令」的，要输入老师给的班级口令</div></div>
+    ${mats.length ? mats.map((m) => {
+    const locked = m.locked && !passcodeFor(m.id);
+    return `<button type="button" class="mat-card" data-m="${esc(m.id)}">
+      <span class="doc-ico">${locked ? ICON.lockSm : ICON.mat}</span>
+      <span class="stu-material-details"><span class="bold small stu-material-title">${esc(m.title)} ${locked ? '<span class="chip amber">需要口令</span>' : ''}</span>
+        <span class="tiny muted stu-material-meta">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · '))}</span></span>
+      <span class="tiny muted stu-material-action">${locked ? '输口令' : '查看'} ${ICON.more}</span></button>`;
+  }).join('') : `<div class="empty">老师还没有上传资料</div>`}
   </div>`;
-  document.querySelectorAll('[data-m]').forEach((d) => { d.onclick = () => { cur = Number(d.dataset.m); paintMaterialDetail(); }; });
+  document.querySelectorAll('[data-m]').forEach((d) => { d.onclick = () => { cur = Number(d.dataset.m); openMaterial(); }; });
+}
+/* 口令输错只改这一行字，不重画整块：重画会把学生已经输入的内容抹掉。 */
+function paintPasscodeGate(tip) {
+  const m = (data.materials || []).find((x) => String(x.id) === String(cur)) || {};
+  $('#s-body').innerHTML = `<div class="card card-pad">
+    <button class="btn ghost sm" id="pc-back">‹ 返回列表</button>
+    <div class="pc-em">${ICON.lock}</div>
+    <h2 style="margin:4px 0 4px;font-size:18px">${esc(m.title || '这份资料')}</h2>
+    <div class="tiny muted">老师给这份资料设了班级口令，输入正确才能查看和下载。</div>
+    <div class="field" style="margin-top:14px"><label class="field-label" for="pc-in">班级口令</label>
+      <input class="input" id="pc-in" type="text" autocomplete="off" spellcheck="false" placeholder="输入老师给的口令"></div>
+    <div class="tiny" id="pc-msg" style="color:var(--red);margin-top:8px" hidden></div>
+    <button class="btn primary block" id="pc-go" style="margin-top:12px">打开资料</button>
+  </div>`;
+  const say = (msg) => { const tipEl = $('#pc-msg'); tipEl.textContent = msg; tipEl.hidden = !msg; };
+  say(tip || '');
+  $('#pc-back').onclick = () => { cur = null; paint(); };
+  const input = $('#pc-in'), go = $('#pc-go');
+  const submit = async () => {
+    const value = input.value.trim();
+    if (!value) return say('请先输入口令');
+    go.disabled = true;
+    go.textContent = '校验中…';
+    try {
+      /* 口令对不对由服务端说了算：这里真取一次详情，取到了才算解锁。 */
+      await api(`/public/link/${code}/materials/${cur}?passcode=${encodeURIComponent(value)}`);
+      rememberPasscode(cur, value);
+      paintMaterialDetail();
+    } catch (e) {
+      forgetPasscode(cur);
+      say(e?.needPasscode ? '口令不对，找老师再确认一下' : (e.message || '打开失败，请稍后重试'));
+      go.disabled = false;
+      go.textContent = '打开资料';
+      input.focus();
+    }
+  };
+  go.onclick = submit;
+  input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+  input.focus();
 }
 /* 学生端能预览的类型。docx 由 mammoth 在本地转成网页（不走外网），
-   其余（xlsx / pptx / zip…）浏览器渲染不了：
+   PPTX 由浏览器在独立的预览框里渲染；其他格式按原文件名下载。
    以前点一下会新开空白页，再把 octet-stream 的 blob 当页面打开，
    结果存成一个没有扩展名的 UUID 文件，下载完谁也打不开。
    现在能预览的在页面内预览，不能预览的按原文件名下载。 */
 const PREVIEW_KIND = {
-  pdf: 'pdf', docx: 'docx',
+  pdf: 'pdf', docx: 'docx', pptx: 'pptx',
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', svg: 'image',
   mp4: 'video', webm: 'video', ogv: 'video',
   mp3: 'audio', m4a: 'audio', wav: 'audio', ogg: 'audio',
@@ -546,8 +624,9 @@ function sanitizeDoc(html) {
 }
 async function paintMaterialDetail() {
   $('#s-body').innerHTML = '<div class="card card-pad small muted">加载中…</div>';
+  const passcode = passcodeFor(cur);
   try {
-    const d = await api(`/public/link/${code}/materials/${cur}`);
+    const d = await api(`/public/link/${code}/materials/${cur}` + (passcode ? '?passcode=' + encodeURIComponent(passcode) : ''));
     $('#s-body').innerHTML = `<div class="card card-pad">
       <button class="btn ghost sm" id="back">‹ 返回列表</button>
       <h2 style="margin:12px 0 4px;font-size:19px">${esc(d.material.title)}</h2>
@@ -557,21 +636,25 @@ async function paintMaterialDetail() {
           const kind = previewKind(f.name);
           return `<button class="btn ghost block" data-file="${f.id}" data-name="${esc(f.name)}" data-kind="${kind}" style="justify-content:flex-start;gap:10px">
             <span style="flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis">${esc(f.name)}</span>
-            <span class="tiny muted">${kind ? '预览' : '下载'} · ${(f.size / 1024 / 1024).toFixed(1)} MB</span></button>`;
+            <span class="tiny muted">${kind === 'pptx' ? '浏览' : kind ? '预览' : '下载'} · ${(f.size / 1024 / 1024).toFixed(1)} MB</span></button>`;
         }).join('')
           : '<div class="muted small">这份资料还没有文件</div>'}
       </div>
       <div class="row wrap" style="gap:8px;margin-top:14px">
         ${d.files.map((f) => `<button class="btn soft sm" data-dl="${f.id}" data-name="${esc(f.name)}">${ICON.dl} 下载 ${esc(f.name).slice(0, 12)}</button>`).join('')}
       </div>
-      <div class="tiny muted" style="margin-top:14px">PDF、图片、音视频和 Word 文档点开即可在线预览；Excel / PPT 等格式浏览器无法预览，点击会按原文件名下载。</div>
+      <div class="tiny muted" style="margin-top:14px">PPTX、PDF、图片、音视频和 DOCX 可在线浏览。其他格式可以下载原文件。</div>
     </div>`;
     /* 不能直接给 href 让浏览器跳转：文件地址在云端函数上，顶层导航会撞上 ngrok 提示页，
        跨域时 download 属性也会被忽略。先 fetch 成 blob 再预览或保存。 */
     let pvURL = '';
     const loadBlob = async (id, mode) => {
-      const res = await fetch(materialEndpoint(code, cur, id, mode)).catch(() => null);
-      if (!res || !res.ok) throw new Error('文件暂时打不开，请稍后重试');
+      /* 口令放请求头再取文件：URL 会原样进服务端访问日志，不该带口令。
+         服务端不认就直接 401，一个字节都拿不到。 */
+      const res = await fetch(materialEndpoint(code, cur, id, mode), { headers: passcodeHeaders(passcodeFor(cur)) }).catch(() => null);
+      if (!res) throw new Error('文件暂时打不开，请稍后重试');
+      if (res.status === 401) { forgetPasscode(cur); throw new Error('口令已失效，请重新输入'); }
+      if (!res.ok) throw new Error('文件暂时打不开，请稍后重试');
       return res.blob();
     };
     /* 不能预览的类型直接下载：保留原文件名，否则浏览器会把 blob 存成一串 UUID */
@@ -601,9 +684,12 @@ async function paintMaterialDetail() {
       btn.textContent = '加载中…';
       try {
         const blob = await loadBlob(id, 'view');
+        const pptx = kind === 'pptx' ? await import('./assets/pptx-preview/mount.js') : null;
+        if (!btn.isConnected) return;
         if (pvURL) URL.revokeObjectURL(pvURL);
         pvURL = URL.createObjectURL(blob);
-        const media = kind === 'image' ? `<img src="${pvURL}" alt="${esc(name)}">`
+        const media = pptx ? '<div class="pv-doc" id="pv-pptx" role="status">正在打开幻灯片…</div>'
+          : kind === 'image' ? `<img src="${pvURL}" alt="${esc(name)}">`
           : kind === 'video' ? `<video src="${pvURL}" controls playsinline preload="metadata"></video>`
             : kind === 'audio' ? `<audio src="${pvURL}" controls preload="metadata"></audio>`
               : kind === 'docx' ? '<div class="pv-doc" id="pv-doc">正在解析文档…</div>'
@@ -626,6 +712,7 @@ async function paintMaterialDetail() {
           a.href = pvURL; a.download = name || '教材文件';
           document.body.appendChild(a); a.click(); a.remove();
         };
+        if (pptx) pptx.mountPptxPreview($('#pv-pptx'), blob, name);
         if (kind === 'docx') {
           try {
             const mammoth = await loadMammoth();
@@ -651,7 +738,11 @@ async function paintMaterialDetail() {
     });
     document.querySelectorAll('[data-dl]').forEach((b) => { b.onclick = () => saveAs(b, b.dataset.dl, b.dataset.name); });
     document.getElementById('back').onclick = () => { cur = null; paint(); };
-  } catch (e) { $('#s-body').innerHTML = `<div class="card card-pad">${esc(e.message)}</div>`; }
+  } catch (e) {
+    /* 老师中途改过口令：本机记的那份已经作废，回到输入框重新要一次。 */
+    if (e?.needPasscode) { forgetPasscode(cur); return paintPasscodeGate('这份资料需要口令，请先输入'); }
+    $('#s-body').innerHTML = `<div class="card card-pad">${esc(e.message)}</div>`;
+  }
 }
 /* ---------- 点名：选班级 → 点一下 → 滚出名字 ---------- */
 const ROLL_ME = 'wb_pick_';
@@ -673,10 +764,10 @@ function orderNum(text) {
 }
 const byGradeNum = (a, b) => (orderNum(a) - orderNum(b)) || String(a).localeCompare(String(b), 'zh-CN', { numeric: true });
 
-/* 点名的年级 / 班级候选只来自后台上传的班级名单（/public/link 下发的 rosters）。
-   课表里可能排了十几个班、真传过名单的只有一个，
-   拿课表当候选等于让学生端点进一个空池子，抽出来全是「1 号 2 号」。
-   班级名为空的那种按老师定的口径只显示年级。 */
+/* 点名的年级 / 班级候选跟违纪、留言板一致：课表 classes 加上后台 rosters 合并去重，
+   排了课但还没传名单的班也能选到，不会只剩一个。
+   名字池只从 rosters 里取——选中的班没上传过名单，「按名单名字」直接禁用，退回按号码点。
+   班级名为空的那种只显示年级，跟用户口径一致。 */
 function rollChoices() {
   const rows = (data?.rosters || []).map((r) => {
     const names = (r?.names || []).filter(Boolean);
@@ -687,19 +778,38 @@ function rollChoices() {
       names,
       count: Math.max(1, Math.min(200, Number(r?.count) || names.length || 40)),
     };
-  }).filter((r) => r.grade || r.class_name);
-  /* 同一个班重复传了两份名单只留一条，优先有名字的那份 */
-  const byPair = new Map();
-  rows.forEach((r) => {
-    const k = r.grade + '\u0000' + r.class_name;
-    const old = byPair.get(k);
-    if (!old || r.names.length > old.names.length) byPair.set(k, r);
   });
-  const pairs = [...byPair.values()];
+  /* 同一个班传了两份名单只认名字多的那份，按年级+班号对上号 */
+  const bestRoster = (grade, class_name) => {
+    let hit = null;
+    for (const r of rows) {
+      if (r.grade !== grade || r.class_name !== class_name) continue;
+      if (!hit || r.names.length > hit.names.length) hit = r;
+    }
+    return hit;
+  };
+  /* 候选 = 课表 classes + 名单 rosters 的年级班级并集，跟 classChoices 一个口径。
+     课表里排了但没名单的班照样能选，只是按名字模式会禁用。 */
+  const pairMap = new Map();
+  [...(data?.classes || []), ...rows].forEach((r) => {
+    const grade = String(r?.grade || '').trim();
+    const class_name = String(r?.class_name || '').trim();
+    if (!grade && !class_name) return;
+    pairMap.set([grade, class_name].join('#'), { grade, class_name });
+  });
+  const pairs = [...pairMap.values()].map((p) => {
+    const hit = bestRoster(p.grade, p.class_name);
+    return {
+      id: hit ? hit.id : null,
+      grade: p.grade,
+      class_name: p.class_name,
+      names: hit ? hit.names : [],
+      count: hit ? hit.count : 40,
+    };
+  });
   const clsLabel = (p) => p.class_name || p.grade;
   const gradeList = [...new Set(pairs.map((p) => p.grade).filter(Boolean))].sort(byGradeNum);
-  /* 班级也按班号数字序排：名单在库里是上传顺序存的，
-     直接拿来当顺序会让高二10班排在高二5班前面，和老师手里的名单对不上。 */
+  /* 班级按班号数字序排：高二10班不排到高二5班前面，和老师手里的名单对得上。 */
   const pairsOf = (grade) => pairs.filter((p) => p.grade === grade).sort((a, b) => byGradeNum(clsLabel(a), clsLabel(b)));
   return { pairs, gradeList, pairsOf, clsLabel };
 }
@@ -754,8 +864,8 @@ function paintRoll() {
         <input class="input" id="pk-num" type="number" inputmode="numeric" min="1" max="20" value="1"></div>
     </div>
     <div class="field" style="margin-top:4px">
-      <label class="field-label">怎么点</label>
-      <div class="seg pk-mode">
+      <div class="field-label" id="pk-mode-label">抽取方式</div>
+      <div class="seg pk-mode" role="group" aria-labelledby="pk-mode-label">
         <button class="on" data-mode="no">按号码</button>
         <button data-mode="name" ${names0.length ? '' : 'disabled title="这个班还没有上传名单，导入名单后才能按名字点"'}>按名单名字</button>
       </div>
@@ -763,7 +873,7 @@ function paintRoll() {
     <div class="tiny muted" id="pk-src" style="margin-top:6px"></div>
     <label class="pk-nr"><input type="checkbox" id="pk-norepeat"><span>不重复点同一人 <span class="tiny muted">（点完一轮前不会再出现）</span></span></label>
     <button class="btn primary block" id="go" style="height:56px;font-size:17px;margin-top:14px">${ICON.dice} 开始点名</button>
-    <div class="pick-stage"><div class="pick-roll" id="stage">填好人数和点几个，点「开始点名」</div></div>
+    <div class="pick-stage"><div class="pick-roll" id="stage"></div></div>
     <div id="history" class="tiny muted" style="text-align:center;min-height:18px"></div>
   </div>`;
 
@@ -914,8 +1024,10 @@ function paintPunish() {
   const list = data.punishments || [];
   const me = recall();
   $('#s-body').innerHTML = `<div class="card card-pad" style="text-align:center">
-    <div class="card-title" style="justify-content:center">${ICON.target} 惩罚盲盒</div>
-    <div class="tiny muted">点一下开箱，点到什么就做什么</div>
+    <div class="stu-section-head">
+      <div class="card-title" style="justify-content:center">${ICON.target} 惊喜盲盒</div>
+      <div class="tiny muted">点一下开箱，点到什么就做什么</div>
+    </div>
     <div class="box-stage" id="box">
       <div>
         <div class="box-icon" id="bico">${BOX_ICO.closed}</div>
@@ -1014,9 +1126,11 @@ function classChoices() {
     pairMap.set(grade + '\u0000' + class_name, { grade, class_name });
   });
   const classPairs = [...pairMap.values()];
-  const gradeList = [...new Set(classPairs.map((r) => r.grade).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+  /* numeric: true 是关键：班号直接拼在年级后面（高二10班 / 高二5班），
+     不带它的话按字符比，10 班会排到 5 班前面，和学生手里的名单对不上。 */
+  const gradeList = [...new Set(classPairs.map((r) => r.grade).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
   const classesOf = (grade) => [...new Set(classPairs.filter((r) => r.grade === grade).map((r) => r.class_name).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+    .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
   /* 兼容旧偏好：以前只存了「高一 · 1 班」一整串 */
   const splitCls = (text) => {
     const t = String(text || '').trim();
@@ -1043,28 +1157,32 @@ function paintMisconduct() {
   const initialClasses = curGrade ? classesOf(curGrade) : [];
   const otherClass = !!curClass && !initialClasses.includes(curClass);
   $('#s-body').innerHTML = `<div class="card card-pad">
-    <div class="card-title">${ICON.alert} 违纪登记</div>
-    <div class="tiny muted" style="margin:4px 0 12px">选择你所在的年级班级，填写违纪情况后提交，老师会在教师端看到。</div>
-    <div class="field">
-      <label class="field-label">年级</label>
-      <select class="input" id="mc-grade">
-        <option value="">请选择年级</option>
-        ${gradeList.map((g) => `<option${g === curGrade ? ' selected' : ''}>${esc(g)}</option>`).join('')}
-        <option value="__other__"${otherGrade ? ' selected' : ''}>其他（手动填写）</option>
-      </select>
-      <input class="input" id="mc-grade-custom" placeholder="例如：高一" value="${otherGrade ? esc(curGrade) : ''}" style="display:none;margin-top:8px">
+    <div class="stu-section-head">
+      <div class="card-title">${ICON.alert} 违纪登记</div>
+      <div class="tiny muted">选择你所在的年级班级，填写违纪情况后提交，老师会在教师端看到。</div>
+    </div>
+    <div class="stu-form-grid">
+      <div class="field">
+        <label class="field-label" for="mc-grade">年级</label>
+        <select class="input" id="mc-grade">
+          <option value="">请选择年级</option>
+          ${gradeList.map((g) => `<option${g === curGrade ? ' selected' : ''}>${esc(g)}</option>`).join('')}
+          <option value="__other__"${otherGrade ? ' selected' : ''}>其他（手动填写）</option>
+        </select>
+        <input class="input" id="mc-grade-custom" placeholder="例如：高一" value="${otherGrade ? esc(curGrade) : ''}" style="display:none;margin-top:8px">
+      </div>
+      <div class="field">
+        <label class="field-label" for="mc-cls">班级</label>
+        <select class="input" id="mc-cls">
+          <option value="">请选择班级</option>
+          ${initialClasses.map((c) => `<option${c === curClass ? ' selected' : ''}>${esc(c)}</option>`).join('')}
+          <option value="__other__"${otherClass ? ' selected' : ''}>其他（手动填写）</option>
+        </select>
+        <input class="input" id="mc-cls-custom" placeholder="例如：1 班" value="${otherClass ? esc(curClass) : ''}" style="display:none;margin-top:8px">
+      </div>
     </div>
     <div class="field">
-      <label class="field-label">班级</label>
-      <select class="input" id="mc-cls">
-        <option value="">请选择班级</option>
-        ${initialClasses.map((c) => `<option${c === curClass ? ' selected' : ''}>${esc(c)}</option>`).join('')}
-        <option value="__other__"${otherClass ? ' selected' : ''}>其他（手动填写）</option>
-      </select>
-      <input class="input" id="mc-cls-custom" placeholder="例如：1 班" value="${otherClass ? esc(curClass) : ''}" style="display:none;margin-top:8px">
-    </div>
-    <div class="field">
-      <label class="field-label">违纪情况</label>
+      <label class="field-label" for="mc-text">违纪情况</label>
       <textarea class="input" id="mc-text" rows="4" placeholder="写清楚时间、地点和具体情节"></textarea>
     </div>
     <div class="row" style="justify-content:flex-end;align-items:center;gap:10px">
@@ -1142,11 +1260,13 @@ function paintBulletin() {
   const initialClasses = curGrade ? classesOf(curGrade) : [];
   const otherClass = !!curClass && !initialClasses.includes(curClass);
   $('#s-body').innerHTML = `<div class="card card-pad">
-    <div class="card-title">${ICON.chat} 留言板</div>
-    <div class="tiny muted" style="margin:4px 0 12px">写下想说的话，老师会在教师端的留言板里看到。</div>
-    <div class="row wrap" style="gap:8px">
+    <div class="stu-section-head">
+      <div class="card-title">${ICON.chat} 留言板</div>
+      <div class="tiny muted">留言提交后，可在下方查看教师回复。</div>
+    </div>
+    <div class="stu-form-grid">
       <div class="field" style="flex:1;min-width:140px">
-        <label class="field-label">年级</label>
+        <label class="field-label" for="bl-grade">年级</label>
         <select class="input" id="bl-grade">
           <option value="">请选择年级</option>
           ${gradeList.map((g) => `<option${g === curGrade ? ' selected' : ''}>${esc(g)}</option>`).join('')}
@@ -1155,7 +1275,7 @@ function paintBulletin() {
         <input class="input" id="bl-grade-custom" placeholder="例如：高一" value="${otherGrade ? esc(curGrade) : ''}" style="display:none;margin-top:8px">
       </div>
       <div class="field" style="flex:1;min-width:140px">
-        <label class="field-label">班级</label>
+        <label class="field-label" for="bl-class">班级</label>
         <select class="input" id="bl-class">
           <option value="">请选择班级</option>
           ${initialClasses.map((c) => `<option${c === curClass ? ' selected' : ''}>${esc(c)}</option>`).join('')}
@@ -1165,15 +1285,45 @@ function paintBulletin() {
       </div>
     </div>
     <div class="field">
-      <label class="field-label">留言内容</label>
+      <label class="field-label" for="bl-text">留言内容</label>
       <textarea class="input" id="bl-text" rows="4" placeholder="想对老师说的话"></textarea>
     </div>
     <div class="row" style="justify-content:flex-end;align-items:center;gap:10px">
       <span class="tiny" id="bl-tip" style="color:var(--green)"></span>
       <button class="btn primary" id="bl-send">提交</button>
     </div>
-  </div>`;
-  const tip = (msg, bad) => { const t = $('#bl-tip'); t.textContent = msg; t.style.color = bad ? 'var(--red)' : 'var(--green)'; };
+  </div><section class="card card-pad stu-replies">
+    <div class="row stu-section-head" style="justify-content:space-between;align-items:center;gap:8px">
+      <div class="card-title">教师回复</div>
+      <button type="button" class="btn" id="bl-refresh-replies">刷新回复</button>
+    </div>
+    <div id="bl-replies" aria-live="polite"></div>
+  </section>`;
+  const status = $('#bl-tip');
+  const tip = (msg, bad) => { status.textContent = msg; status.style.color = bad ? 'var(--red)' : 'var(--green)'; };
+  const repliesBox = $('#bl-replies');
+  const paintReplies = (entries) => {
+    const replies = (Array.isArray(entries) ? entries : []).filter((item) => item.reply)
+      .sort((a, b) => String(b.replied_at || '').localeCompare(String(a.replied_at || '')));
+    repliesBox.innerHTML = replies.length ? replies.map((item) => `
+      <article class="stu-reply">
+        <div class="tiny muted">${esc(clsName(item.grade, item.class_name))} ${esc(item.replied_at ? new Date(item.replied_at).toLocaleString('zh-CN', { hour12: false }) : '')}</div>
+        <p>${esc(item.reply)}</p>
+      </article>`).join('') : '<div class="tiny muted" style="padding:12px 0">暂无教师回复</div>';
+  };
+  paintReplies(data?.bulletin);
+  const refreshReplies = $('#bl-refresh-replies');
+  refreshReplies.onclick = async () => {
+    refreshReplies.disabled = true;
+    try {
+      const latest = await api(`/public/link/${code}`);
+      data.bulletin = latest.bulletin;
+      paintReplies(latest.bulletin);
+      tip('');
+    } catch (error) {
+      tip(error.message || '回复加载失败，请稍后再试', true);
+    } finally { refreshReplies.disabled = false; }
+  };
   const gradeSelect = $('#bl-grade');
   const gradeCustom = $('#bl-grade-custom');
   const clsSelect = $('#bl-class');

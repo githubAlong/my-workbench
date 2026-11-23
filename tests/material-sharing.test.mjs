@@ -12,7 +12,7 @@ function fixture() {
       { id: 13, owner_type: 'material', owner_id: 2, name: 'private.wps', url: 'wb-material:teacher-1/2/private' },
       { id: 14, owner_type: 'material', owner_id: 1, name: '跳舞视频.mp4', url: 'wb-material:teacher-1/1/video', size: 200 }] };
 }
-function service({ payload = fixture(), failUpload = 0, bucketExists = true } = {}) {
+function service({ payload = fixture(), failUpload = 0, bucketExists = true, failStatus = 500, failBody = {} } = {}) {
   const calls = []; let uploads = 0;
   const handler = createMaterialHandler({ backendUrl: 'https://backend.example', serviceKey: 'server-only-secret', fetchImpl: async (url, options = {}) => {
     calls.push({ url, options });
@@ -22,7 +22,7 @@ function service({ payload = fixture(), failUpload = 0, bucketExists = true } = 
     if (url.endsWith('/bucket/teaching-materials')) return Response.json({ public: false }, { status: bucketExists ? 200 : 404 });
     if (url.endsWith('/bucket')) return Response.json({ id: 'teaching-materials' });
     if (options.method === 'DELETE') return Response.json({});
-    if (url.includes('/object/teaching-materials/')) { uploads += 1; return Response.json({}, { status: uploads === failUpload ? 500 : 200 }); }
+    if (url.includes('/object/teaching-materials/')) { uploads += 1; return Response.json(failBody, { status: uploads === failUpload ? failStatus : 200 }); }
     throw new Error('Unexpected backend request');
   } });
   return { calls, handler };
@@ -127,9 +127,29 @@ test('partial upload failure cleans up only the newly uploaded private files', a
   const form = new FormData(); form.append('owner_id', '1');
   for (const name of ['一.et', '二.dps']) form.append('files', new Blob(['test']), name);
   const response = await handler(new Request('https://edge.example', { method: 'POST', headers: { Authorization: 'Bearer teacher-token' }, body: form }));
-  assert.equal(response.status, 502);
+  /* 状态码原样透出去：以前不分青红皂白报 502「请检查网络」，
+     超尺寸、桶被删、权限不对全是一句话，老师只能反复重试。
+     mock 里存储回的是 500，所以这里必须看到 500 而不是 502。 */
+  assert.equal(response.status, 500);
+  const body = await response.json();
+  assert.match(body.error, /「二\.dps」云端拒绝（HTTP 500）/);
   const cleanup = calls.find(call => call.options.method === 'DELETE');
   assert.equal(JSON.parse(cleanup.options.body).prefixes.length, 1);
   assert.match(JSON.parse(cleanup.options.body).prefixes[0], /^teacher-1\/1\//);
+});
+
+/* 客户端收到 413 或带「尺寸」字样的拒绝，才会在本地压一遍再重传。
+   云端原话一旦被改写成「请检查网络后重试」，那条自动压缩的路就永远走不到，
+   所以这里卡的是「真实状态码 + 真实文案必须原样到达教师端」。 */
+test('size rejection keeps the real status and wording so the client can auto-compress', async () => {
+  const { handler } = service({ failUpload: 1, failStatus: 413, failBody: { error: 'The uploaded file is larger than the maximum allowed size of 52428800 bytes' } });
+  const form = new FormData(); form.append('owner_id', '1');
+  form.append('files', new Blob(['test']), '开学第一课.pptx');
+  const response = await handler(new Request('https://edge.example', { method: 'POST', headers: { Authorization: 'Bearer teacher-token' }, body: form }));
+  assert.equal(response.status, 413);
+  const text = (await response.json()).error;
+  assert.match(text, /「开学第一课\.pptx」云端拒绝（HTTP 413）/);
+  assert.match(text, /maximum allowed size/);
+  assert.doesNotMatch(text, /检查网络/);
 });
 

@@ -123,6 +123,38 @@ test('attendance V1 local API regression', async (t) => {
     assert.equal((await call('GET', `/attendance/${seat.id}`)).confirm_state, 'confirmed');
   });
 
+  await t.test('坐班表确认结果按节次保存，旧版本不能覆盖', async () => {
+    const path=`/attendance/${seat.id}`;
+    const initial=await call('GET',path);
+    const rows=[{id:String(firstTeacher.id),class:'y',listen:'u',research:'u',leave:'',remark:''}];
+    await call('POST',path+'/confirm',{}, {expected_updated_at:initial.updated_at,workspace_snapshot:{period:6,rows}});
+    const confirmed=await call('GET',path);
+    assert.deepEqual(confirmed.meta.workspace_confirmed[6],rows);
+    await call('POST',path+'/confirm',{}, {expected_updated_at:confirmed.updated_at,workspace_snapshot:{period:7,rows:[]}});
+    const next=await call('GET',path);
+    assert.deepEqual(next.meta.workspace_confirmed,{6:rows,7:[]});
+    await assert.rejects(call('POST',path+'/confirm',{}, {expected_updated_at:'2020-01-01',workspace_snapshot:{period:6,rows:[]}}),/WB_ATTENDANCE_CONFLICT/);
+    assert.deepEqual((await call('GET',path)).meta.workspace_confirmed[6],rows);
+  });
+
+  await t.test('上课、教研和请假的结果不会提前确认坐班表', async () => {
+    const table=await call('POST','/attendance',{}, {grade:'高一',sheet_date:'2026-11-18',sheet_type:'seat'});
+    const path='/attendance/'+table.id;
+    const record={teacher:{id:String(firstTeacher.id),name:firstTeacher.name},state:{class:'y',remark:'实际记录'}};
+    let detail=await call('GET',path);
+    for(const type of ['class','research','leave']){
+      await call('POST',path+'/confirm',{}, {expected_updated_at:detail.updated_at,workspace_result:{type,period:6,rows:[record]}});
+      detail=await call('GET',path);
+      assert.equal(detail.confirm_state,'none');
+      assert.deepEqual(detail.meta.workspace_results[type][6].rows,[record]);
+    }
+    await call('POST',path+'/confirm',{}, {expected_updated_at:detail.updated_at,workspace_result:{type:'seat',period:6,rows:[]}});
+    detail=await call('GET',path);
+    assert.equal(detail.confirm_state,'confirmed');
+    assert.deepEqual(detail.meta.workspace_results.seat[6].rows,[]);
+    assert.deepEqual(detail.meta.workspace_results.class[6].rows,[record]);
+  });
+
   await t.test('临时教师只在上课表且不写入永久花名册', async () => {
     const roster = await call('GET', '/teachers', { grade: '高一', active: 'all' });
     assert.equal(roster.list.some((teacher) => teacher.name === '临时甲'), false);

@@ -72,21 +72,21 @@ test('我的页面统一管理外观与布局设置，侧栏不再重复显示',
   for (const id of ['side-theme', 'side-wide', 'side-layout']) {
     await expect(page.locator('#' + id)).toHaveCount(0);
   }
-  await expect(page.locator('.me-accordion')).toHaveCount(8);
-  for (const section of ['profile','workbench','account','messages','theme','wide','layout','logout']) {
-    await expect(page.locator('[data-me-accordion="'+section+'"] summary')).toBeVisible();
+  await expect(page.locator('.me-setting-card')).toHaveCount(6);
+  for (const section of ['profile','workbench','account','messages','theme','layout']) {
+    await expect(page.locator('.me-setting-card[data-me-action="'+section+'"]')).toBeVisible();
   }
-  await expect(page.locator('[data-me-accordion="profile"]')).toHaveJSProperty('open',false);
-  await page.locator('[data-me-accordion="wide"] summary').click();
+  await page.locator('[data-me-action="layout"]').click();
   await page.locator('#me-wide-toggle').click();
   await expect(page.locator('body')).toHaveClass(/is-wide/);
-  await expect(page.locator('#me-wide-value')).toHaveText('已开启平铺');
+  await expect(page.locator('#me-wide-toggle')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('#me-wide-toggle').click();
   await expect(page.locator('body')).not.toHaveClass(/is-wide/);
-  await expect(page.locator('#me-wide-value')).toHaveText('舒适宽度');
+  await expect(page.locator('#me-wide-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('.sheet-close').click();
+  await expect(page.locator('.sheet-mask')).toHaveCount(0);
 
-  await page.locator('[data-me-accordion="theme"] summary').click();
-  await page.locator('#me-theme-open').click();
+  await page.locator('[data-me-action="theme"]').click();
   await expect(page.locator('[data-theme-id="ocean"]')).toBeVisible();
   await page.locator('[data-theme-id="ocean"]').click();
   await expect(page.locator('#me-theme-value')).toHaveText('海洋蓝');

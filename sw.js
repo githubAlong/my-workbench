@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿/* 我的工作台 Service Worker
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿/* 我的工作台 Service Worker
    作用只有两个：可添加到主屏幕、断网时能打开。
 
    === 为什么首页网络优先、静态资源按缓存版本更新 ===
@@ -31,7 +31,7 @@
 
 /* 版本号改动 = 全量换缓存。
    每次发布只要改这里一个地方，activate 会把旧缓存整个删掉。 */
-const CACHE = 'wb-v314-bulletin-class';
+const CACHE = 'wb-v370-weather-proxy';
 
 /* 【只列真实存在的文件】
    这份清单必须和 index.html 及 js/ 目录的实际内容对得上。
@@ -43,6 +43,8 @@ const ASSETS = [
   './index.html',
   './manifest.webmanifest',
   './css/app.css',
+  './css/design-refresh.css',
+  './css/student-workbench.css',
   './css/teacher-ui.css',
   './css/attendance-workspace.css',
   './css/attendance-prd.css',
@@ -61,6 +63,9 @@ const ASSETS = [
   './js/main.js',
   './js/ui.js',
   './js/core.js',
+  './js/class-picker.mjs',
+  './js/editable-choices.js',
+  './js/choice-panel.mjs',
   './js/cloudsync.js',
   './js/sync-journal.mjs',
   './js/sync-status.js',
@@ -89,6 +94,7 @@ const ASSETS = [
   './js/weather-view.mjs',
   './js/work.js',
   './js/material-sharing.mjs',
+  './js/material-compress.mjs',
   './student.html',
   './js/class-records.js',
   './js/prep.js',

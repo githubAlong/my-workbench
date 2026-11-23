@@ -28,7 +28,7 @@
 import { toast, confirmDialog } from './core.js';
 import { DB_KEY, activeAccountId, exportJSON as localMemorySnapshot } from './localdb.js';
 import { session } from './cloud.js';
-import { stableJson, mergeSnapshots, applyConflictChoices, readJournal, writeJournal, localDrafts } from './sync-journal.mjs';
+import { stableJson, mergeSnapshots, applyConflictChoices, readJournal, writeJournal, localDrafts, isForeignLocalState, JOURNAL_PREFIX } from './sync-journal.mjs';
 
 const CFG_KEY = 'wb_cloud_cfg';      // { url, anon, syncKey }
 const META_KEY = 'wb_cloud_meta';    // { lastPull, lastPush, localChanged }
@@ -164,6 +164,34 @@ function revisionStorageKey(uid) { return REV_KEY + ':' + uid; }
 function writeRevision(uid, value) {
   _revision = Number(value) || 0;
   try { localStorage.setItem(revisionStorageKey(uid), String(_revision)); } catch {}
+}
+/* 【换库善后】本地 revision 比云端还高 ⇒ 这份快照属于旧库。
+   先把旧库的库体、同步日志、版本号和草稿整份复制到 wb_before_db_switch:*，
+   再从当前同步链路上摘掉，然后由调用方以云端为准。
+   备份键带秒级时间戳，用户以后要找回旧数据时能明确知道是哪一次切换。 */
+function backupForeignLocalState(uid, localRevision, remoteRevision) {
+  const tag = uid + ':' + new Date().toISOString().replace(/[:.]/g, '-');
+  const copyKey = (from, to) => {
+    try {
+      const value = localStorage.getItem(from);
+      if (value == null) return;
+      localStorage.setItem(to, value);
+    } catch { }
+  };
+  copyKey(DB_KEY, 'wb_before_db_switch:' + tag);
+  copyKey(JOURNAL_PREFIX + uid, 'wb_before_db_switch_journal:' + tag);
+  copyKey(revisionStorageKey(uid), 'wb_before_db_switch_revision:' + tag);
+  try {
+    for (const draft of localDrafts(localStorage, uid)) {
+      copyKey(draft.key, 'wb_before_db_switch_draft:' + tag + ':' + draft.key);
+      localStorage.removeItem(draft.key);
+    }
+    localStorage.removeItem(JOURNAL_PREFIX + uid);
+    localStorage.removeItem(revisionStorageKey(uid));
+  } catch { }
+  console.warn('[sync] 本地数据来自另一个数据库（本地 revision ' + localRevision
+    + ' > 云端 ' + remoteRevision + '），旧数据已备份到 wb_before_db_switch:' + tag + '，本次以云端为准');
+  return tag;
 }
 function safeSnapshot(raw) {
   const copy = JSON.parse(JSON.stringify(raw || {}));
@@ -342,6 +370,16 @@ export async function initializeAccountSync() {
   let local=safeSnapshot(JSON.parse(localStorage.getItem(DB_KEY)||'{}'));
   let base=remote?.payload ? safeSnapshot(remote.payload) : local;
   let restored=local;
+  /* 换库保护：本地缓存属于旧库时只备份、不合并，直接以云端为准。
+     否则 mergeSnapshots 会把两份完全不同的快照判成整份冲突，
+     _conflictPaused 一置位，之后每次保存都抛「还没就绪」，用户存不进任何数据。 */
+  const storedRevision=Number(localStorage.getItem(revisionStorageKey(uid))||journal?.revision||0);
+  if(isForeignLocalState(storedRevision,remote)){
+    backupForeignLocalState(uid,storedRevision,Number(remote?.revision)||0);
+    journal=null;
+    _sentPayload=null;_conflicts=[];_localConflict=null;
+    local=safeSnapshot(remote.payload);base=local;restored=local;
+  }
   if(journal){
     if(journal.draft && stableJson(local)===stableJson(journal.base))local=journal.draft;
     _sentPayload=journal.sent || null;
@@ -463,7 +501,11 @@ function queueSave(delay = SAVE_DEBOUNCE_MS) {
 }
 export async function autoSync() { return initializeAccountSync(); }
 export async function pushNow() {
-  if (!_syncReady || _conflictPaused) throw new Error('云端同步尚未就绪或已暂停，请重新连接后再试');
+  /* 两种情况用户要做的事完全不同，别再用一句话糊过去：
+     冲突是「有一份旧内容挡着」，需要点「处理冲突」；
+     没就绪是「还没连上云端」，刷新/检查网络即可。 */
+  if (_conflictPaused) throw new Error('有未处理的同步冲突，本机修改已保留。请点页面上方「处理冲突」选择保留哪一份后重试');
+  if (!_syncReady) throw new Error('云端同步还没连上，请检查网络后刷新页面重试');
   if(globalThis.navigator?.onLine===false){pendingJournal();emitSyncStatus('offline','已保存到本机，联网后继续同步');return;}
   clearTimeout(_debounce);_debounce=null;
   _pending = localContent() !== _savedContent || !!_sentPayload;

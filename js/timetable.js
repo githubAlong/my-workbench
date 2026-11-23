@@ -2,7 +2,7 @@ import { api, el, esc, toast, sheet, saving, confirmDialog, WD_SHORT, ymd } from
 import { state, icon, onViewLeave } from './ui.js';
 import { detectTimetable } from './ttimage.js';
 import { readXlsx, readDelimited } from './xlsx-lite.js';
-import { cleanPeriodTime, getCanonicalPeriodNumber, normalizeTimetablePeriods, completeTimetablePeriods } from './timetable-periods.mjs';
+import { cleanPeriodTime, getCanonicalPeriodNumber, normalizeTimetablePeriods, resolveTimetablePeriods } from './timetable-periods.mjs';
 import {
   AUTUMN_2026_SCHEDULE, cloneSchedule, buildDefinitions,
   withScheduleDefinitions, withScheduleTimes, resolveDefinitions, matchScheduleRow,
@@ -277,33 +277,17 @@ export async function renderTimetable(box) {
 
   function getPeriods(visibleCourses) {
     /* 导入后作息定义是唯一权威：按「作息类型」全校共用，不再按年级拆 key。
-       没有定义时只展示数据库里真实存在的节次，绝不按 periodDefaults 硬编码
-       补齐早自习/晚一——以前那套补齐正是「上下自动冒出别的时间」的根源。
-       completeTimetablePeriods 只补「有课但没定义」的节次，保留它。 */
-    const options = { periodTimes, scheduleType: appliedType };
-    const configured = resolveDefinitions(periodDefinitions, appliedType, appliedGrade);
-    if (Array.isArray(configured) && configured.length) {
-      const configuredRows = [...configured].sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0)).map((item) => ({
-        id: item.id || "custom-" + item.period_no,
-        period_no: Number(item.period_no),
-        name: String(item.name || ("第" + item.period_no + "节")),
-        start_time: cleanPeriodTime(item.start_time),
-        end_time: cleanPeriodTime(item.end_time),
-      }));
-      return completeTimetablePeriods(configuredRows, visibleCourses, options);
-    }
-    /* 从没导入过时给一套「跟课表一致」的默认，而不是 periodDefaults 那套
-       凭空造出来的 07:20 早自习 / 19:10 晚一。数据库里真实存在的额外节次
-       （比如用户自己加的早自习）保留，其余一律不补。 */
-    const byNo = new Map(AUTUMN_2026_SCHEDULE.map((row) => [
-      Number(row.period_no), { ...row, id: 'default-' + row.period_no },
-    ]));
-    for (const number of [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10]) {
-      if (byNo.has(number)) continue;
-      const real = allPeriods.find((period) => Number(period.period_no) === number);
-      if (real) byNo.set(number, real);
-    }
-    return sortPeriods(completeTimetablePeriods([...byNo.values()], visibleCourses, options));
+       没有定义时按 2026 秋季原件铺满，再补节次表里原件没覆盖的编号，
+       绝不按 periodDefaults 硬编码凭空造早自习/晚一——以前那套补齐正是
+       「上下自动冒出别的时间」的根源。解析逻辑与上课记录对话框共用。 */
+    return sortPeriods(resolveTimetablePeriods({
+      periodDefinitions,
+      periods: allPeriods,
+      courses: visibleCourses,
+      periodTimes,
+      scheduleType: appliedType,
+      grade: appliedGrade,
+    }));
   }
 
   function currentLesson(courses) {

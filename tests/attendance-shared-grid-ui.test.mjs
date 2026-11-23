@@ -60,23 +60,41 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const source=(await readFile(new URL('../js/attendance-prd.js',import.meta.url),'utf8'))
   .replace(/^import[\s\S]*?;\r?\n/gm,'').replace('export async function renderAttendancePRD','async function renderAttendancePRD');
 
-async function setup() {
-  const root=new Root(), saved={seat:{id:'seat',rows:[]},class:{id:'class',rows:[]},research:{id:'research',rows:[]}};
+async function setup({classRows=[],researchRows=[]}={}) {
+  const root=new Root(), saved={seat:{id:'seat',rows:[]},class:{id:'class',rows:classRows},research:{id:'research',rows:researchRows}};
   const teachers=[{id:'1',name:'李老师',subject:'语文',grade:'高一',active:1},
     {id:'2',name:'王老师',subject:'数学',grade:'高一',active:1}];
   const calls=[],exportedGrids=[],toasts=[],patchCalls=[];
-  let version=0;
+  let version=0, settings={};
   const nextVersion=()=>String(++version);
   const api={
     async get(path) {
       if(path==='/grades') return {grades:['高一','高二']};
       if(path==='/teachers') return {list:structuredClone(teachers)};
-      if(path==='/me') return {user:{settings:{}}};
+      if(path==='/me') return {user:{settings:structuredClone(settings)}};
       if(path==='/attendance') return Object.values(saved).map(table=>({id:table.id,sheet_type:table.id}));
       return structuredClone(saved[path.split('/').pop()]);
     },
-    async post(path,{rows}) {
-      const type=path.split('/')[2];
+    async post(path,{rows,workspace_snapshot,workspace_result,expected_updated_at}) {
+      const [, ,type, action]=path.split('/');
+      if(action==='confirm'){
+        const table=saved[type];
+        assert.equal(expected_updated_at,table.updated_at||'');
+        if(workspace_snapshot){
+          table.meta ||= {};
+          table.meta.workspace_confirmed ||= {};
+          table.meta.workspace_confirmed[workspace_snapshot.period]=structuredClone(workspace_snapshot.rows);
+        }
+        if(workspace_result){
+          table.meta ||= {};
+          const sheets=table.meta.workspace_results ||= {};
+          const periods=sheets[workspace_result.type] ||= {};
+          periods[workspace_result.period]={rows:structuredClone(workspace_result.rows)};
+        }
+        table.confirm_state='confirmed';
+        table.updated_at=nextVersion();
+        return {id:table.id,meta:structuredClone(table.meta||{}),updated_at:table.updated_at};
+      }
       /* 和云端 RPC 一样做行级版本校验：别的设备先改过就抛冲突 */
       for(const row of rows||[]) {
         if(row.expected_updated_at===undefined) continue;
@@ -91,7 +109,7 @@ async function setup() {
     },
     async patch(path,body) {
       patchCalls.push({path,expected:body.expected_updated_at});
-      if(path==='/me') return {user:{settings:{}}};
+      if(path==='/me') { settings={...settings,...structuredClone(body.settings)}; return {user:{settings:structuredClone(settings)}}; }
       const table=saved[path.split('/').pop()];
       if(body.expected_updated_at!==undefined && body.expected_updated_at!==String(table.updated_at||'')) {
         throw Error('WB_ATTENDANCE_CONFLICT: stale header version');
@@ -104,78 +122,122 @@ async function setup() {
     createSlot(){throw Error('fixture tables already exist');},makeXlsx({grid}){exportedGrids.push(grid);},parseRosterFile(){},parseRosterText(){}};
   const render=new Function(...Object.keys(dependencies),source+'\nreturn renderAttendancePRD;')(...Object.values(dependencies));
   await render(root,{grade:'高一'});
-  return {root,saved,calls,exportedGrids,toasts,patchCalls};
+  return {root,saved,calls,exportedGrids,toasts,patchCalls,reopen:()=>render(root,{grade:'高一'})};
 }
 const control=(root,key,id='1')=>root.querySelectorAll('[data-grid-person]').find(element=>element.dataset.gridPerson===id&&element.dataset.gridKey===key);
 
-test('实际四页签展示相同名单和列，花名册无考勤编辑入口，工作表可操作',async()=>{
+test('四张考勤表默认展示完整名册、相同列和导出后的操作',async()=>{
   const {root}=await setup();
   const headers=()=>[...root.innerHTML.matchAll(/<th>(.*?)<\/th>/g)].map(match=>match[1]);
   const names=()=>[...root.innerHTML.matchAll(/<td><b>(.*?)<\/b><\/td>/g)].map(match=>match[1]);
-  /* 用户 11-15 需求：默认进入坐班表（数据源），优先展示全状态 */
-  assert.deepEqual(headers(),['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注','操作']);
-  await root.querySelector('[data-tab="roster"]').click();
-  const rosterHeaders=headers(),expectedNames=names();
-  /* 用户 11-15 裁决：花名册只维护教师名单，考勤状态列全部隐藏；操作前保留一列可填写的备注 */
-  assert.deepEqual(rosterHeaders,['序号','归属部门','归属年级','姓名','学科','备注','操作']);
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
-  assert.equal(root.querySelectorAll('[data-person]').length,0);
-  let workHeaders=null;
-  /* 用户 11-15 规定：坐班表是数据源、全量显示；上课表只看上课/听课；教研表只看教研/请假。 */
-  const expectedHeaders={
-    seat:['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注','操作'],
-    class:['序号','归属部门','归属年级','姓名','学科','上课','备注','操作'],
-    research:['序号','归属部门','归属年级','姓名','学科','教研','备注','操作'],
-  };
-  /* 用户 11-15 需求：上课表/教研表只出对应状态的人，没人听课时听课列也隐藏 */
-  const expectedNamesByType={seat:['李老师','王老师'],class:[],research:[]};
-  const expectedControls={seat:12,class:0,research:0};
-  for(const type of ['seat','class','research']) {
+  const expected=['序号','归属部门','归属年级','姓名','学科','坐班','上课','听课','教研','请假','备注','操作'];
+  const actions=['data-roster-export-toggle','data-generate','data-workspace-voice','data-subject-manage','data-workspace-edit'];
+  for(const type of ['seat','class','research','leave']){
     await root.querySelector('[data-tab="'+type+'"]').click();
-    const current=headers();
-    if(workHeaders===null) workHeaders=current;
-    assert.deepEqual(current,expectedHeaders[type]);
-    assert.deepEqual(names(),expectedNamesByType[type]);
-    assert.equal(root.querySelectorAll('[data-grid-person]').length,expectedControls[type]);
-    /* 用户 11-12 裁决：去掉「保存本表」，改为点一下即自动保存 */
+    assert.deepEqual(headers(),expected);
+    assert.deepEqual(names(),['李老师','王老师']);
+    assert.equal(root.querySelectorAll('[data-grid-person]').length,12);
     assert.equal(root.querySelector('[data-grid-save]'),null);
-    assert.equal(/保存本表/.test(root.innerHTML),false);
+    const positions=actions.map(action=>root.elements.indexOf(root.querySelector('['+action+']')));
+    assert.ok(positions.every((position,index)=>position>=0&&(!index||position>positions[index-1])));
   }
-  assert.ok(workHeaders.includes('坐班')&&workHeaders.includes('请假'));
+  await root.querySelector('[data-tab="roster"]').click();
+  assert.deepEqual(headers(),['序号','归属部门','归属年级','姓名','学科','备注','操作']);
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
 });
 
-test('真实操作链：草稿跨页签保留，自动保存仅写本表，重新打开与花名册一致',async()=>{
+test('四张登记表共享已填写数据，自动保存保留全天及分节口径',async()=>{
   const {root,saved,calls}=await setup();
-  await root.querySelector('[data-tab="seat"]').click();
+  await root.querySelector('#aprd-period').change('6');
   await control(root,'sit').click();
-  /* 用户 11-15 要求：备注列改为行内输入框，默认空白，失焦即保存 */
   assert.equal(control(root,'remark').tag,'input');
-  /* 不再需要点「保存本表」：点击后自动落盘（350ms 防抖），这里等它执行完 */
-  await new Promise(resolve=>setTimeout(resolve,450));
+  await root.querySelector('[data-tab="class"]').click();
   assert.deepEqual(calls,['seat']);
   assert.equal(saved.class.rows.length,0);
   assert.equal(saved.research.rows.length,0);
-  await root.querySelector('[data-tab="class"]').click();
-  /* 用户 11-15 需求：上课表只出上课/听课的人，只勾坐班的李老师不再出现在上课表 */
-  assert.equal(control(root,'sit'),undefined);
-  assert.equal(control(root,'class'),undefined);
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
-  await root.querySelector('[data-tab="roster"]').click();
-  /* 花名册只保留名单与操作，不再展示任何考勤状态格 */
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
-  assert.equal(root.querySelectorAll('[aria-disabled]').length,0);
+  assert.match(control(root,'sit').attributes.class,/ y$/);
+  await root.querySelector('#aprd-period').change('0');
+  assert.match(control(root,'sit').attributes.class,/ y$/);
+  await root.querySelector('#aprd-period').change('7');
+  assert.match(control(root,'sit').attributes.class,/ u$/);
 });
 
-test('生成请假表按所选日期汇总请假记录并切到请假页',async()=>{
-  const {root,toasts,calls}=await setup();
-  const leaveOption=root.querySelector('[data-generate-type="leave"]');
-  assert.ok(leaveOption,'生成菜单里要有请假表');
-  await leaveOption.click();
+test('全天工作表展示已有的分节上课和教研记录',async()=>{
+  const {root}=await setup({
+    classRows:[{teacher:'李老师',subject:'语文',data:{__classRecord:{period:6,status:'y',remark:'已登记上课'}}}],
+    researchRows:[{teacher:'数学',subject:'数学',data:{__research:{period_time:'第7节',attendees:['王老师']}}}],
+  });
+  for(const type of ['seat','class','research','leave']){
+    await root.querySelector('[data-tab="'+type+'"]').click();
+    assert.match(control(root,'class').attributes.class,/ y$/);
+    assert.equal(control(root,'remark').value,'已登记上课');
+    assert.match(control(root,'research','2').attributes.class,/ y$/);
+  }
+});
+
+test('确认生成只切换目标表，允许生成并保留空的确认结果',async()=>{
+  const {root,saved,toasts}=await setup();
+  await root.querySelector('[data-generate-type="leave"]').click();
   await root.querySelector('[data-generate]').click();
-  assert.match(root.querySelector('[data-tab="leave"]').attributes.class,/on/,'生成后应切到请假页');
-  assert.ok(toasts.some(item=>/请假表已生成/.test(item.message)),'要有生成成功提示');
-  /* 请假表只汇总请假记录，不该凭空写入坐班/上课/教研工作表 */
-  assert.deepEqual(calls,[]);
+  assert.match(root.querySelector('[data-tab="leave"]').attributes.class,/on/);
+  assert.match(root.innerHTML,/已确认结果/);
+  assert.deepEqual(saved.seat.meta.workspace_results.leave[0].rows,[]);
+  assert.ok(toasts.some(item=>/请假表已确认生成/.test(item.message)));
+  await root.querySelector('[data-tab="seat"]').click();
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,12);
+});
+
+test('确认结果按节次保存，删除一条结果不会删除登记或教师',async()=>{
+  const {root,saved,reopen}=await setup();
+  const select=tab=>root.querySelector('[data-tab="'+tab+'"]').click();
+  await root.querySelector('#aprd-period').change('6');
+  await control(root,'class').click();
+  await control(root,'sit','2').click();
+  await select('class');
+  assert.match(control(root,'class').attributes.class,/ y$/,'确认前也能看见共享登记');
+  await select('seat');
+  await root.querySelector('[data-generate]').click();
+  assert.equal(saved.seat.confirm_state,'confirmed');
+  assert.equal(saved.seat.meta.workspace_results.seat[6].rows.length,2);
+  await reopen();
+  await root.querySelector('#aprd-period').change('6');
+  assert.match(root.innerHTML,/已确认结果/);
+  await root.querySelector('[data-delete-work-record="1"]').click();
+  assert.equal(saved.seat.meta.workspace_results.seat[6].rows.length,1);
+  assert.equal(root.querySelector('[data-delete-work-record="1"]'),null);
+  await root.querySelector('[data-workspace-mode]').click();
+  assert.match(control(root,'class').attributes.class,/ y$/,'原始登记保留');
+  await select('roster');
+  assert.equal(root.querySelectorAll('[data-edit]').length,2);
+});
+
+test('请假登记即时显示，确认后同步明细且重新确认不会重复',async()=>{
+  const {root}=await setup();
+  const select=tab=>root.querySelector('[data-tab="'+tab+'"]').click();
+  const details=()=>root.querySelector('[data-leave-records]').click();
+  await root.querySelector('#aprd-period').change('6');
+  await control(root,'leave').change('事假');
+  await select('leave');
+  assert.equal(control(root,'leave').value,'事假');
+  await details();
+  assert.equal(root.querySelectorAll('[data-edit-leave]').length,0);
+  await select('seat');
+  await root.querySelector('[data-generate]').click();
+  await select('leave');
+  await details();
+  assert.equal(root.querySelectorAll('[data-edit-leave]').length,1);
+  assert.match(root.innerHTML,/<td>事假<\/td>/);
+  await select('seat');
+  await root.querySelector('[data-workspace-mode]').click();
+  await control(root,'leave').change('病假');
+  await root.querySelector('[data-generate]').click();
+  await select('leave');
+  await details();
+  assert.equal(root.querySelectorAll('[data-edit-leave]').length,1);
+  assert.match(root.innerHTML,/<td>病假<\/td>/);
+  await details();
+  await root.querySelector('#aprd-period').change('7');
+  assert.equal(control(root,'leave').value,'');
 });
 
 test('表内登记的请假只作用在登记的那一节，不会被带到其他节次',async()=>{
@@ -226,22 +288,21 @@ test('明细行真被别的设备改过时仍会拦下，并给出中文提示�
   assert.ok(original);
 });
 
-test('切换节次和日期不串草稿；搜索后四页签共用同一花名册筛选',async()=>{
+test('切换节次和日期保留完整名册，不串用另一节次或日期的登记',async()=>{
   const {root,saved}=await setup();
-  /* 新规则下教研表只出教研/请假的人，先在坐班表给李老师勾上教研 */
-  await root.querySelector('[data-tab="seat"]').click();
+  await root.querySelector('#aprd-period').change('1');
   await control(root,'research').click();
   await root.querySelector('[data-tab="research"]').click();
+  assert.match(control(root,'research').attributes.class,/ y$/);
   await root.querySelector('#aprd-period').change('2');
-  /* 该节次没有教研记录，教研表按状态筛人后不再补未登记行 */
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
-  /* 真实环境按日期分表，换日期就是另一张空表；这里清空桩数据来模拟 */
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,12);
+  assert.match(control(root,'research').attributes.class,/ u$/);
   Object.values(saved).forEach(table=>{table.rows=[];});
   await root.querySelector('#aprd-date').change('2026-10-01');
-  /* 源数据清空后，教研表按状态筛人，不再为未登记教师补行 */
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,12);
+  assert.match(control(root,'research').attributes.class,/ u$/);
   await root.querySelector('#aprd-search').input('王老师');
-  assert.equal(root.querySelectorAll('[data-grid-person]').length,0);
+  assert.equal(root.querySelectorAll('[data-grid-person]').length,6);
 });
 
 test('教师搜索支持中文输入法组合输入，组合期间不重绘，选字完成后再筛选',async()=>{
@@ -261,27 +322,27 @@ test('教师搜索支持中文输入法组合输入，组合期间不重绘，�
 
 test('工作表导出和生成操作针对当前页签，导出的列及勾选与页面一致',async()=>{
   const {root,exportedGrids}=await setup();
-  /* 上课表只出上课/听课的人：先在坐班表勾上上课，再切到上课表 */
+  /* 草稿共用所有列，确认生成上课表后导出的是上课与听课结果。 */
   await root.querySelector('[data-tab="seat"]').click();
   await control(root,'class').click();
-  await root.querySelector('[data-tab="class"]').click();
+  await control(root,'listen','2').click();
   /* 「生成班表」改下拉菜单（11-15 设计稿）：先选上课表，确认生成按它走 */
   assert.equal(root.querySelector('[data-generate-menu]').attributes.hidden,'');
   await root.querySelector('[data-generate-type="class"]').click();
-  await control(root,'class').click();
+  await root.querySelector('[data-generate]').click();
   await root.querySelector('[data-roster-export="xlsx"]').click();
   const grid=exportedGrids[0];
   /* 三级标题（表名 / 日期节次时段 / 人数统计）占前 3 行，表头在第 4 行 */
   assert.match(grid[0][0],/上课表/);
   assert.match(grid[1][0],/星期/);
-  /* 上课表统计只保留上课/请假人数，听课有人才展示（用户 11-15 要求），不再有应到/未登记 */
   assert.match(grid[2][0],/上课 1 人/);
-  assert.ok(!/听课|请假/.test(grid[2][0]),'没人听课/请假时不应展示对应统计');
+  assert.match(grid[2][0],/听课 1 人/);
   assert.ok(!/应到|未登记/.test(grid[2][0]),'上课表标题不应出现应到/未登记');
-  /* 上课表导出与页面同一套列（用户 11-15 规定），没人听课时不导出听课列 */
-  assert.deepEqual(grid[3],['序号','归属部门','归属年级','姓名','学科','上课','备注']);
+  assert.deepEqual(grid[3],['序号','归属部门','归属年级','姓名','学科','上课','听课人','备注']);
   assert.equal(grid[4][3],'李老师');
   assert.equal(grid[4][5],'✓');
+  assert.equal(grid[5][3],'王老师');
+  assert.equal(grid[5][6],'✓');
   /* 右下角导出时间写在最后一行的最右列 */
   const last=grid.at(-1);
   assert.match(last.at(-1),/^导出时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);

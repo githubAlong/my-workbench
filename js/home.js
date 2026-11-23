@@ -214,11 +214,15 @@ async function loadWeather(force = false) {
     + '&hourly=temperature_2m,weather_code,precipitation_probability'
     + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max'
     + '&timezone=auto&forecast_days=7';
-  /* 取数地址按环境拆开：测试环境走同源 /wx/forecast（Pages Function 代取），
-     绕开部分网络对 api.open-meteo.com 的直连重置；其它环境/代理不可用时回落到直连。
-     两个地址都失败才算天气没拿到，避免「一处被墙就整卡空白」。 */
+  /* 取数通道按可达性排：先天气代理，再直连 open-meteo，两条都失败才算没拿到。
+     GitHub Pages 跑不了 Pages Function，所以同源 /wx/forecast 只在 CF Pages 测试域用；
+     其它站点（A/B 两个 GitHub Pages）走已部署的 my-workbench-test.pages.dev 代理，
+     绕开部分网络对 api.open-meteo.com 的浏览器直连重置（net::ERR_EMPTY_RESPONSE）。 */
+  const WX_PROXY = 'https://my-workbench-test.pages.dev/wx/forecast';
   const sources = [];
-  if (/\.pages\.dev$/i.test(location.hostname)) sources.push(`${location.origin}/wx/forecast?${query}`);
+  sources.push(/\.pages\.dev$/i.test(location.hostname)
+    ? `${location.origin}/wx/forecast?${query}`
+    : `${WX_PROXY}?${query}`);
   sources.push(`https://api.open-meteo.com/v1/forecast?${query}`);
   let r = null;
   for (const url of sources) {
@@ -1134,19 +1138,19 @@ function renderHome() {
     </div>
     <div class="hg-item" data-hcard="weekLessons">
       <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card home-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('book',20)}</span><b>本周课时</b><button class="home-card-link" data-goto2="work/lessons" type="button">详情</button></div><div class="home-mini-body" id="home-week-lessons"><span class="mini-loading">正在统计…</span></div></section>
+      <section class="card home-mini-card hstat hstat-lead"><div class="hstat-head"><span class="hstat-icon">${icon('book',15)}</span><b class="hstat-title">本周课时</b><button class="hstat-link" data-goto2="work/lessons" type="button">详情 ${icon('right',12)}</button></div><div class="hstat-body" id="home-week-lessons"><span class="hstat-loading">正在统计…</span></div></section>
     </div>
     <div class="hg-item" data-hcard="invigilation">
       <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card home-mini-card invig-mini-card"><div class="home-mini-head"><span class="home-mini-icon orange">${icon('shield',20)}</span><b>监考任务</b><button class="home-card-link" data-goto2="work/invigilation" type="button">详情</button></div><div class="home-mini-body" id="home-invig-summary"><span class="mini-loading">正在统计…</span></div></section>
+      <section class="card home-mini-card invig-mini-card hstat"><div class="hstat-head"><span class="hstat-icon">${icon('shield',15)}</span><b class="hstat-title">监考任务</b><button class="hstat-link" data-goto2="work/invigilation" type="button">详情 ${icon('right',12)}</button></div><div class="hstat-body" id="home-invig-summary"><span class="hstat-loading">正在统计…</span></div></section>
     </div>
     <div class="hg-item" data-hcard="prepDeadline">
       <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card home-mini-card prep-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('file',20)}</span><b>备课截止</b><button class="home-card-link" data-goto2="work/prep" type="button">备课</button></div><div class="home-mini-body" id="home-prep-deadline"><span class="mini-loading">正在检查…</span></div></section>
+      <section class="card home-mini-card prep-mini-card hstat"><div class="hstat-head"><span class="hstat-icon">${icon('file',15)}</span><b class="hstat-title">备课截止</b><button class="hstat-link" data-goto2="work/prep" type="button">备课 ${icon('right',12)}</button></div><div class="hstat-body" id="home-prep-deadline"><span class="hstat-loading">正在检查…</span></div></section>
     </div>
     <div class="hg-item" data-hcard="recentNotes">
       <span class="hg-grip" data-hg-grip title="拖动调整位置">${icon('grid',14)}</span><button class="hg-hide" data-hg-hide title="隐藏">${icon('close',13)}</button><span class="hg-resize" data-hg-resize title="调整大小"></span>
-      <section class="card home-mini-card notes-mini-card"><div class="home-mini-head"><span class="home-mini-icon blue">${icon('edit',20)}</span><b>最近笔记</b><button class="home-card-link" data-goto2="work/notes" type="button">全部</button></div><div class="home-mini-body" id="home-recent-notes"><span class="mini-loading">正在读取…</span></div></section>
+      <section class="card home-mini-card notes-mini-card hstat"><div class="hstat-head"><span class="hstat-icon">${icon('edit',15)}</span><b class="hstat-title">最近笔记</b><button class="hstat-link" data-goto2="work/notes" type="button">全部 ${icon('right',12)}</button></div><div class="hstat-body" id="home-recent-notes"><span class="hstat-loading">正在读取…</span></div></section>
     </div>
   </div>`;
   applyHomeSidebar();
@@ -1283,12 +1287,15 @@ async function loadHomeExtras(){
  ]);
  if(seq!==homeExtraSeq||!document.getElementById('home-week-lessons'))return;
  const inWeek=v=>{const d=String(v||'').slice(0,10);return d>=from&&d<=to;},courses=bundles.flatMap(x=>x.courses).filter(x=>inWeek(x.date)),lessons=bundles.flatMap(x=>x.lessons).filter(x=>{const m=String(x.class_time||'').match(/(20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2})/);return m&&inWeek(m[1].replace(/[/.年]/g,'-').replace('月','-').replace('日',''));}),invigs=bundles.flatMap(x=>x.invigilations).filter(x=>inWeek(x.date));
- const done=lessons.length,planned=courses.length,left=Math.max(0,planned-done),pct=planned?Math.min(100,Math.round(done/planned*100)):0,week=document.getElementById('home-week-lessons');
- if(week)week.innerHTML=planned?'<div class="mini-number-row"><span>已上 <b>'+done+'</b> 节</span><span>剩余 <b>'+left+'</b> 节</span></div><div class="mini-progress"><i style="width:'+pct+'%"></i></div><div class="mini-foot">周课时进度 '+pct+'% · 计划 '+planned+' 节</div>':'<div class="mini-empty">本周暂无课表安排</div>';
- const inv=document.getElementById('home-invig-summary');if(inv){const next=[...invigs].sort((a,b)=>String(a.date+a.start_time).localeCompare(String(b.date+b.start_time)))[0];inv.innerHTML='<div class="mini-number-row"><span>本周 <b>'+invigs.length+'</b> 场</span></div><div class="mini-foot">'+(next?'下一场：'+esc(String(next.date||'').slice(5))+' '+esc(next.start_time||'')+' '+esc(next.exam_name||next.subject||'监考'):'本周暂无监考安排')+'</div>';}
+ const done=lessons.length,planned=courses.length,left=Math.max(0,planned-done),pct=planned?Math.min(100,Math.round(done/planned*100)):0;
+ /* 今天/明天按本地日期比较，避免直接截取字符串在跨时区时判断错 */
+ const dayText=v=>{const d=String(v||'').slice(0,10);if(!d)return'';const t=new Date();t.setHours(0,0,0,0);if(d===ymd(t))return'今天';t.setDate(t.getDate()+1);return d===ymd(t)?'明天':d.slice(5);};
+ const week=document.getElementById('home-week-lessons');
+ if(week)week.innerHTML=planned?'<div class="hstat-main"><span class="hstat-value">'+done+'</span><span class="hstat-unit">节</span><span class="hstat-sub">本周计划 '+planned+' 节</span></div><div class="hstat-track"><i style="width:'+pct+'%"></i></div><div class="hstat-foot">剩余 '+left+' 节 · 已完成 '+pct+'%</div>':'<div class="hstat-main"><span class="hstat-value">0</span><span class="hstat-unit">节</span></div><div class="hstat-foot">本周暂无课表安排</div>';
+ const inv=document.getElementById('home-invig-summary');if(inv){const next=[...invigs].sort((a,b)=>String(a.date+a.start_time).localeCompare(String(b.date+b.start_time)))[0];inv.innerHTML='<div class="hstat-main"><span class="hstat-value">'+invigs.length+'</span><span class="hstat-unit">场</span><span class="hstat-sub">本周</span></div><div class="hstat-foot">'+(next?'下一场 '+esc(dayText(next.date))+' '+esc(String(next.start_time||'').slice(0,5))+' · '+esc(next.exam_name||next.subject||'监考'):'本周暂无监考安排')+'</div>';}
  const now=Date.now(),deadlines=(Array.isArray(items)?items:[]).filter(x=>x.status!=='done'&&/备课|课件|教案|提交/.test(String(x.title||'')+' '+String(x.kind||''))).map(item=>({item,at:item.due_at||item.end_at||item.start_at})).filter(x=>x.at&&Number.isFinite(new Date(x.at).getTime())&&new Date(x.at).getTime()>=now).sort((a,b)=>new Date(a.at)-new Date(b.at));
- const prep=document.getElementById('home-prep-deadline');if(prep){if(deadlines.length){const item=deadlines[0].item;prep.innerHTML='<div class="mini-primary-line">'+esc(item.title)+'</div><div class="mini-foot">截止时间：'+esc(fmtDateTime(deadlines[0].at))+'</div>';}else{const next=(Array.isArray(preps)?preps:[]).filter(p=>(p.status||'doing')!=='done'&&String(p.date||'')>=from).sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')))[0];prep.innerHTML=next?'<div class="mini-primary-line">'+esc(next.topic||'备课')+'</div><div class="mini-foot">最近备课：'+esc(next.date||'日期未定')+' · 尚无单独截止时间</div>':'<div class="mini-empty">暂无待提交课件</div>';}}
- const recent=document.getElementById('home-recent-notes');if(recent){const list=(Array.isArray(notes)?notes:[]).sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||''))).slice(0,2);recent.innerHTML=list.length?list.map(n=>'<button class="recent-note-row" type="button" data-open-recent-notes><span>•</span><b>'+esc(n.title||'未命名笔记')+'</b></button>').join(''):'<div class="mini-empty">还没有笔记，写下第一条灵感吧</div>';recent.querySelectorAll('[data-open-recent-notes]').forEach(b=>{b.onclick=()=>go('work/notes');});}
+ const prep=document.getElementById('home-prep-deadline');if(prep){if(deadlines.length){const item=deadlines[0].item,at=deadlines[0].at,days=Math.max(0,Math.ceil((new Date(at).getTime()-now)/86400000));prep.innerHTML='<div class="hstat-main"><span class="hstat-value'+(days?'':' is-text')+'">'+(days||'今天')+'</span><span class="hstat-unit">'+(days?'天后截止':'截止')+'</span></div><div class="hstat-foot">'+esc(item.title)+' · '+esc(fmtDateTime(at))+'</div>';}else{const pending=(Array.isArray(preps)?preps:[]).filter(p=>(p.status||'doing')!=='done'),next=pending.filter(p=>String(p.date||'')>=from).sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')))[0];prep.innerHTML='<div class="hstat-main"><span class="hstat-value">'+pending.length+'</span><span class="hstat-unit">项待办</span></div><div class="hstat-foot">'+(next?'最近：'+esc(next.topic||'备课')+' · '+esc(next.date||'日期未定'):'暂无待提交课件')+'</div>';}}
+ const recent=document.getElementById('home-recent-notes');if(recent){const list=(Array.isArray(notes)?notes:[]).sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||'')));recent.innerHTML='<div class="hstat-main"><span class="hstat-value">'+list.length+'</span><span class="hstat-unit">条笔记</span></div><div class="hstat-foot">'+(list[0]?'最近：'+esc(list[0].title||'未命名笔记'):'还没有笔记，写下第一条灵感吧')+'</div>';}
 }
 
 function homeDayCaption(date) {

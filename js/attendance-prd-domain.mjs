@@ -204,8 +204,10 @@ export function deriveTableGridState(teacher, type, rows, context = {}) {
   });
   // Class listening records name the listener rather than the class teacher.
   if (type === 'class') legacy.listen = deriveLegacyRosterState(teacher, { ...context, classRows: rows }).listen;
-  const row = rows.find(item => !rowData(item).__deleted && matchesGridTeacher(item, teacher));
-  const saved = gridRecord(row, context.period ?? 1) || {};
+  const matchingRows = rows.filter(item => !rowData(item).__deleted && matchesGridTeacher(item, teacher));
+  const period = context.period ?? 1;
+  const row = matchingRows.find(item => gridRecord(item, period)) || matchingRows[0];
+  const saved = gridRecord(row, period) || {};
   const result = {
     class: legacy.class, sit: legacy.sit, listen: legacy.listen ? 'y' : 'u',
     research: legacy.research ? 'y' : 'u', leave: legacy.leave,
@@ -480,7 +482,7 @@ const exportLeaveDuration = record => {
 export function buildAttendanceExportGrid({
   type = 'seat', grade = '', date = '', period = 1, teachers = [],
   seatRows = [], classRows = [], researchRows = [], leaveRecords = [],
-  teacherMeta = {}, resolvePeriodRange = () => [], includeUnlisted = true,
+  teacherMeta = {}, resolvePeriodRange = () => [], includeUnlisted = true, worksheetEntries = null, worksheetKeys = null,
 } = {}) {
   const people = (Array.isArray(teachers) ? teachers : [])
     .filter(teacher => teacher && Number(teacher.active ?? 1) !== 0);
@@ -544,6 +546,26 @@ export function buildAttendanceExportGrid({
     + ' · ' + periodLabel(period) + '（' + rangeText(period) + '）';
   const heading = statsLine => [[titleHead], [subtitle], [statsLine]];
 
+  const explicitWorksheetKeys = worksheetKeys || (type==='class' ? ['class','listen'] : type==='research' ? ['research'] : null);
+  if (worksheetEntries && explicitWorksheetKeys) {
+    const labels = {sit:'坐班',class:'上课',listen:'听课',research:'教研',leave:'请假'};
+    const showListenerNames = type==='class' && explicitWorksheetKeys.length===2;
+    const headers = ['序号','归属部门','归属年级','姓名','学科',
+      ...explicitWorksheetKeys.map(key=>showListenerNames&&key==='listen'?'听课人':labels[key]),'备注'];
+    const stats = explicitWorksheetKeys.map(key=>labels[key]+' '+worksheetEntries.filter(({state})=>
+      key==='leave' ? Boolean(state.leave) : state[key]==='y').length+' 人').join(' · ');
+    const mark = value => value==='y'||value==='n' ? exportStatusLabel(value) : worksheetKeys ? '未登记' : '';
+    const rows = worksheetEntries.map(({teacher,state},index)=>[
+      index+1,teacher.department||departmentOf(teacher),gradeOf(teacher),teacher.name,teacher.subject||'',
+      ...explicitWorksheetKeys.map(key=>{
+        if(key==='leave')return state.leave||'';
+        if(showListenerNames&&key==='listen'&&state.listeners?.length)return [mark(state.listen),...state.listeners].filter(Boolean).join(' ');
+        return mark(state[key]);
+      }),state.remark||'',
+    ]);
+    return [...heading(stats),headers,...rows];
+  }
+
   if (type === 'seat' || type === 'roster') {
     const activeLeaves = activeLeavesFor(scopedLeaveRecords, date);
     /* 导出表里同一人一次只能有一个状态（用户 11-15 裁决）：
@@ -599,11 +621,10 @@ export function buildAttendanceExportGrid({
     const rows = entries.map(entry => entry.row);
     const count = key => entries.filter(entry => entry.winner === key && entry.row[{ class: 6, sit: 5, listen: 7, research: 8 }[key]] === '✓').length;
     const leaveCount = rows.filter(row => row[9] !== '').length;
-    const unregistered = entries.filter(entry => !entry.winner && !entry.onLeave).length;
-    /* 用户 11-15 需求：导出统一去掉「应到人数」 */
+    /* 用户 11-19 需求：统计行不再展示「未登记 N 人」 */
     const statsLine = '坐班 ' + count('sit') + ' 人 · 上课 ' + count('class')
       + ' 人 · 听课 ' + count('listen') + ' 人 · 教研 ' + count('research') + ' 人'
-      + ' · 请假 ' + leaveCount + ' 人 · 未登记 ' + unregistered + ' 人';
+      + ' · 请假 ' + leaveCount + ' 人';
     return [...heading(statsLine), EXPORT_HEADERS[type], ...rows];
   }
 

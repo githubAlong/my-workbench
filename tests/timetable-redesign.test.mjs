@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const source = await readFile(new URL("../js/timetable.js", import.meta.url), "utf8");
+const periodLogic = await readFile(new URL("../js/timetable-periods.mjs", import.meta.url), "utf8");
 const css = await readFile(new URL("../css/timetable-redesign.css", import.meta.url), "utf8");
 const work = await readFile(new URL("../js/work.js", import.meta.url), "utf8");
 
@@ -44,11 +45,14 @@ test("timetable normalizes imported period identifiers before rendering", () => 
 });
 
 test("timetable rows retain lunch and all configured or course-referenced evening periods", () => {
+  /* 铺满午休与晚间节次的逻辑收进了 timetable-periods.mjs，由课表和上课记录对话框共用，
+     断言跟着移到真正拥有它的文件，同时锁住课表页只调用、不再自己写一份兜底。 */
+  assert.match(source, /sortPeriods\(resolveTimetablePeriods\(\{/);
+  assert.match(periodLogic, /for \(const number of \[0, 1, 2, 3, 4, 5, 5\.5, 6, 7, 8, 9, 10\]\)/);
+  assert.match(periodLogic, /completeTimetablePeriods\(\[\.\.\.byNo\.values\(\)\], courses/);
+  assert.match(periodLogic, /completeTimetablePeriods\(rows, courses/);
   assert.match(source, /function periodOrder\(period\)/);
-  assert.match(source, /for \(const number of \[0, 1, 2, 3, 4, 5, 5\.5, 6, 7, 8, 9, 10\]\)/);
   assert.match(source, /const orderDiff = periodOrder\(a\) - periodOrder\(b\)/);
-  assert.match(source, /completeTimetablePeriods\(\[\.\.\.byNo\.values\(\)\], visibleCourses/);
-  assert.match(source, /completeTimetablePeriods\(configuredRows, visibleCourses/);
   assert.match(source, /samePeriodName\(periodName\(period\), label\)/);
 });
 

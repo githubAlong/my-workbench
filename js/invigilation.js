@@ -118,6 +118,7 @@ export async function renderInvigilation(box) {
   let month = currentMonth();
   let activeTab = 'records';
   let rows = [];
+  let cloudLoaded = false;
   let rules = { ...DEFAULT_RULES };
   let summary = buildInvigSummary([], rules);
   let typeFilter = 'all';
@@ -132,6 +133,7 @@ export async function renderInvigilation(box) {
     try {
       const data = await api.get('/invig/summary?month=' + month);
       rows = Array.isArray(data.rows) ? data.rows : [];
+      cloudLoaded = data.source === 'cloud';
       rules = { ...DEFAULT_RULES, ...(data.rules || {}) };
       summary = buildInvigSummary(rows, rules);
       render();
@@ -148,6 +150,7 @@ export async function renderInvigilation(box) {
       + '<div class="iv-toolbar">'
       + '<div class="iv-month"><button class="icon-btn sm" data-prev-month aria-label="上个月">‹</button><input type="month" id="iv-month" value="' + esc(month) + '" aria-label="选择月份"><button class="icon-btn sm" data-next-month aria-label="下个月">›</button></div>'
       + '<span class="iv-toolbar-spacer"></span>'
+      + '<span class="tiny muted" role="status">' + (cloudLoaded ? '已读取云端监考记录' : '显示本机监考记录') + '</span>'
       + '<button class="btn ghost sm" data-rules>计价设置</button>'
       + '<button class="btn ghost sm" data-export-records>导出记录</button>'
       + '<button class="btn primary sm" data-add>＋ 记一场监考</button>'
@@ -570,8 +573,10 @@ export async function renderInvigilation(box) {
       if (!exam && !room && !start) return toast('考试名称、考场或开始时间至少填写一项', 'warn');
       const duration = start && end ? calcDurationMinutes(start, end) : Number(q('iv-minutes').value) || 0;
       const amount = Number(q('iv-amount').value) || 0;
+      // 注意：oldState 必须在 if (row) 外面声明——后面拼 payload 时（第 621 行附近）
+      // 还要用它判断结构化收付，写在块内会变成 ReferenceError，编辑已有记录必挂。
+      const oldState = row ? settlementOf(row) : null;
       if (row) {
-        const oldState = settlementOf(row);
         if (oldState.legacy && Math.abs(amount - oldState.total) > 0.009) {
           return toast('这条旧版记录已结清。请先在「收付明细」撤销旧版结清标记，再修改金额。', 'warn');
         }

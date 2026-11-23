@@ -135,24 +135,19 @@ test('首页保留的工作与个人中心导航目标已注册', () => {
 });
 
 
-test('我的个人中心各模块统一为可独立展开和收起的手风琴面板', () => {
-  for (const id of ['profile', 'workbench', 'account', 'messages', 'theme', 'wide', 'layout', 'logout']) {
-    assert.ok(me.includes(`data-me-accordion="${id}"`), `缺少可折叠模块：${id}`);
-  }
-  assert.match(me, /details class="me-accordion" data-me-accordion="profile">/);
-  assert.doesNotMatch(me, /data-me-accordion="profile"\s+open/);
-  assert.match(me, /id="me-identity-toggle"/);
-  assert.match(me, /class="me-accordion-chevron"/);
-  assert.match(me, /renderProfile\(main\.querySelector\('#me-profile-panel'\), \{ inline: true \}\)/);
-  assert.match(me, /renderWorkbenchSettings\(main\.querySelector\('#me-workbench-panel'\), \{ inline: true \}\)/);
-  assert.match(me, /renderAccountSettings\(main\.querySelector\('#me-account-panel'\), \{ inline: true \}\)/);
-  assert.match(me, /renderMessages\(main\.querySelector\('#me-messages-panel'\), \{ inline: true \}\)/);
+test('个人中心采用六张设置卡片并保留独立资料编辑与布局操作', () => {
+  assert.match(me, /class="me-settings-grid"/);
+  assert.match(me, /profile: \(\) => go\('profile'\)/);
+  assert.match(me, /account: \(\) => go\('me\/account-settings'\)/);
+  assert.match(me, /workbench: \(\) => go\('me\/workbench-settings'\)/);
+  assert.match(me, /messages: \(\) => go\('messages'\)/);
+  assert.match(me, /id="me-wide-toggle"/);
+  assert.match(me, /id="me-reset-layout"/);
+  assert.match(me, /id="me-logout"/);
+  assert.match(ui, /id: 'bulletin', label: '留言'/);
   assert.match(me, /function renderProfile\(main, \{ inline = false \} = \{\}\)/);
   assert.match(me, /id="p-avatar-upload"/);
   assert.match(me, /id="p-avatar-remove"/);
-  assert.match(wbStyles, /\.me-accordion-head/);
-  assert.match(wbStyles, /\.me-accordion\[open\] \.me-accordion-chevron/);
-  assert.match(wbStyles, /\.me-identity-card\.is-collapsed/);
 });
 
 

@@ -29,15 +29,20 @@ const roster = (id, grade, class_name, n) => ({
   id, grade, class_name, count: n, names: Array.from({ length: n }, (_, i) => `学生${i + 1}`),
 });
 
-test('点名的班级候选只来自后台上传的名单，课表里没名单的班不进来', () => {
+test('班级候选 = 课表 classes + 后台 rosters 合并，跟违纪一致；名字池只认 rosters', () => {
   const data = {
     rosters: [roster(1, '高二', '5班', 51), roster(2, '高一', '3班', 40)],
     classes: [10, 11, 12, 13, 14, 15, 16, 18, 5, 6, 7, 8, 9].map((n) => ({ grade: '高二', class_name: `高二${n}班` })),
   };
   const c = choices(data);
   assert.deepEqual(c.gradeList, ['高一', '高二']);
-  assert.equal(c.pairs.length, 2, '13 个排了课的班不能变成 13 个可点的班');
-  assert.deepEqual(c.pairsOf('高二').map((p) => p.class_name), ['5班']);
+  // 13 个课表班 + 高二5班(roster) + 高一3班(roster) = 15，去重后不重复
+  assert.equal(c.pairs.length, 15, '课表班要进候选，不能像以前只剩 1 个');
+  const noRoster = c.pairsOf('高二').find((p) => p.class_name === '高二10班');
+  assert.deepEqual(noRoster.names, [], '课表有班但没上传名单，名字池为空');
+  assert.equal(noRoster.count, 40, '没名单的班退回默认 40 人，按号码点');
+  const withRoster = c.pairsOf('高二').find((p) => p.class_name === '5班');
+  assert.equal(withRoster.names.length, 51, 'rosters 里的班拿到真名单');
 });
 
 test('班级名是空的班照样能选，标签只显示年级', () => {

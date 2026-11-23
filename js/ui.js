@@ -50,6 +50,7 @@ const I = {
   refresh: '<path d="M20 11.5a8 8 0 1 0-2.3 5.6"/><path d="M20 4.5v6h-6"/>',
   chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   shield: '<path d="M12 3.5 20 6v6c0 5-4 7.6-8 8.5-4-.9-8-3.5-8-8.5V6z"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/>',
   logout: '<path d="M15 8V5.5H4v13h11V16M9.5 12h11m0 0-3.5-3.5M20.5 12 17 15.5"/>',
   moon: '<path d="M20 14.5A8.6 8.6 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>',
   sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/>',
@@ -115,7 +116,7 @@ export const NAV = [
   { id: 'pick', label: '点名', icon: 'dice' },
   { id: 'mystery', label: '盲盒', icon: 'gift' },
   { id: 'misconduct', label: '违纪', icon: 'alert' },
-  { id: 'bulletin', label: '留言板', icon: 'chat' },
+  { id: 'bulletin', label: '留言', icon: 'chat' },
   { id: 'recycle', label: '回收站', icon: 'trash' },
   { id: 'me', label: '我的', icon: 'me' },
 ];
@@ -1300,6 +1301,8 @@ export async function refreshUnread() {
    数字变了要跟着变，不然从 3 变成 1 还显示 3。 */
 export function paintUnread() {
   const n = Number(state.unread) || 0;
+  const messageStatus = document.getElementById('me-message-status');
+  if (messageStatus) messageStatus.textContent = n ? n + ' 条未读' : '无未读';
   document.querySelectorAll('.msg-bell').forEach(bell => {
     let dot = bell.querySelector('.msg-bell-dot');
     if (n <= 0) { dot?.remove(); return; }

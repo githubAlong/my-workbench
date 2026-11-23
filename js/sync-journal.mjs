@@ -75,3 +75,18 @@ export function localDrafts(storage,uid) {
   }
   return drafts.sort((a,b)=>String(a.at).localeCompare(String(b.at)));
 }
+
+/* 【换库识别】本地版本号比云端还高，只可能来自另一个数据库。
+   revision 在库内单调递增、由服务端写入，正常情况下本地永远不会超前于云端；
+   唯一能超前的场景就是「同一账号的本地缓存留在了旧库，云端已经换成了新库」
+   （例如从自建 Supabase 迁到云上，账号 uid 不变、revision 从 24674 归零重来）。
+
+   这种情况绝不能走 mergeSnapshots：两边内容整体对不上，会被判定成整份冲突，
+   _conflictPaused 置位后每次保存都抛「云端同步尚未就绪或已暂停」，
+   用户一个字都存不进去，而且刷新也恢复不了。正确做法是以云端为准，
+   本地旧库的快照单独备份留档。 */
+export function isForeignLocalState(localRevision, remote) {
+  const local = Number(localRevision) || 0;
+  const remoteRevision = Number(remote?.revision) || 0;
+  return !!remote?.payload && local > remoteRevision;
+}

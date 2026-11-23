@@ -3,8 +3,8 @@
 export const ENVIRONMENT_PROFILES = Object.freeze({
   production: Object.freeze({
     name: 'production',
-    supabaseUrl: 'https://placate-synapse-stylist.ngrok-free.dev',
-    publishableKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzYzMDAwMDAwLCJleHAiOjIwNzAwMDAwMDB9.QYMaK-40p1luJ3Dc83JchGAH3h02dLSAIxk_ppGEJHA',
+    supabaseUrl: 'https://vainbhgvzntusebaqdas.supabase.co',
+    publishableKey: 'sb_publishable_f4Hpk2NCZaL8U-fDrSamKw_v9aKjSKo',
     /* 线上也不再自动灌示例数据：账号里已经有真实数据，
        示例批次被清掉后要是又被灌回来，用户会以为删除没生效。 */
     autoSeedDemo: false,
@@ -13,8 +13,8 @@ export const ENVIRONMENT_PROFILES = Object.freeze({
   }),
   test: Object.freeze({
     name: 'test',
-    supabaseUrl: 'https://placate-synapse-stylist.ngrok-free.dev',
-    publishableKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzYzMDAwMDAwLCJleHAiOjIwNzAwMDAwMDB9.QYMaK-40p1luJ3Dc83JchGAH3h02dLSAIxk_ppGEJHA',
+    supabaseUrl: 'https://vainbhgvzntusebaqdas.supabase.co',
+    publishableKey: 'sb_publishable_f4Hpk2NCZaL8U-fDrSamKw_v9aKjSKo',
     autoSeedDemo: false,
     hosts: Object.freeze(['localhost', '127.0.0.1', 'my-workbench-test.pages.dev']),
     hostSuffixes: Object.freeze(['.my-workbench-test.pages.dev']),

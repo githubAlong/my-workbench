@@ -203,10 +203,16 @@ try {
       console.warn('[sync] 远端资料刷新失败', e);
     }
   });
-  rt.syncWithAuth();
+  const syncRealtimeForPage = () => {
+    const { path } = parseHash();
+    if (path === 'invigilation' || path === 'work/invigilation') rt.stop();
+    else rt.syncWithAuth();
+  };
+  syncRealtimeForPage();
+  window.addEventListener('hashchange', syncRealtimeForPage);
   /* 登录框是浮层，登录成功不会重新加载页面，所以这里要主动补一次连接。
      用事件解耦：auth.js 登录/退出后派发 wb:auth-changed，不必反向 import。 */
-  window.addEventListener('wb:auth-changed', () => { try { rt.syncWithAuth(); } catch { } });
+  window.addEventListener('wb:auth-changed', syncRealtimeForPage);
 } catch (e) {
   /* 实时同步失败不应该影响任何主流程：页面照常能用，只是不会自动变 */
   console.warn('[live] 实时同步没启动起来', e);

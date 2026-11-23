@@ -360,9 +360,10 @@ async function renderSelfstudyManage(box) {
           <div class="ssm-card" style="margin-bottom:24px">
             <div class="ssm-card-title">自习任务列表</div>
             <div class="ssm-list">
-              ${list.length ? list.map((t) => {
+              ${list.length ? list.map((t, index) => {
                 const st = ssTaskStatus(t);
                 return `<div class="ssm-item ${String(t.id) === String(editingId) ? 'on' : ''}" data-task="${t.id}">
+                  <div class="ssm-item-no">${index + 1}</div>
                   <div class="ssm-item-ico">${icon('file', 16)}</div>
                   <div style="flex:1;min-width:0">
                     <div class="ssm-item-t">${esc(t.title || '未命名任务')}</div>

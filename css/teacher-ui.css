@@ -3240,3 +3240,43 @@ html[data-theme="dark"] .home-redesign .home-weather-card .wxb-location-name { c
 .home-redesign .home-quote .speak-btn {
   bottom:6px;
 }
+
+/* ==========================================================================
+   首页底部四张统计卡（本周课时 / 监考任务 / 备课截止 / 最近笔记）
+   用户反馈：四个图标配色不统一、字号层级乱、四张卡一样平没有重点、留白过多。
+   重做成同一套版式：图标统一浅蓝底同尺寸，标题 13px、主数字 26px、
+   辅助文字 11.5px；「本周课时」用实心图标 + 进度条作为唯一强调项，
+   其余三项补上有效信息（下一场监考、待办数、笔记条数），不再大片空白。
+   ========================================================================== */
+.home-redesign .home-mini-card.hstat { padding:0!important; overflow:hidden; }
+.hstat-head { display:flex; align-items:center; gap:8px; padding:11px 14px 0; }
+.hstat-icon { display:grid; place-items:center; flex:0 0 26px; width:26px; height:26px; border-radius:8px; background:#eaf2ff; color:#1763c9; }
+.hstat-lead .hstat-icon { background:#165dff; color:#fff; }
+.hstat-title { color:#1b334d; font-size:13px; font-weight:750; letter-spacing:.2px; }
+.hstat-link { display:inline-flex; align-items:center; gap:2px; margin-left:auto; padding:2px 0; border:0; background:transparent; color:#7c90a6; font-size:11px; font-weight:600; cursor:pointer; }
+.hstat-link:hover { color:#165dff; }
+.hstat-body { display:flex; flex-direction:column; justify-content:center; gap:4px; min-width:0; padding:5px 14px 11px; }
+.hstat-main { display:flex; align-items:baseline; gap:3px; min-width:0; }
+.hstat-value { color:#10263d; font-size:26px; font-weight:800; line-height:1.05; letter-spacing:-.6px; font-variant-numeric:tabular-nums; }
+.hstat-lead .hstat-value { color:#165dff; }
+.hstat-value.is-text { font-size:19px; letter-spacing:0; }
+.hstat-unit { color:#7b8da2; font-size:11.5px; font-weight:600; }
+.hstat-sub { margin-left:4px; color:#93a4b8; font-size:11px; }
+.hstat-track { height:5px; margin-top:5px; border-radius:99px; background:#e9eff6; overflow:hidden; }
+.hstat-track i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#165dff,#5ea0f2); }
+.hstat-foot { overflow:hidden; color:#7b8da2; font-size:11.5px; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+.hstat-loading { color:#8b9db1; font-size:11.5px; }
+html[data-theme="dark"] .hstat-icon { background:#22364f; color:#79b0ff; }
+html[data-theme="dark"] .hstat-title,
+html[data-theme="dark"] .hstat-value { color:#e8f1fc; }
+html[data-theme="dark"] .hstat-lead .hstat-icon { background:#2f6fe4; color:#fff; }
+html[data-theme="dark"] .hstat-lead .hstat-value { color:#7fb2ff; }
+html[data-theme="dark"] .hstat-unit,
+html[data-theme="dark"] .hstat-sub,
+html[data-theme="dark"] .hstat-foot { color:#93a9c0; }
+html[data-theme="dark"] .hstat-track { background:#2a3f59; }
+@media(max-width:860px) {
+  .home-redesign .home-mini-card.hstat { min-height:132px!important; }
+  .hstat-head { padding:13px 16px 0; }
+  .hstat-body { padding:6px 16px 13px; }
+}

@@ -159,7 +159,7 @@ registerView(async function work(main, { tab, third }) {
     return m.renderRepairsBody(body);
   }
   if (t === 'notes') {
-    /* 笔记页自带「知识库」标题卡片，外层页头移除，避免同一标题出现两次 */
+    /* 笔记页自带「笔记」标题卡片，外层页头移除，避免同一标题出现两次 */
     headEl.remove();
     return renderNotes(body);
   }
@@ -2726,43 +2726,91 @@ async function renderStudentModule(box, key) {
   const inner = box.querySelector('#sm-body');
 
   if (key === 'textbook') {
-    /* —— 教材：其实就是在管「哪些资料对学生可见」 —— */
-    inner.innerHTML = `
-      <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-        <div class="card card-pad"><div class="tiny muted">资料总数</div>
-          <div style="font-size:24px;font-weight:700">${mats.length}</div></div>
-        <div class="card card-pad"><div class="tiny muted">学生能看到的</div>
-          <div style="font-size:24px;font-weight:700;color:var(--green)">${pubMats.length}</div></div>
-        <div class="card card-pad"><div class="tiny muted">仅自己可见</div>
-          <div style="font-size:24px;font-weight:700;color:var(--amber)">${mats.length - pubMats.length}</div></div>
-      </div>
-      <div class="row wrap" style="gap:8px;margin:16px 0 10px">
-        <button class="btn primary sm" id="tb-up">${icon('upload', 15)} 上传资料</button>
-        <span style="flex:1"></span>
-        <span class="tiny muted">点标题右侧的开关可以随时收回</span>
-      </div>
-      <div class="card" style="overflow:hidden">
-        ${pubMats.length ? pubMats.map((m) => `<div class="list-item">
+    /* —— 教材：其实就是在管「哪些资料对学生可见」 ——
+       三张统计卡本身就是筛选器。以前列表只渲染 pubMats，
+       「资料总数 4」下面却一条都列不出来：没发布过的资料全在「仅自己可见」里，
+       而这一页没有任何入口能列出它们，也没有「发布」按钮可点。 */
+    const isPub = (m) => Number(m.public) !== 0;
+    const privMats = mats.filter((m) => !isPub(m));
+    const rowHtml = (m) => `<div class="list-item">
           <div class="doc-ico">${icon('book', 17)}</div>
           <div style="flex:1;min-width:0">
             <div class="bold">${esc(m.title)}</div>
             <div class="tiny muted">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · ') || '没有填写说明')}</div>
           </div>
-          <span class="chip green">学生可见</span>
-          <button class="btn ghost sm" data-unpub="${m.id}">收回</button>
-        </div>`).join('') : '<div class="empty">还没有对学生可见的资料，点「上传资料」开始</div>'}
-      </div>`;
+          <span class="chip ${isPub(m) ? 'green' : ''}">${isPub(m) ? '学生可见' : '仅自己'}</span>
+          ${m.passcode ? `<span class="chip amber" title="学生打开这份资料要先输这个口令">${icon('lock', 13)} 口令 ${esc(m.passcode)}</span>` : ''}
+          <button class="btn ghost sm" data-toggle="${m.id}" data-pub="${isPub(m) ? 1 : 0}">${isPub(m) ? '收回' : '发布'}</button>
+          <button class="icon-btn sm" data-edit="${m.id}" title="编辑《${esc(m.title)}》">${icon('edit', 15)}</button>
+          <button class="icon-btn sm" data-del="${m.id}" title="删除《${esc(m.title)}》">${icon('trash', 15)}</button>
+        </div>`;
+    const paint = () => {
+      const filter = box.dataset.tbFilter || 'all';
+      const shown = filter === 'public' ? pubMats : filter === 'private' ? privMats : mats;
+      const empty = !mats.length ? '还没有资料，点「上传资料」开始'
+        : filter === 'public' ? '还没有学生能看到的资料，切到「仅自己可见」挑一份点「发布」'
+        : filter === 'private' ? '所有资料都已经对学生开放'
+        : '还没有资料，点「上传资料」开始';
+      inner.innerHTML = `
+        <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+          ${[['all', '资料总数', mats.length, ''], ['public', '学生能看到的', pubMats.length, 'var(--green)'], ['private', '仅自己可见', privMats.length, 'var(--amber)']]
+            .map(([k, label, n, color]) => `<button type="button" class="card card-pad tb-filter${filter === k ? ' on' : ''}" data-tb="${k}">
+              <div class="tiny muted">${label}</div>
+              <div style="font-size:24px;font-weight:700${color ? ';color:' + color : ''}">${n}</div>
+            </button>`).join('')}
+        </div>
+        <div class="row wrap" style="gap:8px;margin:16px 0 10px">
+          <button class="btn primary sm" id="tb-up">${icon('upload', 15)} 上传资料</button>
+          <span style="flex:1"></span>
+          <span class="tiny muted">${[['all', '全部资料'], ['public', '学生能看到的'], ['private', '仅自己可见']].find((f) => f[0] === filter)[1]} · 共 ${shown.length} 份</span>
+        </div>
+        <div class="card" style="overflow:hidden">
+          ${shown.length ? shown.map(rowHtml).join('') : `<div class="empty">${empty}</div>`}
+        </div>`;
 
-    inner.querySelector('#tb-up')?.addEventListener('click', () => materialEditor(null, 0, () => renderStudentModule(box, key)));
-    inner.querySelectorAll('[data-unpub]').forEach((b) => {
-      b.onclick = async () => {
-        const m = mats.find((x) => String(x.id) === b.dataset.unpub);
-        if (!(await confirmDialog(`把《${m.title}》从学生页面收回？学生就看不到了，文件本身还在。`))) return;
-        await api.patch('/materials/' + m.id, { public: 0 });
-        await syncMaterialSharing();
-        toast('已收回'); renderStudentModule(box, key);
-      };
-    });
+      inner.querySelectorAll('.tb-filter').forEach((c) => {
+        c.onclick = () => { box.dataset.tbFilter = c.dataset.tb; paint(); };
+      });
+      inner.querySelector('#tb-up')?.addEventListener('click', () => materialEditor(null, 0, () => renderStudentModule(box, key)));
+      inner.querySelectorAll('[data-toggle]').forEach((b) => {
+        b.onclick = async () => {
+          const m = mats.find((x) => String(x.id) === b.dataset.toggle);
+          const wasPub = b.dataset.pub === '1';
+          const ask = wasPub
+            ? `把《${m.title}》从学生页面收回？学生就看不到了，文件本身还在。`
+            : `把《${m.title}》发布给学生？学生打开短链的「教材」就能看到这份资料。`;
+          if (!(await confirmDialog(ask))) return;
+          await api.patch('/materials/' + m.id, { public: wasPub ? 0 : 1 });
+          /* 学生短链同步失败不能挡住重绘：资料可见性已经写进本机库，
+             一抛错就跳过后面的 renderStudentModule，页面会停在「仅自己」上，
+             看起来像点了没反应。原来的「收回」也是同一个写法。 */
+          let syncError = null;
+          try { await syncMaterialSharing(); } catch (error) { syncError = error; }
+          const done = wasPub ? '已收回' : '已发布给学生';
+          toast(syncError ? done + '，但学生短链同步失败：' + syncError.message : done, syncError ? 'warn' : 'ok');
+          renderStudentModule(box, key);
+        };
+      });
+      inner.querySelectorAll('[data-edit]').forEach((b) => {
+        const m = mats.find((x) => String(x.id) === b.dataset.edit);
+        b.onclick = () => materialEditor(m, m.category_id, () => renderStudentModule(box, key));
+      });
+      inner.querySelectorAll('[data-del]').forEach((b) => {
+        b.onclick = async () => {
+          const m = mats.find((x) => String(x.id) === b.dataset.del);
+          if (!(await confirmDialog(`删除《${m.title}》？资料会进回收站，随时能还原。`))) return;
+          await api.del('/materials/' + m.id);
+          /* 删掉的是已发布的资料，学生短链那边要跟着少一条。
+             同步失败只提示、不挡住重绘：本机已经删干净了，
+             抛错会让页面停在旧列表上，看着像没删掉。 */
+          let syncError = null;
+          try { await syncMaterialSharing(); } catch (error) { syncError = error; }
+          toast(syncError ? '已删除，但学生短链同步失败：' + syncError.message : '已删除，可在回收站找回', syncError ? 'warn' : 'ok');
+          renderStudentModule(box, key);
+        };
+      });
+    };
+    paint();
   } else if (key === 'pick') {
     /* —— 点名 —— */
     const totalNames = rosters.reduce((s, r) => s + (parseNames(r.names).length || Number(r.count) || 0), 0);
@@ -3369,7 +3417,8 @@ async function paintMats(list, reload) {
       <div style="flex:1;min-width:0">
         <div class="row wrap" style="gap:8px"><span class="bold">${esc(m.title)}</span>
           ${m.grade || m.class_name ? `<span class="chip">${esc(clsName(m.grade, m.class_name))}</span>` : ''}
-          ${m.public ? '<span class="chip green">学生可见</span>' : '<span class="chip">仅自己</span>'}</div>
+          ${m.public ? '<span class="chip green">学生可见</span>' : '<span class="chip">仅自己</span>'}
+          ${m.passcode ? `<span class="chip amber">${icon('lock', 13)} 口令 ${esc(m.passcode)}</span>` : ''}</div>
         <div class="tiny muted">${esc(m.descr || '')} · 浏览 ${m.views || 0} · 下载 ${m.downloads || 0}</div>
         <div class="row wrap" style="gap:6px;margin-top:6px">${files.map((f) => `<a class="chip blue" href="${f.url}?dl=1" download>${esc(f.name).slice(0, 18)}</a>`).join('') || '<button class="chip-btn" data-up="1">＋ 上传文件</button>'}</div>
       </div>
@@ -3394,6 +3443,7 @@ async function materialEditor(m, catId, reload) {
       <div class="field"><label class="field-label" for="cat">分类</label><input class="input" id="cat" type="text" value="${esc(initialCategory?.name || '')}" placeholder="手动输入分类名称，留空则为未分类"></div>
       <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(m?.grade || '')}"></div>
       <div class="field"><label class="field-label">学生可见</label><select class="input" id="pub"><option value="1" ${m?.public !== 0 ? 'selected' : ''}>是（短链可看）</option><option value="0" ${m?.public === 0 ? 'selected' : ''}>否</option></select></div>
+      <div class="field"><label class="field-label" for="pc">班级口令</label><input class="input" id="pc" type="text" maxlength="32" autocomplete="off" spellcheck="false" value="${esc(m?.passcode || '')}" placeholder="留空＝学生直接可看"></div>
     </div>
     <div class="field"><label class="field-label">说明</label><textarea class="input" id="d" rows="2">${esc(m?.descr || '')}</textarea></div>
     <div class="field"><label class="field-label">文件（可多选，也可整个文件夹）</label>
@@ -3408,20 +3458,39 @@ async function materialEditor(m, catId, reload) {
       </div>
       <div class="field-hint">
         支持 WPS 全部文件格式，包括 .wps / .wpt、.et / .ett、.dps / .dpt，以及 Word、Excel、PPT、PDF、图片、音视频和压缩包。
-        <br>不限文件数量和大小，保留原文件名与格式。
+        <br>文件数量不限，保留原文件名与格式。单个文件超过 50MB 时，Word / Excel / PPT 里的图片会自动压小再传；视频、PDF 浏览器压不动，只能先自己删。
       </div></div>
-    <div class="field-hint">设为学生可见后，学生打开链接即可查看教材和下载原文件，无需账号密码。PDF、图片支持浏览器查看；WPS 文档下载后用 WPS 打开。</div>
+    <div class="field-hint">设为学生可见后，学生打开链接即可查看教材和下载原文件。只发给某个班的资料就把「班级口令」填上：学生要先输对口令才看得到内容、才下得走文件，口令不对两个都不给。PDF、图片支持浏览器查看；WPS 文档下载后用 WPS 打开。</div>
     <div class="confirm-actions"><button class="btn ghost" id="c">取消</button><button class="btn primary" id="k">保存</button></div></div>`);
   const s = sheet({ title: isNew ? '上传课件' : '编辑课件', body, wide: true });
   body.querySelector('#c').onclick = s.close;
-  /* 文件和文件夹两个入口都往同一个待上传列表里加，最后一次性提交。 */
+  /* 文件和文件夹两个入口都往同一个待上传列表里加，最后一次性提交。
+     每个文件单独记状态：传一个显示一个，成功的立刻打勾。
+     用户最需要的信息是「哪几个成了」，而不是整批结束后一个总数。 */
   let pendingFiles = [];
+  const fileState = new Map();   // File -> { state: 'uploading'|'done'|'error', message }
   const fileList = body.querySelector('#f-list');
+  const stateOf = (file) => fileState.get(file) || { state: 'idle' };
   const paintFileList = () => {
-    fileList.innerHTML = pendingFiles.length
-      ? `已选 ${pendingFiles.length} 个文件：${pendingFiles.slice(0, 5).map((file) => esc(file.name)).join('、')}${pendingFiles.length > 5 ? ' …' : ''} <button class="chip-btn" type="button" id="f-clear">清空</button>`
-      : '还没选文件。';
-    fileList.querySelector('#f-clear')?.addEventListener('click', () => { pendingFiles = []; paintFileList(); });
+    if (!pendingFiles.length) { fileList.innerHTML = '还没选文件。'; return; }
+    const done = pendingFiles.filter((file) => stateOf(file).state === 'done').length;
+    const bad = pendingFiles.filter((file) => stateOf(file).state === 'error').length;
+    const head = `已选 ${pendingFiles.length} 个文件`
+      + (done ? ` · <b class="fl-ok">${done} 个已上传</b>` : '')
+      + (bad ? ` · <b class="fl-err">${bad} 个失败</b>` : '');
+    const rows = pendingFiles.map((file) => {
+      const st = stateOf(file);
+      const size = file.size ? (file.size > 1048576 ? (file.size / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(file.size / 1024)) + 'KB') : '';
+      /* 行内只写「失败」，具体原因放在下面的说明里：
+         这一行右边就是文件名，把「「xxx」上传失败，请检查网络」整句塞进来会挤成一团。 */
+      const mark = st.state === 'done' ? '<span class="fl-mark fl-ok">✓ 已上传</span>'
+        : st.state === 'uploading' ? '<span class="fl-mark">上传中…</span>'
+          : st.state === 'error' ? `<span class="fl-mark fl-err" title="${esc(st.message || '上传失败')}">✗ 失败</span>`
+            : '<span class="fl-mark muted">等待上传</span>';
+      return `<div class="fl-row">${mark}<span class="fl-name">${esc(file.name)}</span><span class="fl-size">${size}</span></div>`;
+    }).join('');
+    fileList.innerHTML = `<div class="fl-head">${head} <button class="chip-btn" type="button" id="f-clear">清空</button></div><div class="fl-rows">${rows}</div>`;
+    fileList.querySelector('#f-clear')?.addEventListener('click', () => { pendingFiles = []; fileState.clear(); paintFileList(); });
   };
   paintFileList();
   const addFiles = (list) => {
@@ -3444,7 +3513,9 @@ async function materialEditor(m, catId, reload) {
     }
     const payload = { title: body.querySelector('#t').value.trim() || '未命名课件', category_id: categoryId,
       grade: body.querySelector('#grade').value,
-      descr: body.querySelector('#d').value, public: Number(body.querySelector('#pub').value) };
+      descr: body.querySelector('#d').value, public: Number(body.querySelector('#pub').value),
+      /* 口令按原文存（只去首尾空格）：老师要能照着这串念给学生。 */
+      passcode: body.querySelector('#pc').value.trim() };
     const r = savedMaterial ? await api.patch('/materials/' + savedMaterial.id, { ...payload, public: savedMaterial.public }) : await api.post('/materials', { ...payload, public: 0 });
     savedMaterial = r;
     const files = selected.filter(file => !uploadedFiles.has(file));
@@ -3461,23 +3532,62 @@ async function materialEditor(m, catId, reload) {
       };
       upBox.hidden = false;
       upBox.classList.add('is-pending');
+      upBox.classList.remove('is-error');
       upBar.style.width = '';
       upStage.textContent = `正在读取 ${files.length} 个文件…`;
       setPct(0);
+      files.forEach((file) => fileState.set(file, { state: 'uploading' }));
+      paintFileList();
       const fd = new FormData();
       for (const f of files) fd.append('files', f, f.name);
       fd.append('owner_type', 'material'); fd.append('owner_id', String(r.id));
-      await api.req('POST', '/upload', fd, {
+      /* 每传完一个文件就刷新一次列表：成功的当场打勾、失败的当场标红。
+         一批里只要有一个失败，用户最想知道的就是「哪几个已经上去了」，
+         而不是等整批结束再给一个总数 —— 那样等于逼着他整批重传。 */
+      const markFile = (info) => {
+        const file = files[info.index] || files.find((item) => item.name === info.name);
+        if (!file) return;
+        fileState.set(file, info.ok ? { state: 'done' } : { state: 'error', message: info.message || '上传失败' });
+        if (info.ok) uploadedFiles.add(file);
+        paintFileList();
+      };
+      const finished = await api.req('POST', '/upload', fd, {
+        /* 压缩是本地动作，发生在任何网络请求之前，进度条那时候还不会动，
+           所以这一句要写进「正在做什么」那一行，不写就看着像卡死。 */
+        onStage: (text) => { upStage.textContent = text; },
         onProgress: (ratio) => {
           upBox.classList.remove('is-pending');
-          upStage.textContent = `正在上传 ${files.length} 个文件…`;
+          const doneN = files.filter((file) => stateOf(file).state === 'done').length;
+          upStage.textContent = `正在上传 ${files.length} 个文件（已完成 ${doneN} 个）…`;
           setPct(Math.round(Number(ratio || 0) * 100));
         },
+        onFileDone: markFile,
       });
       upBox.classList.remove('is-pending');
+      /* 成功的先记账，下一次点保存只补失败的 —— 不然 32 个文件要重传 32 个。
+         失败的有明确的文字留在弹层里，不再只剩一个停在 100% 的进度条让人干等。 */
+      const doneNames = new Set((finished?.files || []).map((file) => file?.name).filter(Boolean));
+      files.forEach((file) => {
+        if (!doneNames.has(file.name)) return;
+        uploadedFiles.add(file);
+        if (stateOf(file).state !== 'done') fileState.set(file, { state: 'done' });
+      });
+      paintFileList();
+      const failed = Array.isArray(finished?.failed) ? finished.failed : [];
+      if (failed.length) {
+        upBox.classList.add('is-error');
+        setPct(100);
+        const names = failed.slice(0, 3).map((item) => item.name).join('、') + (failed.length > 3 ? ` 等 ${failed.length} 个` : '');
+        const why = String(failed[0].message || '上传失败').replace(/「[^」]*」/g, '').replace(/^[，,、\s]+/, '').trim();
+        upStage.textContent = `已保存 ${doneNames.size} 个，${failed.length} 个没传上去：${names}（${why}）。点「保存」只补传这几个。`;
+        toast(`${failed.length} 个文件没传上去：${failed[0].message || '请重试'}`, 'err');
+        /* 成功的那几个已经入库了，背后的课件列表必须立刻刷新出来。
+           以前这里直接 return，列表不重画，用户看到的就是「明明传上去了却什么都没有」。 */
+        reload();
+        return;
+      }
       upStage.textContent = '上传完成，正在同步学生端…';
       setPct(100);
-      files.forEach(file => uploadedFiles.add(file));
     }
     if (Number(r.public) !== payload.public) savedMaterial = await api.patch('/materials/' + r.id, { public: payload.public });
     await syncMaterialSharing();
@@ -3521,11 +3631,12 @@ async function renderNotes(box) {
 
   const paint = () => {
     const list = visibleNotes();
-    const rows = list.map((note) => {
+    const rows = list.map((note, index) => {
       const tags = readTags(note);
       const id = esc(String(note.id));
       const summary = summaryOf(note);
       return '<tr>' +
+        '<td class="kb-no">' + (index + 1) + '</td>' +
         '<td class="kb-date">' + esc(dateText(note)) + '</td>' +
         '<td>' + esc(catName(note.category_id) || '—') + '</td>' +
         '<td class="kb-title" title="' + esc(note.title) + '">' + esc(note.title || '未命名笔记') + '</td>' +
@@ -3542,7 +3653,7 @@ async function renderNotes(box) {
 
     box.innerHTML = '<section class="kb-page">' +
       '<div class="kb-card kb-head">' +
-        '<div class="kb-head-text"><h2>知识库</h2><p>随手记录、分类归档、快速检索，简答留存信息</p></div>' +
+        '<div class="kb-head-text"><h2>笔记</h2><p>随手记录、分类归档、快速检索，简答留存信息</p></div>' +
         '<div class="kb-head-actions">' +
           '<label class="kb-search">' +
             '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="9" cy="9" r="5.6"></circle><path d="M13.2 13.2 17 17" stroke-linecap="round"></path></svg>' +
@@ -3563,8 +3674,8 @@ async function renderNotes(box) {
       '</div>' +
       '<div class="kb-card kb-table-card">' +
         '<div class="kb-table-wrap"><table class="kb-table">' +
-          '<thead><tr><th>创建时间</th><th>分类</th><th>标题</th><th>标签</th><th>内容摘要</th><th>操作</th></tr></thead>' +
-          '<tbody>' + (rows || '<tr><td colspan="6" class="kb-empty">还没有笔记，点击「新增笔记」开始记录。</td></tr>') + '</tbody>' +
+          '<thead><tr><th>序号</th><th>创建时间</th><th>分类</th><th>标题</th><th>标签</th><th>内容摘要</th><th>操作</th></tr></thead>' +
+          '<tbody>' + (rows || '<tr><td colspan="7" class="kb-empty">还没有笔记，点击「新增笔记」开始记录。</td></tr>') + '</tbody>' +
         '</table></div>' +
         '<div class="kb-count">共 ' + list.length + ' 条记录</div>' +
       '</div>' +
