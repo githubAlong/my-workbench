@@ -187,7 +187,12 @@ const ICON = { mat: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"
   clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
   more: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9.5 6 6 6-6 6"/></svg>',
   alert: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
-  chat: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' };
+  chat: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+  user: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  img: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 8"/></svg>',
+  /* 导航图标按设计稿：教材 = 带折角的文件，盲盒 = 立体盒子 */
+  doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+  box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/></svg>' };
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 /* 静态版：优先调 localapi（同一个浏览器里演示时学生端能读到老师那份数据）；
    在外网独立访问时本地库为空，自动回退到云端 student-api Edge Function。 */
@@ -317,34 +322,48 @@ async function init() {
   paint();
 }
 const TAB_DEF = {
-  selfstudy: { icon: ICON.clock, label: '任务' },
-  checkin: { icon: ICON.check, label: '签到', dot: true },
-  material: { icon: ICON.mat, label: '教材' },
-  roll: { icon: ICON.dice, label: '点名' },
-  punish: { icon: ICON.target, label: '盲盒' },
-  misconduct: { icon: ICON.alert, label: '违纪' },
-  bulletin: { icon: ICON.chat, label: '留言板' },
+  selfstudy: { icon: ICON.clock, label: '任务', sub: '老师发布的任务会显示在这里，先看截止时间，再动手' },
+  checkin: { icon: ICON.check, label: '签到', dot: true, sub: '老师开始签到后，点一下告诉老师和同学你到了' },
+  material: { icon: ICON.doc, label: '教材', sub: '老师分享的教材和资料，点开就能看' },
+  roll: { icon: ICON.dice, label: '点名', sub: '随机抽一个人回答问题' },
+  punish: { icon: ICON.box, label: '盲盒', sub: '点开看看今天是什么惊喜' },
+  misconduct: { icon: ICON.alert, label: '违纪', sub: '记录课堂上的违纪情况' },
+  bulletin: { icon: ICON.chat, label: '留言板', sub: '有话想跟老师说，写在这里' },
 };
 function paint() {
   if (!availTabs.length) {
-    $('#s-app').innerHTML = `<div class="card card-pad">
-      <div class="stu-empty" style="margin:40px auto 10px">
-        <b style="font-size:19px">正在来的路上</b>
-        <div class="tiny muted" style="margin-top:8px">老师还没开放内容，稍后再来看看</div>
+    $('#s-app').innerHTML = `<div class="stu-shell"><main class="stu-main">
+      <div class="card card-pad">
+        <div class="stu-empty">
+          <b style="font-size:19px">正在来的路上</b>
+          <div class="tiny muted" style="margin-top:8px">老师还没开放内容，稍后再来看看</div>
+        </div>
       </div>
-    </div>`;
+    </main></div>`;
     return;
   }
   if (!availTabs.includes(tab)) tab = availTabs[0];
+  const def = TAB_DEF[tab] || {};
+  /* 宽屏左侧竖向导航、窄屏底部 tabbar，由 CSS 按 760px 切换；导航本身只有一份 DOM。 */
   $('#s-app').innerHTML = `
-    <nav class="s-tabs" aria-label="学生工作台功能">
-      ${availTabs.map((t) => {
-        const d = TAB_DEF[t];
-        return `<button type="button" data-t="${t}" class="${tab === t ? 'on' : ''}" aria-pressed="${tab === t}">${d.icon} ${d.label}${d.dot ? ' <span class="s-dot"></span>' : ''}</button>`;
-      }).join('')}
-    </nav>
-    <div id="s-body"></div>`;
+    <div class="stu-shell">
+      <nav class="stu-side" aria-label="学生工作台功能">
+        ${availTabs.map((t) => {
+          const d = TAB_DEF[t];
+          const on = tab === t;
+          return `<button type="button" class="stu-navbtn${on ? ' on' : ''}" data-t="${t}" aria-pressed="${on}"><span class="stu-nicon">${d.icon}${d.dot ? '<i class="s-dot"></i>' : ''}</span><span class="stu-nlabel">${d.label}</span></button>`;
+        }).join('')}
+      </nav>
+      <main class="stu-main">
+        <div class="stu-page-head">
+          <h1>${esc(def.label || '')}</h1>
+          ${def.sub ? `<p>${esc(def.sub)}</p>` : ''}
+        </div>
+        <div id="s-body"></div>
+      </main>
+    </div>`;
   document.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { tab = b.dataset.t; cur = null; paint(); }; });
+  window.scrollTo({ top: 0, behavior: 'auto' });
   if (tab === 'selfstudy') paintSelfstudy();
   if (tab === 'checkin') paintCheckin();
   if (tab === 'material') paintMaterials();
@@ -361,48 +380,64 @@ function taskLines(t) {
 }
 function studentCardHtml(t) {
   const items = taskLines(t);
-  const body = items.length > 1
-    ? `<ol class="st-list">${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>`
-    : `<div class="st-text">${esc(items[0] || '')}</div>`;
+  const title = String(t.title || '').trim();
+  /* 第一行当主文案（设计稿那个大字号标题），其余行退成小字列表 */
+  const lead = items[0] || title || '今日任务';
+  const rest = items.slice(1);
   const img = t.task_image || t.generated_image;
   const day = t.date === todayStr() ? '今日' : (t.date || '');
   const deadline = [day, t.deadline_time || t.end_time || t.period].filter(Boolean).join(' ');
-  return `<div class="card card-pad stu-task-card">
-    <div class="stu-section-head">
-      <div class="card-title">${esc(t.title || '今日任务')}</div>
+  const shot = img
+    ? `<div class="stu-shot"><img src="${esc(img)}" alt="任务图"></div>`
+    : `<div class="stu-shot is-empty">${ICON.img}<b>任务图预览</b><div class="tiny">老师上传的任务图会显示在这里</div></div>`;
+  return `<article class="stu-task">
+    <div class="stu-task-main">
+      <div class="stu-tags">
+        <span class="stu-tag">课堂自习</span>
+        ${deadline ? `<span class="stu-tag warm">${esc(deadline)} 截止</span>` : ''}
+      </div>
+      ${title && title !== lead ? `<h2 class="stu-task-name">${esc(title)}</h2>` : ''}
+      <div class="stu-task-lead">${esc(lead)}</div>
+      ${rest.length ? `<ul class="stu-task-rest">${rest.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      <div class="stu-task-meta">
+        <span>${ICON.user} 教师：${esc(t.creator || '老师')}</span>
+        ${deadline ? `<span>${ICON.clock} 截止时间：${esc(deadline)}</span>` : ''}
+      </div>
+      <div class="stu-task-acts">
+        <button class="btn primary" id="st-save">${ICON.dl} 保存任务图</button>
+        <button class="btn ghost" id="st-view" aria-expanded="${img ? 'true' : 'false'}">${img ? '收起任务图' : '查看任务'}</button>
+      </div>
     </div>
-    <div class="st-card-body">${body}${img ? `<img class="st-img" src="${esc(img)}" alt="任务图">` : ''}</div>
-    <div class="row wrap tiny muted" style="gap:8px 22px;padding:14px 0;border-top:1px solid var(--line)">
-      <span>教师：${esc(t.creator || '老师')}</span>
-      <span>任务类型：课堂自习</span>
-      <span>截止时间：${esc(deadline)}</span>
-    </div>
-    <div class="row wrap" style="gap:10px;margin-top:4px">
-      <button class="btn ghost" id="st-view">查看任务</button>
-      <button class="btn primary" id="st-save">保存任务图</button>
-    </div>
-  </div>`;
+    <div class="stu-task-side" id="st-side">${shot}</div>
+  </article>
+  <div class="stu-task-foot">没有更多进行中的任务了。</div>`;
 }
 function paintSelfstudy() {
   const all = data.selfstudyTasks || [];
   const mine = all.filter((t) => t.class_scope === 'all' || t.class_label === myClass());
   const t = mine[0];
   if (!t) {
-    /* 和教材 / 点名 / 盲盒保持一致：都放在一张普通卡片里，不再用整页居中的空白块 */
-    $('#s-body').innerHTML = `<div class="card card-pad stu-task-card">
-      <div class="stu-section-head">
-        <div class="card-title">${ICON.clock} 今日任务</div>
-        <div class="tiny muted" style="margin-top:4px">${myClass() ? `当前设备班级：${esc(myClass())} · ` : ''}老师发布后会自动出现在这里</div>
+    $('#s-body').innerHTML = `<article class="stu-task">
+      <div class="stu-task-main">
+        <div class="stu-tags"><span class="stu-tag">课堂自习</span></div>
+        <div class="stu-task-lead">暂无任务</div>
+        <div class="stu-task-meta"><span>${ICON.clock} 老师发布后会自动出现在这里</span></div>
       </div>
-      <div class="stu-empty stu-task-empty">
-        <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h5M8 16h3"/></svg>
-        <b>暂无任务</b>
-      </div>
-    </div>`;
+      <div class="stu-task-side"><div class="stu-shot is-empty">${ICON.img}<b>任务图预览</b><div class="tiny">老师上传的任务图会显示在这里</div></div></div>
+    </article>
+    <div class="stu-task-foot">没有更多进行中的任务了${myClass() ? `（当前设备班级：${esc(myClass())}）` : ''}。</div>`;
     return;
   }
   $('#s-body').innerHTML = studentCardHtml(t);
-  $('#st-view').onclick = () => openTaskModal(t);
+  const hasImg = !!(t.task_image || t.generated_image);
+  $('#st-view').onclick = () => {
+    if (!hasImg) { openTaskModal(t); return; }
+    /* 有图时这个按钮收放右侧预览，没图时它就是「看全文」 */
+    const hidden = $('#st-side').classList.toggle('hidden');
+    const btn = $('#st-view');
+    btn.textContent = hidden ? '查看任务图' : '收起任务图';
+    btn.setAttribute('aria-expanded', String(!hidden));
+  };
   $('#st-save').onclick = () => {
     const pages = taskImagePages({
       title: t.title, class_label: t.class_label, date: t.date, period: t.period,
