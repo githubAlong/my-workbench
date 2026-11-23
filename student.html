@@ -655,75 +655,181 @@ async function paintMaterialDetail() {
 }
 /* ---------- 点名：选班级 → 点一下 → 滚出名字 ---------- */
 const ROLL_ME = 'wb_pick_';
+/* 「高一 / 高二 / 高三」用拼音排会得出 高二、高三、高一（二 èr 排在 一 yī 前面），
+   所以年级和班号都先抽成数字：阿拉伯数字优先（高二10班 取 10），没有才认中文数字（高一 取 1）。 */
+const CN_DIGIT = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+function orderNum(text) {
+  const t = String(text || '');
+  const digits = t.match(/\d+/);
+  if (digits) return Number(digits[0]);
+  const run = t.match(/[一二三四五六七八九十]+/);
+  if (!run) return Number.MAX_SAFE_INTEGER;
+  const s = run[0];
+  if (s.includes('十')) {
+    const [head, tail] = s.split('十');
+    return (head ? CN_DIGIT[head] : 1) * 10 + (tail ? CN_DIGIT[tail] : 0);
+  }
+  return CN_DIGIT[s[0]];
+}
+const byGradeNum = (a, b) => (orderNum(a) - orderNum(b)) || String(a).localeCompare(String(b), 'zh-CN', { numeric: true });
+
+/* 点名的年级 / 班级候选只来自后台上传的班级名单（/public/link 下发的 rosters）。
+   课表里可能排了十几个班、真传过名单的只有一个，
+   拿课表当候选等于让学生端点进一个空池子，抽出来全是「1 号 2 号」。
+   班级名为空的那种按老师定的口径只显示年级。 */
+function rollChoices() {
+  const rows = (data?.rosters || []).map((r) => {
+    const names = (r?.names || []).filter(Boolean);
+    return {
+      id: r?.id,
+      grade: String(r?.grade || '').trim(),
+      class_name: String(r?.class_name || '').trim(),
+      names,
+      count: Math.max(1, Math.min(200, Number(r?.count) || names.length || 40)),
+    };
+  }).filter((r) => r.grade || r.class_name);
+  /* 同一个班重复传了两份名单只留一条，优先有名字的那份 */
+  const byPair = new Map();
+  rows.forEach((r) => {
+    const k = r.grade + '\u0000' + r.class_name;
+    const old = byPair.get(k);
+    if (!old || r.names.length > old.names.length) byPair.set(k, r);
+  });
+  const pairs = [...byPair.values()];
+  const clsLabel = (p) => p.class_name || p.grade;
+  const gradeList = [...new Set(pairs.map((p) => p.grade).filter(Boolean))].sort(byGradeNum);
+  /* 班级也按班号数字序排：名单在库里是上传顺序存的，
+     直接拿来当顺序会让高二10班排在高二5班前面，和老师手里的名单对不上。 */
+  const pairsOf = (grade) => pairs.filter((p) => p.grade === grade).sort((a, b) => byGradeNum(clsLabel(a), clsLabel(b)));
+  return { pairs, gradeList, pairsOf, clsLabel };
+}
+
+/* 默认选中哪个班：正在签到的班 → 这台设备上次用的班 → 任务带出的班 → 第一份名单。
+   签到场次下发的字段里没有 roster_id，所以只能按年级班级对，别去查 id。 */
+function rollDefaultPair(pairs, { liveCls, saved, taskCls }) {
+  if (!pairs.length) return null;
+  const text = (p) => clsName(p.grade, p.class_name);
+  const same = (p, grade, cls) => p.grade === grade && p.class_name === cls;
+  const byLive = liveCls
+    && pairs.find((p) => same(p, String(liveCls.grade || '').trim(), String(liveCls.class_name || '').trim()));
+  const byPref = saved && saved.roll_grade !== undefined
+    ? pairs.find((p) => same(p, String(saved.roll_grade || '').trim(), String(saved.roll_cls || '').trim()))
+    : pairs.find((p) => text(p) === String((saved || {}).roll_cls || '').trim());
+  const byTask = taskCls ? pairs.find((p) => text(p) === taskCls) : null;
+  return byLive || byPref || byTask || pairs[0];
+}
+
 function paintRoll() {
-  /* 【第 19 条】以前这里有一道硬拦截：没有班级名单就直接「老师还没有设置班级名单」，
-     整页什么都不给。可老师最常见的用法恰恰是「报个班号，从 1 号点到 50 号」——
-     根本不需要名单。名单现在只是「按名字点」这个可选项的数据来源，
-     没有名单就默认走按号码，页面照常可用。 */
-  const rosters = data.rosters || [];
-  const liveCls = (data.roll && data.roll[0]) || null;
-  const first = (liveCls && rosters.find((r) => String(r.id) === String(liveCls.roster_id)))
-    || rosters[0]
-    || { id: 0, grade: '', class_name: '', names: [], count: 0 };
-  /* 【第 19 条：点名改成填人数 + 点几个，按号码点】
-     原来只能从老师预置的名单里选班，名单没建就没得点；
-     「同时点 N 人」藏在右上角一个不起眼的数字框里；点的永远是名字。
-     老师实际用法通常是：随便报个班号，从 1 号点到 50 号，点 3 个。
-     现在只填人数和点几个，默认按号码点；班级和最近常用班已按反馈去掉，
-     姓名模式退化为使用老师当前名单（有名单时可选）。 */
-  const names0 = (first.names || []).filter(Boolean);
-  const hasNames = names0.length > 0;
-  const cnt0 = Math.max(1, Math.min(200, Number(first.count) || first.roster_count || names0.length || 40));
+  /* 【第 19 条】没有班级名单也能点名：报个班号、从 1 号点到 50 号是最常见的用法，
+     名单只是「按名单名字」这个模式的数据来源，没有名单就退回按号码。 */
+  const { pairs, gradeList, pairsOf, clsLabel } = rollChoices();
+  const saved = prefs();
+  const sel0 = rollDefaultPair(pairs, {
+    liveCls: (data.roll && data.roll[0]) || null,
+    saved,
+    taskCls: myClass(),
+  });
+  const pairText = (p) => clsName(p.grade, p.class_name);
+  let sel = sel0;
+  let names0 = sel ? sel.names.slice() : [];
+  let mode = 'no';
+  let norepeat = false;
+  let pool = [];        // 不重复模式下「还没点到过」的
+  let poolKey = '';     // 班级|模式|人数，变了就重置池子
+
+  const classOptions = (grade, chosen) => pairsOf(grade)
+    .map((p, i) => `<option value="${i}"${p === chosen ? ' selected' : ''}>${esc(clsLabel(p))}</option>`).join('');
 
   $('#s-body').innerHTML = `<div class="card card-pad">
+    ${pairs.length ? `<div class="row wrap" style="gap:8px">
+      <div class="field" style="flex:1;min-width:140px"><label class="field-label" for="pk-grade">年级</label>
+        <select class="input" id="pk-grade">${gradeList.map((g) => `<option${g === sel.grade ? ' selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
+      <div class="field" style="flex:1;min-width:140px"><label class="field-label" for="pk-cls">班级</label>
+        <select class="input" id="pk-cls">${classOptions(sel.grade, sel)}</select></div>
+    </div>` : '<div class="tiny muted">后台还没有上传班级名单，这里按号码点名，人数自己填。</div>'}
     <div class="pk-grid">
-      <div class="field"><label class="field-label">人数</label>
-        <input class="input" id="pk-total" type="number" inputmode="numeric" min="1" max="200" value="${cnt0}"></div>
-      <div class="field"><label class="field-label">点几个</label>
+      <div class="field"><label class="field-label" for="pk-total">总人数</label>
+        <input class="input" id="pk-total" type="number" inputmode="numeric" min="1" max="200" value="${names0.length || (sel ? sel.count : 40)}"></div>
+      <div class="field"><label class="field-label" for="pk-num">抽取人数</label>
         <input class="input" id="pk-num" type="number" inputmode="numeric" min="1" max="20" value="1"></div>
     </div>
     <div class="field" style="margin-top:4px">
       <label class="field-label">怎么点</label>
       <div class="seg pk-mode">
         <button class="on" data-mode="no">按号码</button>
-        <button data-mode="name" ${hasNames ? '' : 'disabled title="还没有名单，导入名单后才能按名字点"'}>按名单名字</button>
+        <button data-mode="name" ${names0.length ? '' : 'disabled title="这个班还没有上传名单，导入名单后才能按名字点"'}>按名单名字</button>
       </div>
     </div>
+    <div class="tiny muted" id="pk-src" style="margin-top:6px"></div>
     <label class="pk-nr"><input type="checkbox" id="pk-norepeat"><span>不重复点同一人 <span class="tiny muted">（点完一轮前不会再出现）</span></span></label>
     <button class="btn primary block" id="go" style="height:56px;font-size:17px;margin-top:14px">${ICON.dice} 开始点名</button>
     <div class="pick-stage"><div class="pick-roll" id="stage">填好人数和点几个，点「开始点名」</div></div>
     <div id="history" class="tiny muted" style="text-align:center;min-height:18px"></div>
   </div>`;
 
-  let mode = 'no';
-  let norepeat = false;
-  let pool = [];        // 不重复模式下「还没点到过」的
-  let poolKey = '';     // 人数|模式，变了就重置池子
-
   const totalOf = () => Math.max(1, Math.min(200, Number($('#pk-total').value) || 1));
-  // 池子：号码是 1..人数；名字是名单（人数框跟着名单长度走）
+  // 池子：号码是 1..人数；名字是选中那份名单
   const allOf = () => {
-    if (mode === 'name' && hasNames) return names0.slice();
+    if (mode === 'name' && names0.length) return names0.slice();
     const n = totalOf();
     return Array.from({ length: n }, (_, i) => String(i + 1));
   };
-  const keyOf = () => `${mode}|${mode === 'name' ? names0.length : totalOf()}`;
+  const keyOf = () => `${sel ? pairText(sel) : '-'}|${mode}|${mode === 'name' ? names0.length : totalOf()}`;
   const resetPool = (force = false) => {
     const k = keyOf();
     if (!force && k === poolKey) return;
     poolKey = k; pool = allOf();
   };
+  /* 名单来源这一行是给他看的：总人数那个 51 不是凭空来的，是后台那份名单。 */
+  const paintSrc = () => {
+    $('#pk-src').textContent = !sel ? ''
+      : names0.length ? `${pairText(sel)}：名单 ${names0.length} 人，来自后台上传的班级名单`
+        : `${pairText(sel)} 还没有上传名单，只能按号码点`;
+  };
+  const setMode = (next) => {
+    mode = next;
+    $('#s-body').querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('on', x.dataset.mode === mode));
+    if (mode === 'name') $('#pk-total').value = names0.length || totalOf();
+    resetPool(true);
+    $('#history').textContent = norepeat ? `已点 0/${pool.length}，点完自动洗牌` : '';
+  };
+  /* 换班 = 换池子：不重复模式点过谁跟班级绑在一起，切班必须清零，
+     否则在 A 班点过 3 号，换到 B 班 3 号会被当成点过了。 */
+  const applySel = (p) => {
+    sel = p;
+    names0 = p ? p.names.slice() : [];
+    $('#pk-total').value = names0.length || (p ? p.count : totalOf());
+    const nameBtn = $('#s-body').querySelector('[data-mode="name"]');
+    nameBtn.disabled = !names0.length;
+    if (names0.length) nameBtn.removeAttribute('title');
+    else nameBtn.title = '这个班还没有上传名单，导入名单后才能按名字点';
+    if (mode === 'name' && !names0.length) setMode('no');
+    paintSrc();
+    resetPool(true);
+    $('#history').textContent = norepeat ? `已点 0/${pool.length}，点完自动洗牌` : '';
+  };
 
+  if (pairs.length) {
+    const gradeSel = $('#pk-grade');
+    const clsSel = $('#pk-cls');
+    gradeSel.onchange = () => {
+      const list = pairsOf(gradeSel.value);
+      clsSel.innerHTML = classOptions(gradeSel.value, list[0]);
+      savePref('roll_grade', gradeSel.value);
+      savePref('roll_cls', list[0] ? list[0].class_name : '');
+      applySel(list[0]);
+    };
+    clsSel.onchange = () => {
+      const p = pairsOf(gradeSel.value)[Number(clsSel.value)];
+      if (!p) return;
+      savePref('roll_grade', p.grade);
+      savePref('roll_cls', p.class_name);
+      applySel(p);
+    };
+  }
   // 模式切换
   $('#s-body').querySelectorAll('[data-mode]').forEach((b) => {
-    b.onclick = () => {
-      if (b.disabled) return;
-      mode = b.dataset.mode;
-      $('#s-body').querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('on', x === b));
-      if (mode === 'name') $('#pk-total').value = names0.length;
-      resetPool(true);
-      $('#history').textContent = norepeat ? `已点 0/${pool.length}，点完自动洗牌` : '';
-    };
+    b.onclick = () => { if (b.disabled) return; setMode(b.dataset.mode); };
   });
   $('#pk-norepeat').onchange = (e) => {
     norepeat = e.target.checked;
@@ -731,6 +837,7 @@ function paintRoll() {
     $('#history').textContent = norepeat ? `已点 0/${pool.length}，点完自动洗牌重新开始` : '';
   };
   $('#pk-total').oninput = () => { if (norepeat) resetPool(); };
+  paintSrc();
   resetPool(true);
 
   $('#go').onclick = () => {
@@ -747,6 +854,11 @@ function paintRoll() {
     const label = (v) => (mode === 'name' ? v : v + ' 号');
 
     const btn = $('#go');
+    /* 转圈期间把这张卡上的控件一起锁住。以前只锁「开始点名」，
+       中途换班或改人数的话，本轮的池子已经换成另一个班的了，
+       揭晓时算出来的是「已点 -11/40 人」这种数字。 */
+    const lockables = [...$('#s-body').querySelectorAll('#pk-grade, #pk-cls, #pk-total, #pk-num, #pk-norepeat, [data-mode]')];
+    lockables.forEach((x) => { x.disabled = true; });
     btn.disabled = true;
     stage.className = 'pick-roll blur';
     let c = 0;
@@ -757,6 +869,8 @@ function paintRoll() {
       if (++c > total) {
         clearInterval(t);
         btn.disabled = false;
+        lockables.forEach((x) => { x.disabled = false; });
+        $('#s-body').querySelector('[data-mode="name"]').disabled = !names0.length;
         stage.className = '';
         if (picks.length === 1) {
           stage.className = 'pick-win';
