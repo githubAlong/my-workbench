@@ -6,11 +6,12 @@ import { readFile } from 'node:fs/promises';
 const src = (await readFile(new URL('../student.html', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
 
 /* classChoices 是内联在学生页里的，这里整段切出来真跑一遍：
-   断言的是学生实际看到的下拉顺序，而不是源码长得对不对。 */
+   断言的是学生实际看到的下拉顺序，而不是源码长得对不对。
+   数据源是后台名单 rosters —— 课表 classes 已经不参与学生端的班级候选。 */
 const start = src.indexOf('function classChoices()');
 const body = src.slice(start, src.indexOf('\n}\n', start) + 2);
 const choices = (rows) => new Function('data', 'clsName', `${body}; return classChoices();`)(
-  { classes: rows },
+  { rosters: rows },
   (grade, name) => (grade && !String(name).startsWith(grade) ? grade + name : name),
 );
 

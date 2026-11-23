@@ -29,20 +29,20 @@ const roster = (id, grade, class_name, n) => ({
   id, grade, class_name, count: n, names: Array.from({ length: n }, (_, i) => `学生${i + 1}`),
 });
 
-test('班级候选 = 课表 classes + 后台 rosters 合并，跟违纪一致；名字池只认 rosters', () => {
+test('班级候选只认后台 rosters；课表 classes 不再参与，名字池认名单', () => {
   const data = {
     rosters: [roster(1, '高二', '5班', 51), roster(2, '高一', '3班', 40)],
     classes: [10, 11, 12, 13, 14, 15, 16, 18, 5, 6, 7, 8, 9].map((n) => ({ grade: '高二', class_name: `高二${n}班` })),
   };
   const c = choices(data);
   assert.deepEqual(c.gradeList, ['高一', '高二']);
-  // 13 个课表班 + 高二5班(roster) + 高一3班(roster) = 15，去重后不重复
-  assert.equal(c.pairs.length, 15, '课表班要进候选，不能像以前只剩 1 个');
-  const noRoster = c.pairsOf('高二').find((p) => p.class_name === '高二10班');
-  assert.deepEqual(noRoster.names, [], '课表有班但没上传名单，名字池为空');
-  assert.equal(noRoster.count, 40, '没名单的班退回默认 40 人，按号码点');
-  const withRoster = c.pairsOf('高二').find((p) => p.class_name === '5班');
-  assert.equal(withRoster.names.length, 51, 'rosters 里的班拿到真名单');
+  /* 课表里排过的班不进候选：同一间教室课表写「高二6班」、名单写「6班」，
+     两套并排出现会让学生选岔。候选只跟着老师维护的名单走。 */
+  assert.equal(c.pairs.length, 2, '课表班级不能再混进学生端点名的下拉');
+  assert.equal(c.pairsOf('高二').length, 1, '高二只剩名单里的那个班');
+  assert.equal(c.pairsOf('高二')[0].class_name, '5班');
+  assert.equal(c.pairsOf('高二')[0].names.length, 51, 'rosters 里的班拿到真名单');
+  assert.ok(!c.pairs.some((p) => p.class_name === '高二10班'), '课表独有的班不能出现');
 });
 
 test('班级名是空的班照样能选，标签只显示年级', () => {
