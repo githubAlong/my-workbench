@@ -2832,7 +2832,7 @@ async function renderStudentModule(box, key) {
       </div>
       <div class="card card-pad">
         <div class="card-title">${icon('users', 16)} 班级名单</div>
-        <div class="tiny muted" style="margin:6px 0 10px">名单只影响「按名单名字点」这一个选项。没有名单，学生页照样能按 1~50 号点。</div>
+        <div class="tiny muted" style="margin:6px 0 10px">名单只影响「按名字点」这一个选项。没有名单，学生页照样能按 1~50 号点。</div>
         ${rosters.length ? `<div class="pb-list">${rosters.map((r) => {
       const n = parseNames(r.names);
       return `<div class="pb-row">

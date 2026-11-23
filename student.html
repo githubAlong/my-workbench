@@ -768,7 +768,7 @@ const byGradeNum = (a, b) => (orderNum(a) - orderNum(b)) || String(a).localeComp
    以前还并上了课表里排过的班，结果下拉里「6班」和「高二6班」并排出现——
    同一间教室两种写法，选错一次就点错一整个班的人。
    班级口径以老师在管理后台维护的名单为唯一来源，课表只管排课，不再参与候选。
-   名字池同样只从 rosters 取；名单里没姓名时「按名单名字」禁用，退回按号码点。
+   名字池同样只从 rosters 取；名单里没姓名时「按名字」禁用，退回按号码点。
    班级名为空的那种只显示年级，跟用户口径一致。 */
 function rollChoices() {
   const rows = (data?.rosters || []).map((r) => {
@@ -832,7 +832,7 @@ function rollDefaultPair(pairs, { liveCls, saved, taskCls }) {
 
 function paintRoll() {
   /* 【第 19 条】没有班级名单也能点名：报个班号、从 1 号点到 50 号是最常见的用法，
-     名单只是「按名单名字」这个模式的数据来源，没有名单就退回按号码。 */
+     名单只是「按名字」这个模式的数据来源，没有名单就退回按号码。 */
   const { pairs, gradeList, pairsOf, clsLabel } = rollChoices();
   const saved = prefs();
   const sel0 = rollDefaultPair(pairs, {
@@ -843,7 +843,10 @@ function paintRoll() {
   const pairText = (p) => clsName(p.grade, p.class_name);
   let sel = sel0;
   let names0 = sel ? sel.names.slice() : [];
-  let mode = 'no';
+  /* 默认按名字点：有名单就用名字，没名单只有退回按号码。
+     用户手动切过之后（modeTouched），换班不再自动纠正他的选择。 */
+  let mode = names0.length ? 'name' : 'no';
+  let modeTouched = false;
   let norepeat = false;
   let pool = [];        // 不重复模式下「还没点到过」的
   let poolKey = '';     // 班级|模式|人数，变了就重置池子
@@ -867,8 +870,8 @@ function paintRoll() {
     <div class="field" style="margin-top:4px">
       <div class="field-label" id="pk-mode-label">抽取方式</div>
       <div class="seg pk-mode" role="group" aria-labelledby="pk-mode-label">
-        <button class="on" data-mode="no">按号码</button>
-        <button data-mode="name" ${names0.length ? '' : 'disabled title="这个班还没有上传名单，导入名单后才能按名字点"'}>按名单名字</button>
+        <button data-mode="name"${mode === 'name' ? ' class="on"' : ''} ${names0.length ? '' : 'disabled title="这个班还没有上传名单，导入名单后才能按名字点"'}>按名字</button>
+        <button data-mode="no"${mode === 'no' ? ' class="on"' : ''}>按号码</button>
       </div>
     </div>
     <div class="tiny muted" id="pk-src" style="margin-top:6px"></div>
@@ -897,7 +900,8 @@ function paintRoll() {
       : names0.length ? `${pairText(sel)}：名单 ${names0.length} 人，来自后台上传的班级名单`
         : `${pairText(sel)} 还没有上传名单，只能按号码点`;
   };
-  const setMode = (next) => {
+  const setMode = (next, byUser = false) => {
+    if (byUser) modeTouched = true;
     mode = next;
     $('#s-body').querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('on', x.dataset.mode === mode));
     if (mode === 'name') $('#pk-total').value = names0.length || totalOf();
@@ -914,7 +918,9 @@ function paintRoll() {
     nameBtn.disabled = !names0.length;
     if (names0.length) nameBtn.removeAttribute('title');
     else nameBtn.title = '这个班还没有上传名单，导入名单后才能按名字点';
-    if (mode === 'name' && !names0.length) setMode('no');
+    /* 换班后：没名单只能退回按号码；有名单且用户没手动切过，就回到默认的按名字 */
+    if (!names0.length) { if (mode === 'name') setMode('no'); }
+    else if (!modeTouched) setMode('name');
     paintSrc();
     resetPool(true);
     $('#history').textContent = norepeat ? `已点 0/${pool.length}，点完自动洗牌` : '';
@@ -940,7 +946,7 @@ function paintRoll() {
   }
   // 模式切换
   $('#s-body').querySelectorAll('[data-mode]').forEach((b) => {
-    b.onclick = () => { if (b.disabled) return; setMode(b.dataset.mode); };
+    b.onclick = () => { if (b.disabled) return; setMode(b.dataset.mode, true); };
   });
   $('#pk-norepeat').onchange = (e) => {
     norepeat = e.target.checked;

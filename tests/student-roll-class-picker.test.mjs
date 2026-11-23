@@ -116,7 +116,10 @@ test('点名页真的接上了年级/班级两个下拉与名单来源提示', (
   assert.match(roll, /savePref\('roll_cls'/, '换班级要记住');
   assert.match(roll, /来自后台上传的班级名单/, '人数从哪来的说明');
   assert.match(roll, /nameBtn\.disabled = !names0\.length/, '没名单的班不能按名字点');
-  assert.match(roll, /if \(mode === 'name' && !names0\.length\) setMode\('no'\)/, '换到没名单的班退回按号码');
+  assert.match(roll, /if \(!names0\.length\) \{ if \(mode === 'name'\) setMode\('no'\); \}/, '换到没名单的班退回按号码');
+  assert.match(roll, /else if \(!modeTouched\) setMode\('name'\)/, '换回有名单的班回到默认的按名字');
+  assert.match(roll, /let mode = names0\.length \? 'name' : 'no'/, '有名单时默认按名字');
+  assert.match(roll, /data-mode="name"[\s\S]*?>按名字<\/button>[\s\S]*data-mode="no"[\s\S]*?>按号码<\/button>/, '按钮顺序：按名字在前、按号码在后');
   assert.match(roll, /const keyOf = \(\) => `\$\{sel \? pairText\(sel\)/, '不重复的池子按班级分开');
   assert.match(roll, /lockables\.forEach\(\(x\) => \{ x\.disabled = true; \}\)/, '转圈期间锁住这张卡的控件');
   assert.match(roll, /lockables\.forEach\(\(x\) => \{ x\.disabled = false; \}\)/, '揭晓后要解锁');
