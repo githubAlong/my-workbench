@@ -764,9 +764,11 @@ function orderNum(text) {
 }
 const byGradeNum = (a, b) => (orderNum(a) - orderNum(b)) || String(a).localeCompare(String(b), 'zh-CN', { numeric: true });
 
-/* 点名的年级 / 班级候选跟违纪、留言板一致：课表 classes 加上后台 rosters 合并去重，
-   排了课但还没传名单的班也能选到，不会只剩一个。
-   名字池只从 rosters 里取——选中的班没上传过名单，「按名单名字」直接禁用，退回按号码点。
+/* 点名的年级 / 班级候选只认后台上传的班级名单（/public/link 下发的 rosters）。
+   以前还并上了课表里排过的班，结果下拉里「6班」和「高二6班」并排出现——
+   同一间教室两种写法，选错一次就点错一整个班的人。
+   班级口径以老师在管理后台维护的名单为唯一来源，课表只管排课，不再参与候选。
+   名字池同样只从 rosters 取；名单里没姓名时「按名单名字」禁用，退回按号码点。
    班级名为空的那种只显示年级，跟用户口径一致。 */
 function rollChoices() {
   const rows = (data?.rosters || []).map((r) => {
@@ -788,12 +790,11 @@ function rollChoices() {
     }
     return hit;
   };
-  /* 候选 = 课表 classes + 名单 rosters 的年级班级并集，跟 classChoices 一个口径。
-     课表里排了但没名单的班照样能选，只是按名字模式会禁用。 */
+  /* 候选取自名单本身：一份名单一个班，年级+班名去重后就是下拉里的全部选项。 */
   const pairMap = new Map();
-  [...(data?.classes || []), ...rows].forEach((r) => {
-    const grade = String(r?.grade || '').trim();
-    const class_name = String(r?.class_name || '').trim();
+  rows.forEach((r) => {
+    const grade = r.grade;
+    const class_name = r.class_name;
     if (!grade && !class_name) return;
     pairMap.set([grade, class_name].join('#'), { grade, class_name });
   });
@@ -1115,11 +1116,12 @@ function paintPunish() {
   };
 }
 
-/* 年级 / 班级选项来自老师的课表（/public/link 下发的 classes）；
-   旧版后端还没下发时，退回到花名册，保证下拉框不会只剩一行提示。 */
+/* 年级 / 班级选项统一来自后台上传的班级名单（/public/link 下发的 rosters）。
+   课表下发的 classes 不再参与：同一间教室课表里写「6班」、名单里写「高二6班」，
+   两套并起来学生就会看到重复的班级。名单为空时下拉为空，页面按「按号码」走。 */
 function classChoices() {
   const pairMap = new Map();
-  [...(data?.classes || []), ...(data?.rosters || [])].forEach((r) => {
+  (data?.rosters || []).forEach((r) => {
     const grade = String(r?.grade || '').trim();
     const class_name = String(r?.class_name || '').trim();
     if (!grade && !class_name) return;
