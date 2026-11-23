@@ -214,11 +214,15 @@ async function loadWeather(force = false) {
     + '&hourly=temperature_2m,weather_code,precipitation_probability'
     + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max'
     + '&timezone=auto&forecast_days=7';
-  /* 取数地址按环境拆开：测试环境走同源 /wx/forecast（Pages Function 代取），
-     绕开部分网络对 api.open-meteo.com 的直连重置；其它环境/代理不可用时回落到直连。
-     两个地址都失败才算天气没拿到，避免「一处被墙就整卡空白」。 */
+  /* 取数通道按可达性排：先天气代理，再直连 open-meteo，两条都失败才算没拿到。
+     GitHub Pages 跑不了 Pages Function，所以同源 /wx/forecast 只在 CF Pages 测试域用；
+     其它站点（A/B 两个 GitHub Pages）走已部署的 my-workbench-test.pages.dev 代理，
+     绕开部分网络对 api.open-meteo.com 的浏览器直连重置（net::ERR_EMPTY_RESPONSE）。 */
+  const WX_PROXY = 'https://my-workbench-test.pages.dev/wx/forecast';
   const sources = [];
-  if (/\.pages\.dev$/i.test(location.hostname)) sources.push(`${location.origin}/wx/forecast?${query}`);
+  sources.push(/\.pages\.dev$/i.test(location.hostname)
+    ? `${location.origin}/wx/forecast?${query}`
+    : `${WX_PROXY}?${query}`);
   sources.push(`https://api.open-meteo.com/v1/forecast?${query}`);
   let r = null;
   for (const url of sources) {
