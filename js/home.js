@@ -414,17 +414,27 @@ async function geocodeCity(kw) {
     [kw2 + '县', kw2 + '区', kw2 + '市'].forEach((term) => terms.add(term));
   }
 
+  /* 城市搜索同样按可达性排：先地名代理，再直连 open-meteo，两条都失败才当没查到。
+     GitHub Pages 跑不了 Pages Function，非 pages.dev 域指向已部署的
+     my-workbench-test.pages.dev/wx/geocode，绕开浏览器对
+     geocoding-api.open-meteo.com 的直连重置。 */
+  const GEO_PROXY = 'https://my-workbench-test.pages.dev/wx/geocode';
+  const qs = (t) => `name=${encodeURIComponent(t)}&count=20&language=zh&format=json`;
   const grab = async (term) => {
-    try {
-      const url = 'https://geocoding-api.open-meteo.com/v1/search?name='
-        + encodeURIComponent(term) + '&count=20&language=zh&format=json';
-      const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      if (!response.ok) return [];
-      const data = await response.json();
-      return Array.isArray(data?.results) ? data.results : [];
-    } catch {
-      return [];
+    const urls = [];
+    urls.push((/\.pages\.dev$/i.test(location.hostname)
+      ? `${location.origin}/wx/geocode`
+      : GEO_PROXY) + `?${qs(term)}`);
+    urls.push(`https://geocoding-api.open-meteo.com/v1/search?${qs(term)}`);
+    for (const url of urls) {
+      try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!response.ok) continue;
+        const data = await response.json();
+        if (Array.isArray(data?.results)) return data.results;
+      } catch { /* 这条通道不通，换下一条 */ }
     }
+    return [];
   };
 
   let rows = (await Promise.all([...terms].map(grab))).flat();

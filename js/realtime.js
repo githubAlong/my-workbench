@@ -106,13 +106,6 @@ function setStatus(s) {
   emit('wb:realtime-status', { status: s, tries: st.tries });
 }
 
-/* st.since 有两个用途：一是状态起始时间（给界面展示），
-   二是"这条连接活了多久"（给 onclose 判断要不要清零重试次数）。
-   后者要的是**连接建立时刻**，所以这里单独记一个字段，
-   不去动 since —— 早先两个用途共用一个变量，结果心跳回执把 since 一刷，
-   「连接活过 10 秒」的判断就永远不成立，退避一路涨到 30 秒。 */
-function markOpen() { st.openAt = Date.now(); }
-
 /* 只广播，不抛错：任何监听方出错都不该影响别的监听方 */
 function emit(name, detail) {
   try { window.dispatchEvent(new CustomEvent(name, { detail })); } catch { }
@@ -346,7 +339,6 @@ async function connect() {
   st.ws = ws;
   st.lastMsgAt = Date.now();
   st.lastBeat = 0;
-  markOpen();
 
   ws.onopen = () => {
     joinAll(at);
@@ -364,10 +356,12 @@ async function connect() {
 
   ws.onclose = () => {
     if (st.ws !== ws) return;      // 已经被新一轮连接替换掉了，忽略旧的回调
-    /* 连接活过 10 秒才算"曾经通"，此时重连次数清零。
-       否则网络好时每次断线都从第 1 次开始，退避形同虚设；
-       反过来若连上就断（多半是配置错），次数会一路累积到最后退到 30 秒。 */
-    if (Date.now() - (st.openAt || 0) > 10000) st.tries = 0;
+    /* 只有真的"通过"（收到 phx_reply、status 到 live）才清零重连次数。
+       原来用"距连接尝试满 10 秒"当判据是错的：握手挂住但从不推回包的连接
+       （被墙 / realtime 未发布这张表）每轮都满 10 秒后才关闭，tries 被反复
+       清零，于是永远走 reconnect 里 tries===1 的 0ms 分支，疯狂重连刷屏。
+       改按 status 判：没真通就不清零，退避才会正常爬到 30 秒上限。 */
+    if (st.status === 'live') st.tries = 0;
     reconnect('连接关闭');
   };
 }
