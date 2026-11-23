@@ -764,10 +764,10 @@ function orderNum(text) {
 }
 const byGradeNum = (a, b) => (orderNum(a) - orderNum(b)) || String(a).localeCompare(String(b), 'zh-CN', { numeric: true });
 
-/* 点名的年级 / 班级候选只来自后台上传的班级名单（/public/link 下发的 rosters）。
-   课表里可能排了十几个班、真传过名单的只有一个，
-   拿课表当候选等于让学生端点进一个空池子，抽出来全是「1 号 2 号」。
-   班级名为空的那种按老师定的口径只显示年级。 */
+/* 点名的年级 / 班级候选跟违纪、留言板一致：课表 classes 加上后台 rosters 合并去重，
+   排了课但还没传名单的班也能选到，不会只剩一个。
+   名字池只从 rosters 里取——选中的班没上传过名单，「按名单名字」直接禁用，退回按号码点。
+   班级名为空的那种只显示年级，跟用户口径一致。 */
 function rollChoices() {
   const rows = (data?.rosters || []).map((r) => {
     const names = (r?.names || []).filter(Boolean);
@@ -778,19 +778,38 @@ function rollChoices() {
       names,
       count: Math.max(1, Math.min(200, Number(r?.count) || names.length || 40)),
     };
-  }).filter((r) => r.grade || r.class_name);
-  /* 同一个班重复传了两份名单只留一条，优先有名字的那份 */
-  const byPair = new Map();
-  rows.forEach((r) => {
-    const k = r.grade + '\u0000' + r.class_name;
-    const old = byPair.get(k);
-    if (!old || r.names.length > old.names.length) byPair.set(k, r);
   });
-  const pairs = [...byPair.values()];
+  /* 同一个班传了两份名单只认名字多的那份，按年级+班号对上号 */
+  const bestRoster = (grade, class_name) => {
+    let hit = null;
+    for (const r of rows) {
+      if (r.grade !== grade || r.class_name !== class_name) continue;
+      if (!hit || r.names.length > hit.names.length) hit = r;
+    }
+    return hit;
+  };
+  /* 候选 = 课表 classes + 名单 rosters 的年级班级并集，跟 classChoices 一个口径。
+     课表里排了但没名单的班照样能选，只是按名字模式会禁用。 */
+  const pairMap = new Map();
+  [...(data?.classes || []), ...rows].forEach((r) => {
+    const grade = String(r?.grade || '').trim();
+    const class_name = String(r?.class_name || '').trim();
+    if (!grade && !class_name) return;
+    pairMap.set([grade, class_name].join('#'), { grade, class_name });
+  });
+  const pairs = [...pairMap.values()].map((p) => {
+    const hit = bestRoster(p.grade, p.class_name);
+    return {
+      id: hit ? hit.id : null,
+      grade: p.grade,
+      class_name: p.class_name,
+      names: hit ? hit.names : [],
+      count: hit ? hit.count : 40,
+    };
+  });
   const clsLabel = (p) => p.class_name || p.grade;
   const gradeList = [...new Set(pairs.map((p) => p.grade).filter(Boolean))].sort(byGradeNum);
-  /* 班级也按班号数字序排：名单在库里是上传顺序存的，
-     直接拿来当顺序会让高二10班排在高二5班前面，和老师手里的名单对不上。 */
+  /* 班级按班号数字序排：高二10班不排到高二5班前面，和老师手里的名单对得上。 */
   const pairsOf = (grade) => pairs.filter((p) => p.grade === grade).sort((a, b) => byGradeNum(clsLabel(a), clsLabel(b)));
   return { pairs, gradeList, pairsOf, clsLabel };
 }
