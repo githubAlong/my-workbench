@@ -168,7 +168,7 @@ export async function renderRepairsBody(box) {
       <div class="form-grid">
         <div class="field"><label class="field-label">报修人 <span class="tiny muted">（选填）</span></label>
           <input class="input" id="rp" value="${esc(row?.reporter || '')}" placeholder="谁发现的"></div>
-        <div class="field"><label class="field-label">维修人/单位 <span class="tiny muted">（选填）</span></label>
+        <div class="field"><label class="field-label">维修人 <span class="tiny muted">（选填）</span></label>
           <input class="input" id="hd" value="${esc(row?.handler || '')}" placeholder="如 后勤王师傅"></div>
       </div>
       <div class="form-grid">
@@ -191,7 +191,7 @@ export async function renderRepairsBody(box) {
         <button class="btn ghost" id="cancel">取消</button>
         <button class="btn primary" id="ok">保存</button>
       </div>`;
-    const s = sheet({ title: isNew ? '维修记录登记' : '维修记录修改', body, wide: true });
+    const s = sheet({ title: isNew ? '新增维修记录' : '维修记录修改', body, wide: true });
     const $ = (id) => body.querySelector('#' + id);
 
     $('fx').onchange = () => {
