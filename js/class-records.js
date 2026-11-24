@@ -1,4 +1,4 @@
-import { api, esc, el, sheet, saving, confirmDialog, toast, download } from './core.js';
+import { api, esc, el, sheet, saving, confirmDialog, toast, download, normGrade, inferGrade, normClass, clsShort } from './core.js';
 import { cleanPeriodTime, resolveTimetablePeriods } from './timetable-periods.mjs';
 
 /* 上课类型：预设 + 可手动输入。预设用来带默认课时费与支付状态；
@@ -382,7 +382,7 @@ export async function renderClassRecords(root) {
       if (values.includes(current)) select.value = current;
     };
     updateOptions('#cr-filter-subject', '全部学科', [...new Set(rows.map((r) => String(r.subject || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')));
-    updateOptions('#cr-filter-class', '全部年级班级', [...new Set(rows.map((r) => String(r.class_name || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')));
+    updateOptions('#cr-filter-class', '全部年级班级', [...new Set(rows.map((r) => normClass(r.class_name, r.grade)))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true })));
 
     const subject = q('#cr-filter-subject').value;
     const className = q('#cr-filter-class').value;
@@ -391,7 +391,7 @@ export async function renderClassRecords(root) {
     const filtered = rows.filter((r) => {
       if (rowMonth(r) !== month) return false;
       if (subject && r.subject !== subject) return false;
-      if (className && r.class_name !== className) return false;
+      if (className && normClass(r.class_name, r.grade) !== className) return false;
       if (type && normalizeTypeKey(r.class_type) !== normalizeTypeKey(type)) return false;
       if (keyword) {
         const people = parseRelatedPeople(r.related_person, r.class_type);
@@ -431,8 +431,8 @@ export async function renderClassRecords(root) {
       return '<tr>' +
         '<td class="cr-no">' + no + '</td>' +
         '<td>' + esc(classTime.date || '—') + '</td>' +
-        '<td>' + esc(r.grade || '—') + '</td>' +
-        '<td>' + esc(r.class_name || '—') + '</td>' +
+        '<td>' + esc(normGrade(r.grade) || inferGrade(r.class_name) || '—') + '</td>' +
+        '<td>' + esc(clsShort(r.grade, r.class_name) || '—') + '</td>' +
         '<td>' + esc(classTime.period || '—') + '</td>' +
         '<td>' + esc(r.subject || '—') + '</td>' +
         '<td><span class="cr-type-badge ' + typeBadgeClass(r.class_type) + '">' + esc(typeLabel) + '</span></td>' +
@@ -457,8 +457,8 @@ export async function renderClassRecords(root) {
     const people = parseRelatedPeople(row.related_person, row.class_type);
     const fields = [
       ['上课日期', classTime.date],
-      ['上课年级', row.grade],
-      ['上课班级', row.class_name],
+      ['上课年级', normGrade(row.grade) || inferGrade(row.class_name)],
+      ['上课班级', clsShort(row.grade, row.class_name)],
       ['节次', classTime.period],
       ['学科', row.subject],
       ['上课类型', labelOf(row.class_type)],
@@ -484,8 +484,8 @@ export async function renderClassRecords(root) {
     const form = el(`<div class="cr-editor">
       <div class="cr-form-grid">
         <div class="cr-field"><label>上课日期 <span class="cr-required">*</span></label><input id="cr-date" type="date" value="${esc(initialTime.date)}"></div>
-        <div class="cr-field"><label>上课年级 <span class="cr-required">*</span></label><input id="cr-grade" list="cr-grade-options" value="${esc(row?.grade || '')}" placeholder="如：高一 / 高二 / 高三"><datalist id="cr-grade-options">${GRADE_OPTIONS.map((g) => '<option value="' + g + '"></option>').join('')}</datalist></div>
-        <div class="cr-field"><label>上课班级 <span class="cr-required">*</span></label><input id="cr-class" value="${esc(row?.class_name || '')}" placeholder="如：高二11班"></div>
+        <div class="cr-field"><label>上课年级 <span class="cr-required">*</span></label><input id="cr-grade" list="cr-grade-options" value="${esc(normGrade(row?.grade) || inferGrade(row?.class_name))}" placeholder="如：高一 / 高二 / 高三"><datalist id="cr-grade-options">${GRADE_OPTIONS.map((g) => '<option value="' + g + '"></option>').join('')}</datalist></div>
+        <div class="cr-field"><label>上课班级 <span class="cr-required">*</span></label><input id="cr-class" value="${esc(normClass(row?.class_name, row?.grade))}" placeholder="比如：5班"></div>
         <div class="cr-field"><label>节次</label><input id="cr-period" list="cr-period-options" value="${esc(initialTime.period)}" placeholder="选择课表节次或手动输入"><datalist id="cr-period-options"></datalist></div>
         <div class="cr-field"><label>学科</label><input id="cr-subject" value="${esc(row?.subject || '')}" placeholder="例如：信息技术、语文"></div>
         <div class="cr-field"><label>上课类型</label><input id="cr-type" list="cr-type-options" value="${esc(initialType)}" placeholder="选择预设或手动输入"><datalist id="cr-type-options">${TYPES.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</datalist></div>

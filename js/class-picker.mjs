@@ -1,21 +1,33 @@
+import { normGrade, inferGrade, normClass, gradeRank } from './grade-class.mjs';
+
+/* 候选列表：年级不再无脑拼进标签。
+   以前 label 一律是「高二5班」，于是「上课记录」这类已经有独立「上课年级」字段的表单，
+   下拉里还是「高二5班 / 高二6班 / …」，年级显示两遍。
+   现在按字段形态分两种：
+     · 有独立年级框 → 标签和写入值都只给班名「5班」，年级单独存；
+     · 只有班级一列（没有年级框）→ 标签和值都带前缀「高二5班」，否则年级会丢。 */
 export function classSuggestions(rows, { qualified = false } = {}) {
   const unique = new Map();
   for (const row of rows || []) {
     if (row?.deleted_at) continue;
-    const grade = String(row?.grade ?? '').trim();
-    const name = String(typeof row === 'string' ? row : row?.class_name ?? '').trim();
+    const rawName = typeof row === 'string' ? row : row?.class_name;
+    const grade = normGrade(typeof row === 'string' ? '' : row?.grade) || inferGrade(rawName);
+    const name = normClass(rawName, grade);
+    /* 归一后是空的 = 这行只有年级、没有班号（「高二」「高二()」这类脏数据）。
+       以前它会原样进候选，下拉第一行就多出个「高二」，点它存进去也是个坏班级值。 */
     if (!name) continue;
-    const label = grade && !name.startsWith(grade) ? grade + name : name;
-    const value = qualified ? label : name;
-    const key = qualified ? value : JSON.stringify([label, value]);
-    if (!unique.has(key)) unique.set(key, { value, label, grade });
+    const id = grade + '#' + name;
+    if (unique.has(id)) continue;
+    const value = qualified && grade ? grade + name : name;
+    unique.set(id, { id, value, label: value, grade });
   }
-  return [...unique.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN', { numeric: true }));
+  return [...unique.values()].sort((a, b) => gradeRank(a.grade) - gradeRank(b.grade)
+    || a.label.localeCompare(b.label, 'zh-Hans-CN', { numeric: true }));
 }
 
 export function setClassSuggestions(input, rows, { gradeInput, qualified } = {}) {
   if (!input) return;
-  const choices = classSuggestions(rows, { qualified });
+  const all = classSuggestions(rows, { qualified });
   const doc = input.ownerDocument;
   const parent = input.parentElement;
   let picker = parent.classList.contains('class-picker') ? parent.lastElementChild : null;
@@ -29,6 +41,11 @@ export function setClassSuggestions(input, rows, { gradeInput, qualified } = {})
     input.replaceWith(wrapper);
     wrapper.append(input, picker);
   }
+  /* 年级框有值时按年级收窄候选：上面选了「高二」，这一列就只留高二的班。
+     一个都匹配不上（数据对不齐）就退回全量，不能让下拉变空、录不进去。 */
+  const wantGrade = normGrade(gradeInput?.value) || '';
+  const matched = wantGrade ? all.filter((choice) => choice.grade === wantGrade) : [];
+  const choices = matched.length ? matched : all;
   picker.hidden = !choices.length;
   const createOption = (label, value) => {
     const option = doc.createElement('option');
@@ -43,6 +60,7 @@ export function setClassSuggestions(input, rows, { gradeInput, qualified } = {})
   picker.onchange = () => {
     if (picker.value === '') return;
     const choice = choices[Number(picker.value)];
+    if (!choice) return;
     picker.value = '';
     if (gradeInput && choice.grade) gradeInput.value = choice.grade;
     input.value = choice.value;
