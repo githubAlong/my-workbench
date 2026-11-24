@@ -1,4 +1,4 @@
-import { api, el, esc, clsName, startPoll, toast, sheet, saving, confirmDialog, promptDialog, ymd, pad2, WD_SHORT, fmtDateTime, fmtTime, parseDT, exportUrl, download, doExport, STATIC, studentUrl, shortPath } from './core.js';
+import { api, el, esc, clsName, clsShort, clsPair, clsStore, makeClsLabeler, normClass, normGrade, inferGrade, startPoll, toast, sheet, saving, confirmDialog, promptDialog, ymd, pad2, WD_SHORT, fmtDateTime, fmtTime, parseDT, exportUrl, download, doExport, STATIC, studentUrl, shortPath } from './core.js';
 import { printStatement } from './pdfprint.js';
 import { registerView, state, icon, go, pageHead, onViewLeave } from './ui.js';
 import { renderAttendance } from './attendance.js';
@@ -325,7 +325,7 @@ async function renderLessons(box) {
             ${p.open_items.map((it) => `<label class="lss-item">
               <input type="checkbox" data-pick="${it.id}" data-name="${esc(p.name)}" data-dir="${p.direction}" data-h="${it.hours}" data-a="${it.amount}">
               <span class="lsi-d">${esc(String(it.date).slice(5))}${it.period_no ? ' 第' + it.period_no + '节' : ''}</span>
-              <span class="lsi-c">${esc(it.class_name || '')}</span>
+              <span class="lsi-c">${esc(clsShort(it.grade, it.class_name))}</span>
               <span class="lsi-h">${it.hours} 节 / ${money(it.amount)} 元</span>
             </label>`).join('')}
             <div class="lss-pick-bar">
@@ -386,7 +386,7 @@ async function renderLessons(box) {
         const typeLabel = SUB_LABEL[type] || type;
         return `<tr data-row="${esc(String(r.id))}">
           <td class="ls-date"><b>${esc(String(r.date).slice(5))}</b><span>${r.period_no ? '第' + r.period_no + '节' : '未排节次'}${r.start_time ? ' · ' + esc(r.start_time) : ''}</span></td>
-          <td class="ls-class">${esc(r.class_name || '—')}</td>
+          <td class="ls-class">${esc(clsShort(r.grade, r.class_name) || '—')}</td>
           <td class="lc-content">${esc(r.content || '—')}${r.next_content ? `<div class="lc-next">下次：${esc(r.next_content)}</div>` : ''}${r.discipline ? `<div class="tiny" style="color:var(--amber)">⚠ ${esc(r.discipline)}</div>` : ''}${r.remark ? `<div class="lc-remark">${icon('edit', 11)}<span>${esc(r.remark)}</span></div>` : ''}</td>
           <td class="ls-progress-cell">${esc(r.progress || '—')}</td>
           <td class="ls-type-cell"><span class="chip ${typeClass}">${esc(typeLabel)}</span>${type !== 'normal' && r.peer_name ? `<span class="ls-peer">${esc(r.peer_name)}</span>` : ''}</td>
@@ -623,7 +623,7 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
       <div class="le-pick-h">${pickLabel} <span class="le-pick-s">${pickHint}</span></div>
       <div class="le-pick-list">${todayCourses.map((c, i) => `<button class="le-pick-i" data-ci="${i}">
         <span class="lpi-p">第${c.period_no}节</span>
-        <span class="lpi-c">${esc(c.class_name || '')}</span>
+        <span class="lpi-c">${esc(clsShort(c.grade, c.class_name))}</span>
         <span class="lpi-t">${esc(c.start_time || '')}</span>
       </button>`).join('')}</div>
     </div>` : ''}
@@ -631,7 +631,8 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
     <div class="form-grid">
       <div class="field"><label class="field-label">日期</label><input class="input" type="date" id="date" value="${esc(row?.date || today)}"></div>
       <div class="field"><label class="field-label">节次</label><select class="input" id="period">${[1,2,3,4,5,6,7,8,9,10].map((n) => `<option ${row?.period_no === n ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
-      <div class="field"><label class="field-label">班级</label><input class="input" id="class" value="${esc(row?.class_name || '')}"></div>
+      <div class="field"><label class="field-label">年级</label><input class="input" id="grade" list="le-grade-list" value="${esc(normGrade(row?.grade) || inferGrade(row?.class_name))}"><datalist id="le-grade-list">${[...new Set(courses.map((x) => normGrade(x.grade) || inferGrade(x.class_name)).filter(Boolean))].map((x) => `<option>${esc(x)}</option>`).join('')}</datalist></div>
+      <div class="field"><label class="field-label">班级</label><input class="input" id="class" list="le-class-list" value="${esc(normClass(row?.class_name, row?.grade))}"><datalist id="le-class-list">${[...new Set(courses.map((x) => normClass(x.class_name, x.grade)).filter(Boolean))].map((x) => `<option>${esc(x)}</option>`).join('')}</datalist></div>
       <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}"></div>
       <div class="field"><label class="field-label">开始时间</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
       <div class="field"><label class="field-label">结束时间</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
@@ -775,7 +776,8 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
         d.setDate(d.getDate() + pickOffset);
         $('#date').value = ymd(d);
       }
-      $('#class').value = c.class_name || '';
+      $('#grade').value = normGrade(c.grade) || inferGrade(c.class_name);
+      $('#class').value = normClass(c.class_name, c.grade);
       $('#subject').value = c.subject || '';
       $('#period').value = c.period_no;
       $('#st').value = c.start_time || per?.start_time || '';
@@ -802,7 +804,8 @@ async function lessonEditor(row, reload, month, price = DEFAULT_PRICE) {
     if (!type) return;
     const payload = {
       date: $('#date').value, period_no: Number($('#period').value),
-      class_name: $('#class').value, subject: $('#subject').value,
+      grade: normGrade($('#grade').value) || inferGrade($('#class').value),
+      class_name: normClass($('#class').value, $('#grade').value), subject: $('#subject').value,
       start_time: $('#st').value, end_time: $('#et').value,
       sub_type: type,
       peer_name: type === 'normal' ? '' : peer,
@@ -929,7 +932,7 @@ async function renderTimetable(box) {
                           aria-label="${esc(label)}">
                           ${course ? `
                             <div class="tt-course-card" title="${esc(detail || label)}">
-                              <strong>${esc(course.class_name || course.subject || '课程')}</strong>
+                              <strong>${esc(clsShort(course.grade, course.class_name) || course.subject || '课程')}</strong>
                               <span>${esc(time)}</span>
                             </div>` : '<span class="tt-empty-add" aria-hidden="true">＋</span>'}
                         </td>`;
@@ -1274,7 +1277,7 @@ async function importTimetableDialog(reload) {
             <td><select class="cell-input" data-k="weekday">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<option value="${d}" ${a.weekday === d ? 'selected' : ''}>周${WD_SHORT[d]}</option>`).join('')}</select></td>
             <td><input class="cell-input mono" data-k="period" type="number" min="1" max="14" value="${a.period}" style="width:64px"></td>
             <td><div class="row" style="gap:6px;align-items:center">
-              <input class="cell-input" data-k="class_name" value="${esc(a.class_name)}"
+              <input class="cell-input" data-k="class_name" value="${esc(normClass(a.class_name, a.grade))}"
                 placeholder="${a.guessed ? '' : '填写班号'}"
                 style="width:88px;${a.guessed ? '' : 'border-color:#F59E0B;background:#FFF7ED'}"
                 title="${a.guessed ? '从图片识别' : '这一格没认出来，请填班号'}">
@@ -1519,7 +1522,7 @@ function printTimetableHTML(courses, periods, maxP) {
   ${Array.from({ length: maxP }, (_, i) => i + 1).map((p) => {
     const per = periods.find((x) => Number(x.period_no) === p);
     return `<tr><td><b>第${p}节</b><small>${per ? per.start_time + '-' + per.end_time : ''}</small></td>
-    ${[1,2,3,4,5,6,0].map((d) => { const c = get(d, p); return `<td>${c ? `<b>${esc(c.class_name)}</b><small>${esc(c.subject)} ${esc(c.room || '')}</small>` : ''}</td>`; }).join('')}</tr>`;
+    ${[1,2,3,4,5,6,0].map((d) => { const c = get(d, p); return `<td>${c ? `<b>${esc(clsShort(c.grade, c.class_name))}</b><small>${esc(c.subject)} ${esc(c.room || '')}</small>` : ''}</td>`; }).join('')}</tr>`;
   }).join('')}</table>`;
 }
 function courseEditor(row, reload) {
@@ -1539,8 +1542,8 @@ function courseEditor(row, reload) {
     <div class="field"><label class="field-label">节次</label><input class="input" type="number" id="period_no" value="${row?.period_no || 1}"></div>
     <div class="field"><label class="field-label">开始时间</label><input class="input" type="time" id="st" value="${esc(row?.start_time || '')}"></div>
     <div class="field"><label class="field-label">结束时间</label><input class="input" type="time" id="et" value="${esc(row?.end_time || '')}"></div>
-    <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(row?.grade || '')}" data-hist="grade"></div>
-    <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(row?.class_name || '')}" data-hist="class_name"></div>
+    <div class="field"><label class="field-label">年级</label><input class="input" id="grade" value="${esc(normGrade(row?.grade) || inferGrade(row?.class_name))}" data-hist="grade" placeholder="比如：高二"></div>
+    <div class="field"><label class="field-label">班级</label><input class="input" id="class_name" value="${esc(normClass(row?.class_name, row?.grade))}" data-hist="class_name" placeholder="比如：5班"></div>
     <div class="field"><label class="field-label">科目</label><input class="input" id="subject" value="${esc(row?.subject || '')}" data-hist="subject"></div>
     <div class="field"><label class="field-label">地点</label><input class="input" id="room" value="${esc(row?.room || '')}" placeholder="例如：教学楼A栋101、大操场、机房" autocomplete="off"></div>
     <div class="field"><label class="field-label">生效开始日</label><input class="input" type="date" id="sd" value="${esc(row?.start_date || '')}"></div>
@@ -1566,7 +1569,9 @@ function courseEditor(row, reload) {
       const seen = new Set();
       const vals = [];
       for (const course of recent) {
-        const value = String(course?.[k] || '').trim();
+        const raw = String(course?.[k] || '').trim();
+        /* 联想值也要按全站口径归一，否则下拉里还留着「高二5班」这种旧写法 */
+        const value = k === 'class_name' ? normClass(raw, course?.grade) : k === 'grade' ? normGrade(raw) : raw;
         const normalized = value.toLocaleLowerCase();
         if (!value || seen.has(normalized)) continue;
         seen.add(normalized);
@@ -1597,7 +1602,8 @@ function courseEditor(row, reload) {
     const payload = {
       weekday: Number(body.querySelector('#weekday').value), period_no: Number(body.querySelector('#period_no').value),
       start_time: body.querySelector('#st').value, end_time: body.querySelector('#et').value,
-      grade: body.querySelector('#grade').value, class_name: body.querySelector('#class_name').value,
+      grade: normGrade(body.querySelector('#grade').value) || inferGrade(body.querySelector('#class_name').value),
+      class_name: normClass(body.querySelector('#class_name').value, body.querySelector('#grade').value),
       subject: body.querySelector('#subject').value, room: body.querySelector('#room').value,
       start_date: body.querySelector('#sd').value || null, end_date: body.querySelector('#ed').value || null,
       remark: body.querySelector('#remark').value,
@@ -2162,7 +2168,7 @@ function rollRowHtml(x) {
   const pct = total ? Math.round(signed / total * 100) : 0;
   return `<div class="roll-row${x.status === 'open' ? ' live' : ''}" data-roll-row="${x.id}">
     <div class="rr-main">
-      <span class="rr-cls">${esc(clsName(x.grade, x.class_name))}</span>
+      <span class="rr-cls">${esc(clsPair(x.grade, x.class_name))}</span>
       ${x.period_no ? `<span class="chip grey">第${x.period_no}节</span>` : ''}
       ${x.status === 'open' ? '<span class="chip green">进行中</span>' : '<span class="chip grey">已结束</span>'}
       <span class="rr-num"><b data-n="signed">${signed}</b>/<span data-n="total">${total}</span></span>
@@ -2255,11 +2261,13 @@ function paintPickCard(rosters) {
 }
 
 function pickStudentDialog(rosters) {
+  /* 班号唯一的班只写「5班」，同班号跨年级才补上年份，跟全站口径一致 */
+  const clsLabel = makeClsLabeler(rosters);
   const body = el(`<div class="sheet-body">
     <div class="form-grid">
       <div class="field"><label class="field-label">班级</label>
-        <input class="input" id="pk-cls" list="pk-cls-list" value="${esc(rosters[0] ? clsName(rosters[0].grade, rosters[0].class_name) : '')}">
-        <datalist id="pk-cls-list">${rosters.map((r) => `<option>${esc(clsName(r.grade, r.class_name))}</option>`).join('')}</datalist></div>
+        <input class="input" id="pk-cls" list="pk-cls-list" value="${esc(rosters[0] ? clsLabel(rosters[0].grade, rosters[0].class_name) : '')}">
+        <datalist id="pk-cls-list">${rosters.map((r) => `<option>${esc(clsLabel(r.grade, r.class_name))}</option>`).join('')}</datalist></div>
       <div class="field"><label class="field-label">总人数</label>
         <input class="input" id="pk-total" type="number" min="1" max="200" value="${esc(String(rosters[0]?.count || 40))}" inputmode="numeric"></div>
     </div>
@@ -2290,9 +2298,12 @@ function pickStudentDialog(rosters) {
   const drawn = [];        // 已点出的号码（跨次累积，用于「不重复」）
 
   /* 名册：班级名对上就取名字，对不上就只显示号码。
-     优先精确匹配「高二(3)班」，其次按 grade+class_name 拼出来的名字匹配。 */
+     先按展示标签精确比（同班号跨年级时标签是「高二 · 5班」），
+     再退回按归一化班号比，所以输入「5班」「高二5班」「高二 5 班」都能命中。 */
   const namesFor = (cls) => {
-    const hit = rosters.find((r) => clsName(r.grade, r.class_name) === cls) || rosters.find((r) => r.class_name === cls);
+    const raw = String(cls || '').trim();
+    const hit = rosters.find((r) => clsLabel(r.grade, r.class_name) === raw)
+      || rosters.find((r) => normClass(r.class_name, r.grade) === normClass(raw));
     return Array.isArray(hit?.names) ? hit.names : [];
   };
   const totalOf = () => {
@@ -2443,9 +2454,10 @@ function punishEditor(p, reload) {
 
 function openRollDialog(rosters, reload) {
   const now = new Date();
+  const clsLabel = makeClsLabeler(rosters);
   const body = el(`<div class="sheet-body">
     <div class="field"><label class="field-label">哪个班</label>
-      <select class="input" id="rid">${rosters.map((r) => `<option value="${r.id}">${esc(clsName(r.grade, r.class_name))}（${r.count} 人）</option>`).join('')}</select></div>
+      <select class="input" id="rid">${rosters.map((r) => `<option value="${r.id}">${esc(clsLabel(r.grade, r.class_name))}（${r.count} 人）</option>`).join('')}</select></div>
     <div class="form-grid">
       <div class="field"><label class="field-label">第几节</label>
         <select class="input" id="per">${[1,2,3,4,5,6,7,8].map((n) => `<option value="${n}" ${n === 3 ? 'selected' : ''}>第 ${n} 节</option>`).join('')}</select></div>
@@ -2506,7 +2518,7 @@ async function rollDetail(id, reload) {
   const missing = d.missing || [];
   const body = el(`<div class="sheet-body">
     <div class="row wrap" style="gap:8px;align-items:center;margin-bottom:12px">
-      <div class="bold" style="font-size:16px">${esc(clsName(st.grade, st.class_name))}</div>
+      <div class="bold" style="font-size:16px">${esc(clsPair(st.grade, st.class_name))}</div>
       ${st.period_no ? `<span class="chip grey">第${st.period_no}节</span>` : ''}
       <span class="chip ${st.status === 'open' ? 'green' : 'grey'}">${st.status === 'open' ? '进行中' : '已结束'}</span>
       <span class="live-tag" id="rd-live" ${st.status === 'open' ? '' : 'hidden'}><i></i>实时</span>
@@ -2607,6 +2619,33 @@ async function pullStudentSubmissions() {
 
 /* 「高一 · 1 班」这种用户输入 → { grade, class_name }：
    先按课表名单精确匹配，匹配不到再按分隔符拆。 */
+/* 年级 / 班级双字段：全站统一口径（2026-11-23 与用户确认）。
+   年级只填「高二」，班级只填「5班」。历史写法（高二5班 / 高二(5)班 / 5）粘进来，
+   保存前自动拆成两个字段，所以老师怎么填都不会再写出脏值。
+   只有年级或者只有班级的地方，一律用这两个字段补齐。 */
+function classFieldHtml({ grade = '', className = '', rows = [], prefix = 'cf' } = {}) {
+  const g0 = normGrade(grade) || inferGrade(className);
+  const c0 = normClass(className, grade);
+  const grades = [...new Set([...(rows || []).map((r) => normGrade(r?.grade) || inferGrade(r?.class_name)), g0].filter(Boolean))];
+  const classes = [...new Set([...(rows || []).map((r) => normClass(r?.class_name, r?.grade)), c0].filter(Boolean))];
+  return `<div class="form-grid">
+    <div class="field"><label class="field-label">年级</label>
+      <input class="input" id="${prefix}-grade" list="${prefix}-grade-list" value="${esc(g0)}" placeholder="比如：高二">
+      <datalist id="${prefix}-grade-list">${grades.map((g) => `<option>${esc(g)}</option>`).join('')}</datalist></div>
+    <div class="field"><label class="field-label">班级</label>
+      <input class="input" id="${prefix}-class" list="${prefix}-class-list" value="${esc(c0)}" placeholder="比如：5班">
+      <datalist id="${prefix}-class-list">${classes.map((c) => `<option>${esc(c)}</option>`).join('')}</datalist></div>
+  </div>`;
+}
+/* 读回上面两个框。班级里带了年级（用户整句粘进来）就补到年级；
+   只填班级没填年级也照样能存，年级从班级值里抠，抠不出来就留空。 */
+function readClassFields(body, prefix = 'cf') {
+  const rawG = String(body.querySelector(`#${prefix}-grade`)?.value || '').trim();
+  const rawC = String(body.querySelector(`#${prefix}-class`)?.value || '').trim();
+  const grade = normGrade(rawG) || inferGrade(rawC);
+  return { grade, class_name: normClass(rawC, grade) };
+}
+
 function pairOfClassText(text, clsPairs) {
   const s = String(text || '').trim();
   if (!s) return { grade: '', class_name: '' };
@@ -2736,7 +2775,7 @@ async function renderStudentModule(box, key) {
           <div class="doc-ico">${icon('book', 17)}</div>
           <div style="flex:1;min-width:0">
             <div class="bold">${esc(m.title)}</div>
-            <div class="tiny muted">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · ') || '没有填写说明')}</div>
+            <div class="tiny muted">${esc([clsShort(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · ') || '没有填写说明')}</div>
           </div>
           <span class="chip ${isPub(m) ? 'green' : ''}">${isPub(m) ? '学生可见' : '仅自己'}</span>
           ${m.passcode ? `<span class="chip amber" title="学生打开这份资料要先输这个口令">${icon('lock', 13)} 口令 ${esc(m.passcode)}</span>` : ''}
@@ -2814,11 +2853,12 @@ async function renderStudentModule(box, key) {
   } else if (key === 'pick') {
     /* —— 点名 —— */
     const totalNames = rosters.reduce((s, r) => s + (parseNames(r.names).length || Number(r.count) || 0), 0);
+    const clsLabel = makeClsLabeler(rosters);
     inner.innerHTML = `
       <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
         <div class="card card-pad"><div class="tiny muted">可点班级</div>
           <div style="font-size:24px;font-weight:700">${rosters.length}</div>
-          <div class="tiny muted">${rosters.slice(0, 2).map((r) => esc(r.class_name)).join('、') || '没有名单也能按号码点'}</div></div>
+          <div class="tiny muted">${rosters.slice(0, 2).map((r) => esc(clsLabel(r.grade, r.class_name))).join('、') || '没有名单也能按号码点'}</div></div>
         <div class="card card-pad"><div class="tiny muted">名单人数</div>
           <div style="font-size:24px;font-weight:700">${totalNames}</div>
           <div class="tiny muted">没名单就只能按号码</div></div>
@@ -2836,7 +2876,7 @@ async function renderStudentModule(box, key) {
         ${rosters.length ? `<div class="pb-list">${rosters.map((r) => {
       const n = parseNames(r.names);
       return `<div class="pb-row">
-            <span class="chip blue">${esc(clsName(r.grade, r.class_name))}</span>
+            <span class="chip blue">${esc(clsLabel(r.grade, r.class_name))}</span>
             <span class="pb-text">${n.length ? `${n.length} 个名字` : `未导入姓名（按号码点 ${r.count || 40} 人）`}</span>
             <span class="tiny muted">${n.slice(0, 6).join('、')}${n.length > 6 ? '…' : ''}</span>
           </div>`;
@@ -2848,10 +2888,17 @@ async function renderStudentModule(box, key) {
   } else if (key === 'misconduct') {
     /* —— 违纪：学生提交，老师这里查看与编辑 —— */
     const clsPairs = new Map();
-    (rosters || []).forEach((r) => { if (r.grade || r.class_name) clsPairs.set(clsName(r.grade, r.class_name), { grade: r.grade, class_name: r.class_name }); });
+    (rosters || []).forEach((r) => {
+      if (!r.grade && !r.class_name) return;
+      const g = normGrade(r.grade) || inferGrade(r.class_name);
+      const c = normClass(r.class_name, r.grade);
+      clsPairs.set([g, c].join('#'), { grade: g, class_name: c });
+    });
+    /* 名单里的班 + 违纪记录里出现过的班一起算重名，展示口径才对得上 */
+    const misLabel = makeClsLabeler([...(rosters || []), ...misconducts.map((m) => ({ grade: m.grade, class_name: m.class_name }))]);
     const todayYmd = ymd(new Date());
     const misToday = misconducts.filter((m) => (m.created_at || '').slice(0, 10) === todayYmd);
-    const activeCls = new Set(misconducts.map((m) => clsName(m.grade, m.class_name))).size;
+    const activeCls = new Set(misconducts.map((m) => [normGrade(m.grade) || inferGrade(m.class_name), normClass(m.class_name, m.grade)].join('#')).filter((k) => k !== '#')).size;
     inner.innerHTML = `
       <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
         <div class="card card-pad"><div class="tiny muted">累计违纪</div>
@@ -2872,7 +2919,7 @@ async function renderStudentModule(box, key) {
     const paintMisList = () => {
       listBox.innerHTML = misconducts.length
         ? `<div class="pb-list">${misconducts.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).map((m) => `<div class="pb-row">
-          <span class="chip ${clsName(m.grade, m.class_name) ? 'blue' : 'grey'}">${esc(clsName(m.grade, m.class_name) || '未选班级')}</span>
+          <span class="chip ${(m.grade || m.class_name) ? 'blue' : 'grey'}">${esc(misLabel(m.grade, m.class_name) || '未选班级')}</span>
           <span class="pb-text">${esc(m.content)}${m.student_name ? `<span class="tiny muted"> · ${esc(m.student_name)}</span>` : ''}</span>
           <span class="tiny muted">${esc(fmtTime(m.created_at))}</span>
           <button class="icon-btn sm" data-mc-edit="${m.id}" title="编辑">${icon('edit', 13)}</button>
@@ -2884,11 +2931,7 @@ async function renderStudentModule(box, key) {
           const m = misconducts.find((x) => String(x.id) === b.dataset.mcEdit);
           if (!m) return;
           const body = el(`<div class="sheet-body">
-            <div class="field">
-              <label class="field-label">年级班级</label>
-              <input class="input" id="mc-e-cls" list="mc-e-cls-list" value="${esc(clsName(m.grade, m.class_name))}" placeholder="比如：高一 · 1 班">
-              <datalist id="mc-e-cls-list">${[...clsPairs.keys()].map((n) => `<option>${esc(n)}</option>`).join('')}</datalist>
-            </div>
+            ${classFieldHtml({ grade: m.grade, className: m.class_name, rows: rosters, prefix: 'mc-e' })}
             <div class="field">
               <label class="field-label">违纪内容</label>
               <textarea class="input" id="mc-e-text" rows="4">${esc(m.content)}</textarea>
@@ -2903,7 +2946,7 @@ async function renderStudentModule(box, key) {
           saving(body.querySelector('#mc-e-save'), async () => {
             const content = body.querySelector('#mc-e-text').value.trim();
             if (!content) { toast('违纪内容不能为空', 'err'); return; }
-            const pair = pairOfClassText(body.querySelector('#mc-e-cls').value, clsPairs);
+            const pair = readClassFields(body, 'mc-e');
             await api.patch('/misconduct_records/' + m.id, { grade: pair.grade, class_name: pair.class_name, content });
             try { await syncMaterialSharing(); } catch { /* 未登录云端时只改本机 */ }
             s.close(); toast('已保存，学生端同步更新'); renderStudentModule(box, key);
@@ -2928,6 +2971,7 @@ async function renderStudentModule(box, key) {
     });
   } else if (key === 'bulletin') {
     /* —— 留言板：学生提交，老师这里查看与编辑 —— */
+    const bLabel = makeClsLabeler([...(rosters || []), ...bulletins.map((b) => ({ grade: b.grade, class_name: b.class_name }))]);
     const bToday = bulletins.filter((b) => (b.created_at || '').slice(0, 10) === ymd(new Date()));
     inner.innerHTML = `
       <div class="rp-stats mod-stats" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
@@ -2947,7 +2991,7 @@ async function renderStudentModule(box, key) {
     const paintBlList = () => {
       listBox.innerHTML = bulletins.length
         ? `<div class="pb-list">${bulletins.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).map((b) => `<div class="pb-row">
-          <span class="chip blue">${esc(clsName(b.grade, b.class_name) || '未指定班级')}</span>
+          <span class="chip blue">${esc(bLabel(b.grade, b.class_name) || '未指定班级')}</span>
           <span class="pb-text">${esc(b.content)}</span>
           <span class="tiny muted">${esc(fmtTime(b.created_at))}</span>
           <button class="icon-btn sm" data-bl-edit="${b.id}" title="编辑">${icon('edit', 13)}</button>
@@ -2959,16 +3003,7 @@ async function renderStudentModule(box, key) {
           const b = bulletins.find((x) => String(x.id) === btn.dataset.blEdit);
           if (!b) return;
           const body = el(`<div class="sheet-body">
-            <div class="row wrap" style="gap:8px">
-              <div class="field" style="flex:1;min-width:120px">
-                <label class="field-label">年级</label>
-                <input class="input" id="bl-e-grade" value="${esc(b.grade || '')}" placeholder="比如：高一">
-              </div>
-              <div class="field" style="flex:1;min-width:120px">
-                <label class="field-label">班级</label>
-                <input class="input" id="bl-e-class" value="${esc(b.class_name || '')}" placeholder="比如：3 班">
-              </div>
-            </div>
+            ${classFieldHtml({ grade: b.grade, className: b.class_name, rows: rosters, prefix: 'bl-e' })}
             <div class="field">
               <label class="field-label">留言内容</label>
               <textarea class="input" id="bl-e-text" rows="4">${esc(b.content)}</textarea>
@@ -2981,8 +3016,7 @@ async function renderStudentModule(box, key) {
           const s = sheet({ title: '编辑留言', body });
           body.querySelector('#bl-e-cancel').onclick = () => s.close();
           saving(body.querySelector('#bl-e-save'), async () => {
-            const grade = body.querySelector('#bl-e-grade').value.trim();
-            const class_name = body.querySelector('#bl-e-class').value.trim();
+            const { grade, class_name } = readClassFields(body, 'bl-e');
             const content = body.querySelector('#bl-e-text').value.trim();
             if (!content) { toast('留言内容不能为空', 'err'); return; }
             if (!grade && !class_name) { toast('年级或班级至少填一个', 'err'); return; }
@@ -3149,7 +3183,6 @@ async function readRosterFile(file) {
 
 function openRosterDialog(rosters, reload) {
   const splitNames = (text) => String(text ?? '').split(/[\n,，、;；\s]+/).map((x) => x.trim()).filter(Boolean);
-  const label = (it) => clsName(it.grade, it.class_name) || '未命名班级';
   const sameNames = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
   const isDirty = (it) => it.grade !== it.orig.grade || it.class_name !== it.orig.class_name || !sameNames(it.names, it.orig.names);
   const dupCount = (names) => names.length - new Set(names).size;
@@ -3161,6 +3194,9 @@ function openRosterDialog(rosters, reload) {
       fallback: Number(r.count) || 0, names, orig: { grade: r.grade || '', class_name: r.class_name || '', names: names.slice() },
     };
   });
+  /* 班号唯一的班只显示「5班」，同班号跨年级才补年份，跟全站口径一致 */
+  const clsLabel = makeClsLabeler(items);
+  const label = (it) => clsLabel(it.grade, it.class_name) || '未命名班级';
   let curId = items.length ? items[0].id : '';
   let mode = 'chip';
   let seq = 0;
@@ -3256,7 +3292,7 @@ function openRosterDialog(rosters, reload) {
         <div class="field"><label class="field-label">年级</label>
           <input class="input" id="rm-grade" value="${esc(it.grade)}" placeholder="如：高二"></div>
         <div class="field"><label class="field-label">班级</label>
-          <input class="input" id="rm-class" value="${esc(it.class_name)}" placeholder="如：11 班"></div>
+          <input class="input" id="rm-class" value="${esc(normClass(it.class_name, it.grade))}" placeholder="如：11 班"></div>
         <div class="rm-meta" id="rm-meta">${metaHtml(it)}</div>
       </div>
       <div class="rm-tools">
@@ -3344,7 +3380,7 @@ function openRosterDialog(rosters, reload) {
     const class_name = it.class_name.trim();
     if (!grade || !class_name) { toast('年级和班级都要填', 'warn'); return; }
     const twin = items.find((x) => x !== it && x.grade.trim() === grade && x.class_name.trim() === class_name);
-    if (twin) { toast(`「${clsName(grade, class_name)}」已经有了，去那个班改就行`, 'warn'); return; }
+    if (twin) { toast(`「${clsPair(grade, class_name)}」已经有了，去那个班改就行`, 'warn'); return; }
     const btn = $('#rm-save');
     const label0 = btn.textContent;
     btn.disabled = true; btn.textContent = '保存中…';
@@ -3371,7 +3407,7 @@ function openRosterDialog(rosters, reload) {
       it.class_name = class_name;
       it.orig = { grade, class_name, names };
       savedAny = true;
-      toast(`「${clsName(grade, class_name)}」已保存${names.length ? '' : '，这个班还是按号码点'}`);
+      toast(`「${clsPair(grade, class_name)}」已保存${names.length ? '' : '，这个班还是按号码点'}`);
       paintMain();
     } catch (e) {
       toast(e.message || '保存失败', 'err', 5000);
@@ -3625,7 +3661,7 @@ async function paintMats(list, reload) {
       <div class="doc-ico">${icon('file', 18)}</div>
       <div style="flex:1;min-width:0">
         <div class="row wrap" style="gap:8px"><span class="bold">${esc(m.title)}</span>
-          ${m.grade || m.class_name ? `<span class="chip">${esc(clsName(m.grade, m.class_name))}</span>` : ''}
+          ${m.grade || m.class_name ? `<span class="chip">${esc(clsShort(m.grade, m.class_name))}</span>` : ''}
           ${m.public ? '<span class="chip green">学生可见</span>' : '<span class="chip">仅自己</span>'}
           ${m.passcode ? `<span class="chip amber">${icon('lock', 13)} 口令 ${esc(m.passcode)}</span>` : ''}</div>
         <div class="tiny muted">${esc(m.descr || '')} · 浏览 ${m.views || 0} · 下载 ${m.downloads || 0}</div>

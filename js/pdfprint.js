@@ -13,6 +13,8 @@
    而浏览器自带的「打印为 PDF」既免费又保真。
    ========================================================================== */
 
+import { clsShort } from './grade-class.mjs';
+
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function openPrint(html, title) {
@@ -117,7 +119,7 @@ export function printStatement(p) {
   const lessonRows = (p.rows || []).map((r) => `<tr>
     <td>${esc(r.date)}</td>
     <td>${esc(r.period)}</td>
-    <td>${esc(r.class_name)}</td>
+    <td>${esc(clsShort(r.grade, r.class_name))}</td>
     <td>${esc(r.subject)}</td>
     <td>${esc(r.content)}</td>
     <td style="text-align:right">${esc(r.hours)}</td>

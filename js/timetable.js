@@ -1,5 +1,6 @@
 import { api, el, esc, toast, sheet, saving, confirmDialog, WD_SHORT, ymd } from './core.js';
 import { state, icon, onViewLeave } from './ui.js';
+import { normClass } from './grade-class.mjs';
 import { detectTimetable } from './ttimage.js';
 import { readXlsx, readDelimited } from './xlsx-lite.js';
 import { cleanPeriodTime, getCanonicalPeriodNumber, normalizeTimetablePeriods, resolveTimetablePeriods } from './timetable-periods.mjs';
@@ -1170,7 +1171,7 @@ export async function renderTimetable(box) {
           '<td><input data-k="periodLabel" value="' + esc(entry.periodLabel) + '" list="tt-period-list-import"></td>' +
           '<td><input data-k="subject" value="' + esc(entry.subject) + '"></td>' +
           '<td><input data-k="grade" value="' + esc(entry.grade) + '" list="tt-grade-list-import"></td>' +
-          '<td><input data-k="class_name" value="' + esc(entry.class_name) + '" placeholder="请核对班级"></td>' +
+          '<td><input data-k="class_name" value="' + esc(normClass(entry.class_name, entry.grade)) + '" placeholder="比如：5班"></td>' +
           '<td><input data-k="start_time" value="' + esc(entry.start_time) + '" placeholder="08:00"></td>' +
           '<td><input data-k="end_time" value="' + esc(entry.end_time) + '" placeholder="08:45"></td>' +
           '<td><button class="icon-btn sm" type="button" data-remove-import="' + index + '" aria-label="移除">×</button></td></tr>').join('') +
