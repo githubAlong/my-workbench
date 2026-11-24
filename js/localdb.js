@@ -14,6 +14,7 @@
    ========================================================================== */
 
 import {mergeSnapshots,LOCAL_DRAFT_PREFIX} from './sync-journal.mjs';
+import { normGrade, inferGrade, normClass, clsStore } from './grade-class.mjs';
 const LEGACY_DB_KEY = 'wb_static_db_v1';
 export let DB_KEY = LEGACY_DB_KEY;
 let ACTIVE_UID = '';
@@ -247,6 +248,32 @@ export function listTable(t, query = {}) {
   return out.sort(cmp).map((r) => hydrate(t, r));
 }
 
+/* ================= 年级 / 班级归一（写入兜底） =================
+   规则在 js/grade-class.mjs，零依赖所以这里直接引，不会成环
+   （依赖方向：core → localapi → localdb → grade-class）。
+   放在数据层：页面某处漏改也写不进「高二5班」「高二(5)班」这种脏值。
+   没有 grade 列的表（exceptions / punish_records / homework_records / preps）
+   只能把年级留在 class_name 里写成「高二5班」，展示时再剥开。 */
+const CLASS_COLUMNS = {
+  courses: 'both', class_records: 'both', materials: 'both', homework: 'both',
+  students: 'both', rosters: 'both', selfstudy: 'both',
+  misconduct_records: 'both', bulletin_records: 'both', lessons: 'both',
+  exceptions: 'store', punish_records: 'store', homework_records: 'store', preps: 'store',
+};
+function normalizeClassFields(t, row) {
+  const mode = CLASS_COLUMNS[t];
+  if (!mode || !row) return row;
+  if (mode === 'both') {
+    if (!('grade' in row) && !('class_name' in row)) return row;
+    const g = normGrade(row.grade) || inferGrade(row.class_name);
+    if ('grade' in row) row.grade = g;
+    if ('class_name' in row) row.class_name = normClass(row.class_name, g);
+    return row;
+  }
+  if ('class_name' in row) row.class_name = clsStore('', row.class_name);
+  return row;
+}
+
 export function createRow(t, body = {}) {
   const db = load();
   const row = { id: nextId(t), created_at: nowISO(), updated_at: nowISO(), deleted_at: null };
@@ -254,6 +281,7 @@ export function createRow(t, body = {}) {
   for (const f of (TABLES[t] || [])) {
     if (f in body) row[f] = body[f];
   }
+  normalizeClassFields(t, row);
   // 默认值：与服务端保持一致
   if (t === 'punishments' && row.active === undefined) row.active = 1;
   if (t === 'materials' && row.public === undefined) row.public = 1;
@@ -275,6 +303,7 @@ export function updateRow(t, id, body = {}) {
   const fields = (TABLES[t] || []).filter((field) => field in body && JSON.stringify(row[field]) !== JSON.stringify(body[field]));
   if (!fields.length) return hydrate(t, row);
   for (const field of fields) row[field] = body[field];
+  normalizeClassFields(t, row);
   row.updated_at = nowISO();
   save();
   return hydrate(t, row);

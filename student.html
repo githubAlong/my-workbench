@@ -197,6 +197,7 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 /* 静态版：优先调 localapi（同一个浏览器里演示时学生端能读到老师那份数据）；
    在外网独立访问时本地库为空，自动回退到云端 student-api Edge Function。 */
 import { handle as localHandle } from './js/localapi.js';
+import { normGrade, inferGrade, normClass, gradeRank, clsShort, clsPair, makeClsLabeler } from './js/grade-class.mjs';
 import { getStudentMaterials, materialEndpoint, passcodeHeaders } from './js/material-sharing.mjs';
 import { resolveEnvironmentProfile } from './js/environment-config.mjs';
 import { replaceMemFromDisk, setActiveAccount } from './js/localdb.js';
@@ -266,14 +267,8 @@ const api = async (p, body) => {
 const ME_KEY = 'wb_stu_' + code;
 const recall = () => { try { return JSON.parse(localStorage.getItem(ME_KEY) || 'null'); } catch { return null; } };
 const remember = (v) => { try { localStorage.setItem(ME_KEY, JSON.stringify(v)); } catch {} };
-/* 班级名拼接：库里存的常是"高二(5)班"，年级也是"高二"，直接拼会重复成"高二 高二(5)班" */
-function clsName(grade, cls) {
-  const g = String(grade || '').trim();
-  const c = String(cls || '').trim();
-  if (!g) return c;
-  if (!c) return g;
-  return c.startsWith(g) ? c : g + ' ' + c;
-}
+/* 班级显示统一走 js/grade-class.mjs：clsShort 只给班号「5班」，
+   clsPair 给「高二 · 5班」（需要年级上下文时用）。 */
 let data = null;
 let tab = null;   // 默认落到老师开放的第一个模块
 let availTabs = [];
@@ -492,7 +487,7 @@ function paintCheckin() {
   const s0 = sess[0];
   $('#s-body').innerHTML = `<div class="card card-pad">
     <div class="row" style="align-items:center;gap:8px">
-      <div style="flex:1"><div class="bold" style="font-size:17px">${esc(clsName(s0.grade, s0.class_name))}</div>
+      <div style="flex:1"><div class="bold" style="font-size:17px">${esc(clsPair(s0.grade, s0.class_name))}</div>
         <div class="tiny muted">${s0.period_no ? '第 ' + s0.period_no + ' 节 · ' : ''}${esc(s0.subject || '')} · 应到 ${s0.expect} 人</div></div>
       <span class="chip blue" id="cnt">—</span>
     </div>
@@ -569,7 +564,7 @@ function paintMaterials() {
     return `<button type="button" class="mat-card" data-m="${esc(m.id)}">
       <span class="doc-ico">${locked ? ICON.lockSm : ICON.mat}</span>
       <span class="stu-material-details"><span class="bold small stu-material-title">${esc(m.title)} ${locked ? '<span class="chip amber">需要口令</span>' : ''}</span>
-        <span class="tiny muted stu-material-meta">${esc([clsName(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · '))}</span></span>
+        <span class="tiny muted stu-material-meta">${esc([clsShort(m.grade, m.class_name), m.descr || ''].filter(Boolean).join(' · '))}</span></span>
       <span class="tiny muted stu-material-action">${locked ? '输口令' : '查看'} ${ICON.more}</span></button>`;
   }).join('') : `<div class="empty">老师还没有上传资料</div>`}
   </div>`;
@@ -799,39 +794,46 @@ function orderNum(text) {
 }
 const byGradeNum = (a, b) => (orderNum(a) - orderNum(b)) || String(a).localeCompare(String(b), 'zh-CN', { numeric: true });
 
-/* 点名的年级 / 班级候选只认后台上传的班级名单（/public/link 下发的 rosters）。
-   以前还并上了课表里排过的班，结果下拉里「6班」和「高二6班」并排出现——
-   同一间教室两种写法，选错一次就点错一整个班的人。
-   班级口径以老师在管理后台维护的名单为唯一来源，课表只管排课，不再参与候选。
-   名字池同样只从 rosters 取；名单里没姓名时「按名字」禁用，退回按号码点。
-   班级名为空的那种只显示年级，跟用户口径一致。 */
+/* 点名的年级 / 班级候选以老师课表为准（/public/link 下发的 classes）：
+   课表里排过的班就是手上的班，老师不用再单独去建一遍年级和班级。
+   名字池只从 rosters 取，按「年级 + 班号」匹配 —— 课表写「高二6班」、
+   名单写「6班」也能对上。匹配不到名单时「按名字」禁用，退回按号码点。
+   两边的值都先归一（年级=高二、班级=5班），下拉里只会出现「5班」这一种写法。
+   课表一堂都没排时退回名单，免得下拉空着。 */
 function rollChoices() {
-  const rows = (data?.rosters || []).map((r) => {
+  /* 名字池：来自老师后台上传的班级名单。归一到「年级 + 班号」后建索引，
+     这样课表里叫「6班」、名单里叫「高二6班」也能对上号。 */
+  const rosterRows = (data?.rosters || []).map((r) => {
     const names = (r?.names || []).filter(Boolean);
+    const grade = normGrade(r?.grade) || inferGrade(r?.class_name);
+    const class_name = normClass(r?.class_name, r?.grade);
     return {
       id: r?.id,
-      grade: String(r?.grade || '').trim(),
-      class_name: String(r?.class_name || '').trim(),
+      grade,
+      class_name,
       names,
       count: Math.max(1, Math.min(200, Number(r?.count) || names.length || 40)),
     };
   });
-  /* 同一个班传了两份名单只认名字多的那份，按年级+班号对上号 */
+  /* 同一个班传了两份名单只认名字多的那份 */
   const bestRoster = (grade, class_name) => {
     let hit = null;
-    for (const r of rows) {
+    for (const r of rosterRows) {
       if (r.grade !== grade || r.class_name !== class_name) continue;
       if (!hit || r.names.length > hit.names.length) hit = r;
     }
     return hit;
   };
-  /* 候选取自名单本身：一份名单一个班，年级+班名去重后就是下拉里的全部选项。 */
+  /* 候选 = 老师课表里排过的班（/public/link 下发的 classes）。
+     课表负责「有哪些班」，名单只负责「这个班有哪些名字」；
+     课表一堂都没排时退回名单，免得下拉空着。 */
+  const source = (data?.classes || []).length ? data.classes : rosterRows;
   const pairMap = new Map();
-  rows.forEach((r) => {
-    const grade = r.grade;
-    const class_name = r.class_name;
+  source.forEach((r) => {
+    const grade = normGrade(r?.grade) || inferGrade(r?.class_name);
+    const class_name = normClass(r?.class_name, r?.grade);
     if (!grade && !class_name) return;
-    pairMap.set([grade, class_name].join('#'), { grade, class_name });
+    pairMap.set(`${grade}#${class_name}`, { grade, class_name });
   });
   const pairs = [...pairMap.values()].map((p) => {
     const hit = bestRoster(p.grade, p.class_name);
@@ -854,7 +856,7 @@ function rollChoices() {
    签到场次下发的字段里没有 roster_id，所以只能按年级班级对，别去查 id。 */
 function rollDefaultPair(pairs, { liveCls, saved, taskCls }) {
   if (!pairs.length) return null;
-  const text = (p) => clsName(p.grade, p.class_name);
+  const text = (p) => clsPair(p.grade, p.class_name);
   const same = (p, grade, cls) => p.grade === grade && p.class_name === cls;
   const byLive = liveCls
     && pairs.find((p) => same(p, String(liveCls.grade || '').trim(), String(liveCls.class_name || '').trim()));
@@ -875,7 +877,7 @@ function paintRoll() {
     saved,
     taskCls: myClass(),
   });
-  const pairText = (p) => clsName(p.grade, p.class_name);
+  const pairText = (p) => clsPair(p.grade, p.class_name);
   let sel = sel0;
   let names0 = sel ? sel.names.slice() : [];
   /* 默认按名字点：有名单就用名字，没名单只有退回按号码。
@@ -932,8 +934,8 @@ function paintRoll() {
   /* 名单来源这一行是给他看的：总人数那个 51 不是凭空来的，是后台那份名单。 */
   const paintSrc = () => {
     $('#pk-src').textContent = !sel ? ''
-      : names0.length ? `${pairText(sel)}：名单 ${names0.length} 人，来自后台上传的班级名单`
-        : `${pairText(sel)} 还没有上传名单，只能按号码点`;
+      : names0.length ? `${pairText(sel)}：名单 ${names0.length} 人，来自老师上传的班级名单`
+        : `${pairText(sel)} 还没有上传名单，先按号码点`;
   };
   const setMode = (next, byUser = false) => {
     if (byUser) modeTouched = true;
@@ -1157,31 +1159,36 @@ function paintPunish() {
   };
 }
 
-/* 年级 / 班级选项统一来自后台上传的班级名单（/public/link 下发的 rosters）。
-   课表下发的 classes 不再参与：同一间教室课表里写「6班」、名单里写「高二6班」，
-   两套并起来学生就会看到重复的班级。名单为空时下拉为空，页面按「按号码」走。 */
+/* 年级 / 班级选项统一来自老师课表（/public/link 下发的 classes），归一口径后就是「高二 / 5班」。
+   课表里排过的班就是学生能选的班，老师不用再单独建一遍年级班级；
+   课表一堂都没排时退回班级名单，免得下拉空着、学生端一个班都选不到。 */
 function classChoices() {
+  /* 与点名同一口径：候选来自老师课表，归一成「高二 / 5班」；
+     课表没排时退回班级名单。 */
   const pairMap = new Map();
-  (data?.rosters || []).forEach((r) => {
-    const grade = String(r?.grade || '').trim();
-    const class_name = String(r?.class_name || '').trim();
+  const source = (data?.classes || []).length ? data.classes : (data?.rosters || []);
+  source.forEach((r) => {
+    const grade = normGrade(r?.grade) || inferGrade(r?.class_name);
+    const class_name = normClass(r?.class_name, r?.grade);
     if (!grade && !class_name) return;
-    pairMap.set(grade + '\u0000' + class_name, { grade, class_name });
+    pairMap.set(`${grade}\u0000${class_name}`, { grade, class_name });
   });
   const classPairs = [...pairMap.values()];
-  /* numeric: true 是关键：班号直接拼在年级后面（高二10班 / 高二5班），
-     不带它的话按字符比，10 班会排到 5 班前面，和学生手里的名单对不上。 */
-  const gradeList = [...new Set(classPairs.map((r) => r.grade).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
+  /* 年级按 高一→高二→高三 固定顺序，班级按班号数字序（10 班不排到 5 班前面）。 */
+  const gradeList = [...new Set(classPairs.map((r) => r.grade).filter(Boolean))]
+    .sort((a, b) => gradeRank(a) - gradeRank(b));
   const classesOf = (grade) => [...new Set(classPairs.filter((r) => r.grade === grade).map((r) => r.class_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
   /* 兼容旧偏好：以前只存了「高一 · 1 班」一整串 */
   const splitCls = (text) => {
     const t = String(text || '').trim();
     if (!t) return { grade: '', class_name: '' };
-    const hit = classPairs.find((r) => clsName(r.grade, r.class_name) === t);
+    const hit = classPairs.find((r) => clsPair(r.grade, r.class_name) === t);
     if (hit) return hit;
     const parts = t.split(/[·.\s]+/).filter(Boolean);
-    return parts.length >= 2 ? { grade: parts[0], class_name: parts.slice(1).join(' ') } : { grade: '', class_name: t };
+    return parts.length >= 2
+      ? { grade: normGrade(parts[0]), class_name: normClass(parts.slice(1).join(''), parts[0]) }
+      : { grade: inferGrade(t), class_name: normClass(t) };
   };
   return { classPairs, gradeList, classesOf, splitCls };
 }
@@ -1350,7 +1357,7 @@ function paintBulletin() {
       .sort((a, b) => String(b.replied_at || '').localeCompare(String(a.replied_at || '')));
     repliesBox.innerHTML = replies.length ? replies.map((item) => `
       <article class="stu-reply">
-        <div class="tiny muted">${esc(clsName(item.grade, item.class_name))} ${esc(item.replied_at ? new Date(item.replied_at).toLocaleString('zh-CN', { hour12: false }) : '')}</div>
+        <div class="tiny muted">${esc(clsPair(item.grade, item.class_name))} ${esc(item.replied_at ? new Date(item.replied_at).toLocaleString('zh-CN', { hour12: false }) : '')}</div>
         <p>${esc(item.reply)}</p>
       </article>`).join('') : '<div class="tiny muted" style="padding:12px 0">暂无教师回复</div>';
   };

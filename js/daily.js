@@ -1,4 +1,5 @@
 import { api, el, esc, toast, sheet, saving, confirmDialog, promptDialog, ymd, pad2, WD_SHORT, fmtTime, parseDT, download, exportUrl } from './core.js';
+import { clsShort } from './grade-class.mjs';
 import { registerView, state, icon, go, pageHead } from './ui.js';
 import { renderStickyNotes } from './sticky-notes.js';
 
@@ -214,7 +215,7 @@ function importStudents(reload) {
       $('#imp-preview').innerHTML = `
         <div class="imp-prev">
           <div class="imp-prev-h">预览（前 ${Math.min(r.rows.length, 8)} 人）</div>
-          <div class="imp-prev-list">${r.rows.slice(0, 8).map((x, i) => `<span class="chip">${i + 1}. ${esc(x.name)}${x.class_name ? `<i class="muted"> · ${esc(x.class_name)}</i>` : ''}</span>`).join('')}</div>
+          <div class="imp-prev-list">${r.rows.slice(0, 8).map((x, i) => `<span class="chip">${i + 1}. ${esc(x.name)}${x.class_name ? `<i class="muted"> · ${esc(clsShort(x.grade, x.class_name))}</i>` : ''}</span>`).join('')}</div>
           ${r.total > 8 ? `<div class="tiny muted" style="margin-top:6px">…还有 ${r.total - 8} 人</div>` : ''}
           <div class="confirm-actions" style="margin-top:12px">
             <button class="btn ghost" id="imp-cancel">重选文件</button>

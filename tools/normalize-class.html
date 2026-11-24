@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>年级班级整理 · 教师工作台</title>
+<style>
+  :root {
+    --bg: #f3f6fc; --card: #fff; --text: #1a2230; --text-2: #55617a; --text-3: #8b96ab;
+    --line: #dde5f1; --primary: #2563eb; --primary-weak: #e6eeff;
+    --green: #0f9d58; --amber: #b45309; --red: #d93025;
+  }
+  html[data-theme="dark"] {
+    --bg: #0f1319; --card: #171c24; --text: #e8edf5; --text-2: #a8b3c4; --text-3: #78849a;
+    --line: #2a323e; --primary: #4d84f5; --primary-weak: #1d2a44;
+    --green: #46c98a; --amber: #e0a556; --red: #f2726a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 64px;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -.3px; }
+  .sub { color: var(--text-2); margin-bottom: 20px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 16px; padding: 18px; margin-bottom: 14px;
+  }
+  .rule { color: var(--text-2); font-size: 13px; }
+  .rule b { color: var(--text); }
+  .rule code {
+    background: var(--primary-weak); color: var(--primary);
+    padding: 1px 6px; border-radius: 5px; font-size: 12.5px;
+  }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .btn {
+    appearance: none; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    height: 42px; padding: 0 18px; border-radius: 11px; font-size: 14px; cursor: pointer;
+    transition: .15s;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+  .btn.primary:hover:not(:disabled) { opacity: .9; color: #fff; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--text-3); font-weight: 500; font-size: 12px; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; }
+  .tag.ok { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
+  .tag.warn { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
+  .tag.mute { background: var(--primary-weak); color: var(--text-3); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; }
+  .from { color: var(--red); }
+  .to { color: var(--green); }
+  .empty { color: var(--text-3); padding: 16px 0; }
+  .log { margin-top: 12px; font-size: 13px; color: var(--text-2); white-space: pre-wrap; }
+  .warnbox {
+    border: 1px solid color-mix(in srgb, var(--amber) 40%, var(--line));
+    background: color-mix(in srgb, var(--amber) 8%, transparent);
+    color: var(--amber); border-radius: 12px; padding: 12px 14px; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>年级班级整理</h1>
+  <div class="sub">把历史数据里混着的「高二5班 / 高二(5)班 / 5」统一成 <b>年级 = 高二</b>、<b>班级 = 5班</b>。</div>
+
+  <div class="card">
+    <div class="rule">
+      <p style="margin:0 0 8px"><b>整理规则</b></p>
+      <p style="margin:0 0 4px">· 年级字段去掉「年级」二字、括号和空格：<code>高二年级</code> → <code>高二</code></p>
+      <p style="margin:0 0 4px">· 班级字段剥掉年级前缀，统一成「N班」：<code>高二5班</code> / <code>高二(5)班</code> / <code>05</code> → <code>5班</code></p>
+      <p style="margin:0 0 4px">· 只有班级没有年级的表（调课、奖惩、作业记录等），把年级写进班级值前：<code>5班</code> → <code>高二5班</code>，信息不丢</p>
+      <p style="margin:0">· 只改年级和班级两个字段，其余字段一字不动</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn" id="scan">扫描</button>
+      <button class="btn" id="backup" disabled>① 导出备份</button>
+      <button class="btn primary" id="apply" disabled>② 开始整理</button>
+      <span style="flex:1"></span>
+      <span class="tag mute" id="state">未扫描</span>
+    </div>
+    <div id="out"><div class="empty">点「扫描」看看有多少条需要整理。</div></div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="card">
+    <div class="rule">
+      <p style="margin:0 0 8px"><b>整理完要做什么</b></p>
+      <p style="margin:0 0 4px">1. 回到教师工作台，按 <code>Ctrl + F5</code> 刷新（数据已经改了，页面还拿着旧的）</p>
+      <p style="margin:0 0 4px">2. 开了云同步的话，点一次「上传到云端」，让手机和别的电脑也同步到</p>
+      <p style="margin:0">3. 学生端也会跟着变成「5班」，不用另外操作</p>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { normGrade, inferGrade, normClass, clsStore } from '../js/grade-class.mjs';
+
+const BOTH = ['courses', 'class_records', 'materials', 'homework', 'students', 'rosters', 'selfstudy', 'misconduct_records', 'bulletin_records', 'lessons'];
+const STORE = ['exceptions', 'punish_records', 'homework_records', 'preps'];
+const TABLE_LABEL = {
+  courses: '课表', class_records: '上课记录', materials: '教材资料', homework: '作业', students: '学生',
+  rosters: '班级名单', selfstudy: '自习记录', misconduct_records: '违纪记录', bulletin_records: '留言板',
+  lessons: '课程', exceptions: '调课', punish_records: '奖惩记录', homework_records: '作业记录', preps: '备课',
+};
+
+const $ = (q) => document.querySelector(q);
+const log = (t) => { $('#log').textContent = t; };
+const state = (t, kind = 'mute') => { const e = $('#state'); e.textContent = t; e.className = 'tag ' + kind; };
+
+/* 跟随主站深色主题 */
+try {
+  const themed = localStorage.getItem('wb_theme') || localStorage.getItem('wb-theme');
+  if (themed === 'dark') document.documentElement.dataset.theme = 'dark';
+} catch { /* 隐私模式下读不到就算了 */ }
+
+/* 找出这台浏览器里的全部账号库：wb_static_db_v1:user:<uid> 以及旧版 wb_static_db_v1 */
+function dbKeys() {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('wb_static_db_v1')) keys.push(k);
+  }
+  return keys.sort();
+}
+function readDb(key) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
+}
+
+/* 归一一条记录，返回 { patch, from, to } 或 null（不需要改） */
+function planRow(table, row) {
+  if (!row || row.deleted_at) return null;   // 回收站里的不动，还原后再说
+  if (BOTH.includes(table)) {
+    const g0 = String(row.grade ?? '').trim();
+    const c0 = String(row.class_name ?? '').trim();
+    if (!g0 && !c0) return null;
+    const g1 = normGrade(g0) || inferGrade(c0);
+    const c1 = normClass(c0, g1);
+    if (g1 === g0 && c1 === c0) return null;
+    return { patch: { grade: g1, class_name: c1 }, from: `${g0 || '—'} / ${c0 || '—'}`, to: `${g1 || '—'} / ${c1 || '—'}` };
+  }
+  if (STORE.includes(table)) {
+    const c0 = String(row.class_name ?? '').trim();
+    if (!c0) return null;
+    const c1 = clsStore('', c0);
+    if (c1 === c0) return null;
+    return { patch: { class_name: c1 }, from: c0, to: c1 };
+  }
+  return null;
+}
+
+let plan = [];       // [{ key, table, id, patch, from, to }]
+let backupBlob = null;
+
+function scan() {
+  plan = [];
+  const byTable = new Map();
+  const accounts = new Set();
+
+  for (const key of dbKeys()) {
+    const db = readDb(key);
+    if (!db) continue;
+    const uid = key.includes(':user:') ? key.split(':user:')[1] : '旧版库';
+    accounts.add(uid);
+    for (const table of [...BOTH, ...STORE]) {
+      const list = Array.isArray(db[table]) ? db[table] : [];
+      for (const row of list) {
+        const p = planRow(table, row);
+        if (!p) continue;
+        const entry = { key, uid, table, id: row.id, ...p };
+        plan.push(entry);
+        const k = `${uid}|${table}`;
+        if (!byTable.has(k)) byTable.set(k, { uid, table, n: 0, samples: [] });
+        const e = byTable.get(k);
+        e.n++;
+        if (e.samples.length < 3) e.samples.push(entry);
+      }
+    }
+  }
+
+  if (!plan.length) {
+    $('#out').innerHTML = '<div class="empty">没有需要整理的记录，年级和班级已经是统一口径了。</div>';
+    $('#backup').disabled = true; $('#apply').disabled = true;
+    state('无需整理', 'ok');
+    return;
+  }
+
+  $('#out').innerHTML = `
+    <div class="row" style="margin-bottom:10px">
+      <span class="tag warn">${plan.length} 条要整理</span>
+      <span style="color:var(--text-3);font-size:12.5px">涉及 ${accounts.size} 个账号库 · ${byTable.size} 张表</span>
+    </div>
+    <table>
+      <thead><tr><th>表</th><th class="num">条数</th><th>示例（改前 → 改后）</th></tr></thead>
+      <tbody>${[...byTable.values()].map((e) => `
+        <tr>
+          <td>${TABLE_LABEL[e.table] || e.table}<div class="mono" style="color:var(--text-3)">${e.table}</div></td>
+          <td class="num">${e.n}</td>
+          <td>${e.samples.map((s) => `<div class="mono"><span class="from">${escapeHtml(s.from)}</span> → <span class="to">${escapeHtml(s.to)}</span></div>`).join('')}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  $('#backup').disabled = false;
+  $('#apply').disabled = true;   // 必须先备份
+  backupBlob = null;
+  state('待备份', 'warn');
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function backup() {
+  const dump = {};
+  for (const key of dbKeys()) dump[key] = readDb(key);
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  backupBlob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), dbs: dump }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(backupBlob);
+  a.download = `年级班级备份-${stamp}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  $('#apply').disabled = false;
+  state('已备份，可以整理', 'ok');
+  log(`备份已下载：年级班级备份-${stamp}.json\n出问题就用这份文件还原（下面有说明）。`);
+}
+
+function apply() {
+  const byKey = new Map();
+  for (const p of plan) {
+    if (!byKey.has(p.key)) byKey.set(p.key, []);
+    byKey.get(p.key).push(p);
+  }
+  let changed = 0;
+  for (const [key, list] of byKey) {
+    const db = readDb(key);
+    if (!db) continue;
+    for (const p of list) {
+      const row = (db[p.table] || []).find((r) => String(r.id) === String(p.id));
+      if (!row) continue;
+      Object.assign(row, p.patch);
+      changed++;
+    }
+    localStorage.setItem(key, JSON.stringify(db));
+  }
+  $('#apply').disabled = true;
+  state('整理完成', 'ok');
+  log(`已整理 ${changed} 条记录。\n\n下一步：\n1. 回教师工作台按 Ctrl + F5 刷新\n2. 开了云同步的话点一次「上传到云端」\n3. 学生端会跟着变成「5班」`);
+  $('#out').innerHTML = `<div class="tag ok">完成：${changed} 条记录已归一</div>`;
+}
+
+/* 还原：把备份文件塞回 localStorage */
+function restore(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result || '{}'));
+      const dbs = data.dbs || {};
+      const keys = Object.keys(dbs);
+      if (!keys.length) throw new Error('这份文件里没有数据');
+      if (!confirm(`会用备份覆盖 ${keys.length} 个账号库的本地数据，当前改动会丢。继续？`)) return;
+      for (const k of keys) localStorage.setItem(k, JSON.stringify(dbs[k]));
+      log(`已从备份还原 ${keys.length} 个账号库，刷新一下页面就生效。`);
+      state('已还原', 'ok');
+      scan();
+    } catch (e) {
+      log('还原失败：' + (e.message || e));
+    }
+  };
+  reader.readAsText(file);
+}
+
+$('#scan').onclick = scan;
+$('#backup').onclick = backup;
+$('#apply').onclick = () => {
+  if (!backupBlob) { log('先点「① 导出备份」，确认文件下载成功了再整理。'); return; }
+  if (!confirm(`要整理 ${plan.length} 条记录吗？\n\n备份文件已经下载，出问题可以用它还原。`)) return;
+  apply();
+};
+
+/* 还原入口做成底部一小行，不抢眼但需要时找得到 */
+const restoreBox = document.createElement('div');
+restoreBox.className = 'card';
+restoreBox.innerHTML = `
+  <div class="rule" style="margin-bottom:10px"><b>还原</b> · 用之前导出的备份文件把数据改回去</div>
+  <input type="file" id="restore-file" accept="application/json" style="font-size:13px">
+  <div class="log" id="restore-log"></div>`;
+$('.wrap').appendChild(restoreBox);
+$('#restore-file').onchange = (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  restore(f);
+  e.target.value = '';
+};
+</script>
+</body>
+</html>

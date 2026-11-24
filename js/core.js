@@ -134,8 +134,16 @@ export function el(html, root = document) {
   return node;
 }
 export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-/* 班级名：库里常存"高二(5)班"、年级也是"高二"，直接拼会重复成"高二 高二(5)班"。
-   约定：班级名已包含年级时只用班级名，否则才补上年份前缀。 */
+/* ==================== 年级 / 班级：全站统一口径 ====================
+   规则本身在 js/grade-class.mjs（零依赖纯模块，localapi / localdb 也要用），
+   这里只做转出，页面继续从 core.js 引，不用改 import 路径。 */
+export {
+  normGrade, inferGrade, normClass, clsShort, clsPair, clsStore,
+  GRADE_ORDER, gradeRank, makeClsLabeler,
+} from './grade-class.mjs';
+
+/* 旧接口，保留兼容：库里常存"高二(5)班"、年级也是"高二"，
+   直接拼会重复成"高二 高二(5)班"。新代码请用 clsShort / clsPair。 */
 export const clsName = (grade, cls) => {
   const g = String(grade || '').trim();
   const c = String(cls || '').trim();

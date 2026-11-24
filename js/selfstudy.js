@@ -12,6 +12,7 @@ import { registerView, icon, pageHead, state } from './ui.js';
 import { taskImagePages, canvasToDataUrl, downloadCanvas } from './selfstudy-task-image.mjs';
 import { cleanPeriodTime, normalizeTimetablePeriods, completeTimetablePeriods } from './timetable-periods.mjs';
 import { AUTUMN_2026_SCHEDULE, resolveDefinitions } from './timetable-schedule.mjs';
+import { makeClsLabeler, clsShort } from './grade-class.mjs';
 
 /* 单独占一个视图名还保留着，是为了 #/selfstudy 这种老链接能落到正确的地方；
    实际渲染走 render() 里的 translate，这里只做兜底。 */
@@ -52,18 +53,21 @@ function ssClsLabel(grade, cls) {
   return c.startsWith(g) ? c : g + c;
 }
 
-/* 班级只从课表/名单里取，界面不提供手动新增入口（需求 4.3 第五条） */
+/* 班级只从课表/名单里取，界面不提供手动新增入口（需求 4.3 第五条）。
+   返回 [{ scope, label }]：scope 是存进任务的班名（保持原有写法，学生端靠它匹配），
+   label 是下拉里给人看的 —— 按全站口径只显示班号「5班」，同班号跨年级才带年份。 */
 function ssClassOptions(courses, rosters) {
-  const set = new Map();
-  for (const r of rosters) {
-    const label = ssClsLabel(r.grade, r.class_name);
-    if (label) set.set(label, label);
+  const seen = new Map();
+  for (const r of [...rosters, ...courses]) {
+    const scope = ssClsLabel(r?.grade, r?.class_name);
+    if (!scope) continue;
+    if (!seen.has(scope)) seen.set(scope, { scope, grade: r?.grade, class_name: r?.class_name });
   }
-  for (const c of courses) {
-    const label = ssClsLabel(c.grade, c.class_name);
-    if (label) set.set(label, label);
-  }
-  return [...set.values()].sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
+  const rows = [...seen.values()];
+  const labeler = makeClsLabeler(rows);
+  return rows
+    .map((o) => ({ scope: o.scope, label: labeler(o.grade, o.class_name) || o.scope }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN', { numeric: true }));
 }
 
 function ssTaskStatus(task) {
@@ -271,7 +275,7 @@ async function renderSelfstudyManage(box) {
     /* 保存成功后按钮自己亮 1.4 秒「已保存」：toast('已保存') 会被全局静默，见 core.js */
     const saved = Date.now() - savedAt < 1400;
     const list = tasks.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (b.id - a.id));
-    const clsOptions = [{ label: '全部', scope: 'all' }, ...classes.map((label) => ({ label, scope: label }))];
+    const clsOptions = [{ label: '全部', scope: 'all' }, ...classes];
 
     box.innerHTML = `
       <div class="ssm-head">
@@ -297,11 +301,11 @@ async function renderSelfstudyManage(box) {
             <div class="ssm-ctl">
               <div class="ssm-dd ${ddOpen ? 'open' : ''}" id="ssm-dd">
                 <button class="ssm-input ssm-dd-btn" id="ssm-dd-btn">
-                  <span>${esc(form.class_label || '全部')}</span>
+                  <span>${esc(form.class_label === 'all' ? '全部' : (clsShort('', form.class_label) || '全部'))}</span>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9.5 6 6 6-6"/></svg>
                 </button>
                 <div class="ssm-dd-panel">
-                  ${clsOptions.map((o) => `<div class="ssm-dd-opt ${form.class_label === o.label ? 'on' : ''}" data-cls="${esc(o.label)}" data-scope="${esc(o.scope)}">${esc(o.label)}</div>`).join('')}
+                  ${clsOptions.map((o) => `<div class="ssm-dd-opt ${form.class_label === o.scope ? 'on' : ''}" data-cls="${esc(o.label)}" data-scope="${esc(o.scope)}">${esc(o.label)}</div>`).join('')}
                   <div class="ssm-dd-foot">班级从课表中获取</div>
                 </div>
               </div>
@@ -393,9 +397,11 @@ async function renderSelfstudyManage(box) {
       ddOpen = !ddOpen;
       box.querySelector('#ssm-dd').classList.toggle('open', ddOpen);
     };
+    /* data-scope 是存进任务的班名（「高二5班」或 all），data-cls 只是给人看的「5班」。
+       存的一定要是 scope，否则学生端按班名匹配任务会失配。 */
     box.querySelectorAll('[data-cls]').forEach((n) => {
       n.onclick = () => {
-        form.class_label = n.dataset.cls;
+        form.class_label = n.dataset.scope === 'all' ? '全部' : n.dataset.scope;
         form.class_scope = n.dataset.scope;
         ddOpen = false;
         paint();
@@ -534,7 +540,7 @@ async function renderStudentSelfstudy(box, entryOnly = false) {
         <div class="tiny muted">含已结束的</div></div>
       <div class="card card-pad ss-stat"><div class="ss-k">名单</div>
         <div class="ss-v">${rosters.length}<span class="ss-u">个班</span></div>
-        <div class="tiny muted">${rosters.slice(0, 2).map((r) => esc(r.class_name)).join('、') || '还没有班级名单'}</div></div>
+        <div class="tiny muted">${rosters.slice(0, 2).map((r) => esc(clsShort(r.grade, r.class_name))).join('、') || '还没有班级名单'}</div></div>
     </div>
 
     <div class="row wrap" style="gap:8px;margin:16px 0 10px">

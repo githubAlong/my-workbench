@@ -1,6 +1,7 @@
 import { resolvePlace, locationWarning } from './weather-location.mjs';
 import { DEFAULT_PLACE, lookupLocalPlaces, placeNames, todayMetrics, hoursForDate, weekRows } from './weather-view.mjs';
 import { api, el, esc, toast, sheet, confirmDialog, promptDialog, ymd, pad2, WD_CN, WD_SHORT, fmtTime, fmtDateTime, relDay, parseDT, countdown, speak, stopSpeak, colorOf, ls, exportUrl, download, addToSystemCalendar } from './core.js';
+import { clsShort } from './grade-class.mjs';
 import { registerView, state, icon, go, render, refreshUnread, paintUnread, onViewLeave } from './ui.js';
 import { syncDay, DAY_SYNC } from './homelayout.js';
 import { mount as mountGrid, resetLayout as resetGridLayout, pullCloud as pullLayoutCloud, setTemporaryHeight as setGridTemporaryHeight } from './homegrid.js';
@@ -1466,7 +1467,7 @@ function renderTodayCourses(coursesOverride = null, lessonsOverride = null, date
       <span class="course-bar" style="background:${colorOf(course.class_name)}"></span>
       <span class="course-time">${esc(String(course.start_time || '').slice(0, 5))}<br><span class="muted">${esc(String(course.end_time || '').slice(0, 5))}</span></span>
       <div class="course-main">
-        <div class="course-name">${esc(course.class_name)} <span class="small muted">${esc(course.subject)} · 第${esc(course.period_no)}节</span></div>
+        <div class="course-name">${esc(clsShort(course.grade, course.class_name))} <span class="small muted">${esc(course.subject)} · 第${esc(course.period_no)}节</span></div>
         <div class="course-meta">
           <span class="course-room">${esc(course.room || '')}</span>
           <span class="course-state state-${status}">${labels[status]}</span>

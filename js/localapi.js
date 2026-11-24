@@ -1,4 +1,5 @@
 import { isPrepType } from './prep-domain.mjs';
+import { normGrade, inferGrade, normClass, gradeRank } from './grade-class.mjs';
 import { prepareStudyImport, studyPayload, studyView } from './study-records-domain.mjs';
 /* ============================================================================
    localapi.js —— 把服务端 126 个 /api/* 接口，在浏览器里逐个实现一遍。
@@ -3977,20 +3978,23 @@ on('DELETE', '/roll/sessions/:id', ({ params }) => {
 });
 
 /* ---- 学生端（免登录） ---- */
-/* 学生端「年级 / 班级」下拉的数据源：只认老师在管理后台维护的班级名单（rosters）。
-   以前先看课表，课表里排过的「6班」和名单里的「高二6班」会在学生端并排出现，
-   同一个班两种写法，学生选错就落到错的名单上。课表只负责排课，不再参与班级候选。 */
+/* 学生端「年级 / 班级」候选：以老师课表为准 —— 课表里排过的班就是手上的班，
+   老师不用再单独去建一遍年级和班级。输出统一归一（grade=高二、class_name=5班），
+   所以学生端下拉里只有「5班」这一种写法，不会再和「高二5班」并排出现。
+   课表一堂课都没排时退回班级名单，免得学生端一个班都选不到。 */
 function publicClassOptions(grades) {
   const out = new Map();
   const add = (row) => {
-    const grade = String(row?.grade || '').trim();
-    const class_name = String(row?.class_name || '').trim();
+    const grade = normGrade(row?.grade) || inferGrade(row?.class_name);
+    const class_name = normClass(row?.class_name, row?.grade);
     if (!grade && !class_name) return;
     if (grades.length && grade && !grades.includes(grade)) return;
-    out.set(grade + '\u0000' + class_name, { grade, class_name });
+    out.set(`${grade}\u0000${class_name}`, { grade, class_name });
   };
-  rowsOf('rosters').forEach(add);
-  return [...out.values()].sort((a, b) => a.grade.localeCompare(b.grade, 'zh-Hans-CN') || a.class_name.localeCompare(b.class_name, 'zh-Hans-CN'));
+  rowsOf('courses').forEach(add);
+  if (!out.size) rowsOf('rosters').forEach(add);
+  return [...out.values()].sort((a, b) => gradeRank(a.grade) - gradeRank(b.grade)
+    || a.class_name.localeCompare(b.class_name, 'zh-Hans-CN', { numeric: true }));
 }
 
 /* 资料口令：老师给某个班单独设的短码，空 = 不设口令。
