@@ -156,12 +156,7 @@
 <link rel="stylesheet" href="css/student-workbench.css">
 </head>
 <body class="stu-workbench">
-<header class="stu-headwrap">
-  <div class="stu-top">
-    <div class="stu-logo" aria-hidden="true">学</div>
-    <h1 class="stu-title">学生工作台</h1>
-  </div>
-</header>
+<!-- 版式按设计稿：品牌条收进左侧竖栏，主区顶部只留「模块标签 + 标题 + 班级/倒计时」 -->
 <main class="s-wrap" id="s-app"><div class="empty" role="status">加载中…</div></main>
 <script type="module">
 import './js/editable-choices.js';
@@ -317,48 +312,139 @@ async function init() {
   paint();
 }
 const TAB_DEF = {
-  selfstudy: { icon: ICON.clock, label: '任务', sub: '老师发布的任务会显示在这里，先看截止时间，再动手' },
-  checkin: { icon: ICON.check, label: '签到', dot: true, sub: '老师开始签到后，点一下告诉老师和同学你到了' },
-  material: { icon: ICON.doc, label: '教材', sub: '老师分享的教材和资料，点开就能看' },
-  roll: { icon: ICON.dice, label: '点名', sub: '随机抽一个人回答问题' },
-  punish: { icon: ICON.box, label: '盲盒', sub: '点开看看今天是什么惊喜' },
-  misconduct: { icon: ICON.alert, label: '违纪', sub: '记录课堂上的违纪情况' },
-  bulletin: { icon: ICON.chat, label: '留言板', sub: '有话想跟老师说，写在这里' },
+  selfstudy: { icon: ICON.clock, label: '任务', chip: '课堂任务', sub: '老师发布的任务会显示在这里，先看截止时间，再动手' },
+  checkin: { icon: ICON.check, label: '签到', chip: '课堂签到', dot: true, sub: '老师开始签到后，点一下告诉老师和同学你到了' },
+  material: { icon: ICON.doc, label: '教材', chip: '教材资料', sub: '老师分享的教材和资料，点开就能看' },
+  roll: { icon: ICON.dice, label: '点名', chip: '随机点名', sub: '随机抽一个人回答问题' },
+  punish: { icon: ICON.box, label: '盲盒', chip: '惩罚盲盒', sub: '点开看看今天是什么惊喜' },
+  misconduct: { icon: ICON.alert, label: '违纪', chip: '违纪记录', sub: '记录课堂上的违纪情况' },
+  bulletin: { icon: ICON.chat, label: '留言板', chip: '说一声', sub: '有话想跟老师说，写在这里' },
 };
+
+/* 「高二 · 18班 换一下」胶囊：年级班号合并显示，点开能改。
+   本机只存班号（「18班」）时，年级从课表里找回来 —— 老师选了班，不该只显示半个。
+   还没选过班级时只显示「选班级」，不跟着挂「换一下」（没得换）。 */
+function clsPillHtml() {
+  const raw = myClass();
+  if (!raw) return '<button type="button" class="stu-pill" id="s-cls"><span>选班级</span></button>';
+  const want = normClass(raw);
+  const hit = (data?.classes || []).find((c) => normClass(c.class_name, c.grade) === want);
+  const pair = clsPair(normGrade(hit?.grade) || inferGrade(raw), raw);
+  return `<button type="button" class="stu-pill" id="s-cls">
+    <span>${esc(pair)}</span><em>换一下</em></button>`;
+}
+
+/* 班级候选来自老师课表（data.classes），选完记在本机，下次进来直接用。 */
+function classPickSheet() {
+  const pairs = rollChoices().pairs;
+  if (!pairs.length) { toast('老师还没排课表，暂时没有班级可选'); return; }
+  const wrap = document.createElement('div');
+  wrap.className = 'stu-modal';
+  wrap.innerHTML = `<div class="stu-modal-card stu-pick">
+    <div class="stu-modal-head"><b>你在哪个班</b><button type="button" aria-label="关闭">×</button></div>
+    <div class="stu-modal-body"><div class="stu-pick-grid">
+      ${pairs.map((p) => `<button type="button" class="stu-pick-item" data-g="${esc(p.grade)}" data-c="${esc(p.class_name)}">
+        <b>${esc(clsPair(p.grade, p.class_name))}</b>
+        ${p.names.length ? `<span>${p.names.length} 人</span>` : ''}</button>`).join('')}
+    </div></div></div>`;
+  const close = () => wrap.remove();
+  wrap.querySelector('.stu-modal-head button').onclick = close;
+  wrap.onclick = (e) => { if (e.target === wrap) close(); };
+  wrap.querySelectorAll('.stu-pick-item').forEach((b) => {
+    b.onclick = () => {
+      savePref('cls', b.dataset.c || b.dataset.g);
+      close();
+      paint();
+    };
+  });
+  document.body.appendChild(wrap);
+}
+
+/* 截止时间：任务带了日期和「HH:MM」才算得出来，缺一个就不显示倒计时。 */
+function taskDeadline(t) {
+  const d = String(t?.date || '').trim();
+  const hm = String(t?.deadline_time || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !/^\d{1,2}:\d{2}$/.test(hm)) return null;
+  const [h, m] = hm.split(':').map(Number);
+  const dt = new Date(`${d}T00:00:00`);
+  dt.setHours(h, m, 0, 0);
+  return dt;
+}
+function leftLabel(ms) {
+  if (ms <= 0) return '已截止';
+  const min = Math.ceil(ms / 60000);
+  if (min >= 60) return `还剩 ${Math.floor(min / 60)} 小时 ${min % 60} 分`;
+  return `还剩 ${min} 分钟`;
+}
+/* 倒计时按分钟粒度刷新就够，每 20 秒对一次表，不用每帧算。 */
+let leftTimer = null;
+function startLeftTicker(task) {
+  clearInterval(leftTimer);
+  const end = taskDeadline(task);
+  if (!end) return;
+  const tick = () => {
+    const node = $('#s-left');
+    if (!node) { clearInterval(leftTimer); return; }
+    const ms = end.getTime() - Date.now();
+    node.textContent = leftLabel(ms);
+    node.classList.toggle('over', ms <= 0);
+  };
+  tick();
+  leftTimer = setInterval(tick, 20000);
+}
+
+function navHtml() {
+  return availTabs.map((t) => {
+    const d = TAB_DEF[t] || {};
+    const on = tab === t;
+    return `<button type="button" class="stu-navbtn${on ? ' on' : ''}" data-t="${t}" aria-pressed="${on}"><span class="stu-nicon">${d.icon || ''}${d.dot ? '<i class="s-dot"></i>' : ''}</span><span class="stu-nlabel">${esc(d.label || '')}</span></button>`;
+  }).join('');
+}
+
+function headHtml() {
+  const d = TAB_DEF[tab] || {};
+  return `<div class="stu-head-main">
+      <span class="stu-chip">${esc(d.chip || d.label || '')}</span>
+      <h1>${esc(d.label || '')}</h1>
+      ${d.sub ? `<p>${esc(d.sub)}</p>` : ''}
+    </div>
+    <div class="stu-head-side" id="s-head-side">${tab === 'selfstudy' ? '' : clsPillHtml()}</div>`;
+}
+
 function paint() {
   if (!availTabs.length) {
-    $('#s-app').innerHTML = `<div class="stu-shell"><main class="stu-main">
-      <div class="card card-pad">
-        <div class="stu-empty">
+    $('#s-app').innerHTML = `<div class="stu-shell">
+      <nav class="stu-side" aria-label="学生工作台功能"><div class="stu-logo" aria-hidden="true">学</div></nav>
+      <div class="stu-col"><div class="stu-main">
+        <div class="card card-pad"><div class="stu-empty">
           <b style="font-size:19px">正在来的路上</b>
           <div class="tiny muted" style="margin-top:8px">老师还没开放内容，稍后再来看看</div>
-        </div>
-      </div>
-    </main></div>`;
+        </div></div>
+      </div></div></div>`;
     return;
   }
   if (!availTabs.includes(tab)) tab = availTabs[0];
-  const def = TAB_DEF[tab] || {};
   /* 宽屏左侧竖向导航、窄屏底部 tabbar，由 CSS 按 760px 切换；导航本身只有一份 DOM。 */
   $('#s-app').innerHTML = `
     <div class="stu-shell">
       <nav class="stu-side" aria-label="学生工作台功能">
-        ${availTabs.map((t) => {
-          const d = TAB_DEF[t];
-          const on = tab === t;
-          return `<button type="button" class="stu-navbtn${on ? ' on' : ''}" data-t="${t}" aria-pressed="${on}"><span class="stu-nicon">${d.icon}${d.dot ? '<i class="s-dot"></i>' : ''}</span><span class="stu-nlabel">${d.label}</span></button>`;
-        }).join('')}
+        <div class="stu-logo" aria-hidden="true">学</div>
+        <div class="stu-navlist">${navHtml()}</div>
       </nav>
-      <main class="stu-main">
-        <div class="stu-page-head">
-          <h1>${esc(def.label || '')}</h1>
-          ${def.sub ? `<p>${esc(def.sub)}</p>` : ''}
-        </div>
-        <div id="s-body"></div>
-      </main>
-    </div>`;
+      <div class="stu-col">
+        <header class="stu-head" id="s-head">${headHtml()}</header>
+        <div class="stu-main" id="s-main"><div id="s-body"></div></div>
+      </div>
+    </div>
+    <div class="stu-dock" id="s-dock" hidden></div>`;
   document.querySelectorAll('[data-t]').forEach((b) => { b.onclick = () => { tab = b.dataset.t; cur = null; paint(); }; });
+  const pill = $('#s-cls');
+  if (pill) pill.onclick = classPickSheet;
+  $('#s-dock').hidden = tab !== 'selfstudy';
+  /* 底部操作栏只有任务页有，窄屏留白跟着变，别让其它页多出一块空 */
+  document.body.classList.toggle('stu-dock-on', tab === 'selfstudy');
   window.scrollTo({ top: 0, behavior: 'auto' });
+  clearInterval(leftTimer);
   if (tab === 'selfstudy') paintSelfstudy();
   if (tab === 'checkin') paintCheckin();
   if (tab === 'material') paintMaterials();
@@ -367,79 +453,171 @@ function paint() {
   if (tab === 'misconduct') paintMisconduct();
   if (tab === 'bulletin') paintBulletin();
 }
+/* 各页签可以改顶栏（任务页要把任务名当标题），改完不影响导航和其它页。 */
+function setHead(html) {
+  const node = $('#s-head');
+  if (node) node.innerHTML = html;
+}
+function toast(msg) {
+  const wrap = document.createElement('div');
+  wrap.className = 'stu-toast';
+  wrap.textContent = msg;
+  document.body.appendChild(wrap);
+  setTimeout(() => wrap.remove(), 2200);
+}
 
-/* ---------- 自习任务：与教材、点名一致的普通卡片 ---------- */
+/* ---------- 任务页：版式照设计稿（左边步骤清单 + 右边任务圈 + 底部固定操作栏） ---------- */
 function taskLines(t) {
   return String(t.content || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
     .map((line) => line.replace(/^\s*(?:\d+[.、)]|[-•])\s*/, '')).filter(Boolean);
 }
-function studentCardHtml(t) {
-  const items = taskLines(t);
-  const title = String(t.title || '').trim();
-  /* 第一行当主文案（设计稿那个大字号标题），其余行退成小字列表 */
-  const lead = items[0] || title || '今日任务';
-  const rest = items.slice(1);
-  const img = t.task_image || t.generated_image;
-  const day = t.date === todayStr() ? '今日' : (t.date || '');
-  const deadline = [day, t.deadline_time || t.end_time || t.period].filter(Boolean).join(' ');
-  const shot = img
-    ? `<div class="stu-shot"><img src="${esc(img)}" alt="任务图"></div>`
-    : `<div class="stu-shot is-empty">${ICON.img}<b>任务图预览</b><div class="tiny">老师上传的任务图会显示在这里</div></div>`;
-  return `<article class="stu-task">
-    <div class="stu-task-main">
-      <div class="stu-tags">
-        <span class="stu-tag">课堂自习</span>
-        ${deadline ? `<span class="stu-tag warm">${esc(deadline)} 截止</span>` : ''}
-      </div>
-      ${title && title !== lead ? `<h2 class="stu-task-name">${esc(title)}</h2>` : ''}
-      <div class="stu-task-lead">${esc(lead)}</div>
-      ${rest.length ? `<ul class="stu-task-rest">${rest.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-      <div class="stu-task-meta">
-        <span>${ICON.user} 教师：${esc(t.creator || '老师')}</span>
-        ${deadline ? `<span>${ICON.clock} 截止时间：${esc(deadline)}</span>` : ''}
-      </div>
-      <div class="stu-task-acts">
-        <button class="btn primary" id="st-save">${ICON.dl} 保存任务图</button>
-        <button class="btn ghost" id="st-view" aria-expanded="${img ? 'true' : 'false'}">${img ? '收起任务图' : '查看任务'}</button>
-      </div>
-    </div>
-    <div class="stu-task-side" id="st-side">${shot}</div>
-  </article>
-  <div class="stu-task-foot">没有更多进行中的任务了。</div>`;
+/* 步骤勾选记在本机：后端没有任务进度表，也不去假装有「全班已交」这种数据。
+   换个设备勾选会丢，这是已知取舍 —— 老师那边的统计口径不受影响。 */
+const STEP_KEY = (id) => `wb_stu_steps_${code}_${id}`;
+function stepsOf(id) {
+  try {
+    const v = JSON.parse(localStorage.getItem(STEP_KEY(id)) || '[]');
+    return Array.isArray(v) ? v.map(Number).filter((n) => Number.isFinite(n) && n >= 0) : [];
+  } catch { return []; }
 }
+function saveSteps(id, arr) {
+  try { localStorage.setItem(STEP_KEY(id), JSON.stringify([...new Set(arr)].sort((a, b) => a - b))); } catch {}
+}
+let curTask = '';
+
 function paintSelfstudy() {
   const all = data.selfstudyTasks || [];
   const mine = all.filter((t) => t.class_scope === 'all' || t.class_label === myClass());
-  const t = mine[0];
-  if (!t) {
-    $('#s-body').innerHTML = `<article class="stu-task">
-      <div class="stu-task-main">
-        <div class="stu-tags"><span class="stu-tag">课堂自习</span></div>
-        <div class="stu-task-lead">暂无任务</div>
-        <div class="stu-task-meta"><span>${ICON.clock} 老师发布后会自动出现在这里</span></div>
-      </div>
-      <div class="stu-task-side"><div class="stu-shot is-empty">${ICON.img}<b>任务图预览</b><div class="tiny">老师上传的任务图会显示在这里</div></div></div>
-    </article>
-    <div class="stu-task-foot">没有更多进行中的任务了${myClass() ? `（当前设备班级：${esc(myClass())}）` : ''}。</div>`;
+  if (!mine.length) {
+    setHead(headHtml());
+    $('#s-dock').hidden = true;
+    $('#s-body').innerHTML = `<section class="st2-board"><div class="st2-empty">
+      ${ICON.clock}<b>暂时没有任务</b>
+      <span>老师发布后会自动出现在这里${myClass() ? `（当前班级：${esc(clsPair('', myClass()))}）` : ''}</span>
+    </div></section>`;
     return;
   }
-  $('#s-body').innerHTML = studentCardHtml(t);
-  const hasImg = !!(t.task_image || t.generated_image);
-  $('#st-view').onclick = () => {
-    if (!hasImg) { openTaskModal(t); return; }
-    /* 有图时这个按钮收放右侧预览，没图时它就是「看全文」 */
-    const hidden = $('#st-side').classList.toggle('hidden');
-    const btn = $('#st-view');
-    btn.textContent = hidden ? '查看任务图' : '收起任务图';
-    btn.setAttribute('aria-expanded', String(!hidden));
+  const t = mine.find((x) => String(x.id) === String(curTask)) || mine[0];
+  curTask = t.id;
+  const lines = taskLines(t);
+  const steps = lines.length ? lines : [String(t.title || '按老师的要求完成')];
+  const doneArr = stepsOf(t.id).filter((i) => i < steps.length);
+  const doneSet = new Set(doneArr);
+  const curIdx = steps.findIndex((_, i) => !doneSet.has(i));
+  const pct = steps.length ? Math.round((doneSet.size / steps.length) * 100) : 0;
+
+  /* 顶栏换成任务本身：面包屑用模块名，标题用任务名，副标题按「今天 · 第 N 节 · 学科 · 14:50 截止」拼 */
+  const day = t.date === todayStr() ? '今天' : (t.date || '');
+  const parts = [day, t.period, data.teacher?.subject].filter(Boolean).map((x) => esc(String(x)));
+  const subHtml = parts.join(' · ')
+    + (t.deadline_time ? `${parts.length ? ' · ' : ''}<b class="st2-due">${esc(String(t.deadline_time))} 截止</b>` : '');
+  setHead(`<div class="stu-head-main">
+      <span class="stu-chip">课堂任务</span>
+      <h1>${esc(t.title || steps[0])}</h1>
+      ${subHtml ? `<p>${subHtml}</p>` : ''}
+    </div>
+    <div class="stu-head-side">
+      ${clsPillHtml()}
+      ${taskDeadline(t) ? '<span class="stu-left" id="s-left"></span>' : '<span class="stu-left idle">进行中</span>'}
+    </div>`);
+  const pill = $('#s-cls');
+  if (pill) pill.onclick = classPickSheet;
+  startLeftTicker(t);
+
+  const tabsHtml = mine.slice(0, 3).map((x) => {
+    const on = String(x.id) === String(t.id);
+    return `<button type="button" class="st2-tab${on ? ' on' : ''}" data-task="${esc(String(x.id))}">${esc(x.title || '任务')}</button>`;
+  }).join('') + (mine.length > 3 ? `<span class="st2-tab more">+${mine.length - 3} 项待交</span>` : '');
+
+  const stepHtml = steps.map((txt, i) => {
+    const isDone = doneSet.has(i);
+    const isCur = i === curIdx;
+    return `<li class="st2-step${isDone ? ' is-done' : ''}${isCur ? ' is-cur' : ''}" data-i="${i}" role="button" tabindex="0" aria-pressed="${isDone}">
+      <span class="st2-no">${isDone ? ICON.check : i + 1}</span>
+      <span class="st2-txt">${esc(txt)}</span>
+    </li>`;
+  }).join('');
+
+  /* 任务圈：拿任务步骤直接排成竖版流程图，老师不用额外录入，任何任务都有内容可看 */
+  const circleHtml = steps.map((txt, i) => {
+    const isDone = doneSet.has(i);
+    return `<div class="st2-node${isDone ? ' is-done' : ''}">
+      <b>${esc(txt)}</b>${isDone ? '<i>已完成</i>' : ''}
+    </div>`;
+  }).join('<span class="st2-link" aria-hidden="true"></span>');
+
+  $('#s-body').innerHTML = `<div class="st2-layout">
+    <section class="st2-board">
+      <div class="st2-tabs">${tabsHtml}</div>
+      <div class="st2-sec">
+        <div class="st2-sec-head"><b>怎么做</b><span>${steps.length} 步 · 已做 ${doneSet.size} 步</span></div>
+        <ol class="st2-steps">${stepHtml}</ol>
+      </div>
+      <div class="st2-progress">
+        <div class="st2-bar"><i style="width:${pct}%"></i></div>
+        <div class="st2-ptxt">已做 ${doneSet.size} / ${steps.length} 步${curIdx >= 0 ? ` · 你现在停在第 ${curIdx + 1} 步` : ' · 全部做完了'}</div>
+      </div>
+    </section>
+    <aside class="st2-circle">
+      <div class="st2-circle-head"><b>任务圈 · 任务步骤</b>
+        <button type="button" class="st2-zoom" id="st2-zoom">放大</button></div>
+      <div class="st2-circle-body">${circleHtml}</div>
+    </aside>
+  </div>`;
+
+  /* 点一下子推进：已做的再点一下能撤销（勾错了不用重新来一遍） */
+  document.querySelectorAll('.st2-step').forEach((li) => {
+    const toggle = () => {
+      const i = Number(li.dataset.i);
+      const next = new Set(doneSet);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      saveSteps(t.id, [...next]);
+      paintSelfstudy();
+    };
+    li.onclick = toggle;
+    li.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+  });
+  document.querySelectorAll('[data-task]').forEach((b) => {
+    b.onclick = () => { curTask = b.dataset.task; paintSelfstudy(); };
+  });
+  $('#st2-zoom').onclick = () => zoomCircle(circleHtml);
+
+  $('#s-dock').hidden = false;
+  $('#s-dock').innerHTML = `<div class="stu-dock-in">
+    <button type="button" class="st2-btn primary" id="st2-mat">打开教材</button>
+    <button type="button" class="st2-btn" id="st2-done">我做好了</button>
+    <button type="button" class="st2-btn" id="st2-save">存这张任务圈</button>
+    <span class="stu-dock-tip">勾完就不用管，等老师那边打勾</span>
+  </div>`;
+  $('#st2-mat').onclick = () => {
+    if (!availTabs.includes('material')) { toast('老师还没开放教材'); return; }
+    tab = 'material'; cur = null; paint();
   };
-  $('#st-save').onclick = () => {
+  $('#st2-done').onclick = () => {
+    if (curIdx < 0) { toast('这张任务全部步骤都做完了'); return; }
+    saveSteps(t.id, [...doneSet, curIdx]);
+    paintSelfstudy();
+    toast(`第 ${curIdx + 1} 步完成了`);
+  };
+  $('#st2-save').onclick = () => {
     const pages = taskImagePages({
       title: t.title, class_label: t.class_label, date: t.date, period: t.period,
       content: t.content, school: data.teacher?.school || '',
     }, 'save');
-    pages.forEach((c, i) => downloadCanvas(c, `${t.title || '自习任务'}-${t.date || ''}-${i + 1}.png`));
+    pages.forEach((c, i) => downloadCanvas(c, `任务圈-${t.title || '任务'}-${t.date || ''}${pages.length > 1 ? `-${i + 1}` : ''}.png`));
+    toast('任务圈已保存');
   };
+}
+function zoomCircle(html) {
+  const wrap = document.createElement('div');
+  wrap.className = 'stu-modal';
+  wrap.innerHTML = `<div class="stu-modal-card st2-zoom-card">
+    <div class="stu-modal-head"><b>任务圈 · 任务步骤</b><button type="button" aria-label="关闭">×</button></div>
+    <div class="st2-zoom-body">${html}</div></div>`;
+  const close = () => wrap.remove();
+  wrap.querySelector('.stu-modal-head button').onclick = close;
+  wrap.onclick = (e) => { if (e.target === wrap) close(); };
+  document.body.appendChild(wrap);
 }
 function openTaskModal(t) {
   const wrap = document.createElement('div');

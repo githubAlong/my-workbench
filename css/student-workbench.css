@@ -727,3 +727,640 @@ html[data-theme="dark"] .stu-workbench .stu-linkbtn:hover { background: #1c2b44;
   .stu-workbench .stu-navbtn { transition: none; }
 }
 
+
+/* ==========================================================================
+   v2 版式（2026-11-24）
+   按设计稿：品牌条收进左侧竖栏 → 顶部「模块标签 + 标题 + 班级/倒计时」
+   → 任务页左右两栏（步骤清单 / 任务圈）→ 底部固定操作栏。
+   宽屏规则整体包在 min-width:761px 里，窄屏沿用原底部 tabbar 那一套，
+   避免两边互相覆盖（本段在文件末尾，不加媒体查询会盖掉原窄屏规则）。
+   ========================================================================== */
+.stu-workbench .s-wrap { padding: 0; }
+
+@media (min-width: 761px) {
+  .stu-workbench .stu-shell {
+    max-width: 1180px;
+    padding: 16px 20px 100px;
+    gap: 18px;
+  }
+
+  .stu-workbench .stu-side {
+    flex: 0 0 84px;
+    width: 84px;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 8px;
+    border-radius: 20px;
+    border: 1px solid var(--stu-line);
+    background: var(--stu-card);
+    box-shadow: 0 12px 30px rgb(15 23 42 / 6%);
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+  }
+
+  .stu-workbench .stu-navlist {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .stu-workbench .stu-side .stu-logo {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    margin-bottom: 6px;
+    background: linear-gradient(150deg, #7c5cf5, #a78bfa);
+    color: #fff;
+    font-size: 19px;
+    font-weight: 800;
+    box-shadow: 0 8px 18px rgb(124 92 245 / 30%);
+  }
+
+  .stu-workbench .stu-navbtn {
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    padding: 8px 2px 7px;
+    border-radius: 14px;
+    font-size: 11.5px;
+    font-weight: 650;
+    text-align: center;
+    color: #8d98ad;
+  }
+
+  .stu-workbench .stu-navbtn svg { width: 20px; height: 20px; }
+  .stu-workbench .stu-navbtn:hover { background: #f1f4fb; color: #4b5563; }
+
+  /* 激活态照截图用紫蓝渐变块，白图标白字 */
+  .stu-workbench .stu-navbtn.on,
+  html[data-theme="dark"] .stu-workbench .stu-navbtn.on {
+    background: linear-gradient(150deg, #7c5cf5, #a78bfa);
+    color: #fff;
+    box-shadow: 0 8px 18px rgb(124 92 245 / 32%);
+  }
+}
+
+/* ---------- 主列 + 标题区 ---------- */
+.stu-workbench .stu-col {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stu-workbench .stu-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 2px 4px 0;
+}
+
+.stu-workbench .stu-head-main { flex: 1 1 auto; min-width: 0; }
+
+.stu-workbench .stu-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 7px;
+  background: #ece7fe;
+  color: #6d28d9;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .2px;
+}
+
+.stu-workbench .stu-head h1 {
+  margin: 8px 0 0;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -.3px;
+  color: var(--stu-ink);
+}
+
+.stu-workbench .stu-head p {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  color: var(--stu-ink-2);
+}
+
+/* 截止时间是这句里唯一要抢眼的信息：截图里它标红 */
+.stu-workbench .stu-head .st2-due { color: #e5484d; font-weight: 700; }
+
+.stu-workbench .stu-head-side {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+}
+
+/* 班级胶囊：文字 + 淡一点的「换一下」 */
+.stu-workbench .stu-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--stu-line);
+  border-radius: 99px;
+  background: var(--stu-card);
+  color: var(--stu-ink);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 650;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 5%);
+}
+
+.stu-workbench .stu-pill em {
+  font-style: normal;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #949cb0;
+}
+
+.stu-workbench .stu-pill:hover { border-color: #cfc6f7; }
+
+.stu-workbench .stu-left {
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 99px;
+  background: linear-gradient(135deg, #7c5cf5, #9d7bf8);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 8px 18px rgb(124 92 245 / 28%);
+}
+
+.stu-workbench .stu-left.over,
+.stu-workbench .stu-left.idle { background: #eef1f7; color: #7b8497; box-shadow: none; }
+
+/* ---------- 任务页：左右两栏 ---------- */
+.stu-workbench .st2-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.16fr) minmax(0, .92fr);
+  gap: 18px;
+  align-items: stretch;
+  min-height: min(540px, calc(100vh - 240px));
+}
+
+.stu-workbench .st2-board,
+.stu-workbench .st2-circle {
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px 16px;
+  border: 1px solid var(--stu-line);
+  border-radius: 22px;
+  background: var(--stu-card);
+  box-shadow: 0 12px 34px rgb(15 23 42 / 6%);
+}
+
+.stu-workbench .st2-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--stu-line);
+}
+
+.stu-workbench .st2-tab {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--stu-line);
+  border-radius: 10px;
+  background: var(--stu-card);
+  color: var(--stu-ink-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stu-workbench .st2-tab:hover { border-color: #cfc6f7; }
+
+.stu-workbench .st2-tab.on {
+  border-color: #232735;
+  background: #232735;
+  color: #fff;
+}
+
+.stu-workbench .st2-tab.more {
+  display: inline-flex;
+  align-items: center;
+  border-style: dashed;
+  color: #9aa3b5;
+  cursor: default;
+}
+
+.stu-workbench .st2-sec {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 0 0;
+}
+
+.stu-workbench .st2-sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stu-workbench .st2-sec-head b { font-size: 15.5px; font-weight: 750; }
+.stu-workbench .st2-sec-head span { font-size: 12.5px; font-weight: 650; color: #7c5cf5; }
+
+.stu-workbench .st2-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0 2px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  max-height: min(52vh, 460px);
+  scrollbar-width: thin;
+}
+
+.stu-workbench .st2-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--stu-line);
+  border-radius: 14px;
+  background: var(--stu-card);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+
+.stu-workbench .st2-step:hover { border-color: #cfc6f7; }
+.stu-workbench .st2-step:focus-visible { outline: 2px solid #7c5cf5; outline-offset: 2px; }
+
+.stu-workbench .st2-no {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #f1edfe;
+  color: #7c5cf5;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stu-workbench .st2-no svg { width: 14px; height: 14px; }
+
+.stu-workbench .st2-txt {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--stu-ink-3);
+}
+
+/* 已做：灰底打勾，退到背景里去 */
+.stu-workbench .st2-step.is-done { background: #f7f8fb; border-color: #e8ecf4; }
+.stu-workbench .st2-step.is-done .st2-no { background: #e6f7ec; color: #1f9d55; }
+.stu-workbench .st2-step.is-done .st2-txt { color: #9aa3b5; }
+
+/* 当前步：浅紫底 + 紫描边 + 实心数字，一眼看出停在哪 */
+.stu-workbench .st2-step.is-cur {
+  background: linear-gradient(120deg, #f5f1ff, #fcf9ff);
+  border-color: #b9a6f7;
+}
+
+.stu-workbench .st2-step.is-cur .st2-no {
+  background: #7c5cf5;
+  color: #fff;
+  box-shadow: 0 4px 10px rgb(124 92 245 / 35%);
+}
+
+.stu-workbench .st2-step.is-cur .st2-txt { color: var(--stu-ink); font-weight: 650; }
+
+.stu-workbench .st2-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 16px;
+}
+
+.stu-workbench .st2-bar {
+  height: 6px;
+  border-radius: 99px;
+  background: #eef1f7;
+  overflow: hidden;
+}
+
+.stu-workbench .st2-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #5b8cf7, #7c5cf5);
+  transition: width .3s ease;
+}
+
+.stu-workbench .st2-ptxt { font-size: 12.5px; color: var(--stu-ink-2); }
+
+.stu-workbench .st2-circle-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.stu-workbench .st2-circle-head b { font-size: 15px; font-weight: 750; }
+
+.stu-workbench .st2-zoom {
+  border: 0;
+  background: transparent;
+  color: #7c5cf5;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.stu-workbench .st2-circle-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 18px;
+  border-radius: 18px;
+  background: linear-gradient(160deg, #f4f6ff, #faf5ff 55%, #fff5f7);
+  overflow: auto;
+  max-height: min(58vh, 520px);
+  scrollbar-width: thin;
+}
+
+.stu-workbench .st2-node {
+  width: 100%;
+  max-width: 300px;
+  padding: 14px 18px;
+  border: 1px solid #e9e7f7;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 6px 16px rgb(80 70 160 / 8%);
+  text-align: center;
+}
+
+.stu-workbench .st2-node b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.55;
+  color: var(--stu-ink);
+}
+
+.stu-workbench .st2-node i {
+  display: inline-block;
+  margin-top: 6px;
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #1f9d55;
+}
+
+.stu-workbench .st2-node.is-done { border-color: #cfe9d8; background: #fbfefc; }
+
+/* 节点之间的虚线连接 + 小箭头，纯 CSS，不用额外图标 */
+.stu-workbench .st2-link {
+  position: relative;
+  flex: 0 0 24px;
+  width: 2px;
+  height: 24px;
+}
+
+.stu-workbench .st2-link::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  border-left: 2px dashed #c9c4e8;
+}
+
+.stu-workbench .st2-link::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: #b9b2e0;
+}
+
+.stu-workbench .st2-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 56px 20px;
+  color: var(--stu-ink-2);
+  font-size: 13.5px;
+}
+
+.stu-workbench .st2-empty svg { width: 34px; height: 34px; opacity: .45; }
+.stu-workbench .st2-empty b { font-size: 16px; color: var(--stu-ink); }
+
+/* ---------- 底部固定操作栏 ---------- */
+.stu-workbench .stu-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 70;
+  background: rgb(255 255 255 / 94%);
+  border-top: 1px solid var(--stu-line);
+  backdrop-filter: blur(10px);
+}
+
+.stu-workbench .stu-dock-in {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stu-workbench .st2-btn {
+  height: 42px;
+  padding: 0 20px;
+  border: 1px solid var(--stu-line);
+  border-radius: 12px;
+  background: var(--stu-card);
+  color: var(--stu-ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: .15s;
+}
+
+.stu-workbench .st2-btn:hover { border-color: #cfc6f7; }
+.stu-workbench .st2-btn:active { transform: scale(.985); }
+
+.stu-workbench .st2-btn.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #1677ff, #4f8ef7);
+  color: #fff;
+  box-shadow: 0 8px 18px rgb(22 119 255 / 28%);
+}
+
+.stu-workbench .stu-dock-tip {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: #9aa3b5;
+}
+
+/* ---------- 轻提示 ---------- */
+.stu-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  z-index: 320;
+  padding: 10px 18px;
+  border-radius: 99px;
+  background: rgb(31 35 48 / 92%);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  animation: stToast .2s ease-out;
+}
+
+@keyframes stToast { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+/* ---------- 任务圈放大 ---------- */
+.stu-workbench .st2-zoom-card { width: min(560px, 100%); }
+
+.stu-workbench .st2-zoom-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px;
+  max-height: 70vh;
+  overflow: auto;
+  background: linear-gradient(160deg, #f4f6ff, #faf5ff 55%, #fff5f7);
+}
+
+/* 放大就是要看清，别再按卡片里的 300px 收窄 */
+.stu-workbench .st2-zoom-body .st2-node { max-width: none; }
+
+/* ---------- 班级选择浮层 ---------- */
+.stu-workbench .stu-pick { width: min(560px, 100%); }
+
+.stu-workbench .stu-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.stu-workbench .stu-pick-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--stu-line);
+  border-radius: 12px;
+  background: var(--stu-card);
+  color: var(--stu-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stu-workbench .stu-pick-item b { font-size: 14.5px; font-weight: 700; }
+.stu-workbench .stu-pick-item span { font-size: 12px; color: var(--stu-ink-2); }
+.stu-workbench .stu-pick-item:hover { border-color: #b9a6f7; background: #faf8ff; }
+
+/* ---------- 深色：截图只有浅色稿，这里只保证字和底不撞色 ---------- */
+html[data-theme="dark"] .stu-workbench .stu-chip { background: #2b2350; color: #c4b5fd; }
+html[data-theme="dark"] .stu-workbench .stu-navbtn { color: #93a4bf; }
+html[data-theme="dark"] .stu-workbench .stu-navbtn:hover { background: #1c2b44; color: #dbe7f8; }
+html[data-theme="dark"] .stu-workbench .stu-pill { background: var(--stu-card); border-color: var(--stu-line); color: var(--stu-ink); }
+html[data-theme="dark"] .stu-workbench .stu-left.over { background: #23304a; color: #93a4bf; }
+html[data-theme="dark"] .stu-workbench .st2-tab { background: var(--stu-card); border-color: var(--stu-line); color: var(--stu-ink-2); }
+html[data-theme="dark"] .stu-workbench .st2-tab.on { background: #eef4ff; border-color: #eef4ff; color: #101a2c; }
+html[data-theme="dark"] .stu-workbench .st2-step { background: var(--stu-card); border-color: var(--stu-line); }
+html[data-theme="dark"] .stu-workbench .st2-step.is-done { background: #182438; border-color: #263449; }
+html[data-theme="dark"] .stu-workbench .st2-step.is-done .st2-txt { color: #7e8da6; }
+html[data-theme="dark"] .stu-workbench .st2-step.is-cur { background: #241d3f; border-color: #6d5cb0; }
+html[data-theme="dark"] .stu-workbench .st2-step.is-cur .st2-txt { color: #eef4ff; }
+html[data-theme="dark"] .stu-workbench .st2-no { background: #2a2348; color: #c4b5fd; }
+html[data-theme="dark"] .stu-workbench .st2-bar { background: #23304a; }
+html[data-theme="dark"] .stu-workbench .st2-circle-body,
+html[data-theme="dark"] .stu-workbench .st2-zoom-body { background: linear-gradient(160deg, #16233a, #1d1a33 55%, #2a1d2a); }
+html[data-theme="dark"] .stu-workbench .st2-node { background: #1b2740; border-color: #2c3b52; box-shadow: none; }
+html[data-theme="dark"] .stu-workbench .st2-node.is-done { background: #182b23; border-color: #2b4a38; }
+html[data-theme="dark"] .stu-workbench .st2-link::before { border-left-color: #3a4a66; }
+html[data-theme="dark"] .stu-workbench .st2-link::after { border-top-color: #3a4a66; }
+html[data-theme="dark"] .stu-workbench .stu-dock { background: rgb(18 28 45 / 94%); border-top-color: var(--stu-line); }
+html[data-theme="dark"] .stu-workbench .st2-btn { background: var(--stu-card); border-color: var(--stu-line); color: var(--stu-ink); }
+html[data-theme="dark"] .stu-workbench .st2-empty svg { opacity: .4; }
+
+/* ---------- 窄屏：底部 tabbar（已有）+ 操作栏上移一层 ---------- */
+@media (max-width: 760px) {
+  .stu-workbench .stu-shell { padding-bottom: 88px; }
+  .stu-workbench.stu-dock-on .stu-shell { padding-bottom: 160px; }
+  .stu-workbench .stu-side .stu-logo { display: none; }
+
+  /* 竖栏里多包了一层 stu-navlist，原底部 tabbar 的 grid 落在这层上，
+     不改这里导航就会竖着堆在页面底部（原本直接排 stu-side 的子元素）。 */
+  .stu-workbench .stu-navlist {
+    width: 100%;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .stu-workbench .stu-head { flex-direction: column; gap: 10px; padding: 0; }
+  .stu-workbench .stu-head h1 { font-size: 21px; margin-top: 6px; }
+  .stu-workbench .stu-head p { font-size: 12.5px; }
+  .stu-workbench .stu-head-side { padding-top: 0; width: 100%; }
+
+  .stu-workbench .st2-layout {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    min-height: 0;
+  }
+
+  .stu-workbench .st2-board,
+  .stu-workbench .st2-circle { padding: 15px; border-radius: 18px; }
+  .stu-workbench .st2-steps { max-height: none; overflow: visible; }
+  .stu-workbench .st2-circle-body { max-height: none; padding: 14px 12px; }
+  .stu-workbench .st2-node { max-width: none; }
+  .stu-workbench .st2-tab { max-width: 150px; }
+
+  .stu-workbench .stu-dock { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  .stu-workbench .stu-dock-in { gap: 8px; padding: 10px 12px; }
+  .stu-workbench .st2-btn { flex: 1 1 0; height: 44px; padding: 0 6px; font-size: 13px; }
+  .stu-workbench .stu-dock-tip { display: none; }
+  .stu-toast { bottom: 156px; }
+}
